@@ -42,21 +42,33 @@
 .titlebar-dots .y { background: #ffbd2e; }
 .titlebar-dots .g { background: #27c93f; }
 
-.titlebar-title {
-  font-size: var(--fs-sm);
-  color: var(--text-bright);
-  font-weight: 500;
+.titlebar-brand {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  color: var(--text-bright);
+  text-decoration: none;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--dur) var(--ease);
 }
-.titlebar-title .badge-pill {
-  font-size: var(--fs-xs);
-  padding: 1px 6px;
-  border-radius: 10px;
+.titlebar-brand:hover {
+  opacity: 0.85;
+  text-decoration: none;
+}
+.brand-icon {
+  font-size: 16px;
+}
+
+.badge-pill {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 12px;
   background: var(--rocs-purple-bg);
   color: var(--rocs-purple);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .titlebar-actions {

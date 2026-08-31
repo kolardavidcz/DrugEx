@@ -19,6 +19,24 @@ export function renderLecture(container, lectureId) {
 
   const currentStatus = state.getItemStatus(lectureId);
 
+  // Extract module number (e.g. l3_2 -> module 3)
+  const modNumMatch = lectureId.match(/^l(\d+)_/);
+  const modNum = modNumMatch ? modNumMatch[1] : "1";
+
+  const allLectureIds = [
+    "l1_1", "l1_2", "l1_3",
+    "l2_1", "l2_2", "l2_3",
+    "l3_1", "l3_2", "l3_3",
+    "l4_1", "l4_2", "l4_3",
+    "l5_1", "l5_2", "l5_3",
+    "l6_1", "l6_2", "l6_3"
+  ];
+  const currentIdx = allLectureIds.indexOf(lectureId);
+  const prevLecId = currentIdx > 0 ? allLectureIds[currentIdx - 1] : null;
+  const nextLecId = currentIdx < allLectureIds.length - 1 ? allLectureIds[currentIdx + 1] : null;
+  const prevLec = prevLecId ? LECTURE_DATA[prevLecId] : null;
+  const nextLec = nextLecId ? LECTURE_DATA[nextLecId] : null;
+
   const view = el("div", { className: "lecture-container" }, [
     // Header
     el("header", { className: "lecture-header" }, [
@@ -29,21 +47,47 @@ export function renderLecture(container, lectureId) {
       ]),
       el("h1", { className: "lecture-title" }, lec.title),
       el("p", { className: "lecture-desc" }, lec.summary),
-      el("div", { style: { display: "flex", gap: "8px", marginTop: "8px" } }, [
+      
+      // Interactive Action Strip
+      el("div", { className: "lecture-action-strip" }, [
+        el("a", {
+          href: `#/dojo/dojo_${modNum}`,
+          className: "action-pill dojo-pill",
+          title: "Přejít do interaktivního Doja tohoto modulu"
+        }, [
+          el("span", {}, "⚡"),
+          el("span", {}, `Otevřít Dojo ${modNum}`)
+        ]),
+        el("a", {
+          href: `#/quiz/quiz_m${modNum}`,
+          className: "action-pill quiz-pill",
+          title: "Spustit test znalostí tohoto modulu"
+        }, [
+          el("span", {}, "📝"),
+          el("span", {}, `Spustit Test M${modNum}`)
+        ]),
+        el("a", {
+          href: "#/thesis-guide",
+          className: "action-pill",
+          title: "Zobrazit průvodce bakalářskou prací"
+        }, [
+          el("span", {}, "🎓"),
+          el("span", {}, "Průvodce BP")
+        ]),
         el("button", {
-          className: `tb-btn ${currentStatus === "studied" ? "active" : ""}`,
-          style: currentStatus === "studied" ? { background: "var(--bio-green)", color: "#000" } : {},
+          className: `action-pill ${currentStatus === "studied" ? "active" : ""}`,
+          style: currentStatus === "studied" ? { background: "var(--bio-green)", color: "#000", borderColor: "var(--bio-green)" } : {},
           onClick: () => state.markItemStatus(lectureId, "studied")
         }, "✓ Prostudováno"),
         el("button", {
-          className: `tb-btn ${currentStatus === "known" ? "active" : ""}`,
-          style: currentStatus === "known" ? { background: "var(--amber-warn)", color: "#000" } : {},
+          className: `action-pill ${currentStatus === "known" ? "active" : ""}`,
+          style: currentStatus === "known" ? { background: "var(--amber-warn)", color: "#000", borderColor: "var(--amber-warn)" } : {},
           onClick: () => state.markItemStatus(lectureId, "known")
         }, "↷ Znáno"),
         el("button", {
-          className: "tb-btn",
+          className: "action-pill",
           onClick: () => window.print()
-        }, "🖨️ Tisknout (Ctrl+P)")
+        }, "🖨️ Tisk (Ctrl+P)")
       ])
     ])
   ]);
@@ -102,6 +146,35 @@ export function renderLecture(container, lectureId) {
 
     view.appendChild(card);
   });
+
+  // Bottom Interactive Navigation Pagination
+  const navGrid = el("nav", { className: "lecture-pagination", ariaLabel: "Navigace mezi přednáškami" });
+
+  if (prevLec && prevLecId) {
+    const prevCard = el("a", {
+      href: `#/lecture/${prevLecId}`,
+      className: "nav-card prev"
+    }, [
+      el("span", { className: "nav-card-dir" }, "← Předchozí Lekce"),
+      el("span", { className: "nav-card-title" }, prevLec.title)
+    ]);
+    navGrid.appendChild(prevCard);
+  } else {
+    navGrid.appendChild(el("div", {})); // empty spacer for grid alignment
+  }
+
+  if (nextLec && nextLecId) {
+    const nextCard = el("a", {
+      href: `#/lecture/${nextLecId}`,
+      className: "nav-card next"
+    }, [
+      el("span", { className: "nav-card-dir" }, "Další Lekce →"),
+      el("span", { className: "nav-card-title" }, nextLec.title)
+    ]);
+    navGrid.appendChild(nextCard);
+  }
+
+  view.appendChild(navGrid);
 
   container.appendChild(view);
 

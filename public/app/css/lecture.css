@@ -206,34 +206,95 @@
   overflow-x: auto;
 }
 
-/* Stepper Controls */
-.stepper-bar {
+/* Action Strip in Lecture Header */
+.lecture-action-strip {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
-  margin-top: 20px;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
 }
-.btn-step {
+.action-pill {
   background: var(--card-bg);
   border: 1px solid var(--border);
-  color: var(--text-bright);
-  padding: 8px 18px;
-  border-radius: var(--radius);
+  color: var(--text);
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: var(--fs-xs);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  text-decoration: none;
   font-weight: 500;
   transition: all var(--dur) var(--ease);
 }
-.btn-step:hover:not(:disabled) {
-  background: var(--accent);
-  color: #ffffff;
+.action-pill:hover {
+  background: var(--accent-subtle);
   border-color: var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+  transform: translateY(-1px);
 }
-.btn-step:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.action-pill.dojo-pill:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.action-pill.quiz-pill:hover {
+  background: rgba(74, 222, 128, 0.15);
+  border-color: var(--bio-green);
+  color: var(--bio-green);
+}
+
+/* Stepper & Bottom Lecture Pagination */
+.lecture-pagination {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+@media (max-width: 640px) {
+  .lecture-pagination {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nav-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.nav-card:hover {
+  border-color: var(--accent);
+  background: var(--card-hover);
+  text-decoration: none;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.nav-card.next {
+  text-align: right;
+  margin-left: auto;
+}
+.nav-card-dir {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  font-weight: 600;
+}
+.nav-card-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-bright);
+  line-height: 1.3;
 }

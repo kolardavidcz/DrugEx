@@ -53,18 +53,53 @@ export function renderTree(container, curriculum, onSelect) {
     }
 
     const modWrapper = el("div", { className: "tree-module" });
+    const isCollapsed = state.collapsedModules && state.collapsedModules.has(mod.number);
 
-    // Module Header
-    const modHeader = el("div", { className: "tree-module-header" }, [
-      el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } }, [
-        el("span", { style: { opacity: 0.6, fontSize: "10px" } }, "▼"),
+    // Module Header with smooth accordion click
+    const arrow = el("span", {
+      style: {
+        opacity: 0.7,
+        fontSize: "9px",
+        display: "inline-block",
+        transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+        transition: "transform 0.2s ease"
+      }
+    }, "▼");
+
+    const modTagBadge = el("span", {
+      className: `item-tag ${mod.tag.toLowerCase()}`,
+      title: `Filtrovat podle tagu "${mod.tag}"`,
+      onClick: (e) => {
+        e.stopPropagation();
+        state.selectedTag = state.selectedTag === mod.tag ? null : mod.tag;
+        state.notify();
+      }
+    }, mod.tag);
+
+    const modHeader = el("div", {
+      className: "tree-module-header",
+      onClick: () => {
+        if (!state.collapsedModules) state.collapsedModules = new Set();
+        if (state.collapsedModules.has(mod.number)) {
+          state.collapsedModules.delete(mod.number);
+        } else {
+          state.collapsedModules.add(mod.number);
+        }
+        state.notify();
+      }
+    }, [
+      el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, [
+        arrow,
         el("span", {}, `M${mod.number}: ${mod.badge}`)
       ]),
-      el("span", { className: `item-tag ${mod.tag.toLowerCase()}` }, mod.tag)
+      modTagBadge
     ]);
     modWrapper.appendChild(modHeader);
 
-    const itemsList = el("div", { className: "tree-items" });
+    const itemsList = el("div", {
+      className: "tree-items",
+      style: { display: isCollapsed ? "none" : "block" }
+    });
 
     // Lectures
     matchingLectures.forEach(lec => {
@@ -72,13 +107,24 @@ export function renderTree(container, curriculum, onSelect) {
       const statusIcon = status === "studied" ? "✓" : (status === "known" ? "↷" : "○");
       const statusColor = status === "studied" ? "var(--bio-green)" : (status === "known" ? "var(--amber-warn)" : "var(--text-faint)");
 
+      const lecTagBadge = el("span", {
+        className: `item-tag ${lec.tag.toLowerCase()}`,
+        title: `Filtrovat podle tagu "${lec.tag}"`,
+        onClick: (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          state.selectedTag = state.selectedTag === lec.tag ? null : lec.tag;
+          state.notify();
+        }
+      }, lec.tag);
+
       const lecItem = el("a", {
         href: `#/lecture/${lec.id}`,
         className: `tree-item ${state.activeRoute === `lecture/${lec.id}` ? "active" : ""}`
       }, [
         el("span", { style: { color: statusColor, fontWeight: "bold", fontSize: "11px" } }, statusIcon),
         el("span", { className: "item-title" }, lec.title),
-        el("span", { className: `item-tag ${lec.tag.toLowerCase()}` }, lec.tag)
+        lecTagBadge
       ]);
       itemsList.appendChild(lecItem);
     });

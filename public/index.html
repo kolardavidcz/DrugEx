@@ -29,22 +29,16 @@
     <!-- Titlebar -->
     <header class="titlebar" role="banner">
       <div class="titlebar-left">
-        <div class="titlebar-dots" aria-hidden="true">
-          <span class="r"></span><span class="y"></span><span class="g"></span>
-        </div>
-        <div class="titlebar-title">
+        <a href="#/lecture/l1_1" class="titlebar-brand" title="DrugEx Hub Home">
+          <span class="brand-icon">🧬</span>
           <strong>DrugEx Hub</strong>
-          <span class="badge-pill">v3.4 · ROCS-Scoring</span>
-          <span style="opacity: 0.6; font-size: 11px;">— Bakalářská Práce (VŠCHT Praha / ÚOCHB)</span>
-        </div>
+          <span class="badge-pill">v3.4 ROCS</span>
+        </a>
       </div>
       <div class="titlebar-actions">
         <button type="button" class="tb-btn" onclick="window.location.hash='#/thesis-guide'" title="Průvodce bakalářskou prací">🎓 Průvodce BP</button>
-        <button type="button" class="tb-btn profile-btn" id="btnProfile" title="Student Profil">
-          <span class="profile-dot"></span>
-          <span id="userLabel">student</span>
-        </button>
-        <button type="button" class="tb-btn" id="btnTheme" title="Přepnout barevné schéma">🌓 Režim</button>
+        <button type="button" class="tb-btn" onclick="window.location.hash='#/benchmark'" title="CCR2 Benchmark Data">📊 CCR2 Data</button>
+        <button type="button" class="tb-btn" id="btnTheme" title="Přepnout tmavý / světlý režim">🌓 Režim</button>
       </div>
     </header>
 

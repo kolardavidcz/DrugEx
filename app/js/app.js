@@ -32,11 +32,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btnTheme = document.getElementById("btnTheme");
   const btnSidebarToggle = document.getElementById("btnSidebarToggle");
   const workbench = document.getElementById("workbench");
-  const userLabel = document.getElementById("userLabel");
-
-  if (userLabel && state.user) {
-    userLabel.textContent = state.user.username;
-  }
 
   // Render initial tree
   const updateTree = () => {
@@ -49,9 +44,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Subscribe state changes
   state.subscribe(() => {
     updateTree();
-    if (userLabel && state.user) {
-      userLabel.textContent = state.user.username;
-    }
   });
 
   // Filter text listener
@@ -125,12 +117,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Profile / Login Modal
-  const btnProfile = document.getElementById("btnProfile");
-  if (btnProfile) {
-    btnProfile.addEventListener("click", openLoginModal);
-  }
-
   // Initialize Router
   initRouter(viewport);
 });
@@ -194,15 +180,4 @@ function filterPaletteResults() {
     ]);
     resultsContainer.appendChild(itemRow);
   });
-}
-
-function openLoginModal() {
-  const email = prompt("Zadejte VŠCHT / univerzitní e-mail studenta:", state.user.email);
-  if (email) {
-    const pwd = prompt("Zadejte heslo pro lokální SHA-256 autentizaci:", "heslo123");
-    if (pwd) {
-      state.setUser(email, pwd);
-      showToast(`Přihlášen student: ${state.user.username}`, "success");
-    }
-  }
 }

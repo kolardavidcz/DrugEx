@@ -2,7 +2,6 @@
  * DrugEx Hub — Reactive State, Authentication & Deterministic Assessment Shuffler
  */
 
-const STORAGE_KEY_USER = "drugex-hub-user-v1";
 const STORAGE_KEY_PROGRESS = "drugex-hub-progress-v1";
 const STORAGE_KEY_THEME = "drugex-hub-theme";
 
@@ -25,12 +24,8 @@ function hashFnv32(str) {
 
 export const state = {
   theme: localStorage.getItem(STORAGE_KEY_THEME) || "dark",
-  user: JSON.parse(localStorage.getItem(STORAGE_KEY_USER) || "null") || {
-    username: "student",
-    email: "student@vscht.cz",
-    role: "Student / Researcher"
-  },
   progress: JSON.parse(localStorage.getItem(STORAGE_KEY_PROGRESS) || "{}"),
+  collapsedModules: new Set(),
   curriculum: null,
   thesisGuide: null,
   activeRoute: null,
@@ -80,22 +75,6 @@ export const state = {
 
   getQuizScore(quizId) {
     return this.progress.quizzes && this.progress.quizzes[quizId];
-  },
-
-  async setUser(email, password) {
-    const salt = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-      .map(b => b.toString(16).padStart(2, "0")).join("");
-    
-    const enc = new TextEncoder();
-    const data = enc.encode(password + salt);
-    const hashBuf = await crypto.subtle.digest("SHA-256", data);
-    const hashHex = Array.from(new Uint8Array(hashBuf))
-      .map(b => b.toString(16).padStart(2, "0")).join("");
-
-    const username = email.split("@")[0] || "student";
-    this.user = { username, email, salt, hash: hashHex };
-    localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(this.user));
-    this.notify();
   }
 };
 

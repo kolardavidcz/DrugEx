@@ -85,8 +85,8 @@ function renderProgressView(container) {
         el("span", { className: "item-tag core" }, "Dashboard"),
         el("span", {}, "Osobní přehled studia")
       ]),
-      el("h1", { className: "lecture-title" }, "📊 Osobní Statistika & Plán Práce"),
-      el("p", { className: "lecture-desc" }, `Přihlášený student: ${state.user.username} (${state.user.email})`)
+      el("h1", { className: "lecture-title" }, "📊 Přehled Studia & Plán Práce"),
+      el("p", { className: "lecture-desc" }, "Průběžné sledování absolvovaných témat, zvládnutých dovedností a výsledků testů.")
     ]),
 
     el("section", { className: "slide-card" }, [
