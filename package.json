@@ -9,6 +9,7 @@
     "check:contrast": "node tools/check_contrast.mjs",
     "check:quiz": "node tools/quiz_stat.mjs",
     "build": "node tools/prepare_build.mjs",
+    "pdf": "node tools/generate_pdf.mjs",
     "test": "pnpm check:syntax && pnpm check:contrast && pnpm check:quiz && pnpm build"
   },
   "keywords": [
@@ -20,5 +21,8 @@
     "bachelor-thesis"
   ],
   "author": "David Kolar (VŠCHT Praha)",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "puppeteer-core": "^25.9.0"
+  }
 }
