@@ -194,7 +194,7 @@ echo "========================================================="`
         content: `Při nasazení na klastru se často vyskytují dvě fatální chyby:
         <br><br>
         <h4>1. CPU Oversubscription (Přetížení jader)</h4>
-        Knihovny NumPy, SciPy a PyTorch automaticky vytvářejí tolik podvláken (threads), kolik má server fyzických jader (např. 128). Pokud <code>RDKitROCSScorer</code> spustí 16 procesů a každý proces vytvoří 128 vláken, vznikne $16 \times 128 = 2048$ vláken, což způsobí zahlcení CPU plánovače a desetinásobné zpomalení výpočtu.
+        Knihovny NumPy, SciPy a PyTorch automaticky vytvářejí tolik podvláken (threads), kolik má server fyzických jader (např. 128). Pokud <code>RDKitROCSScorer</code> spustí 16 procesů a každý proces vytvoří 128 vláken, vznikne $16 \\times 128 = 2048$ vláken, což způsobí zahlcení CPU plánovače a desetinásobné zpomalení výpočtu.
         <br><br>
         <strong>Řešení:</strong> Explicitní nastavení <code>export OMP_NUM_THREADS=1</code> a <code>num_threads=1</code> v <code>RDKitConformerGenerator</code>.
         <br><br>

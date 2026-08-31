@@ -24,15 +24,15 @@ export const M3_LECTURES = {
         title: "2. Gaussovský model atomové hustoty a analytický objemový integrál",
         content: `Místo nespojitých pevných koulí (hard spheres) modeluje ROCS hustotu každého atomu $i$ trojrozměrnou Gaussovskou funkcí:
         <div class="math-card">
-          $$\rho_i(\mathbf{r}) = p_i \exp\left(-\alpha_i |\mathbf{r} - \mathbf{r}_i|^2\right)$$
+          $$\rho_i(\\mathbf{r}) = p_i \\exp\\left(-\alpha_i |\\mathbf{r} - \\mathbf{r}_i|^2\\right)$$
         </div>
-        kde $\mathbf{r}_i$ je polohový vektor jádra atomu, $p_i$ je centrální hustota (standardně $p_i = 1$) a parametr $\alpha_i$ souvisí s Van der Waalsovým poloměrem atomu $R_i$ vztahem $\alpha_i = \frac{\pi}{R_i^2}$.
+        kde $\\mathbf{r}_i$ je polohový vektor jádra atomu, $p_i$ je centrální hustota (standardně $p_i = 1$) a parametr $\alpha_i$ souvisí s Van der Waalsovým poloměrem atomu $R_i$ vztahem $\alpha_i = \\frac{\pi}{R_i^2}$.
         <br><br>
-        Celková hustota molekuly $A$ je dána součtem přes všechny její atomy: $\rho_A(\mathbf{r}) = \sum_{i \in A} \rho_i(\mathbf{r})$.
+        Celková hustota molekuly $A$ je dána součtem přes všechny její atomy: $\rho_A(\\mathbf{r}) = \sum_{i \\in A} \rho_i(\\mathbf{r})$.
         <br><br>
         Zásadní matematickou výhodou je, že konvoluční integrál překryvu dvou Gaussovských funkcí má <strong>analytické řešení v uzavřeném tvaru</strong>:
         <div class="math-card">
-          $$V(A, B) = \int \rho_A(\mathbf{r}) \rho_B(\mathbf{r}) d\mathbf{r} = \sum_{i \in A} \sum_{j \in B} p_i p_j \left( \frac{\pi}{\alpha_i + \alpha_j} \right)^{3/2} \exp\left( -\frac{\alpha_i \alpha_j}{\alpha_i + \alpha_j} |\mathbf{r}_i - \mathbf{r}_j|^2 \right)$$
+          $$V(A, B) = \\int \rho_A(\\mathbf{r}) \rho_B(\\mathbf{r}) d\\mathbf{r} = \sum_{i \\in A} \sum_{j \\in B} p_i p_j \\left( \\frac{\pi}{\alpha_i + \alpha_j} \\right)^{3/2} \\exp\\left( -\\frac{\alpha_i \alpha_j}{\alpha_i + \alpha_j} |\\mathbf{r}_i - \\mathbf{r}_j|^2 \\right)$$
         </div>
         Díky analytickému řešení netrpí výpočet žádnou diskretizační chybou mřížky a je o několik řádů rychlejší než numerická integrace.`
       },
@@ -40,13 +40,13 @@ export const M3_LECTURES = {
         title: "3. Metriky Shape Tanimoto, Color Tanimoto & TanimotoCombo",
         content: `Na základě objemových integrálů $V(A, B)$, $V(A, A)$ a $V(B, B)$ definujeme základní tvarové skóre:
         <br><br>
-        <h4>1. Shape Tanimoto ($T_{shape} \in [0, 1]$)</h4>
+        <h4>1. Shape Tanimoto ($T_{shape} \\in [0, 1]$)</h4>
         <div class="math-card">
-          $$T_{shape}(A, B) = \frac{V(A, B)}{V(A, A) + V(B, B) - V(A, B)}$$
+          $$T_{shape}(A, B) = \\frac{V(A, B)}{V(A, A) + V(B, B) - V(A, B)}$$
         </div>
         Hodnota $T_{shape} = 1.0$ značí dokonalý prostorový překryv všech atomů.
         <br><br>
-        <h4>2. Color Tanimoto ($T_{color} \in [0, 1]$)</h4>
+        <h4>2. Color Tanimoto ($T_{color} \\in [0, 1]$)</h4>
         Samotný tvar nestačí — hydrofobní naftalenový kruh má stejný tvar jako polární chinazolin, ale zcela odlišné vazebné vlastnosti. Proto se zavádějí tzv. <strong>Color Features (farmakoforová centra)</strong>:
         <ul>
           <li>Donory vodíkových vazeb (H-bond donors)</li>
@@ -58,10 +58,10 @@ export const M3_LECTURES = {
         </ul>
         Farmakoforové překryvy jsou počítány podle silového pole <code>ImplicitMillsDean</code> pouze mezi centry stejného typu:
         <div class="math-card">
-          $$T_{color}(A, B) = \frac{C(A, B)}{C(A, A) + C(B, B) - C(A, B)}$$
+          $$T_{color}(A, B) = \\frac{C(A, B)}{C(A, A) + C(B, B) - C(A, B)}$$
         </div>
         <br>
-        <h4>3. TanimotoCombo ($T_{combo} \in [0, 2]$)</h4>
+        <h4>3. TanimotoCombo ($T_{combo} \\in [0, 2]$)</h4>
         Celkové kompozitní skóre, které v DrugEx slouží jako primární optimalizační cíl:
         <div class="math-card">
           $$T_{combo} = T_{shape} + T_{color}$$
@@ -99,9 +99,9 @@ export const M3_LECTURES = {
         <br><br>
         Tato bakalářská práce rozvíjí metodiku, kde je 3D ROCS shape matching využit jako <strong>objektivní skórovací funkce v prostředí DrugEx MORL</strong>. Generátor tak navrhuje molekuly, které:
         <ol>
-          <li>Perfektně vyplňují 3D prostorový objem aktivních referencí ($T_{shape} \to 1.0$).</li>
-          <li>Prezentují klíčové farmakoforové skupiny ve správných geometrických vzdálenostech ($T_{color} \to 1.0$).</li>
-          <li>Přinášejí nové chemické skelety s vysokou syntetickou dostupností ($\text{SAScore} \le 3.0$).</li>
+          <li>Perfektně vyplňují 3D prostorový objem aktivních referencí ($T_{shape} \\to 1.0$).</li>
+          <li>Prezentují klíčové farmakoforové skupiny ve správných geometrických vzdálenostech ($T_{color} \\to 1.0$).</li>
+          <li>Přinášejí nové chemické skelety s vysokou syntetickou dostupností ($\\text{SAScore} \\le 3.0$).</li>
         </ol>`
       },
       {
@@ -116,7 +116,7 @@ export const M3_LECTURES = {
           <div class="compare-col right">
             <div class="compare-heading">2. Multi-Reference Grouping</div>
             Sada referenčních ligandů je rozdělena do pojmenovaných skupin (např. <code>{'pocket_A': [ref1, ref2], 'pocket_B': [ref3]}</code>). Skórovač počítá shodu s každou referencí a vrací maximální hodnotu:
-            $$\text{Score}(X) = \max_{R \in \text{Group}} T_{combo}(X, R)$$
+            $$\\text{Score}(X) = \max_{R \\in \\text{Group}} T_{combo}(X, R)$$
           </div>
         </div>`
       }
@@ -137,7 +137,7 @@ export const M3_LECTURES = {
         title: "1. Architektura conformer_generators.py v DrugEx",
         content: `Generování nízkokonformačních 3D geometrií z 1D SMILES je výpočetně nejnáročnější částí 3D shape matchingu. Modul <code>drugex/training/scorers/conformer_generators.py</code> definuje abstraktní základní třídu <code>ConformerGenerator</code> se společným rozhraním:
         <div class="math-card">
-          $$\text{generate\_conformers}(\text{smiles\_list}) \to \text{List}[\text{Mol\_with\_Conformers}]$$
+          $$\\text{generate\_conformers}(\\text{smiles\_list}) \\to \\text{List}[\\text{Mol\_with\_Conformers}]$$
         </div>
         <br>
         V DrugEx jsou k dispozici 4 specializované enginy:

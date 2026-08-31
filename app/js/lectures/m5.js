@@ -21,7 +21,7 @@ export const M5_LECTURES = {
         Stanovení tohoto prahu "od stolu" bez experimentální validace je v chemoinformatice nepřípustné:
         <ul>
           <li>Pokud je práh nastaven <strong>příliš nízko</strong> (např. 0.40): Inaktivní molekuly a decoye získávají odměnu. Model se naučí generovat náhodné nespecifické struktury a ztrácí selektivitu.</li>
-          <li>Pokud je práh nastaven <strong>příliš vysoko</strong> (např. 1.40): Žádná molekula z počátečního náhodného vzorkování nepřekročí práh. Model nedostává žádný gradient odměny ($\nabla_\theta J(\theta) = 0$) a trénink zcela zkolabuje.</li>
+          <li>Pokud je práh nastaven <strong>příliš vysoko</strong> (např. 1.40): Žádná molekula z počátečního náhodného vzorkování nepřekročí práh. Model nedostává žádný gradient odměny ($\nabla_\\theta J(\\theta) = 0$) a trénink zcela zkolabuje.</li>
         </ul>
         <br>
         Proto je nutné provést statistickou <strong>ROC (Receiver Operating Characteristic) analýzu</strong> na reálných aktivních a decoy molekulách.`
@@ -30,12 +30,12 @@ export const M5_LECTURES = {
         title: "2. Experimentální design na datech CCR2 (75 aktivních vs 500 decoyů)",
         content: `Skript <code>tutorial/advanced/rocs/threshold_analysis.py</code> provádí standardizovaný validační protokol:
         <ol>
-          <li><strong>Pozitivní sada (Actives, $N = 75$)</strong>: Experimentálně ověřené ligandy chemokinového receptoru CCR2 z databáze ChEMBL s $IC_{50} \le 100 \text{ nM}$.</li>
+          <li><strong>Pozitivní sada (Actives, $N = 75$)</strong>: Experimentálně ověřené ligandy chemokinového receptoru CCR2 z databáze ChEMBL s $IC_{50} \\le 100 \\text{ nM}$.</li>
           <li><strong>Negativní sada (Decoys, $N = 500$)</strong>: Molekuly z databáze DUD-E (Directory of Useful Decoys - Enhanced), které mají shodné fyzikálně-chemické vlastnosti (MW, LogP, počet H-vazeb), ale odlišnou 2D topologii a odlišný 3D tvar.</li>
           <li><strong>Referenční šablona</strong>: Krystalografické struktury ligandů v aktivní konformaci (<code>CCR2_reference_ligands.sdf</code>).</li>
         </ol>
         <br>
-        Všechny molekuly jsou oskórovány a je sestrojena ROC křivka závislosti <em>True Positive Rate (Senzitivity)</em> na <em>False Positive Rate (1 - Specificity)</em> pro všechny možné dělící prahy $\tau \in [0.0, 2.0]$.`,
+        Všechny molekuly jsou oskórovány a je sestrojena ROC křivka závislosti <em>True Positive Rate (Senzitivity)</em> na <em>False Positive Rate (1 - Specificity)</em> pro všechny možné dělící prahy $\\tau \\in [0.0, 2.0]$.`,
         code: `from tutorial.advanced.rocs.threshold_analysis import run_threshold_analysis
 
 # Spuštění threshold analýzy
@@ -51,16 +51,16 @@ print(f"Optimální Youdenův práh          : {results['optimal_threshold']:.3f
       },
       {
         title: "3. Matematická optimalizace Youdenova indexu J",
-        content: `Optimální dělící práh $\tau^*$ je nalezen maximalizací <strong>Youdenova indexu ($J$)</strong>:
+        content: `Optimální dělící práh $\\tau^*$ je nalezen maximalizací <strong>Youdenova indexu ($J$)</strong>:
         <div class="math-card">
-          $$J(\tau) = \text{Sensitivity}(\tau) + \text{Specificity}(\tau) - 1 = \text{TPR}(\tau) - \text{FPR}(\tau) = \frac{\text{TP}(\tau)}{\text{TP}(\tau) + \text{FN}(\tau)} - \frac{\text{FP}(\tau)}{\text{FP}(\tau) + \text{TN}(\tau)}$$
+          $$J(\\tau) = \\text{Sensitivity}(\\tau) + \\text{Specificity}(\\tau) - 1 = \\text{TPR}(\\tau) - \\text{FPR}(\\tau) = \\frac{\\text{TP}(\\tau)}{\\text{TP}(\\tau) + \\text{FN}(\\tau)} - \\frac{\\text{FP}(\\tau)}{\\text{FP}(\\tau) + \\text{TN}(\\tau)}$$
         </div>
         <br>
         Maximum indexu $J$ představuje bod na ROC křivce, který je geometricky nejdále od diagonály náhodného hádání (Random Chance).
         <br><br>
         Pro benchmark CCR2 vychází:
         <ul>
-          <li><strong>Optimální ROCS práh</strong>: $\tau^* = \mathbf{0.871}$</li>
+          <li><strong>Optimální ROCS práh</strong>: $\\tau^* = \\mathbf{0.871}$</li>
           <li><strong>True Positive Rate (Senzitivita)</strong>: $90.7\%$ (zachyceno 68 ze 75 aktivních)</li>
           <li><strong>False Positive Rate</strong>: $8.4\%$ (falešně označeno pouze 42 z 500 decoyů)</li>
           <li><strong>Youdenův index</strong>: $J = 0.823$</li>
@@ -142,7 +142,7 @@ def setup_rl_rdkit():
         <h4>Sledované metriky v souboru fit.tsv:</h4>
         <ul>
           <li><strong><code>valid_ratio</code></strong>: Podíl chemicky syntakticky správných molekul (udržuje se stabilně $> 95\%$).</li>
-          <li><strong><code>desired_ratio</code></strong>: Podíl molekul splňujících současně $\text{ROCS} \ge 0.871$ a $\text{SAScore} \ge 0.1$. V epoše 1 začíná na $\approx 0.04$ a do epochy 50 konverguje k $> 0.55$.</li>
+          <li><strong><code>desired_ratio</code></strong>: Podíl molekul splňujících současně $\\text{ROCS} \\ge 0.871$ a $\\text{SAScore} \\ge 0.1$. V epoše 1 začíná na $\approx 0.04$ a do epochy 50 konverguje k $> 0.55$.</li>
           <li><strong><code>mean_score</code></strong>: Průměrná celková odměna roste z $0.18$ k $> 0.72$.</li>
         </ul>`
       }
@@ -180,17 +180,17 @@ df_generated.to_csv("ccr2_final_candidates.csv", index=False)`
         <br><br>
         <ol>
           <li><strong>Validita (Validity)</strong>: Podíl syntakticky parsovatelných SMILES, které projdou sanitací v RDKit bez valenčních chyb:
-            $$\text{Validity} = \frac{N_{valid}}{N_{total}} \times 100\% \quad (\text{cílová hodnota } > 98\%)$$
+            $$\\text{Validity} = \\frac{N_{valid}}{N_{total}} \\times 100\% \\quad (\\text{cílová hodnota } > 98\%)$$
           </li>
           <li><strong>Unikátnost (Uniqueness)</strong>: Podíl unikátních kanonických struktur v rámci vygenerované sady:
-            $$\text{Uniqueness} = \frac{N_{unique}}{N_{valid}} \times 100\% \quad (\text{cílová hodnota } > 90\%)$$
+            $$\\text{Uniqueness} = \\frac{N_{unique}}{N_{valid}} \\times 100\% \\quad (\\text{cílová hodnota } > 90\%)$$
           </li>
           <li><strong>Novost (Novelty)</strong>: Podíl unikátních struktur, které se nenacházejí v obecné trénovací databázi Papyrus ani v sadě známých aktivních ligandů CCR2:
-            $$\text{Novelty} = \frac{|S_{gen} \setminus (S_{Papyrus} \cup S_{actives})|}{|S_{gen}|} \times 100\% \quad (\text{cílová hodnota } > 85\%)$$
+            $$\\text{Novelty} = \\frac{|S_{gen} \setminus (S_{Papyrus} \cup S_{actives})|}{|S_{gen}|} \\times 100\% \\quad (\\text{cílová hodnota } > 85\%)$$
           </li>
           <li><strong>Interní diverzita (Internal Diversity)</strong>: Míra rozmanitosti generovaných struktur měřená průměrnou Morgan Tanimoto vzdáleností:
             <div class="math-card">
-              $$\text{IntDiv}(S) = 1 - \frac{2}{|S|(|S| - 1)} \sum_{i < j} T_{Morgan}(s_i, s_j) \quad (\text{cílová hodnota } > 0.80)$$
+              $$\\text{IntDiv}(S) = 1 - \\frac{2}{|S|(|S| - 1)} \sum_{i < j} T_{Morgan}(s_i, s_j) \\quad (\\text{cílová hodnota } > 0.80)$$
             </div>
           </li>
         </ol>`

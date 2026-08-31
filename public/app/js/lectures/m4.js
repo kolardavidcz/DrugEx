@@ -24,7 +24,7 @@ export const M4_LECTURES = {
           <li>Spočte Shape Tanimoto a (při <code>use_colors=True</code>) Color Tanimoto.</li>
           <li>Vrátí nejvyšší dosažené skóre přes všechny konformery a stereoizomery:
             <div class="math-card">
-              $$\text{Score}(M, R) = \max_{k \in \{1, \dots, K\}} \left[ T_{shape}(C_k, R) + T_{color}(C_k, R) \right]$$
+              $$\\text{Score}(M, R) = \max_{k \\in \{1, \\dots, K\}} \\left[ T_{shape}(C_k, R) + T_{color}(C_k, R) \\right]$$
             </div>
           </li>
         </ol>`,

@@ -16,18 +16,18 @@ export const M2_LECTURES = {
     slides: [
       {
         title: "1. Formulace generování molekul jako Markovova rozhodovacího procesu (MDP)",
-        content: `Generování molekuly atom po atomu (resp. token po tokenu) lze přesně modelovat jako diskrétní <strong>Markovův rozhodovací proces (MDP)</strong> definovaný čtveřicí $(\mathcal{S}, \mathcal{A}, \mathcal{P}, \mathcal{R})$:
+        content: `Generování molekuly atom po atomu (resp. token po tokenu) lze přesně modelovat jako diskrétní <strong>Markovův rozhodovací proces (MDP)</strong> definovaný čtveřicí $(\\mathcal{S}, \\mathcal{A}, \\mathcal{P}, \\mathcal{R})$:
         <ul>
-          <li><strong>Stavový prostor $\mathcal{S}$</strong>: Stav $s_t = (x_1, x_2, \dots, x_t)$ představuje dosud vygenerovaný prefix SMILES sekvence v čase $t$. Počáteční stav je $s_0 = \langle \text{START} \rangle$.</li>
-          <li><strong>Prostor akcí $\mathcal{A}$</strong>: Akce $a_t \in \mathcal{V}$ odpovídá výběru dalšího tokenu ze slovníku $\mathcal{V}$ (atomy, vazby, cykly, stereochemie nebo token $\langle \text{END} \rangle$).</li>
-          <li><strong>Přechodová funkce $\mathcal{P}$</strong>: Deterministický přechod do nového stavu $s_{t+1} = (s_t, a_t)$.</li>
-          <li><strong>Funkce odměny $\mathcal{R}$</strong>: Během generování mezilehlých tokenů je okamžitá odměna nulová ($r_t = 0$ pro $t < T$). Terminální odměna $R(X)$ je udělena teprve po vygenerování ukončovacího tokenu $\langle \text{END} \rangle$, kdy je kompletní molekula $X$ podrobena chemoinformatickému vyhodnocení v prostředí <code>DrugExEnvironment</code>.</li>
+          <li><strong>Stavový prostor $\\mathcal{S}$</strong>: Stav $s_t = (x_1, x_2, \\dots, x_t)$ představuje dosud vygenerovaný prefix SMILES sekvence v čase $t$. Počáteční stav je $s_0 = \langle \\text{START} \rangle$.</li>
+          <li><strong>Prostor akcí $\\mathcal{A}$</strong>: Akce $a_t \\in \\mathcal{V}$ odpovídá výběru dalšího tokenu ze slovníku $\\mathcal{V}$ (atomy, vazby, cykly, stereochemie nebo token $\langle \\text{END} \rangle$).</li>
+          <li><strong>Přechodová funkce $\\mathcal{P}$</strong>: Deterministický přechod do nového stavu $s_{t+1} = (s_t, a_t)$.</li>
+          <li><strong>Funkce odměny $\\mathcal{R}$</strong>: Během generování mezilehlých tokenů je okamžitá odměna nulová ($r_t = 0$ pro $t < T$). Terminální odměna $R(X)$ je udělena teprve po vygenerování ukončovacího tokenu $\langle \\text{END} \rangle$, kdy je kompletní molekula $X$ podrobena chemoinformatickému vyhodnocení v prostředí <code>DrugExEnvironment</code>.</li>
         </ul>
         <br>
         <h4>Ztrátová funkce Policy Gradient (REINFORCE)</h4>
-        Cílem je maximalizovat očekávanou odměnu $J(\theta) = \mathbb{E}_{X \sim \pi_\theta} [R(X)]$. Gradient účelové funkce podle parametrů $\theta$ generátoru je dán vztahem:
+        Cílem je maximalizovat očekávanou odměnu $J(\\theta) = \\mathbb{E}_{X \sim \pi_\\theta} [R(X)]$. Gradient účelové funkce podle parametrů $\\theta$ generátoru je dán vztahem:
         <div class="math-card">
-          $$\nabla_\theta J(\theta) = \mathbb{E}_{X \sim \pi_\theta} \left[ \sum_{t=1}^{T} \nabla_\theta \log \pi_\theta(a_t \mid s_t) \cdot \left( R(X) - b \right) \right]$$
+          $$\nabla_\\theta J(\\theta) = \\mathbb{E}_{X \sim \pi_\\theta} \\left[ \sum_{t=1}^{T} \nabla_\\theta \log \pi_\\theta(a_t \\mid s_t) \cdot \\left( R(X) - b \\right) \\right]$$
         </div>
         kde $b$ je tzv. <em>baseline</em> (např. klouzavý průměr odměn v předchozích batších), která snižuje rozptyl gradientového odhadu bez zavedení systematické chyby.`
       },
@@ -35,8 +35,8 @@ export const M2_LECTURES = {
         title: "2. Rizika jednokriteriálního RL a fenomén 'Reward Hacking'",
         content: `Pokud je generativní model optimalizován pouze na jedno jediné kritérium (např. maximalizaci predikované afinity QSAR modelu), generátor rychle nalezne patologické zkratky (tzv. <em>Reward Hacking</em>):
         <ul>
-          <li><strong>Tvorba chemických monster</strong>: Model generuje molekuly s extrémní molekulovou hmotností ($\text{MW} > 900 \text{ Da}$), protože velké molekuly mají více možností pro nespecifické interakce.</li>
-          <li><strong>Lipofilní kolaps</strong>: Generování nekonečných hydrofobních alifatických řetězců ($\text{LogP} > 9$), které jsou nerozpustné ve vodě a toxické.</li>
+          <li><strong>Tvorba chemických monster</strong>: Model generuje molekuly s extrémní molekulovou hmotností ($\\text{MW} > 900 \\text{ Da}$), protože velké molekuly mají více možností pro nespecifické interakce.</li>
+          <li><strong>Lipofilní kolaps</strong>: Generování nekonečných hydrofobních alifatických řetězců ($\\text{LogP} > 9$), které jsou nerozpustné ve vodě a toxické.</li>
           <li><strong>Syntetická neproveditelnost</strong>: Vznik energeticky pnutých spiro-cyklů a přemostěných systémů, které žádný chemik nedokáže syntetizovat.</li>
         </ul>
         <br>
@@ -48,13 +48,13 @@ export const M2_LECTURES = {
         <br><br>
         DrugEx řeší tento problém architekturou dvou souběžných neuronových sítí:
         <ol>
-          <li><strong>Agent Network ($\pi_\theta$)</strong>: Učící se generátor, jehož parametry $\theta$ jsou aktualizovány gradientem odměny po každé epoše (fáze exploatace).</li>
+          <li><strong>Agent Network ($\pi_\\theta$)</strong>: Učící se generátor, jehož parametry $\\theta$ jsou aktualizovány gradientem odměny po každé epoše (fáze exploatace).</li>
           <li><strong>Mutate / Prior Network ($\pi_0$)</strong>: Fixní generátor (jemně dotrénovaný model z fáze Transfer Learningu), jehož váhy jsou zmrazené a nepodléhají aktualizaci.</li>
         </ol>
         <br>
-        Při vzorkování každého tokenu $a_t$ v čase $t$ je pravděpodobnostní distribuce lineárně smíchána s parametrem $\epsilon \in [0, 1]$ (obvykle $\epsilon = 0.2$):
+        Při vzorkování každého tokenu $a_t$ v čase $t$ je pravděpodobnostní distribuce lineárně smíchána s parametrem $\\epsilon \\in [0, 1]$ (obvykle $\\epsilon = 0.2$):
         <div class="math-card">
-          $$P(a_t \mid s_t) = (1 - \epsilon) \pi_\theta(a_t \mid s_t) + \epsilon \pi_0(a_t \mid s_t)$$
+          $$P(a_t \\mid s_t) = (1 - \\epsilon) \pi_\\theta(a_t \\mid s_t) + \\epsilon \pi_0(a_t \\mid s_t)$$
         </div>
         V $20\%$ případů tak model generuje kroky řízené stabilním obecným modelem, což udržuje vysokou strukturní diverzitu a brání zapomenutí chemické gramatiky.`,
         code: `from drugex.training.explorers import SequenceExplorer
@@ -98,11 +98,11 @@ explorer = SequenceExplorer(
     slides: [
       {
         title: "1. Matematická definice Paretovy dominance v chemickém prostoru",
-        content: `Při navrhování léčivých látek chceme současně optimalizovat vektor $M$ cílů $\mathbf{f}(X) = (f_1(X), f_2(X), \dots, f_M(X))$, kde $f_m(X) \in [0, 1]$ představuje normalizovanou odměnu za $m$-tou vlastnost (např. 3D ROCS tvarová shoda, afinita k receptoru, syntetická dostupnost SAScore).
+        content: `Při navrhování léčivých látek chceme současně optimalizovat vektor $M$ cílů $\\mathbf{f}(X) = (f_1(X), f_2(X), \\dots, f_M(X))$, kde $f_m(X) \\in [0, 1]$ představuje normalizovanou odměnu za $m$-tou vlastnost (např. 3D ROCS tvarová shoda, afinita k receptoru, syntetická dostupnost SAScore).
         <br><br>
-        Vektor řešení $\mathbf{f}(A)$ <strong>dominuje</strong> $\mathbf{f}(B)$ (značeno $A \succ B$), právě když:
+        Vektor řešení $\\mathbf{f}(A)$ <strong>dominuje</strong> $\\mathbf{f}(B)$ (značeno $A \\succ B$), právě když:
         <div class="math-card">
-          $$\forall m \in \{1, \dots, M\}: f_m(A) \ge f_m(B) \quad \land \quad \exists k \in \{1, \dots, M\}: f_k(A) > f_k(B)$$
+          $$\\forall m \\in \{1, \\dots, M\}: f_m(A) \\ge f_m(B) \\quad \\land \\quad \\exists k \\in \{1, \\dots, M\}: f_k(A) > f_k(B)$$
         </div>
         To znamená, že molekula $A$ není v žádné vlastnosti horší než molekula $B$ a v alespoň jedné vlastnosti je striktně lepší.
         <br><br>
@@ -114,19 +114,19 @@ explorer = SequenceExplorer(
         <br><br>
         DrugEx (Liu et al., 2021) integruje výpočet <strong>Crowding Distance (vzdálenosti shlukování)</strong> inspirovaný genetickým algoritmem NSGA-II:
         <br><br>
-        Pro každou frontu $\mathcal{F}_k$:
+        Pro každou frontu $\\mathcal{F}_k$:
         <ol>
-          <li>Pro každý cíl $m \in \{1, \dots, M\}$ seřadíme molekuly vzestupně podle hodnoty $f_m$.</li>
-          <li>Krajním bodům (s minimální a maximální hodnotou $f_m$) přiřadíme nekonečnou vzdálenost: $d_1 = d_{|\mathcal{F}_k|} = \infty$.</li>
-          <li>Pro všechny vnitřní body $i \in \{2, \dots, |\mathcal{F}_k| - 1\}$ přičteme normalizovanou vzdálenost jejich sousedů:
+          <li>Pro každý cíl $m \\in \{1, \\dots, M\}$ seřadíme molekuly vzestupně podle hodnoty $f_m$.</li>
+          <li>Krajním bodům (s minimální a maximální hodnotou $f_m$) přiřadíme nekonečnou vzdálenost: $d_1 = d_{|\\mathcal{F}_k|} = \infty$.</li>
+          <li>Pro všechny vnitřní body $i \\in \{2, \\dots, |\\mathcal{F}_k| - 1\}$ přičteme normalizovanou vzdálenost jejich sousedů:
             <div class="math-card">
-              $$d_i = \sum_{m=1}^{M} \frac{f_m(i+1) - f_m(i-1)}{f_m^{max} - f_m^{min}}$$
+              $$d_i = \sum_{m=1}^{M} \\frac{f_m(i+1) - f_m(i-1)}{f_m^{max} - f_m^{min}}$$
             </div>
           </li>
         </ol>
         Konečná odměna molekuly je pak funkcí jejího Paretova ranku a Crowding Distance:
         <div class="math-card">
-          $$R(X_i) = \frac{1}{\text{Rank}(X_i)} + \frac{d_i}{1 + d_i}$$
+          $$R(X_i) = \\frac{1}{\\text{Rank}(X_i)} + \\frac{d_i}{1 + d_i}$$
         </div>
         Molekuly na okrajích fronty a v řídce osídlených regionech získávají nejvyšší odměnu, což stimuluje generátor k objevování netradičních chemických scaffoldů.`,
         code: `from drugex.training.rewards import ParetoCrowdingDistance
@@ -166,7 +166,7 @@ env = DrugExEnvironment(
             Algoritmus podle Ertla a Schuffenhauera (2009). Kombinuje příspěvky fragmentů z databáze PubChem s nelineární penalizací za strukturní složitost (chirální centra, makrocykly, spiro-atomy). Škála 1.0 (velmi snadná syntéza) až 10.0 (extrémně obtížná).
           </li>
           <li><strong>Retrosyntetická přístupnost (RAScore)</strong>:
-            Hluboký model vytrénovaný na milionech syntetických cest z nástroje AiZynthFinder, který predikuje pravděpodobnost ($0.0 \dots 1.0$), že danou molekulu lze syntetizovat z komerčních stavebních bloků.
+            Hluboký model vytrénovaný na milionech syntetických cest z nástroje AiZynthFinder, který predikuje pravděpodobnost ($0.0 \\dots 1.0$), že danou molekulu lze syntetizovat z komerčních stavebních bloků.
           </li>
           <li><strong>Bioaktivní QSAR modely</strong>:
             Modely strojového učení (Random Forest, SVM, DNN) vytrénované v balíčku <code>QSPRpred</code> na experimentálních datech $pIC_{50}$ nebo $pK_i$.
@@ -179,19 +179,19 @@ env = DrugExEnvironment(
         <br><br>
         <h4>1. SmoothClippedScore (Hladká kosínová sigmoidální transformace)</h4>
         <div class="math-card">
-          $$S(x) = \begin{cases} 
-          1.0 & x \le \text{upper\_x} \\ 
-          0.5 \left( 1 + \cos\left( \pi \frac{x - \text{upper\_x}}{\text{lower\_x} - \text{upper\_x}} \right) \right) & \text{upper\_x} < x < \text{lower\_x} \\ 
-          0.0 & x \ge \text{lower\_x} 
-          \end{cases}$$
+          $$S(x) = \\begin{cases} 
+          1.0 & x \\le \\text{upper\_x} \\ 
+          0.5 \\left( 1 + \cos\\left( \pi \\frac{x - \\text{upper\_x}}{\\text{lower\_x} - \\text{upper\_x}} \\right) \\right) & \\text{upper\_x} < x < \\text{lower\_x} \\ 
+          0.0 & x \\ge \\text{lower\_x} 
+          \\end{cases}$$
         </div>
         Výhodou <code>SmoothClippedScore</code> oproti skokovým prahům je spojitost první derivace, což poskytuje stabilní gradient pro zpětnovazební učení v přechodové oblasti.
         <br><br>
         <h4>2. ClippedScore (Lineární oříznutí)</h4>
-        Lineární náběh od 0.0 do 1.0 mezi $\text{lower\_x}$ a $\text{upper\_x}$.
+        Lineární náběh od 0.0 do 1.0 mezi $\\text{lower\_x}$ a $\\text{upper\_x}$.
         <br><br>
         <h4>3. MinMaxScore & NormScore</h4>
-        Normalizace na základě minimální a maximální pozorované hodnoty nebo centrovaná Gaussovská křivka kolem cílového optima $\mu$ se směrodatnou odchylkou $\sigma$.`,
+        Normalizace na základě minimální a maximální pozorované hodnoty nebo centrovaná Gaussovská křivka kolem cílového optima $\mu$ se směrodatnou odchylkou $\\sigma$.`,
         code: `from drugex.training.scorers.modifiers import SmoothClippedScore, ClippedScore
 from drugex.training.scorers.properties import Property
 

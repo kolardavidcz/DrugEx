@@ -34,8 +34,8 @@ export const M1_LECTURES = {
         <h4>2. 2D Molekulární grafy (Attributed Molecular Graphs)</h4>
         Molekula je formálně definována jako graf $G = (V, E)$, kde uzly $V$ reprezentují atomy a hrany $E$ reprezentují kovalentní vazby:
         <ul>
-          <li>Každému uzlu $v_i \in V$ náleží vektor příznaků $\mathbf{x}_i \in \mathbb{R}^{d_v}$ (např. typ prvku, formální náboj, hybridizace $sp/sp^2/sp^3$, počet připojených vodíků, aromatický status).</li>
-          <li>Každé hraně $e_{ij} \in E$ náleží typ vazby (jednoduchá, dvojná, trojná, aromatická).</li>
+          <li>Každému uzlu $v_i \\in V$ náleží vektor příznaků $\\mathbf{x}_i \\in \\mathbb{R}^{d_v}$ (např. typ prvku, formální náboj, hybridizace $sp/sp^2/sp^3$, počet připojených vodíků, aromatický status).</li>
+          <li>Každé hraně $e_{ij} \\in E$ náleží typ vazby (jednoduchá, dvojná, trojná, aromatická).</li>
         </ul>
         <br>
         <h4>3. Fragmentové reprezentace (Synthons & Bag of Fragments)</h4>
@@ -161,30 +161,30 @@ print(f"Kanonický výstup     : {clean_smiles}") # Výstup: c1ccccc1 (největš
     slides: [
       {
         title: "1. Architektura Sequence RNN (LSTM / GRU)",
-        content: `Generování molekulárních sekvencí lze formulovat jako úlohu autoregresního modelování jazyka. Pravděpodobnost vzniku celé sekvence tokenů $X = (x_1, x_2, \dots, x_T)$ je rozložena podle řetízkového pravidla pravděpodobnosti:
+        content: `Generování molekulárních sekvencí lze formulovat jako úlohu autoregresního modelování jazyka. Pravděpodobnost vzniku celé sekvence tokenů $X = (x_1, x_2, \\dots, x_T)$ je rozložena podle řetízkového pravidla pravděpodobnosti:
         <div class="math-card">
-          $$P(X) = \prod_{t=1}^{T} P(x_t \mid x_1, x_2, \dots, x_{t-1}; \theta)$$
+          $$P(X) = \prod_{t=1}^{T} P(x_t \\mid x_1, x_2, \\dots, x_{t-1}; \\theta)$$
         </div>
         <br>
         Třída <code>SequenceRNN</code> (v <code>drugex/training/generators/sequence_rnn.py</code>) implementuje tuto pravděpodobnost pomocí vícevrstvé rekurentní sítě LSTM nebo GRU:
         <ol>
-          <li><strong>Embeddingová vrstva ($E \in \mathbb{R}^{|V| \times d_{emb}}$)</strong>: Mapuje diskrétní token $x_{t-1}$ na spojitý vektor $\mathbf{e}_{t-1}$.</li>
-          <li><strong>LSTM rekurentní vrstvy ($L$ vrstev)</strong>: V každém časovém kroku $t$ aktualizují skrytý stav $\mathbf{h}_t$ a stav buňky $\mathbf{c}_t$ na základě vstupu $\mathbf{e}_{t-1}$ a předchozího stavu $\mathbf{h}_{t-1}$:
+          <li><strong>Embeddingová vrstva ($E \\in \\mathbb{R}^{|V| \\times d_{emb}}$)</strong>: Mapuje diskrétní token $x_{t-1}$ na spojitý vektor $\\mathbf{e}_{t-1}$.</li>
+          <li><strong>LSTM rekurentní vrstvy ($L$ vrstev)</strong>: V každém časovém kroku $t$ aktualizují skrytý stav $\\mathbf{h}_t$ a stav buňky $\\mathbf{c}_t$ na základě vstupu $\\mathbf{e}_{t-1}$ a předchozího stavu $\\mathbf{h}_{t-1}$:
             <div class="math-card">
-              $$\begin{aligned}
-              \mathbf{f}_t &= \sigma(W_f [\mathbf{h}_{t-1}, \mathbf{e}_{t-1}] + b_f) \quad &\text{(Zapomínací brána)} \\
-              \mathbf{i}_t &= \sigma(W_i [\mathbf{h}_{t-1}, \mathbf{e}_{t-1}] + b_i) \quad &\text{(Vstupní brána)} \\
-              \tilde{\mathbf{c}}_t &= \tanh(W_c [\mathbf{h}_{t-1}, \mathbf{e}_{t-1}] + b_c) \quad &\text{(Kandidátní stav)} \\
-              \mathbf{c}_t &= \mathbf{f}_t \odot \mathbf{c}_{t-1} + \mathbf{i}_t \odot \tilde{\mathbf{c}}_t \quad &\text{(Aktualizovaný stav buňky)} \\
-              \mathbf{o}_t &= \sigma(W_o [\mathbf{h}_{t-1}, \mathbf{e}_{t-1}] + b_o) \quad &\text{(Výstupní brána)} \\
-              \mathbf{h}_t &= \mathbf{o}_t \odot \tanh(\mathbf{c}_t) \quad &\text{(Skrytý stav)}
-              \end{aligned}$$
+              $$\\begin{aligned}
+              \\mathbf{f}_t &= \\sigma(W_f [\\mathbf{h}_{t-1}, \\mathbf{e}_{t-1}] + b_f) \\quad &\\text{(Zapomínací brána)} \\
+              \\mathbf{i}_t &= \\sigma(W_i [\\mathbf{h}_{t-1}, \\mathbf{e}_{t-1}] + b_i) \\quad &\\text{(Vstupní brána)} \\
+              \tilde{\\mathbf{c}}_t &= \\tanh(W_c [\\mathbf{h}_{t-1}, \\mathbf{e}_{t-1}] + b_c) \\quad &\\text{(Kandidátní stav)} \\
+              \\mathbf{c}_t &= \\mathbf{f}_t \\odot \\mathbf{c}_{t-1} + \\mathbf{i}_t \\odot \tilde{\\mathbf{c}}_t \\quad &\\text{(Aktualizovaný stav buňky)} \\
+              \\mathbf{o}_t &= \\sigma(W_o [\\mathbf{h}_{t-1}, \\mathbf{e}_{t-1}] + b_o) \\quad &\\text{(Výstupní brána)} \\
+              \\mathbf{h}_t &= \\mathbf{o}_t \\odot \\tanh(\\mathbf{c}_t) \\quad &\\text{(Skrytý stav)}
+              \\end{aligned}$$
             </div>
           </li>
-          <li><strong>Lineární projekční hlava</strong>: Projekce $\mathbf{h}_t$ do dimenze slovníku $|V|$ pro získání neznormalizovaných logitů $\mathbf{z}_t = W_{out} \mathbf{h}_t + b_{out}$.</li>
+          <li><strong>Lineární projekční hlava</strong>: Projekce $\\mathbf{h}_t$ do dimenze slovníku $|V|$ pro získání neznormalizovaných logitů $\\mathbf{z}_t = W_{out} \\mathbf{h}_t + b_{out}$.</li>
           <li><strong>Teplotní vzorkování (Softmax with Temperature $T$)</strong>:
             <div class="math-card">
-              $$P(x_t = k \mid x_{<t}) = \frac{\exp(z_{t,k} / T)}{\sum_{j=1}^{|V|} \exp(z_{t,j} / T)}$$
+              $$P(x_t = k \\mid x_{<t}) = \\frac{\\exp(z_{t,k} / T)}{\sum_{j=1}^{|V|} \\exp(z_{t,j} / T)}$$
             </div>
             kde $T < 1.0$ vede ke konzervativnímu generování nejčastějších fragmentů, zatímco $T > 1.0$ podporuje vyšší exploraci a strukturní novost.
           </li>
@@ -214,13 +214,13 @@ with torch.no_grad():
         <br><br>
         <code>SequenceTransformer</code> (v <code>drugex/training/generators/sequence_transformer.py</code>) využívá architekturu Transformer Decoder. Místo rekurentních spojů používá mechanismus vícehlavé pozornosti (Multi-Head Attention) s přidaným pozičním kódováním (Positional Encoding):
         <br><br>
-        Pro zachování autoregresní vlastnosti (zákaz nahlížení do budoucích tokenů) se aplikuje <strong>kauzální maska</strong> $M \in \mathbb{R}^{T \times T}$:
+        Pro zachování autoregresní vlastnosti (zákaz nahlížení do budoucích tokenů) se aplikuje <strong>kauzální maska</strong> $M \\in \\mathbb{R}^{T \\times T}$:
         <div class="math-card">
-          $$\text{CausalAttention}(Q, K, V) = \text{softmax}\left( \frac{Q K^T}{\sqrt{d_k}} + M \right) V$$
+          $$\\text{CausalAttention}(Q, K, V) = \\text{softmax}\\left( \\frac{Q K^T}{\\sqrt{d_k}} + M \\right) V$$
         </div>
         kde maskovací matice $M$ má hodnoty:
         <div class="math-card">
-          $$M_{ij} = \begin{cases} 0 & \text{pro } j \le i \\ -\infty & \text{pro } j > i \end{cases}$$
+          $$M_{ij} = \\begin{cases} 0 & \\text{pro } j \\le i \\ -\infty & \\text{pro } j > i \\end{cases}$$
         </div>
         Díky tomu jsou při tréninku všechny pozice sekvence vyhodnocovány <strong>paralelně v jediném dopředném průchodu</strong>, což zkracuje čas tréninku na velkých korpusech na zlomek času potřebného pro RNN.`
       },
@@ -230,8 +230,8 @@ with torch.no_grad():
         <br><br>
         V každém kroku model operuje se dvěma provázanými tenzory:
         <ul>
-          <li><strong>Uzlový tenzor (Node Tensor) $\mathbf{X} \in \mathbb{R}^{B \times N \times d_v}$</strong>: Kóduje typy atomů pro maximálně $N$ atomů v molekule.</li>
-          <li><strong>Hranový tenzor (Edge Adjacency Tensor) $\mathbf{A} \in \mathbb{R}^{B \times N \times N \times d_e}$</strong>: Kóduje typy vazeb mezi všemi dvojicemi atomů $(i, j)$.</li>
+          <li><strong>Uzlový tenzor (Node Tensor) $\\mathbf{X} \\in \\mathbb{R}^{B \\times N \\times d_v}$</strong>: Kóduje typy atomů pro maximálně $N$ atomů v molekule.</li>
+          <li><strong>Hranový tenzor (Edge Adjacency Tensor) $\\mathbf{A} \\in \\mathbb{R}^{B \\times N \\times N \\times d_e}$</strong>: Kóduje typy vazeb mezi všemi dvojicemi atomů $(i, j)$.</li>
         </ul>
         <br>
         Generování probíhá iterativním přidáváním atomů a současnou predikcí vazeb k již existujícím atomům. Tím je dosaženo <strong>100% chemické validity</strong> bez rizika syntaktických chyb závorek nebo čísel cyklů.`
@@ -265,11 +265,11 @@ with torch.no_grad():
           <li><strong>Fáze 1: Pre-training na databázi Papyrus v05.5 (~1,5 milionu struktur)</strong>:
             Model se učí obecnou distribuci chemického prostoru "všech lékových molekul". Minimalizuje křížovou entropii (Cross-Entropy Loss):
             <div class="math-card">
-              $$\mathcal{L}_{PT}(\theta) = -\frac{1}{|D_{Papyrus}|} \sum_{X \in D_{Papyrus}} \sum_{t=1}^{T} \log P(x_t \mid x_{<t}; \theta)$$
+              $$\\mathcal{L}_{PT}(\\theta) = -\\frac{1}{|D_{Papyrus}|} \sum_{X \\in D_{Papyrus}} \sum_{t=1}^{T} \log P(x_t \\mid x_{<t}; \\theta)$$
             </div>
           </li>
           <li><strong>Fáze 2: Fine-Tuning na cílových ligandech (CCR2 / IDP target)</strong>:
-            Váhy předtrénovaného modelu jsou doučeny na sadě známých aktivních ligandů s velmi nízkým learning rate ($\eta = 10^{-4}$ nebo $5 \times 10^{-5}$) po dobu 50–100 epoch. Distribuce generovaných molekul se posune do relevantní chemické oblasti specifické pro vazebné místo.
+            Váhy předtrénovaného modelu jsou doučeny na sadě známých aktivních ligandů s velmi nízkým learning rate ($\eta = 10^{-4}$ nebo $5 \\times 10^{-5}$) po dobu 50–100 epoch. Distribuce generovaných molekul se posune do relevantní chemické oblasti specifické pro vazebné místo.
           </li>
         </ol>`,
         alert: {
