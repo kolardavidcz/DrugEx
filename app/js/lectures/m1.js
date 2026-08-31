@@ -155,9 +155,12 @@ for f in frags:
         title: "5. Tokenizační kontrakt DrugEx: VocSmiles & Regulární výrazy",
         content: `Standardní znaková tokenizace běžná v klasickém NLP (např. rozklad po jednotlivých písmenech) je v chemickém modelování hrubou chybou. Pokud bychom řetězec <code>Clc1ccccc1</code> rozdělili po písmenech na <code>['C', 'l', 'c', '1', ...]</code>, model by interpretoval <code>'C'</code> jako alifatický uhlík a <code>'l'</code> jako izolovaný neznámý token, namísto atomu chloru.
         <br><br>
-        V DrugEx je tokenizace zapouzdřena ve třídě <code>VocSmiles</code> (v souboru <code>drugex/data/corpus/vocabulary.py</code>). Tokenizér využívá deterministický chemický regulární výraz, který zajišťuje přesné rozlišení atomů, nábojů, stereochemie a řádů vazeb:
-        <div class="math-card">
-          $$\\text{Pattern} = \\texttt{\\[[^\\]]{1,6}\\]|Br|Cl|Si|Na|Ca|Fe|@@|@|\\/|\\\\|\\%\\d{2}|\\d|=|#|\\$|:|~|\\.|[a-zA-Z]}$$
+        <div class="code-container" style="margin: 12px 0;">
+          <div class="code-header">
+            <span>VocSmiles Regular Expression Pattern</span>
+            <span style="font-size: 10px; color: var(--accent);">drugex/data/corpus/vocabulary.py</span>
+          </div>
+          <pre class="code-block" style="padding: 10px 14px; font-size: 13px; color: #a5d6ff;"><code>r'(\[[^\]]{1,6}\]|Br|Cl|Si|Na|Ca|Fe|@@|@|\/|\\|%\d{2}|\d|=|#|\$|:|~|\.|[a-zA-Z])'</code></pre>
         </div>
         <br>
         Tento regulární výraz provádí rozklad v rigorózně definovaném pořadí priorit:

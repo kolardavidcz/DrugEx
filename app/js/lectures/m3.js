@@ -427,11 +427,7 @@ scorer = RDKitROCSScorer(
           <li><strong>Fragmentový rozklad</strong>: Molekula je rozdělena na rigidní fragmenty spojené rotovatelnými vazbami. Konformace rigidních jader jsou načteny z předpočítané databáze.</li>
           <li><strong>Systematické torzní řízení (Torsion Driving)</strong>: OMEGA prohledává rotamery podle diskrétních energetických pravidel namísto stochastického vnořování.</li>
           <li><strong>Enumerace stereoizomerů přes OEFlipper</strong>: Pro neoznačená chirální centra generuje stereoizomery třída <code>oeomega.OEFlipper</code> s limitem <code>max_centers</code>.</li>
-          <li><strong>GPU Akcelerace</strong>: Při volbě <code>use_gpu=True</code> a přítomnosti CUDA hardware se aktivuje GPU torzní engine:
-            <div class="math-card">
-              $$\\texttt{opts.GetTorDriveOptions().SetUseGPU(True)}$$
-            </div>
-            což umožňuje vzorkovat přes 5 000 konformací za sekundu na jedné GPU.</li>
+          <li><strong>GPU Akcelerace</strong>: Při volbě <code>use_gpu=True</code> a přítomnosti CUDA hardware se aktivuje GPU torzní engine přes <code>opts.GetTorDriveOptions().SetUseGPU(True)</code>, což umožňuje vzorkovat přes 5 000 konformací za sekundu na jedné GPU.</li>
         </ul>`,
         code: `class OmegaConformerGenerator(ConformerGenerator):
     def _create_fresh_omega(self):

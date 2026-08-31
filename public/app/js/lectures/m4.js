@@ -25,8 +25,11 @@ export const M4_LECTURES = {
           <li><strong>Jednotlivý SDF soubor</strong> (např. <code>references="CCR2_ligand.sdf"</code>)</li>
           <li><strong>Seznam SDF souborů</strong> (např. <code>references=["ligand1.sdf", "ligand2.sdf"]</code>)</li>
           <li><strong>Slovník pojmenovaných skupin</strong> pro multi-kavitní nebo multi-konformační skórování:
-            <div class="math-card">
-              $$\\text{references} = \\left\\{ \\text{'pocket\\_A'}: [\\text{'ref1.sdf'}, \\text{'ref2.sdf'}], \\; \\text{'pocket\\_B'}: [\\text{'ref3.sdf'}] \\right\\}$$
+            <div class="code-container" style="margin: 6px 0;">
+              <pre class="code-block" style="padding: 8px 12px; font-size: 12px; color: #a5d6ff;"><code>references = {
+    'pocket_A': ['ref1.sdf', 'ref2.sdf'],
+    'pocket_B': ['ref3.sdf']
+}</code></pre>
             </div>
           </li>
           <li><strong>RDKit molekulární objekty</strong> (<code>Chem.Mol</code>) s předpočítanými 3D konformacemi.</li>
@@ -68,8 +71,8 @@ export const M4_LECTURES = {
           <li>Funkce iteruje přes kartézský součin všech konformací generované molekuly (<code>query_conf</code>) a všech konformací referenční molekuly (<code>ref_conf</code>).</li>
           <li>Pro každou dvojici vytvoří izolovanou kopii molekuly: <code>probe_copy = Chem.Mol(query_mol)</code>. Tím se zabrání nežádoucí mutaci souřadnic v původním ansámblu.</li>
           <li>Zavolá optimalizační C++ rutinu <code>rdShapeAlign.AlignMol</code>:
-            <div class="math-card">
-              $$\\texttt{result} = \\text{AlignMol}(\\text{ref\\_mol}, \\text{probe\\_copy}, \\text{refConfId}, \\text{probeConfId}, \\text{useColors})$$
+            <div style="margin: 8px 0;">
+              <code>result = rdShapeAlign.AlignMol(ref_mol, probe_copy, refConfId, probeConfId, useColors=True)</code>
             </div>
           </li>
           <li>Funkce vrátí dvojici $\\left( T_{\\text{shape}}, T_{\\text{color}} \\right)$.</li>
@@ -138,8 +141,8 @@ export const M4_LECTURES = {
         V <code>rocs_rdkit.py</code> je tento problém vyřešen architekturou <strong>Worker Initializeru</strong>:
         <ol>
           <li>Při startu procesu v <code>multiprocessing.Pool</code> je zavolána inicializační funkce <code>_rdkit_worker_init</code>:
-            <div class="math-card">
-              $$\\texttt{\\_rdkit\\_worker\\_init}(\\text{reference\\_mols}, \\text{group\\_to\\_indices}, \\text{score\\_type}, \\text{use\\_colors})$$
+            <div style="margin: 8px 0;">
+              <code>_rdkit_worker_init(reference_mols, group_to_indices, score_type, use_colors)</code>
             </div>
           </li>
           <li>Reference jsou uloženy do globálního slovníku procesu <code>_RDKIT_WORKER_SETTINGS</code> <strong>pouze jednou za celou dobu existence poolu</strong>.</li>
@@ -292,8 +295,8 @@ for smi, score in zip(test_smiles, scores):
           </li>
           <li><code>CDPL.Shape.PrincipalAxesAlignmentStartGenerator</code>: Spočte matici momentů setrvačnosti a generuje 4 počáteční ortogonální orientace podél hlavních os setrvačnosti.</li>
           <li><code>CDPL.Shape.GaussianShapeAlignment</code>: Gradientní optimalizace překryvu metodou kvazi-Newtonových kroků s parametry:
-            <div class="math-card">
-              $$\\texttt{MAX\\_OPTIMIZATION\\_ITERATIONS} = 20, \\quad \\texttt{OPTIMIZATION\\_STOP\\_GRADIENT} = 1.0$$
+            <div style="margin: 8px 0;">
+              <code>MAX_OPTIMIZATION_ITERATIONS = 20, OPTIMIZATION_STOP_GRADIENT = 1.0</code>
             </div>
             což garantuje sub-milisekundový čas zarovnání na konformer.</li>
           <li><code>CDPL.Shape.calcTanimotoComboScore</code>: Nativní C++ výpočet kompozitního TanimotoCombo skóre.</li>
@@ -371,8 +374,8 @@ class CDPKitScoringWorker:
         <ol>
           <li>Worker otevře proudový čteč <code>CDPLChem.FileSDFMoleculeReader(ctx.conf_file)</code>.</li>
           <li>Čte záznamy sekvenčně po jednom a provádí rychlý prefixový filtr na název molekuly:
-            <div class="math-card">
-              $$\\texttt{if not name.startswith(f"mol\\_{mol\\_id}+"): continue}$$
+            <div style="margin: 8px 0;">
+              <code>if not name.startswith(f"mol_{mol_id}+"): continue</code>
             </div>
           </li>
           <li>Pouze pro konformace patřící aktuálnímu <code>mol_id</code> vygeneruje Gaussovské tvary přes <code>_generate_shape_helper(m)</code>.</li>
@@ -647,8 +650,8 @@ result = subprocess.run(
           <li>Načte tabulku s kolonkami <code>Name</code> a požadovanou metrikou (např. <code>TanimotoCombo</code>).</li>
           <li>Z názvu záznamu <code>mol_{id}+{conf}</code> extrahuje ID molekuly pomocí regulárního výrazu / splitu.</li>
           <li>Uloží maximální dosažené skóre pro danou molekulu:
-            <div class="math-card">
-              $$\\text{scores}[\\text{mol\\_id}] = \\max\\left(\\text{scores.get}(\\text{mol\\_id}, 0.0), \\text{conf\\_score}\\right)$$
+            <div style="margin: 8px 0;">
+              <code>scores[mol_id] = max(scores.get(mol_id, 0.0), conf_score)</code>
             </div>
           </li>
         </ol>
