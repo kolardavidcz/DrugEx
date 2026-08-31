@@ -104,6 +104,21 @@ export function renderLecture(container, lectureId) {
   });
 
   container.appendChild(view);
+
+  // Auto-render KaTeX LaTeX Math formulas
+  if (window.renderMathInElement) {
+    try {
+      window.renderMathInElement(view, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "$", right: "$", display: false }
+        ],
+        throwOnError: false
+      });
+    } catch (e) {
+      console.warn("KaTeX rendering note:", e);
+    }
+  }
 }
 
 export function renderThesisGuide(container, thesisData) {
