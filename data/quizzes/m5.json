@@ -1,0 +1,110 @@
+{
+  "moduleId": "m5",
+  "title": "Modul 5: Experimentální Pipeline pro Bakalářskou Práci (CCR2 & IDP)",
+  "questions": [
+    {
+      "id": "m5_q1",
+      "type": "choice",
+      "question": "Jaký je hlavní cíl analýzy stanovení prahu (`threshold_analysis.py`) před spuštěním RL tréninku?",
+      "options": [
+        "Nalézt optimální dělící práh TanimotoCombo skóre (pomocí ROC analýzy a Youdenova indexu), který maximalizuje oddělení skutečně aktivních ligandů od decoyů, aby RL model dostával fyzikálně relevantní odměnu.",
+        "Zjistit, kolik paměti zabírají CSV soubory na disku.",
+        "Změřit teplotu grafické karty.",
+        "Zkontrolovat gramatiku v názvech chemických sloučenin."
+      ],
+      "correct": 0,
+      "explanation": "Pokud je práh příliš vysoký, model nikdy nenajde žádoucí molekuly a nedostane gradient odměny. Pokud je příliš nízký, odměňuje náhodné decoye. ROC analýza na známých aktivních látkách a decoyích určí optimální bod."
+    },
+    {
+      "id": "m5_q2",
+      "type": "choice",
+      "question": "Jak je definován Youdenův index $J$ v ROC analýze?",
+      "options": [
+        "$J = \\text{Sensitivity (TPR)} + \\text{Specificity (TNR)} - 1 = \\text{TPR} - \\text{FPR}$",
+        "$J = \\text{Precision} \\times \\text{Recall}$",
+        "$J = \\text{TP} / (\\text{TP} + \\text{FP})$",
+        "$J = \\text{Area Under Curve (AUC)}$"
+      ],
+      "correct": 0,
+      "explanation": "Youdenův index J měří schopnost binárního klasifikátoru oddělit pozitivní a negativní případy při daném prahu. Bod maximalizující J představuje optimální kompromis mezi vysokou senzitivitou (záchyt aktivních) a nízkým FPR (odmítnutí decoyů)."
+    },
+    {
+      "id": "m5_q3",
+      "type": "choice",
+      "question": "Jaká hodnota `ROCS_THRESHOLD` byla odvozena jako optimální v benchmarku CCR2 (`tutorial/advanced/rocs/config.py`)?",
+      "options": [
+        "0.871",
+        "0.100",
+        "1.950",
+        "0.000"
+      ],
+      "correct": 0,
+      "explanation": "V CCR2 benchmarku Youdenova analýza určila optimální dělící hranici na 0.871 TanimotoCombo skóre (při ~50 konformerech), což efektivně odděluje 75 známých aktivních ligandů CCR2 od 500 decoyů."
+    },
+    {
+      "id": "m5_q4",
+      "type": "choice",
+      "question": "Co představuje metrika `desired_ratio` sledovaná v průběhu RL tréninku v DrugEx?",
+      "options": [
+        "Podíl vygenerovaných molekul v dané epoše, které současně splňují stanovené prahové hodnoty ve všech optimalizovaných kritériích (např. $\\text{ROCS} \\ge 0.871$ a $\\text{SAScore} \\ge 0.1$).",
+        "Procento molekul obsahujících benzenové jádro.",
+        "Počet GPU výpočtů za sekundu.",
+        "Poměr mezi velikostí trénovací a validační sady."
+      ],
+      "correct": 0,
+      "explanation": "Desired ratio měří úspěšnost politiky generátoru. Na začátku tréninku bývá blízko 0.0, s postupujícími epochami konverguje k hodnotám >0.5 (více než 50% molekul splňuje všechny cíle)."
+    },
+    {
+      "id": "m5_q5",
+      "type": "choice",
+      "question": "Které dva skórovače jsou konfigurovány v základním prostředí `create_rdkit_environment()` v ROCS tutoriálu?",
+      "options": [
+        "`RDKitROCSScorer` (s referenčním souborem CCR2_reference_ligands.sdf) a `Property('SA')` (se SmoothClippedScore modifikátorem).",
+        "Pouze barevný histogram a počet atomů uhlíku.",
+        "Dokovací software AutoDock Vina a kalkulátor ceny syntézy.",
+        "Kalkulátor solubility a prediktor toxicity LD50."
+      ],
+      "correct": 0,
+      "explanation": "Základní prostředí kombinuje 3D tvarovou komplementaritu k referenčním ligandům CCR2 (ROCS) a penalizaci syntetické neproveditelnosti (SAScore)."
+    },
+    {
+      "id": "m5_q6",
+      "type": "choice",
+      "question": "Jaké metriky chemické kvality se vyhodnocují na sadě 10 000 molekul vygenerovaných z natrénovaného modelu (`generate_molecules.py`)?",
+      "options": [
+        "Chemická validita (procento validních SMILES), unikátnost (procento unikátních struktur), novost (novelty vůči Papyrus/ChEMBL) a interní diverzita (průměrná Tanimoto distance).",
+        "Pouze barva roztoku a teplota tání.",
+        "Počet znaků v souboru TSV.",
+        "Pouze datum vytvoření souboru."
+      ],
+      "correct": 0,
+      "explanation": "Validita, Uniqueness, Novelty a Internal Diversity tvoří standardní sadu metrik pro hodnocení de novo generativních modelů v medicinální chemii."
+    },
+    {
+      "id": "m5_q7",
+      "type": "choice",
+      "question": "Co znamená, když v analýze prahů dosáhnou referenční ligandy (Self-Similarity) vysokého skóre (>1.5)?",
+      "options": [
+        "Znamená to, že skórovač i konformační generátor fungují správně a referenční ligandy mají samy se sebou vysokou tvarovou a farmakoforovou shodu, což validuje nastavení geometrie.",
+        "Znamená to, že soubor SDF je poškozený.",
+        "Znamená to, že model má příliš mnoho parametrů.",
+        "Self-similarity skóre nemá žádný význam."
+      ],
+      "correct": 0,
+      "explanation": "Kontrola self-similarity je nutným sanitačním krokem: reference otestovaná proti referenčnímu souboru musí vygenerovat vysoké skóre (blízko 2.0)."
+    },
+    {
+      "id": "m5_q8",
+      "type": "choice",
+      "question": "Jaký je doporučený postup, pokud je trénink RL příliš pomalý na běžném CPU notebooku?",
+      "options": [
+        "Snížit `MAX_CONFORMERS` (např. z 50 na 20-30), snížit `RL_N_SAMPLES` (např. z 1000 na 500) a využít paralelismus `n_jobs=-1` s `num_threads=1`.",
+        "Vypnout operační systém a spustit kód v biosu.",
+        "Smazat referenční SDF soubor.",
+        "Zvýšit počet konformerů na 500."
+      ],
+      "correct": 0,
+      "explanation": "Generování konformací je výpočetně nejnáročnější částí. Snížení počtu konformerů a dávky na epochu výrazně urychlí trénink při zachování stability."
+    }
+  ]
+}

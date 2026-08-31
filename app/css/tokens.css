@@ -1,0 +1,167 @@
+/* DrugEx Hub — Design Tokens (VS Code Dark Modern + Bio/Chemo Accents) */
+
+:root {
+  /* Surfaces */
+  --bg: #181818;
+  --editor: #1f1f1f;
+  --sidebar: #181818;
+  --activitybar: #181818;
+  --titlebar: #181818;
+  --tabbar: #181818;
+  --panel: #181818;
+  --card-bg: #252526;
+  --card-hover: #2d2d30;
+  --statusbar: #007acc;
+  --statusbar-fg: #ffffff;
+
+  /* Borders & Shadows */
+  --border: #2b2b2b;
+  --border-subtle: #252525;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.5);
+
+  /* Typography */
+  --text: #cccccc;
+  --text-muted: #9d9d9d;
+  --text-faint: #6e7681;
+  --text-bright: #f0f0f0;
+
+  /* Interactive */
+  --accent: #38bdf8;
+  --accent-hover: #0ea5e9;
+  --accent-subtle: rgba(56, 189, 248, 0.15);
+  --list-hover: #2a2d2e;
+  --list-active: #04395e;
+  --list-active-hover: #094771;
+  --focus: #007fd4;
+  --focus-ring: 1px solid #007fd4;
+  --selection: #264f78;
+  --input-bg: #313131;
+  --input-border: #3c3c3c;
+
+  /* Bio & Chemo Accents */
+  --bio-green: #4ade80;
+  --bio-green-bg: rgba(74, 222, 128, 0.15);
+  --amber-warn: #fbbf24;
+  --amber-warn-bg: rgba(251, 191, 36, 0.15);
+  --rocs-purple: #c084fc;
+  --rocs-purple-bg: rgba(192, 132, 252, 0.18);
+  --chem-blue: #60a5fa;
+  --chem-blue-bg: rgba(96, 165, 250, 0.15);
+  --danger-red: #f87171;
+  --danger-red-bg: rgba(248, 113, 113, 0.15);
+
+  /* Tag Badges */
+  --tag-core: #4ade80;
+  --tag-core-bg: rgba(74, 222, 128, 0.15);
+  --tag-wow: #fbbf24;
+  --tag-wow-bg: rgba(251, 191, 36, 0.15);
+  --tag-legendary: #c084fc;
+  --tag-legendary-bg: rgba(192, 132, 252, 0.2);
+  --tag-tricky: #f87171;
+  --tag-tricky-bg: rgba(248, 113, 113, 0.18);
+  --tag-skip: #9ca3af;
+  --tag-skip-bg: rgba(156, 163, 175, 0.18);
+
+  /* Layout Measurements */
+  --activitybar-w: 48px;
+  --sidebar-w: 300px;
+  --sidebar-min: 220px;
+  --sidebar-max: 560px;
+  --titlebar-h: 34px;
+  --tabbar-h: 36px;
+  --statusbar-h: 24px;
+
+  /* Fonts */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13.5px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+  --lh: 1.55;
+
+  /* Transitions */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur: 150ms;
+  --radius-sm: 3px;
+  --radius: 5px;
+  --radius-lg: 8px;
+}
+
+html[data-theme="light"] {
+  --bg: #f8fafc;
+  --editor: #ffffff;
+  --sidebar: #f1f5f9;
+  --activitybar: #e2e8f0;
+  --titlebar: #e2e8f0;
+  --tabbar: #f1f5f9;
+  --panel: #f8fafc;
+  --card-bg: #ffffff;
+  --card-hover: #f1f5f9;
+  --statusbar: #0369a1;
+  --border: #cbd5e1;
+  --border-subtle: #e2e8f0;
+  --text: #1e293b;
+  --text-muted: #475569;
+  --text-faint: #94a3b8;
+  --text-bright: #0f172a;
+  --list-hover: #e2e8f0;
+  --list-active: #e0f2fe;
+  --list-active-hover: #bae6fd;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --accent: #0369a1;
+  --accent-hover: #075985;
+  --accent-subtle: rgba(3, 105, 161, 0.12);
+  --bio-green: #15803d;
+  --bio-green-bg: #dcfce7;
+  --amber-warn: #a16207;
+  --amber-warn-bg: #fef3c7;
+  --rocs-purple: #7c3aed;
+  --rocs-purple-bg: #f3e8ff;
+  --danger-red: #b91c1c;
+  --danger-red-bg: #fee2e2;
+  --tag-core: #15803d;
+  --tag-core-bg: #dcfce7;
+  --tag-wow: #a16207;
+  --tag-wow-bg: #fef3c7;
+  --tag-legendary: #7c3aed;
+  --tag-legendary-bg: #f3e8ff;
+  --tag-tricky: #b91c1c;
+  --tag-tricky-bg: #fee2e2;
+  --tag-skip: #475569;
+  --tag-skip-bg: #f1f5f9;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: var(--lh);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}

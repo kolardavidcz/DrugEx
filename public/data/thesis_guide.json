@@ -1,0 +1,83 @@
+{
+  "title": "Průvodce Bakalářskou Prací: De Novo Návrh & Tvarové Porovnávání",
+  "topic": "Kombinace de novo návrhu léčiv a metody tvarového porovnávání (shape matchingu)",
+  "sections": [
+    {
+      "id": "introduction",
+      "title": "1. Teoretický rámec & Specifika flexibilních cílů / IDP",
+      "content": "Tradiční strukturový návrh léčiv (Structure-Based Drug Design, SBDD) se opírá o existenci rigidních vazebných kapes určených rentgenovou krystalografií nebo kryo-elektronovou mikroskopií. U flexibilních proteinů, alosterických míst a zejména intrinsicky neuspořádaných proteinů (Intrinsically Disordered Proteins, IDP) však rigidní vazebná kapsa neexistuje nebo vykazuje vysokou konformační plasticitu. V těchto situacích běžné molekulární dokování selhává, protože neexistuje stabilní statická mřížka receptoru.\n\nLigand-based přístup kombinovaný s 3D tvarovým porovnáváním (ROCS) nabízí robustní alternativu: namísto modelování nestabilního proteinu modelujeme 3D tvarovou a elektrostatickou obálku známých aktivních ligandů (nebo ansámblu jejich bioaktivních konformací). Integrace tohoto 3D tvarového hodnocení do vícekriteriálního zpětnovazebního učení (MORL) v rámci platformy DrugEx umožňuje generovat zcela nové chemické scaffoldy, které přesně vyplňují požadovaný tvarový prostor a zachovávají klíčové farmakoforové interakce."
+    },
+    {
+      "id": "workflow",
+      "title": "2. Doporučený výpočetní postup (Standard Operating Procedure)",
+      "steps": [
+        {
+          "step": 1,
+          "name": "Příprava datové sady & Referenčních struktur",
+          "desc": "Získání známých aktivních ligandů cíle (SDF s 3D souřadnicemi), případně vytvoření konsensuální supermolekuly či ansámblu konformací. Příprava sady decoyů pro kalibraci prahu."
+        },
+        {
+          "step": 2,
+          "name": "Stanovení optimálního ROCS prahu (ROC / Youdenova analýza)",
+          "desc": "Spuštění threshold_analysis.py na aktivních ligandech a decoyích. Výpočet ROC křivky, AUC a Youdenova indexu J = TPR - FPR pro určení dělícího prahu TanimotoCombo (např. 0.871)."
+        },
+        {
+          "step": 3,
+          "name": "Jemné doladění generátoru (Fine-Tuning)",
+          "desc": "Dotrénování obecného modelu Papyrus (SequenceRNN nebo Transformer) na sadě cílových ligandů, čímž vznikne cílově zaměřená mutační síť (mutate network)."
+        },
+        {
+          "step": 4,
+          "name": "Vícekriteriální RL optimalizace (MORL)",
+          "desc": "Spuštění RL explorátoru (SequenceExplorer) s prostředím DrugExEnvironment obsahujícím RDKit/CDPKit/OpenEye ROCS skórovač a SAScorer modifikovaný přes SmoothClippedScore."
+        },
+        {
+          "step": 5,
+          "name": "Vzorkování, filtrace & Validace molekul",
+          "desc": "Vygenerování 5 000 – 10 000 molekul, filtrace duplicit, výpočet novosti vůči ChEMBL/Papyrus, interní diverzity (Tanimoto distance) a 3D vizuální kontrola překryvu konformerů."
+        }
+      ]
+    },
+    {
+      "id": "literature",
+      "title": "3. Klíčová literatura & Bibliografie",
+      "papers": [
+        {
+          "cite": "Liu et al. (2021) J. Cheminform.",
+          "title": "DrugEx v2: De Novo Design of Drug Molecules by Pareto-based Multi-Objective Reinforcement Learning",
+          "doi": "10.1186/s13321-021-00561-9",
+          "note": "Základní článek DrugEx zavádějící Pareto Crowding Distance pro vícekriteriální generování."
+        },
+        {
+          "cite": "Liu et al. (2023) J. Chem. Inf. Model.",
+          "title": "DrugEx v3: Scaffold-Constrained De Novo Design with Graph Transformers",
+          "doi": "10.1021/acs.jcim.2c01334",
+          "note": "Zavedení grafových transformerů a scaffold-constrained generování."
+        },
+        {
+          "cite": "Hawkins, P. C. et al. (2007) J. Med. Chem.",
+          "title": "Comparison of Shape-Matching and Docking as Virtual Screening Tools",
+          "doi": "10.1021/jm061248q",
+          "note": "Srovnání ROCS a dokování, prokazující vysokou efektivitu tvarového porovnávání u obtížných cílů."
+        },
+        {
+          "cite": "Ertl & Schuffenhauer (2009) J. Cheminform.",
+          "title": "Estimation of Synthetic Accessibility Score of Drug-like Molecules",
+          "doi": "10.1186/1758-2946-1-8",
+          "note": "SAScore algoritmus implementovaný v DrugEx jako penalizace nesyntetizovatelných struktur."
+        },
+        {
+          "cite": "Riniker & Landrum (2015) J. Chem. Inf. Model.",
+          "title": "Better Informed Distance Geometry: Using Torsion Angle Preferences from CSD to Improve Conformer Generation (ETKDG)",
+          "doi": "10.1021/acs.jcim.5b00654",
+          "note": "RDKit ETKDG algoritmus pro generování fyzikálně relevantních 3D konformací."
+        }
+      ]
+    },
+    {
+      "id": "methods_template",
+      "title": "4. Šablona výpočetních metod pro text bakalářské práce (LaTeX / Markdown)",
+      "template": "### Výpočetní metody (Computational Methods)\n\nDe novo generování molekul bylo realizováno pomocí platformy **DrugEx v3.4** (Liu et al., 2023) s využitím vícekriteriálního zpětnovazebního učení (Multi-Objective Reinforcement Learning, MORL). Jako výchozí generátor byl použit rekurentní model (Sequence RNN s buňkami LSTM) předtrénovaný na databázi Papyrus v05.5 (~1,5 milionu bioaktivních sloučenin). Generátor byl následně jemně dotrénován (fine-tuning) na známých ligandech cíle po dobu 100 epoch (optimalizátor Adam, learning rate $10^{-4}$, batch size 64).\n\nOptimalizační prostředí (`DrugExEnvironment`) integrovalo dvě komplementární skórovací funkce:\n1. **3D Tvarové porovnávání (ROCS)**: Hodnocení 3D tvarové a farmakoforové podobnosti s referenčními ligandy pomocí implementace RDKit (`RDKitROCSScorer`) s metrikou TanimotoCombo ($T_{combo} = T_{shape} + T_{color} \\in [0, 2]$). 3D konformace byly generovány pomocí algoritmu ETKDGv3 s maximálním počtem 50 konformerů a 4 stereoisomerů na molekulu. Dělící práh žádoucích molekul byl stanoven na základě ROC analýzy a Youdenova indexu ($J = \\text{TPR} - \\text{FPR}$) na validační sadě aktivních látek a decoyů.\n2. **Syntetická dostupnost (SAScore)**: Skóre syntetické proveditelnosti (Ertl & Schuffenhauer) normalizované pomocí funkce `SmoothClippedScore(lower_x=5.0, upper_x=3.0)` do intervalu $[0, 1]$.\n\nVícekriteriální kompromis byl řízen schématem **Pareto Crowding Distance** (Liu et al., 2021). Explorace byla řízena smíšenou politikou s fixní mutační sítí (explorační poměr $\\epsilon = 0.2$). Trénink probíhal po dobu 50 epoch se vzorkováním 1 000 molekul v každé epoše. Z finálního modelu bylo vygenerováno 10 000 kandidátních sloučenin, které byly filtrovány na základě chemické validity, novosti vůči trénovací sadě a interní diverzity."
+    }
+  ]
+}

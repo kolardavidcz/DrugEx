@@ -1,0 +1,110 @@
+{
+  "moduleId": "m3",
+  "title": "Modul 3: 3D Tvarové Porovnávání (ROCS), Flexibilní Cíle & IDP",
+  "questions": [
+    {
+      "id": "m3_q1",
+      "type": "choice",
+      "question": "Jak je matematicky definována metrika TanimotoCombo v metodě ROCS?",
+      "options": [
+        "Jako prostý součet tvarové podobnosti (Shape Tanimoto $\\in [0, 1]$) a farmakoforové barevné podobnosti (Color Tanimoto $\\in [0, 1]$), celkově v rozsahu $[0, 2]$.",
+        "Jako euklidovská vzdálenost těžišť obou molekul v angströmech.",
+        "Jako podíl molekulových hmotností násobený logP.",
+        "Jako kosínová podobnost 2D Morganových fingerprintů."
+      ],
+      "correct": 0,
+      "explanation": "TanimotoCombo = ShapeTanimoto + ColorTanimoto. Hodnota 2.0 představuje identický 3D tvar i identické prostorové uspořádání farmakoforových skupin (donory/akceptory H-vazeb, hydrofobní a aromatická centra)."
+    },
+    {
+      "id": "m3_q2",
+      "type": "choice",
+      "question": "Proč je metoda ROCS klíčová pro návrh ligandů u intrinsicky neuspořádaných proteinů (IDP) nebo vysoce flexibilních cílů?",
+      "options": [
+        "Protože IDP nemají stabilní 3D krystalickou vazebnou kapsu pro molekulární dokování; ROCS umožňuje ligand-based přístup založený na tvaru známých aktivních sloučenin.",
+        "Protože ROCS dokáže automaticky zkrystalizovat jakýkoliv IDP protein za pokojové teploty.",
+        "Protože IDP vyžadují výhradně anorganické sloučeniny.",
+        "ROCS se pro flexibilní cíle nehodí a je určen pouze pro rigidní krystaly."
+      ],
+      "correct": 0,
+      "explanation": "U IDP a flexibilních proteinů chybí rigidní struktura vazebného místa. Znalost 3D tvaru funkčních ligandů (nebo jejich ansámblu) poskytuje nepřímou 'otiskovou formu' vazebné komplementarity."
+    },
+    {
+      "id": "m3_q3",
+      "type": "choice",
+      "question": "K čemu slouží algoritmus ETKDGv3 v `RDKitConformerGenerator`?",
+      "options": [
+        "Generuje energeticky a geometricky realistické 3D konformace molekul na základě experimentálních torzních úhlů z Cambridge Structural Database (CSD).",
+        "Slouží k převodu SMILES do formátu FASTA.",
+        "Provádí ab initio kvantové výpočty vazebných délek.",
+        "Filtruje molekuly podle pravidla Lipinského."
+      ],
+      "correct": 0,
+      "explanation": "ETKDG (Experimental-Torsion Knowledge Distance Geometry) kombinuje distanční geometrii s empirickými torzními preferencemi z krystalových struktur pro rychlé a fyzikálně věrné vzorkování 3D konformerů."
+    },
+    {
+      "id": "m3_q4",
+      "type": "choice",
+      "question": "Proč `RDKitConformerGenerator` a ostatní generátory v DrugEx filtrují molekuly s příliš velkým počtem rotovatelných vazeb (`max_rotatable_bonds`) a těžkých atomů (`max_heavy_atoms`)?",
+      "options": [
+        "Protože molekuly s vysokou flexibilitou mají obrovský konformační prostor, jejich generování konformací je výpočetně neúnosně pomalé a mívají špatné farmakokinetické vlastnosti.",
+        "Protože RDKit nepodporuje molekuly s více než 5 atomy.",
+        "Protože rotovatelné vazby způsobují zhroucení PyTorch tensorů.",
+        "Filtrování se provádí pouze kvůli formátu souboru SDF."
+      ],
+      "correct": 0,
+      "explanation": "Molekuly s >15 rotovatelnými vazbami mají miliardy možných konformací; jejich adekvátní vzorkování v reálném čase RL smyčky je nemožné a většinou jde o 'lepivé' nedrogové struktury."
+    },
+    {
+      "id": "m3_q5",
+      "type": "choice",
+      "question": "Jak řeší generátory konformací v DrugEx nedefinovanou stereochemii v molekulách?",
+      "options": [
+        "Všechna chirální centra jsou smazána a nahrazena planárními vazbami.",
+        "Pomocí stereoisomerní enumerace (`EnumerateStereoisomers` / `StereoisomerGenerator`) vygenerují až `max_isomers` stereoizomerů a pro každý vytvoří sadu 3D konformací.",
+        "Stereochemie je v DrugEx ignorována.",
+        "Při nalezení chirálního centra se molekula okamžitě zahodí."
+      ],
+      "correct": 1,
+      "explanation": "Generátory explicitně enumerují stereoisomery s nedefinovanými chirálními centry (až do limitu max_isomers), aby se otestovaly prostorově odlišné 3D orientace substituentů."
+    },
+    {
+      "id": "m3_q6",
+      "type": "choice",
+      "question": "Jaký parametr v `RDKitConformerGenerator(num_threads=...)` je doporučen při spuštění s paralelním skórováním (`n_jobs > 1`)?",
+      "options": [
+        "num_threads = 0",
+        "num_threads = 1 (aby nedocházelo k CPU oversubscription a vzájemnému blokování procesů)",
+        "num_threads = 64",
+        "num_threads = -1"
+      ],
+      "correct": 1,
+      "explanation": "Pokud již běží multiprocessing pool (n_jobs procesů), každý proces by měl používat num_threads=1, aby se zabránilo přetížení CPU jader a degradaci výkonu."
+    },
+    {
+      "id": "m3_q7",
+      "type": "choice",
+      "question": "Co je to 'Supermolekula' (Supermolecule) v kontextu tvarového porovnávání?",
+      "options": [
+        "Jediná fiktivní nebo kompozitní 3D struktura vzniklá sloučením klíčových farmakoforových rysů několika aktivních ligandů do jednoho referenčního tvaru.",
+        "Polymer s molekulovou hmotností nad 100 000 Da.",
+        "Komplex proteinu s DNA.",
+        "Název pro model Sequence Transformer v DrugEx."
+      ],
+      "correct": 0,
+      "explanation": "Supermolekula (supermol) sjednocuje vazebné geometrie několika překrytých aktivních struktur do jedné referenční šablony, což urychluje skórování a zachycuje více vazebných pod-kapes."
+    },
+    {
+      "id": "m3_q8",
+      "type": "choice",
+      "question": "Které silové pole se standardně používá v OpenEye ROCS pro vyhodnocení shody farmakoforových barev?",
+      "options": [
+        "ImplicitMillsDean",
+        "AMBER99",
+        "CHARMM36",
+        "OPLS-AA"
+      ],
+      "correct": 0,
+      "explanation": "ImplicitMillsDean je de-facto standardní farmakoforové barevné silové pole v OpenEye ROCS definující donory, akceptory, anionty, kationty, hydrofobní a aromatické body."
+    }
+  ]
+}

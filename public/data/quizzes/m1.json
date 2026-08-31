@@ -1,0 +1,136 @@
+{
+  "moduleId": "m1",
+  "title": "Modul 1: De Novo Generování & Molekulární Reprezentace v DrugEx",
+  "questions": [
+    {
+      "id": "m1_q1",
+      "type": "choice",
+      "question": "Jaký je hlavní rozdíl mezi reprezentací molekuly pomocí SMILES a molekulárního grafu při generování nových sloučenin?",
+      "options": [
+        "SMILES je 1D textová sekvence náchylná k nevalidní syntaxi závorek a cyklů, zatímco graf přímo reprezentuje topologii atomů a vazeb.",
+        "SMILES obsahuje 3D kartézské souřadnice atomů, zatímco graf popisuje pouze 2D planární projekci.",
+        "Grafová reprezentace vyžaduje výrazně méně paměti než 1D SMILES řetězec.",
+        "SMILES neumí reprezentovat aromatické kruhy a heteroatomy, zatímco graf ano."
+      ],
+      "correct": 0,
+      "explanation": "SMILES je jedno-dimenzionální linearizace grafu. Při generování token po tokenu může model vytvořit syntakticky nevalidní řetězec (např. neuzavřený kruh či nespárovanou závorku). Grafové modely generují přímo uzly a hrany, což eliminuje gramatické chyby SMILES."
+    },
+    {
+      "id": "m1_q2",
+      "type": "choice",
+      "question": "K čemu slouží třída `VocSmiles` v balíčku DrugEx?",
+      "options": [
+        "K ukládání 3D kartézských souřadnic a výpočtu dipólového momentu.",
+        "Definuje slovník povolených chemických tokenů (např. 'C', 'N', '=', '[nH]'), jejich mapování na celočíselné indexy a obsluhuje speciální tokeny (START, END, PAD).",
+        "Slouží výhradně k vizualizaci 2D chemických struktur ve formátu PNG.",
+        "Provádí kvantově-chemické výpočty HOMO-LUMO orbitalů."
+      ],
+      "correct": 1,
+      "explanation": "VocSmiles je tokenizační slovník DrugEx pro SMILES řetězce, který mapuje textové symboly na celá čísla a zpět a spravuje řídicí tokeny pro trénování neuronových sítí."
+    },
+    {
+      "id": "m1_q3",
+      "type": "choice",
+      "question": "Proč DrugEx před trénováním generátorů standardizuje molekuly pomocí `SmilesStandardizer`?",
+      "options": [
+        "Aby se odstranily protiionty/soli, neutralizovaly náboje (kde je to vhodné), kanonizovaly tautomery a sjednotil formát SMILES pro stabilní trénink.",
+        "Aby se molekuly převedly do binárního formátu SDF pro dokování.",
+        "Aby se všechny molekuly zvětšily na minimální molekulovou hmotnost 500 Da.",
+        "Standardizace slouží pouze ke generování 3D konformací pomocí MMFF94."
+      ],
+      "correct": 0,
+      "explanation": "Standardizace odstraňuje šum v datech (soli, rozpouštědla, nekonzistentní tautomery) a zaručuje, že model se učí z čistých a kanonických chemických struktur."
+    },
+    {
+      "id": "m1_q4",
+      "type": "choice",
+      "question": "Jak funguje generování sekvence v modelu `SequenceRNN` v DrugEx?",
+      "options": [
+        "Model vygeneruje všechny tokeny naráz v jediném dopředném průchodu bez rekurence.",
+        "Model využívá náhodné mutace genů bez jakékoliv neuronové sítě.",
+        "Autoregresně: v každém kroku předpovídá pravděpodobnostní distribuci následujícího tokenu na základě předchozích tokenů a skrytého stavu GRU/LSTM buňky, dokud nevygeneruje token END.",
+        "Model optimalizuje pouze energii molekuly v silovém poli."
+      ],
+      "correct": 2,
+      "explanation": "SequenceRNN je autoregresní model, kde výstup v čase t-1 a skrytý stav sítě h_{t-1} určují podmíněnou pravděpodobnost P(x_t | x_{<t}). Generování končí tokenem END nebo dosažením maximální délky."
+    },
+    {
+      "id": "m1_q5",
+      "type": "choice",
+      "question": "Jaký je účel dvoufázového trénování (Pre-training $\\rightarrow$ Fine-tuning) v DrugEx?",
+      "options": [
+        "Fine-tuning je určen pouze pro kvantování vah na 8-bit integer.",
+        "Pre-training na velké obecné databázi (např. Papyrus) naučí model základní chemickou gramatiku a valenční pravidla; fine-tuning na menší sadě aktivních ligandů zaměří generátor na specifický chemotyp cíle.",
+        "Pre-training slouží k výběru hyperparametrů a fine-tuning k vygenerování 3D souřadnic.",
+        "Dvoufázový trénink se používá jen tehdy, pokud nemáme GPU."
+      ],
+      "correct": 1,
+      "explanation": "Papyrus (~1.5M molekul) poskytuje modelu znalost obecného chemického prostoru. Následný fine-tuning na desítkách až stovkách známých ligandů cíle (např. CCR2) posune pravděpodobnostní rozdělení generátoru k žádaným bioaktivním motivům."
+    },
+    {
+      "id": "m1_q6",
+      "type": "choice",
+      "question": "Který parametr v příkazu `python -m drugex.dataset` určuje, že se data připravují pro grafový transformer?",
+      "options": [
+        "-mt graph",
+        "-model_type rnn_lstm",
+        "-encoding_format xyz",
+        "-target_pocket 3d"
+      ],
+      "correct": 0,
+      "explanation": "Parametr `-mt graph` (molecule type) specifikuje grafový formát a spustí grafové kódování molekul včetně matic sousednosti a atomových vlastností."
+    },
+    {
+      "id": "m1_q7",
+      "type": "choice",
+      "question": "Jaká je hlavní výhoda `GraphTransformer` oproti `SequenceRNN` při de novo návrhu?",
+      "options": [
+        "Grafový transformer pracuje přímo s topologií molekuly, umožňuje scaffold-constrained generování a eliminuje syntaktické chyby způsobené linearizací do SMILES.",
+        "Grafový transformer je 100x rychlejší na CPU než jednoduché RNN.",
+        "Grafový transformer nevyžaduje žádná trénovací data.",
+        "Grafový transformer automaticky počítá vazebnou volnou energii delta G v kcal/mol."
+      ],
+      "correct": 0,
+      "explanation": "GraphTransformer operuje s grafovou strukturou, což zaručuje 100% syntaktickou validitu generovaných grafů a usnadňuje fixaci vybraných fragmentů/scaffoldů."
+    },
+    {
+      "id": "m1_q8",
+      "type": "choice",
+      "question": "Co způsobí nastavení vysoké teploty (např. $T = 1.5$) při vzorkování ze softmax distribuce generátoru?",
+      "options": [
+        "Generátor bude generovat pouze nejčastější molekulu z trénovací sady.",
+        "Dojde k vyhlazení pravděpodobnostní distribuce tokenů, což zvýší diverzitu generovaných struktur, ale může mírně snížit podíl chemicky validních molekul.",
+        "Generátor začne generovat molekuly s vysokou afinitou bez nutnosti trénování.",
+        "Teplota nemá na vzorkování žádný vliv."
+      ],
+      "correct": 1,
+      "explanation": "Teplota T škáluje logity: P(x_i) = exp(z_i / T) / sum(exp(z_j / T)). Vyšší T činí distribuci uniformnější (vyšší diverzita / risk nevalidity), nižší T (< 1.0) činí model konzervativním."
+    },
+    {
+      "id": "m1_q9",
+      "type": "choice",
+      "question": "Který speciální token v `VocSmiles` signalizuje začátek generování nového řetězce?",
+      "options": [
+        "Token END",
+        "Token PAD",
+        "Token START (nebo GO token)",
+        "Token UNK"
+      ],
+      "correct": 2,
+      "explanation": "Generování začíná předáním tokenu START (GO) jako prvního vstupu do generátoru, ze kterého model předpoví první chemický atom."
+    },
+    {
+      "id": "m1_q10",
+      "type": "choice",
+      "question": "Jaký je formát souboru s příponou `.pkg` vytvářeného v DrugEx během tréninku?",
+      "options": [
+        "Čistý textový soubor obsahující pouze SMILES řetězce.",
+        "PyTorch serializovaný balíček (state_dict) obsahující váhy modelu, architekturu a metadata generátoru.",
+        "Binární 3D trajektorie molekulární dynamiky.",
+        "Kompilovaná C++ dynamická knihovna pro OpenEye."
+      ],
+      "correct": 1,
+      "explanation": ".pkg soubory v DrugEx jsou serializované PyTorch kontrolní body (checkpoints) obsahující kompletní stav vah a konfiguraci modelu."
+    }
+  ]
+}

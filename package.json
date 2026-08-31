@@ -1,0 +1,24 @@
+{
+  "name": "drugex-hub",
+  "version": "1.0.0",
+  "description": "DrugEx Hub · De Novo Drug Design & ROCS Shape-Matching Educational Platform and Workbench for Bachelor Thesis",
+  "type": "module",
+  "scripts": {
+    "start": "python3 serve.py 34100",
+    "check:syntax": "node --check app/js/app.js && node --check app/js/router.js && node --check app/js/state.js && node --check app/js/content.js && node --check app/js/dojos.js && node --check app/js/quiz.js && node --check app/js/format.js && node --check app/js/tree.js && node --check app/js/ui.js",
+    "check:contrast": "node tools/check_contrast.mjs",
+    "check:quiz": "node tools/quiz_stat.mjs",
+    "build": "node tools/prepare_build.mjs",
+    "test": "pnpm check:syntax && pnpm check:contrast && pnpm check:quiz && pnpm build"
+  },
+  "keywords": [
+    "drugex",
+    "de-novo-drug-design",
+    "rocs",
+    "reinforcement-learning",
+    "chemoinformatics",
+    "bachelor-thesis"
+  ],
+  "author": "David Kolar (VŠCHT Praha)",
+  "license": "MIT"
+}

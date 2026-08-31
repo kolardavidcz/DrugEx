@@ -1,0 +1,100 @@
+/* DrugEx Hub — Unified A4 Print Engine & Thesis Study Sheets (@media print) */
+
+@media print {
+  /* Hide all interactive shell chrome */
+  .titlebar,
+  .activitybar,
+  .sidebar,
+  .statusbar,
+  .tb-btn,
+  .tabbar-controls,
+  .stepper-bar,
+  .viewer3d-toolbar,
+  .toast-container,
+  .modal-overlay {
+    display: none !important;
+  }
+
+  /* Reset body and html for high-fidelity paper printing */
+  html, body, #app, .workbench, .main-area, .content-viewport {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    line-height: 1.4 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .content-viewport {
+    max-width: 100% !important;
+    padding: 0.5cm !important;
+  }
+
+  /* 2-Column Study Layout */
+  .lecture-container, .thesis-guide-container {
+    max-width: 100% !important;
+  }
+
+  .slide-card, .dojo-card, .question-card {
+    border: 1px solid #cccccc !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-bottom: 15pt !important;
+    padding: 12pt !important;
+  }
+
+  .slide-title, .dojo-title, .lecture-title {
+    color: #000000 !important;
+  }
+
+  /* Comparative Grid in Print */
+  .compare-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10pt !important;
+  }
+  .compare-col {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #000000 !important;
+  }
+
+  /* Code Blocks in Print */
+  .code-container {
+    border: 1px solid #94a3b8 !important;
+    background: #f8fafc !important;
+    page-break-inside: avoid;
+  }
+  .code-block {
+    background: #f8fafc !important;
+    color: #0f172a !important;
+  }
+  .code-block code {
+    color: #0f172a !important;
+  }
+
+  /* Syntax Highlighting for Print */
+  .syn-kw { color: #0000ff !important; font-weight: bold; }
+  .syn-fn { color: #795e26 !important; }
+  .syn-str { color: #a31515 !important; }
+  .syn-com { color: #008000 !important; font-style: italic; }
+
+  /* Alert Boxes in Print */
+  .alert-box {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    border-left: 4pt solid #0284c7 !important;
+    color: #000000 !important;
+    page-break-inside: avoid;
+  }
+
+  /* Page Headers and Footers */
+  @page {
+    size: A4;
+    margin: 1.2cm 1cm;
+  }
+}

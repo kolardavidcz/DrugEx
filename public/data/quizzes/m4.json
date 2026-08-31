@@ -1,0 +1,110 @@
+{
+  "moduleId": "m4",
+  "title": "Modul 4: Kompletní Architektura ROCS Backendů (feature/rocs-scoring)",
+  "questions": [
+    {
+      "id": "m4_q1",
+      "type": "choice",
+      "question": "Jak `RDKitROCSScorer` v souboru `drugex/training/scorers/rocs_rdkit.py` optimalizuje výkon při skórování dávky molekul z RL generátoru?",
+      "options": [
+        "Provádí deduplikaci SMILES řetězců (`_deduplicate_smiles`), takže generování konformací a skórování proběhne pro identické generované molekuly pouze jednou a výsledek se namapuje zpět na všechny výskyty.",
+        "Přeskakuje všechny molekuly obsahující dusík.",
+        "Počítá skóre pouze z 2D strukturních vzorců bez 3D zarovnání.",
+        "Používá náhodná čísla namísto zarovnání."
+      ],
+      "correct": 0,
+      "explanation": "Při RL vzorkování generátor často vygeneruje identické molekuly. Deduplikace SMILES před generováním konformací ušetří až 40-70% výpočetního času v každé epoše."
+    },
+    {
+      "id": "m4_q2",
+      "type": "choice",
+      "question": "Jakým způsobem předává `RDKitROCSScorer` referenční molekuly do paralelních worker procesů?",
+      "options": [
+        "Přes globální inicializátor `initializer=_rdkit_worker_init` v `multiprocessing.Pool`, což zajistí jednorázové předání neměnného stavu a eliminuje serializační overhead při každé úloze.",
+        "Ukládáním do textového souboru na disk před každou molekulou.",
+        "Přes HTTP REST API server.",
+        "Referenční molekuly se v paralelním režimu nepoužívají."
+      ],
+      "correct": 0,
+      "explanation": "Použití Pool initializátoru zajistí, že těžké referenční objekty jsou do workeru poslány pouze jednou při jeho spuštění a neserializují se znovu s každým atomárním úkolem."
+    },
+    {
+      "id": "m4_q3",
+      "type": "choice",
+      "question": "Jaká je hlavní výhoda `CDPKitROCSScorer` (`rocs_cdpkit.py`) pro akademické a open-source projekty?",
+      "options": [
+        "Je 100% open-source (bez nutnosti komerční licence OpenEye), využívá CDPL.Shape Gaussovské tvary a dosahuje vysoké rychlosti bez spouštění externích CLI binárek.",
+        "Nevyžaduje žádný procesor ani paměť RAM.",
+        "Funguje pouze v prostředí Google Colab.",
+        "Automaticky syntetizuje sloučeniny v laboratoři."
+      ],
+      "correct": 0,
+      "explanation": "CDPKit je volně dostupný C++/Python toolkit pro chemoinformatiku. Umožňuje plnohodnotné 3D tvarové porovnávání na standardním Linux/WSL prostředí bez drahých komerčních licencí."
+    },
+    {
+      "id": "m4_q4",
+      "type": "choice",
+      "question": "Jak řeší `CDPKitScoringWorker` sdílení kontextu mezi procesy bez použití nebezpečných modulových globálních proměnných?",
+      "options": [
+        "Využívá třídní kontext zapouzdřený v `@dataclass CDPKitWorkerContext`, který se nastaví metodou `initialize()` při spuštění workeru v Poolu.",
+        "Používá globální proměnnou sys.path.",
+        "Předává data přes systémovou schránku (clipboard).",
+        "Všechny proměnné se zapisují do registru Windows."
+      ],
+      "correct": 0,
+      "explanation": "Dataclass CDPKitWorkerContext zapouzdřuje referenční tvary, mapování skupin a cestu k SDF souboru, což zajišťuje thread-safe a process-safe čistou architekturu."
+    },
+    {
+      "id": "m4_q5",
+      "type": "choice",
+      "question": "Jak komunikuje `OpenEyeROCSScorer` (`rocs_openeye.py`) s výpočetním jádrem ROCS?",
+      "options": [
+        "Spouští oficiální OpenEye CLI binárku `rocs` přes `subprocess.run` s přepínači `-query`, `-dbase`, `-report one`, `-stats best` a `-nostructs` a následně parsuje vygenerovaný TSV report.",
+        "Posílá dotazy přes WebSocket na cloudový server OpenEye.",
+        "Používá emulátor DOSBox.",
+        "Čte paměť grafické karty přes DirectX."
+      ],
+      "correct": 0,
+      "explanation": "OpenEyeROCSScorer využívá robustní hybridní přístup: přípravu dat a referencí řídí v Pythonu a samotné vysoce optimalizované tvarové skórování deleguje na nativní binárku rocs."
+    },
+    {
+      "id": "m4_q6",
+      "type": "choice",
+      "question": "Jaký typ referenčních souborů podporuje výhradně OpenEye backend, ale nepodporují jej RDKit a CDPKit?",
+      "options": [
+        "OpenEye VROCS Shape Query soubory s příponou `.sq` (obsahující předpočítané farmakoforové a tvarové rysy).",
+        "Formát FASTA pro aminokyseliny.",
+        "Formát PDB pro makromolekuly.",
+        "Obyčejný tabulkový CSV soubor."
+      ],
+      "correct": 0,
+      "explanation": ".sq soubory jsou binární/textové shape queries z GUI nástroje OpenEye vROCS. RDKit a CDPKit pracují se standardními SDF soubory s 3D souřadnicemi."
+    },
+    {
+      "id": "m4_q7",
+      "type": "choice",
+      "question": "Co se stane, pokud do `RDKitROCSScorer` předáme referenční molekulu, která nemá předgenerované 3D konformace?",
+      "options": [
+        "Metoda `_ensure_reference_conformers` automaticky vygeneruje 3D konformaci pomocí `AllChem.EmbedMolecule` s algoritmem ETKDGv3.",
+        "Skórovač okamžitě spadne s chybou Segmentation Fault.",
+        "Referenční molekula je tiše ignorována a skóre bude vždy 0.",
+        "Molekula se převede na 2D obrázek SVG."
+      ],
+      "correct": 0,
+      "explanation": "Implementace v rocs_rdkit.py je robustní: pokud referenční molekula postrádá konformace, automaticky provede AddHs a ETKDGv3 embedding."
+    },
+    {
+      "id": "m4_q8",
+      "type": "choice",
+      "question": "Jak funguje skupinové skórování (Group Definitions / Multi-reference), když do `RDKitROCSScorer` zadáme slovník referencí např. `{'orthosteric': ['ref1.sdf', 'ref2.sdf'], 'allosteric': ['ref3.sdf']}`?",
+      "options": [
+        "Pro každou molekulu skórovač vrátí vektor skóre (pro každou skupinu maximální TanimotoCombo skóre ze všech referencí v dané skupině), což umožňuje multi-target / multi-site optimalizaci.",
+        "Všechny reference se náhodně pomíchají a vrátí se jen jedno číslo.",
+        "Skórovač akceptuje pouze první soubor a zbytek ignoruje.",
+        "Slovníkový zápis není povolen."
+      ],
+      "correct": 0,
+      "explanation": "Skupinové skórování umožňuje vyhodnocovat kompatibilitu s více vazebnými módy nebo pod-místy a vracet samostatný sloupec skóre pro každou referenční skupinu."
+    }
+  ]
+}

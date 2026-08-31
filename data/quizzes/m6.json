@@ -1,0 +1,110 @@
+{
+  "moduleId": "m6",
+  "title": "Modul 6: Fragmentový Návrh, Scaffolding & Produkční CLI / Slurm",
+  "questions": [
+    {
+      "id": "m6_q1",
+      "type": "choice",
+      "question": "Jak funguje fragmentační algoritmus BRICS (Breaks on Retrosynthetically Interesting Chemical Substructures) v DrugEx?",
+      "options": [
+        "Štěpí molekulu na strategických chemických vazbách odpovídajících běžným organickým syntetickým reakcím (např. amidické vazby, estery, ethery) a označuje vzniklé konce čísly syntetických typů.",
+        "Náhodně odstraní polovinu atomů v molekule bez ohledu na valenci.",
+        "Převede molekulu na jednotlivé izolované atomy uhlíku.",
+        "Štěpí výhradně vazby C-H."
+      ],
+      "correct": 0,
+      "explanation": "BRICS štěpí molekuly na 16 předdefinovaných typech synteticky proveditelných vazeb (např. alkyl-aryl, amid, sulfonamid), což zaručuje, že de novo kombinace fragmentů má reálnou syntetickou cestu."
+    },
+    {
+      "id": "m6_q2",
+      "type": "choice",
+      "question": "K čemu slouží modely `FragSequenceExplorer` a `FragGraphExplorer`?",
+      "options": [
+        "Umožňují scaffold-based generování: vezmou pevně zadaný fragment nebo scaffold (např. jádro vázané v kapse) a generují pouze variabilní substituenty nebo propojovací linkery.",
+        "Slouží ke kompresi videa v reálném čase.",
+        "Automaticky kreslí 3D diagramy v AutoCADu.",
+        "Počítají molekulovou hmotnost z empirického vzorce."
+      ],
+      "correct": 0,
+      "explanation": "Fragmentové explorátory umožňují cílený růst z fragmentu (fragment growing) nebo design spojovacích řetězců (linker design) se zachováním pevného jádra."
+    },
+    {
+      "id": "m6_q3",
+      "type": "choice",
+      "question": "Který parametr v `drugex.train` určuje, že chceme spustit režim Reinforcement Learningu namísto Fine-Tuningu?",
+      "options": [
+        "-tm RL",
+        "-mode supervised_learning",
+        "-train_type standard_sgd",
+        "-engine docker"
+      ],
+      "correct": 0,
+      "explanation": "Přepínač `-tm RL` (training mode) aktivuje vícekriteriální zpětnovazební učení s explorátorem a prostředím skórovačů."
+    },
+    {
+      "id": "m6_q4",
+      "type": "choice",
+      "question": "Jaký význam má parametr `-pr` (prior) při spouštění tréninku `drugex.train -tm RL`?",
+      "options": [
+        "Určuje cestu k souboru s fixním modelem (prior / mutate network), který slouží jako stabilní reference pro exploraci chemického prostoru.",
+        "Nastavuje prioritu procesu v operačním systému Windows.",
+        "Určuje port lokálního HTTP serveru.",
+        "Aktivuje tisk barevných protokolů na tiskárně."
+      ],
+      "correct": 0,
+      "explanation": "Prior (-pr) je fixní síť, ze které se vzorkuje explorativní část molekul, aby se zamezilo přeučení agenta do jedné izolované chemické struktury."
+    },
+    {
+      "id": "m6_q5",
+      "type": "choice",
+      "question": "Která proměnná prostředí musí být nastavena na GPU klastru pro správnou funkci OpenEye ROCS skórovače?",
+      "options": [
+        "export OE_LICENSE=/cesta/k/oe_license.txt",
+        "export CUDA_VISIBLE_DEVICES=none",
+        "export PYTHON_DISABLE_MATH=1",
+        "export DRUGEX_OFFLINE_MODE=true"
+      ],
+      "correct": 0,
+      "explanation": "OpenEye toolkits vyžadují platný licenční soubor odkazovaný v proměnné prostředí OE_LICENSE."
+    },
+    {
+      "id": "m6_q6",
+      "type": "choice",
+      "question": "Jaká direktiva ve Slurm skriptu `#SBATCH` alokuje 1 grafickou kartu NVIDIA pro DrugEx trénink?",
+      "options": [
+        "#SBATCH --gres=gpu:1 (nebo --gpus=1)",
+        "#SBATCH --cpu-only",
+        "#SBATCH --memory=1KB",
+        "#SBATCH --network=dialup"
+      ],
+      "correct": 0,
+      "explanation": "--gres=gpu:1 (Generic Resource GPU) sdělí Slurm plánovači, aby pro danou úlohu vyhradil 1 dedikovanou GPU."
+    },
+    {
+      "id": "m6_q7",
+      "type": "choice",
+      "question": "Jak DrugEx chrání data před nechtěným přepsáním při opakovaném spouštění preprocessingových skriptů?",
+      "options": [
+        "Automaticky vytváří záložní složky ve formátu `backup_{cislo}` v datovém adresáři.",
+        "Pošle varovný e-mail administrátorovi klastru.",
+        "Zablokuje zápis na disk na 24 hodin.",
+        "Zálohování se v DrugEx neprovádí."
+      ],
+      "correct": 0,
+      "explanation": "Při běhu `drugex.dataset` jsou předchozí verze zpracovaných souborů přesunuty do složek backup_1, backup_2 atd., což umožňuje snadný návrat k dřívějšímu stavu."
+    },
+    {
+      "id": "m6_q8",
+      "type": "choice",
+      "question": "Který příkaz DrugEx vygeneruje 1 000 nových molekul z natrénovaného modelu `arl_graph_trans_RL.pkg` a uloží je do TSV tabulky?",
+      "options": [
+        "python -m drugex.generate -b tutorial/CLI/examples -g arl_graph_trans_RL -n 1000 -gpu 0",
+        "python -m drugex.delete --all",
+        "python -m drugex.print_stats",
+        "python -m drugex.benchmark --quick"
+      ],
+      "correct": 0,
+      "explanation": "Skript `drugex.generate` obstarává vzorkování, scoring generovaných sloučenin a jejich uložení do přehledné tabulky TSV s vypočtenými skóre ze všech cílů."
+    }
+  ]
+}
