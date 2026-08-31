@@ -6,11 +6,12 @@
   "scripts": {
     "start": "python3 serve.py 34100",
     "check:syntax": "node --check app/js/app.js && node --check app/js/router.js && node --check app/js/state.js && node --check app/js/content.js && node --check app/js/dojos.js && node --check app/js/quiz.js && node --check app/js/format.js && node --check app/js/tree.js && node --check app/js/ui.js && node --check app/js/lectures/m1.js && node --check app/js/lectures/m2.js && node --check app/js/lectures/m3.js && node --check app/js/lectures/m4.js && node --check app/js/lectures/m5.js && node --check app/js/lectures/m6.js",
+    "check:highlight": "node tools/test_highlighting.mjs",
     "check:contrast": "node tools/check_contrast.mjs",
     "check:quiz": "node tools/quiz_stat.mjs",
     "build": "node tools/prepare_build.mjs",
     "pdf": "node tools/generate_pdf.mjs",
-    "test": "pnpm check:syntax && pnpm check:contrast && pnpm check:quiz && pnpm build"
+    "test": "pnpm check:syntax && pnpm check:highlight && pnpm check:contrast && pnpm check:quiz && pnpm build"
   },
   "keywords": [
     "drugex",

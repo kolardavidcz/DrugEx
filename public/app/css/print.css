@@ -1,100 +1,279 @@
-/* DrugEx Hub — Unified A4 Print Engine & Thesis Study Sheets (@media print) */
+/* DrugEx Hub — Publication-Grade A4 Print Engine & PDF Generator (@media print) */
 
 @media print {
-  /* Hide all interactive shell chrome */
+  /* Hide all interactive shell chrome & navigation */
   .titlebar,
   .activitybar,
   .sidebar,
   .statusbar,
+  .tabbar,
   .tb-btn,
   .tabbar-controls,
   .stepper-bar,
   .viewer3d-toolbar,
   .toast-container,
-  .modal-overlay {
+  .modal-overlay,
+  .lecture-action-strip,
+  .lecture-pagination,
+  .filter-strip,
+  #btnProfile,
+  #btnTheme,
+  .chip {
     display: none !important;
   }
 
-  /* Reset body and html for high-fidelity paper printing */
+  /* Reset body and layout for high-fidelity continuous printing */
   html, body, #app, .workbench, .main-area, .content-viewport {
     height: auto !important;
+    min-height: auto !important;
     overflow: visible !important;
     background: #ffffff !important;
-    color: #000000 !important;
-    font-size: 11pt !important;
-    line-height: 1.4 !important;
+    color: #0f172a !important;
+    font-size: 10pt !important;
+    line-height: 1.45 !important;
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   .content-viewport {
     max-width: 100% !important;
-    padding: 0.5cm !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
-  /* 2-Column Study Layout */
-  .lecture-container, .thesis-guide-container {
+  .lecture-container, .thesis-guide-container, .handbook-print-container {
     max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
   }
 
-  .slide-card, .dojo-card, .question-card {
-    border: 1px solid #cccccc !important;
+  /* Breakable Slide Cards Without Frames */
+  .slide-card {
+    border: none !important;
     box-shadow: none !important;
-    background: #ffffff !important;
-    page-break-inside: avoid;
-    break-inside: avoid;
-    margin-bottom: 15pt !important;
-    padding: 12pt !important;
+    background: transparent !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    margin: 14pt 0 !important;
+    padding: 0 0 12pt 0 !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    border-radius: 0 !important;
   }
 
-  .slide-title, .dojo-title, .lecture-title {
-    color: #000000 !important;
+  .slide-title-bar {
+    border-bottom: 1.5pt solid #0284c7 !important;
+    padding-bottom: 4pt !important;
+    margin-bottom: 8pt !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .slide-title {
+    font-size: 13pt !important;
+    font-weight: 700 !important;
+    color: #0f172a !important;
+  }
+
+  .slide-number {
+    font-size: 8.5pt !important;
+    color: #64748b !important;
+  }
+
+  .lecture-header {
+    border-bottom: 2pt solid #0f172a !important;
+    padding-bottom: 10pt !important;
+    margin-bottom: 14pt !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .lecture-title {
+    font-size: 16pt !important;
+    font-weight: 800 !important;
+    color: #0f172a !important;
+  }
+
+  .lecture-desc {
+    font-size: 10pt !important;
+    color: #334155 !important;
+  }
+
+  /* Module Section Dividers in Full Handbook Mode */
+  .module-print-divider {
+    page-break-before: always !important;
+    break-before: always !important;
+    padding-top: 20pt !important;
+    margin-bottom: 16pt !important;
+    border-bottom: 3pt solid #0284c7 !important;
+  }
+  .module-print-divider h2 {
+    font-size: 18pt !important;
+    font-weight: 800 !important;
+    color: #0284c7 !important;
+    margin: 0 0 6pt 0 !important;
+  }
+
+  /* Handbook Cover Page */
+  .handbook-cover-page {
+    page-break-after: always !important;
+    break-after: always !important;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 40pt 20pt;
+  }
+  .handbook-cover-title {
+    font-size: 28pt !important;
+    font-weight: 900 !important;
+    color: #0f172a !important;
+    margin-bottom: 12pt !important;
+    letter-spacing: -0.02em;
+  }
+  .handbook-cover-subtitle {
+    font-size: 13pt !important;
+    color: #475569 !important;
+    max-width: 650px;
+    margin-bottom: 24pt !important;
+    line-height: 1.5;
   }
 
   /* Comparative Grid in Print */
   .compare-grid {
+    display: grid !important;
     grid-template-columns: 1fr 1fr !important;
     gap: 10pt !important;
+    margin: 10pt 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
   .compare-col {
     background: #f8fafc !important;
     border: 1px solid #cbd5e1 !important;
-    color: #000000 !important;
+    border-radius: 3pt !important;
+    color: #0f172a !important;
+    padding: 8pt 10pt !important;
+  }
+  .compare-col.left {
+    border-top: 3pt solid #f59e0b !important;
+  }
+  .compare-col.right {
+    border-top: 3pt solid #10b981 !important;
+  }
+  .compare-heading {
+    color: #0f172a !important;
+    font-weight: 700 !important;
+    font-size: 9.5pt !important;
+    margin-bottom: 4pt !important;
   }
 
-  /* Code Blocks in Print */
+  /* Dark Showcase of Code Blocks in Print */
   .code-container {
-    border: 1px solid #94a3b8 !important;
-    background: #f8fafc !important;
-    page-break-inside: avoid;
+    background: #0d1117 !important;
+    border: 1px solid #30363d !important;
+    border-radius: 4pt !important;
+    margin: 8pt 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .code-header {
+    background: #161b22 !important;
+    color: #8b949e !important;
+    border-bottom: 1px solid #30363d !important;
+    padding: 4pt 10pt !important;
+    font-size: 8.5pt !important;
+    font-weight: 600 !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .code-header .tb-btn {
+    display: none !important;
   }
   .code-block {
-    background: #f8fafc !important;
-    color: #0f172a !important;
+    background: #0d1117 !important;
+    color: #e6edf3 !important;
+    padding: 8pt 12pt !important;
+    font-size: 8.5pt !important;
+    line-height: 1.45 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   .code-block code {
-    color: #0f172a !important;
+    color: #e6edf3 !important;
+    font-family: 'Consolas', 'Courier New', monospace !important;
+    font-size: inherit !important;
   }
 
-  /* Syntax Highlighting for Print */
-  .syn-kw { color: #0000ff !important; font-weight: bold; }
-  .syn-fn { color: #795e26 !important; }
-  .syn-str { color: #a31515 !important; }
-  .syn-com { color: #008000 !important; font-style: italic; }
+  /* High-Contrast Syntax Colors for Dark Print Code */
+  .syn-kw { color: #ff7b72 !important; font-weight: 600 !important; }
+  .syn-fn { color: #d2a8ff !important; font-weight: 600 !important; }
+  .syn-str { color: #a5d6ff !important; }
+  .syn-num { color: #79c0ff !important; }
+  .syn-com { color: #8b949e !important; font-style: italic !important; }
+  .syn-cls { color: #ffa657 !important; font-weight: 600 !important; }
+  .syn-dec { color: #7ee787 !important; }
+  .syn-op { color: #ff7b72 !important; }
+
+  /* Math Formulas & KaTeX in Print */
+  .math-card {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 4pt !important;
+    padding: 8pt 12pt !important;
+    margin: 8pt 0 !important;
+    text-align: center !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .katex {
+    color: #0f172a !important;
+    font-size: 1.05em !important;
+  }
 
   /* Alert Boxes in Print */
   .alert-box {
-    background: #f1f5f9 !important;
+    background: #f8fafc !important;
     border: 1px solid #cbd5e1 !important;
-    border-left: 4pt solid #0284c7 !important;
-    color: #000000 !important;
-    page-break-inside: avoid;
+    padding: 8pt 12pt !important;
+    margin: 8pt 0 !important;
+    border-radius: 3pt !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
+  .alert-box.alert-note { border-left: 4pt solid #0284c7 !important; }
+  .alert-box.alert-tip { border-left: 4pt solid #10b981 !important; }
+  .alert-box.alert-important { border-left: 4pt solid #a855f7 !important; }
+  .alert-box.alert-warning { border-left: 4pt solid #f59e0b !important; }
+  .alert-box.alert-caution { border-left: 4pt solid #ef4444 !important; }
 
-  /* Page Headers and Footers */
+  .alert-title {
+    font-size: 9pt !important;
+    font-weight: 700 !important;
+    margin-bottom: 3pt !important;
+  }
+  .alert-box.alert-note .alert-title { color: #0284c7 !important; }
+  .alert-box.alert-tip .alert-title { color: #10b981 !important; }
+  .alert-box.alert-important .alert-title { color: #a855f7 !important; }
+  .alert-box.alert-warning .alert-title { color: #f59e0b !important; }
+  .alert-box.alert-caution .alert-title { color: #ef4444 !important; }
+
+  /* Page Setup */
   @page {
-    size: A4;
-    margin: 1.2cm 1cm;
+    size: A4 portrait;
+    margin: 14mm 12mm;
   }
 }

@@ -285,3 +285,139 @@ export function renderBenchmarkData(container) {
 
   container.appendChild(view);
 }
+
+export function renderHandbookPrintView(container) {
+  if (!container) return;
+  clear(container);
+
+  const view = el("div", { className: "handbook-print-container" });
+
+  // 1. Cover Page
+  const cover = el("div", { className: "handbook-cover-page" }, [
+    el("div", { style: { fontSize: "42px", marginBottom: "12px" } }, "🧬"),
+    el("h1", { className: "handbook-cover-title" }, "DrugEx Hub · De Novo Drug Design & ROCS Shape-Matching"),
+    el("p", { className: "handbook-cover-subtitle" }, 
+      "Kompletní Výuková Příručka, Metodologický Manuál a Teoretické Základy pro Bakalářskou Práci (VŠCHT Praha / ÚOCHB AV ČR) — Kombinace de novo generování molekul a 3D tvarového porovnávání pro flexibilní cíle a IDP."
+    ),
+    el("div", { style: { marginTop: "30px", fontSize: "11pt", color: "#64748b", lineHeight: "1.8" } }, [
+      el("div", { style: { fontWeight: "700", color: "#0f172a" } }, "Bakalářská Práce: David Kolář"),
+      el("div", {}, "Vysoká škola chemicko-technologická v Praze (VŠCHT Praha)"),
+      el("div", {}, "Ústav organické chemie a biochemie AV ČR (ÚOCHB AV ČR)"),
+      el("div", {}, "Softwarová platforma: DrugEx v3.4 (feature/rocs-scoring) · OpenEye ROCS / CDPKit / RDKit")
+    ])
+  ]);
+  view.appendChild(cover);
+
+  // 2. All 6 Modules & 18 Lectures
+  const moduleMap = [
+    { num: 1, title: "Modul 1: De Novo Generování & Molekulární Reprezentace", lectures: ["l1_1", "l1_2", "l1_3"] },
+    { num: 2, title: "Modul 2: Vícekriteriální Zpětnovazební Učení (MORL) & Paretova Optimalita", lectures: ["l2_1", "l2_2", "l2_3"] },
+    { num: 3, title: "Modul 3: 3D Tvarové Porovnávání (ROCS), IDP & Konformační Enginy", lectures: ["l3_1", "l3_2", "l3_3"] },
+    { num: 4, title: "Modul 4: Hloubková Architektura ROCS Scorerů (RDKit, CDPKit, OpenEye)", lectures: ["l4_1", "l4_2", "l4_3"] },
+    { num: 5, title: "Modul 5: Experimentální Pipeline & Validace na CCR2 Benchmarku", lectures: ["l5_1", "l5_2", "l5_3"] },
+    { num: 6, title: "Modul 6: Fragmentový Design (BRICS), CLI & Škálování na HPC Superpočítačích", lectures: ["l6_1", "l6_2", "l6_3"] }
+  ];
+
+  moduleMap.forEach(mod => {
+    // Module Divider
+    const modDiv = el("div", { className: "module-print-divider" }, [
+      el("h2", {}, mod.title)
+    ]);
+    view.appendChild(modDiv);
+
+    // Render each lecture
+    mod.lectures.forEach(lecId => {
+      const lec = LECTURE_DATA[lecId];
+      if (!lec) return;
+
+      const lecSec = el("div", { style: { marginBottom: "28pt" } }, [
+        el("header", { className: "lecture-header" }, [
+          el("h2", { className: "lecture-title" }, lec.title),
+          el("p", { className: "lecture-desc" }, lec.summary)
+        ])
+      ]);
+
+      // Slides
+      lec.slides.forEach((slide, idx) => {
+        const card = el("section", { className: "slide-card" }, [
+          el("div", { className: "slide-title-bar" }, [
+            el("div", { className: "slide-title" }, slide.title),
+            el("span", { className: "slide-number" }, `Slide ${idx + 1}/${lec.slides.length}`)
+          ]),
+          el("div", { className: "slide-content", innerHTML: slide.content })
+        ]);
+
+        if (slide.code) {
+          const codeBox = el("div", { className: "code-container" }, [
+            el("div", { className: "code-header" }, [
+              el("span", {}, slide.codeLang || "python")
+            ]),
+            el("pre", { className: "code-block" }, [
+              el("code", { innerHTML: highlightPython(slide.code) })
+            ])
+          ]);
+          card.appendChild(codeBox);
+        }
+
+        if (slide.compare) {
+          const cmpGrid = el("div", { className: "compare-grid" }, [
+            el("div", { className: "compare-col left" }, [
+              el("div", { className: "compare-heading" }, slide.compare.leftTitle),
+              el("div", { innerHTML: slide.compare.leftContent })
+            ]),
+            el("div", { className: "compare-col right" }, [
+              el("div", { className: "compare-heading" }, slide.compare.rightTitle),
+              el("div", { innerHTML: slide.compare.rightContent })
+            ])
+          ]);
+          card.appendChild(cmpGrid);
+        }
+
+        if (slide.alert) {
+          const alertBox = el("div", { className: `alert-box alert-${slide.alert.type}` }, [
+            el("div", { className: "alert-title" }, slide.alert.title || slide.alert.type),
+            el("div", { innerHTML: slide.alert.text })
+          ]);
+          card.appendChild(alertBox);
+        }
+
+        lecSec.appendChild(card);
+      });
+
+      view.appendChild(lecSec);
+    });
+  });
+
+  // 3. Append Thesis Guide and Protocol Template
+  const thesisSection = el("div", { className: "module-print-divider" }, [
+    el("h2", {}, "Příloha: Metodologický Protokol & Šablona Textu Práce")
+  ]);
+  view.appendChild(thesisSection);
+
+  const thesisGuideCard = el("section", { className: "slide-card" }, [
+    el("div", { className: "slide-title-bar" }, [
+      el("div", { className: "slide-title" }, "Šablona Výpočetních Metod pro Text Bakalářské Práce")
+    ]),
+    el("div", {
+      style: { background: "#0d1117", color: "#93c5fd", padding: "12pt 16pt", borderRadius: "4pt", fontFamily: "monospace", fontSize: "9pt", lineHeight: "1.6", whiteSpace: "pre-wrap" }
+    }, `### Výpočetní metody (Computational Methods)\n\nDe novo generování molekul bylo realizováno pomocí platformy DrugEx v3.4 s využitím vícekriteriálního zpětnovazebního učení (MORL). Jako výchozí generátor byl použit SequenceRNN předtrénovaný na databázi Papyrus v05.5 (~1,5 mil. sloučenin) a jemně dotrénovaný (fine-tuning) na známých ligandech po dobu 100 epoch.\n\nOptimalizační prostředí (DrugExEnvironment) integrovalo:\n1. 3D Tvarové porovnávání (ROCS): RDKitROCSScorer s metrikou TanimotoCombo a konformačním generátorem ETKDGv3 (max. 50 konformerů, 4 stereoisomery). Dělící práh byl stanoven na základě ROC analýzy a Youdenova indexu.\n2. Syntetická dostupnost: SAScore s modifikátorem SmoothClippedScore(lower_x=5.0, upper_x=3.0).\n\nVícekriteriální rovnováha byla řízena pomocí Pareto Crowding Distance. Trénink probíhal 50 epoch s exploračním poměrem epsilon = 0.2.`)
+  ]);
+  view.appendChild(thesisGuideCard);
+
+  container.appendChild(view);
+
+  // Auto-render KaTeX
+  if (window.renderMathInElement) {
+    try {
+      window.renderMathInElement(view, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "$", right: "$", display: false }
+        ],
+        throwOnError: false
+      });
+    } catch (e) {
+      console.warn("KaTeX print rendering:", e);
+    }
+  }
+}
