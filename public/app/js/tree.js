@@ -36,6 +36,18 @@ export function renderTree(container, curriculum, onSelect) {
   ]);
   container.appendChild(benchItem);
 
+  // Practitioner Cookbook & Hyperparameter Hub Item
+  const cookbookItem = el("a", {
+    href: "#/cookbook",
+    className: `tree-item ${state.activeRoute === "cookbook" ? "active" : ""}`,
+    style: { borderBottom: "1px solid var(--border-subtle)", padding: "8px 12px", background: "rgba(74, 222, 128, 0.06)" }
+  }, [
+    el("span", { style: { color: "var(--bio-green)" } }, "👨‍🔬"),
+    el("span", { className: "item-title", style: { fontWeight: "600", color: "var(--bio-green)" } }, "Kuchařka & Hyperparametry"),
+    el("span", { className: "item-tag core" }, "Recepty")
+  ]);
+  container.appendChild(cookbookItem);
+
   // Modules & Lectures
   curriculum.modules.forEach(mod => {
     // Filter check

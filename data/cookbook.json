@@ -1,0 +1,67 @@
+{
+  "title": "Uživatelská Kuchařka & Hyperparametrický Manuál pro Výzkumníka",
+  "subtitle": "Praktické recepty, skládání skórovačů (QSAR, ROCS, SA, SIM), ladění hyperparametrů a diagnostika konvergence pro bakalářskou práci.",
+  "recipes": [
+    {
+      "id": "recipe_full_stack",
+      "title": "Recept 1: Plný Multi-Objektivní Stack (ROCS + QSAR + SA + Fyzikální Vlastnosti)",
+      "badge": "Nejčastější BP Scénář",
+      "tag": "Core",
+      "description": "Jak sestavit kompletní DrugExEnvironment integrující 3D tvarové porovnávání (ROCS), QSAR prediktor afinity, syntetickou dostupnost (SAScore) a Lipinského deskriptory (MW, LogP, TPSA, QED).",
+      "goals": [
+        "Optimalizace 3D tvarového překryvu vůči referenčním krystalovým ligandům (Tcombo >= 1.2)",
+        "Maximalizace predikované vazebné afinity z QSAR modelu (pIC50 >= 7.5)",
+        "Omezení syntetické náročnosti (SAScore <= 3.5)",
+        "Udržení optimálního fyzikálně-chemického profilu pro orální biologickou dostupnost"
+      ]
+    },
+    {
+      "id": "recipe_scaffold_hopping",
+      "title": "Recept 2: 3D Scaffold Hopping & Objevování Nových Chemotypů",
+      "badge": "Patentová Novost",
+      "tag": "WOW",
+      "description": "Jak motivovat model k opuštění známého chemického jádra při 100% zachování prostorového tvaru a farmakoforu vazebného rozhraní.",
+      "goals": [
+        "Využití multi-referenčních krystalových struktur (Multi-Reference Grouping)",
+        "Zavedení similarity penále (SimSmiles) pro potlačení generování analogů patentovaného mateřského ligandu",
+        "Nastavení ParetoCrowdingDistance pro exploraci odlehlých chemických rodin"
+      ]
+    },
+    {
+      "id": "recipe_selectivity",
+      "title": "Recept 3: Selektivní Design: Aktivace Cíle A vs Vyřazení Cíle B / hERG",
+      "badge": "Bezpečnost & Selektivita",
+      "tag": "Legendary",
+      "description": "Dvou-cílový selektivní screening optimalizující vysokou afinitu k hlavnímu cíli (CCR2) a současně penalizující vazbu k homolognímu receptoru (CCR5) či kardiotoxickému kanálu hERG.",
+      "goals": [
+        "Pozitivní skórovač pro On-Target afinitu s rostoucím SmoothClippedScore",
+        "Negativní skórovač pro Off-Target / hERG afinitu s klesajícím SmoothClippedScore",
+        "Vyvážení cílů v nedominovaném Paretovském třídění"
+      ]
+    },
+    {
+      "id": "recipe_fragment_growth",
+      "title": "Recept 4: Růst z Fixního Scaffoldu & Propojování Fragmentů (BRICS + QSAR)",
+      "badge": "Fragmentový Design",
+      "tag": "Core",
+      "description": "Jak vzít známé farmakoforové jádro a nechat DrugEx navrhovat pouze substituenty na definovaných růstových bodech (FragSequenceExplorer).",
+      "goals": [
+        "Definice fixního synthonu s dummy atomy ([1*], [2*])",
+        "Sledování 3D ROCS tvaru rozšiřujících se substituentů v sub-kapsách receptoru",
+        "100% garance zachování centrálního nosného jádra"
+      ]
+    },
+    {
+      "id": "recipe_optuna_tuning",
+      "title": "Recept 5: Automatická Optimalizace Hyperparametrů (Optuna / Bayesian Search)",
+      "badge": "HPC Automatizace",
+      "tag": "WOW",
+      "description": "Kompletní spustitelný skript pro automatické nalezení optimální kombinace learning rate, epsilonu, velikosti dávky a prahů pomocí Bayesovské optimalizace.",
+      "goals": [
+        "Definice cílové funkce (maximalizace Desired Ratio + Unique Ratio)",
+        "Prohledávání prostoru hyperparametrů (lr: 5e-5 až 5e-4, epsilon: 0.1 až 0.35, n_samples: 500 až 1500)",
+        "Automatický export nejlepší konfigurace do production_config.py"
+      ]
+    }
+  ]
+}

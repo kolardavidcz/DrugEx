@@ -6,6 +6,7 @@ import { el, clear, copyText } from "./ui.js";
 import { state } from "./state.js";
 import { highlightPython, formatFormula } from "./format.js";
 import { LECTURE_DATA } from "./lectures_content.js";
+import { COOKBOOK_DATA } from "./cookbook_content.js";
 
 export function renderLecture(container, lectureId) {
   if (!container) return;
@@ -388,7 +389,80 @@ export function renderHandbookPrintView(container) {
     });
   });
 
-  // 3. Append Thesis Guide and Protocol Template
+  // 3. Practitioner's Cookbook & Hyperparameter Hub Section
+  const cookbookSection = el("div", { className: "module-print-divider" }, [
+    el("h2", {}, "Modul 7: Uživatelská Kuchařka, Skládání Skórovačů & Hyperparametry")
+  ]);
+  view.appendChild(cookbookSection);
+
+  // Hyperparameter Matrix Card
+  const tuningCard = el("section", { className: "slide-card" }, [
+    el("div", { className: "slide-title-bar" }, [
+      el("div", { className: "slide-title" }, "Matice Hyperparametrů & Doporučené Rozsahy pro Výzkumníka")
+    ]),
+    el("div", { style: { overflowX: "auto" } }, [
+      el("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "8.5pt", textAlign: "left" } }, [
+        el("thead", {}, [
+          el("tr", { style: { background: "#f1f5f9", borderBottom: "1.5pt solid #cbd5e1" } }, [
+            el("th", { style: { padding: "6pt 8pt" } }, "Hyperparametr"),
+            el("th", { style: { padding: "6pt 8pt" } }, "Výchozí"),
+            el("th", { style: { padding: "6pt 8pt" } }, "Rozsah"),
+            el("th", { style: { padding: "6pt 8pt" } }, "Dopad na Trénink"),
+            el("th", { style: { padding: "6pt 8pt" } }, "Riziko")
+          ])
+        ]),
+        el("tbody", {}, COOKBOOK_DATA.tuningMatrix.map((m, idx) => el("tr", {
+          style: { borderBottom: "1px solid #e2e8f0", background: idx % 2 === 1 ? "#f8fafc" : "transparent" }
+        }, [
+          el("td", { style: { padding: "6pt 8pt", fontWeight: "700", color: "#0284c7" } }, m.param),
+          el("td", { style: { padding: "6pt 8pt", color: "#10b981", fontWeight: "700" } }, m.defaultVal),
+          el("td", { style: { padding: "6pt 8pt", color: "#d97706" } }, m.searchRange),
+          el("td", { style: { padding: "6pt 8pt", color: "#0f172a" } }, m.tuningGuide),
+          el("td", { style: { padding: "6pt 8pt", color: "#e11d48" } }, m.risk)
+        ])))
+      ])
+    ])
+  ]);
+  view.appendChild(tuningCard);
+
+  // Recipes in Print
+  COOKBOOK_DATA.recipes.forEach(r => {
+    const rCard = el("section", { className: "slide-card" }, [
+      el("div", { className: "slide-title-bar" }, [
+        el("div", { className: "slide-title" }, r.title),
+        el("span", { className: "slide-number" }, r.badge)
+      ]),
+      el("p", { style: { fontSize: "9.5pt", color: "#334155", margin: "0 0 8pt 0" } }, r.desc),
+      el("div", { className: "code-container" }, [
+        el("div", { className: "code-header" }, [
+          el("span", {}, "Python Recipe · Ready-to-Run")
+        ]),
+        el("pre", { className: "code-block" }, [
+          el("code", { innerHTML: highlightPython(r.code) })
+        ])
+      ])
+    ]);
+    view.appendChild(rCard);
+  });
+
+  // Troubleshooting Card in Print
+  const troubleCard = el("section", { className: "slide-card" }, [
+    el("div", { className: "slide-title-bar" }, [
+      el("div", { className: "slide-title" }, "Diagnostický Strom: Co dělat, když trénink nekonverguje?")
+    ]),
+    el("div", { style: { display: "flex", flexDirection: "column", gap: "10pt" } }, 
+      COOKBOOK_DATA.troubleshooting.map(t => el("div", {
+        style: { background: "#f8fafc", padding: "8pt 12pt", borderRadius: "3pt", borderLeft: "4pt solid #e11d48", border: "1px solid #e2e8f0" }
+      }, [
+        el("div", { style: { fontWeight: "700", color: "#0f172a", fontSize: "9pt", marginBottom: "2pt" } }, `⚠️ Problém: ${t.problem}`),
+        el("div", { style: { fontSize: "8.5pt", color: "#d97706", marginBottom: "4pt" } }, `Příčina: ${t.cause}`),
+        el("div", { style: { fontSize: "8.5pt", color: "#059669", whiteSpace: "pre-line", lineHeight: "1.4" } }, `💡 Řešení:\n${t.solution}`)
+      ]))
+    )
+  ]);
+  view.appendChild(troubleCard);
+
+  // 4. Append Thesis Guide and Protocol Template
   const thesisSection = el("div", { className: "module-print-divider" }, [
     el("h2", {}, "Příloha: Metodologický Protokol & Šablona Textu Práce")
   ]);
@@ -420,4 +494,102 @@ export function renderHandbookPrintView(container) {
       console.warn("KaTeX print rendering:", e);
     }
   }
+}
+
+export function renderCookbookView(container) {
+  if (!container) return;
+  clear(container);
+
+  import("./cookbook_content.js").then(({ COOKBOOK_DATA }) => {
+    const view = el("div", { className: "lecture-container" }, [
+      // Header
+      el("header", { className: "lecture-header" }, [
+        el("div", { className: "lecture-meta" }, [
+          el("span", { className: "item-tag legendary" }, "Practitioner Guide"),
+          el("span", {}, "Praktické recepty & Hyperparametry"),
+          el("span", {}, "• Pro uživatele / výzkumníka")
+        ]),
+        el("h1", { className: "lecture-title" }, COOKBOOK_DATA.title),
+        el("p", { className: "lecture-desc" }, COOKBOOK_DATA.subtitle),
+        el("div", { className: "lecture-action-strip" }, [
+          el("button", {
+            className: "action-pill",
+            onClick: () => window.print()
+          }, "🖨️ Tisknout Manuál (Ctrl+P)")
+        ])
+      ]),
+
+      // 1. Hyperparameter Tuning Matrix Card
+      el("section", { className: "slide-card" }, [
+        el("div", { className: "slide-title-bar" }, [
+          el("div", { className: "slide-title" }, "⚙️ 1. Matice Hyperparametrů & Doporučené Rozsahy pro Studenta")
+        ]),
+        el("div", { style: { overflowX: "auto" } }, [
+          el("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: "var(--fs-xs)", textAlign: "left" } }, [
+            el("thead", {}, [
+              el("tr", { style: { background: "rgba(255, 255, 255, 0.05)", borderBottom: "2px solid var(--border)" } }, [
+                el("th", { style: { padding: "8px 10px" } }, "Hyperparametr"),
+                el("th", { style: { padding: "8px 10px" } }, "Výchozí"),
+                el("th", { style: { padding: "8px 10px" } }, "Doporučený Rozsah"),
+                el("th", { style: { padding: "8px 10px" } }, "Praktické Pravidlo & Dopad na Trénink"),
+                el("th", { style: { padding: "8px 10px" } }, "Riziko při Špatném Nastavení")
+              ])
+            ]),
+            el("tbody", {}, COOKBOOK_DATA.tuningMatrix.map((m, idx) => el("tr", {
+              style: { borderBottom: "1px solid var(--border-subtle)", background: idx % 2 === 1 ? "rgba(255, 255, 255, 0.02)" : "transparent" }
+            }, [
+              el("td", { style: { padding: "8px 10px", fontWeight: "600", color: "var(--accent)" } }, m.param),
+              el("td", { style: { padding: "8px 10px", color: "var(--bio-green)", fontWeight: "600" } }, m.defaultVal),
+              el("td", { style: { padding: "8px 10px", color: "var(--amber-warn)" } }, m.searchRange),
+              el("td", { style: { padding: "8px 10px", color: "var(--text)" } }, m.tuningGuide),
+              el("td", { style: { padding: "8px 10px", color: "var(--danger-red)" } }, m.risk)
+            ])))
+          ])
+        ])
+      ]),
+
+      // 2. Ready-to-Run Practitioner Recipes
+      ...COOKBOOK_DATA.recipes.map(r => el("section", { className: "slide-card" }, [
+        el("div", { className: "slide-title-bar" }, [
+          el("div", { className: "slide-title" }, [
+            el("span", { style: { color: "var(--accent)" } }, "◈"),
+            el("span", {}, r.title)
+          ]),
+          el("span", { className: "item-tag core" }, r.badge)
+        ]),
+        el("p", { style: { fontSize: "var(--fs-sm)", color: "var(--text)", margin: "0 0 10px 0" } }, r.desc),
+        el("div", { className: "code-container" }, [
+          el("div", { className: "code-header" }, [
+            el("span", {}, "Python Recipe · Ready-to-Run"),
+            el("button", {
+              className: "tb-btn",
+              style: { padding: "2px 8px", fontSize: "11px" },
+              onClick: () => copyText(r.code)
+            }, "Kopírovat Recept do Skriptu")
+          ]),
+          el("pre", { className: "code-block" }, [
+            el("code", { innerHTML: highlightPython(r.code) })
+          ])
+        ])
+      ])),
+
+      // 3. Troubleshooting & Decision Tree Card
+      el("section", { className: "slide-card" }, [
+        el("div", { className: "slide-title-bar" }, [
+          el("div", { className: "slide-title" }, "🛠️ 3. Diagnostický Strom: Co dělat, když trénink nekonverguje?")
+        ]),
+        el("div", { style: { display: "flex", flexDirection: "column", gap: "12px" } }, 
+          COOKBOOK_DATA.troubleshooting.map(t => el("div", {
+            style: { background: "var(--editor)", padding: "14px 18px", borderRadius: "var(--radius)", borderLeft: "4px solid var(--danger-red)" }
+          }, [
+            el("div", { style: { fontWeight: "700", color: "var(--text-bright)", fontSize: "var(--fs-sm)", marginBottom: "4px" } }, `⚠️ Problém: ${t.problem}`),
+            el("div", { style: { fontSize: "var(--fs-xs)", color: "var(--amber-warn)", marginBottom: "6px" } }, `Příčina: ${t.cause}`),
+            el("div", { style: { fontSize: "var(--fs-xs)", color: "var(--bio-green)", whiteSpace: "pre-line", lineHeight: "1.5" } }, `💡 Řešení:\n${t.solution}`)
+          ]))
+        )
+      ])
+    ]);
+
+    container.appendChild(view);
+  });
 }

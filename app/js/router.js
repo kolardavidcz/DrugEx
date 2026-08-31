@@ -3,7 +3,7 @@
  */
 
 import { state } from "./state.js";
-import { renderLecture, renderThesisGuide, renderBenchmarkData, renderHandbookPrintView } from "./content.js";
+import { renderLecture, renderThesisGuide, renderBenchmarkData, renderHandbookPrintView, renderCookbookView } from "./content.js";
 import { renderDojo } from "./dojos.js";
 import { renderQuiz } from "./quiz.js";
 import { el, clear } from "./ui.js";
@@ -31,6 +31,8 @@ export function initRouter(viewport) {
       renderBenchmarkData(viewport);
     } else if (routeType === "progress") {
       renderProgressView(viewport);
+    } else if (routeType === "cookbook") {
+      renderCookbookView(viewport);
     } else if (routeType === "handbook-print") {
       renderHandbookPrintView(viewport);
     } else {
@@ -68,6 +70,8 @@ function updateBreadcrumbs(routeType, routeParam) {
     crumbs.appendChild(el("span", { className: "crumb-active" }, "Bakalářská Práce: Průvodce"));
   } else if (routeType === "benchmark") {
     crumbs.appendChild(el("span", { className: "crumb-active" }, "CCR2 Benchmark Datasets"));
+  } else if (routeType === "cookbook") {
+    crumbs.appendChild(el("span", { className: "crumb-active" }, "👨‍🔬 Kuchařka & Hyperparametry"));
   } else if (routeType === "handbook-print") {
     crumbs.appendChild(el("span", { className: "crumb-active" }, "📖 Kompletní Učebnice (PDF Export)"));
   }
