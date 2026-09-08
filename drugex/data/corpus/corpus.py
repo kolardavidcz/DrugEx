@@ -1,74 +1,103 @@
-from rdkit import Chem
+"""Sequence corpus implementations for converting SMILES datasets into training token streams."""
 
+from __future__ import annotations
+
+from typing import Any, Iterable, List, Optional, Set, Union
+
+from drugex.data.corpus.interfaces import Corpus, SequenceVocabulary
+from drugex.data.corpus.vocabulary import VocSmiles
 from drugex.logs import logger
-from drugex.data.corpus.interfaces import Corpus
-from drugex.data.corpus.vocabulary import VocSmiles, VocGraph
+from drugex.molecules.interfaces import MolSupplier
 
 
 class SequenceCorpus(Corpus):
+    """Corpus supplier encoding molecular sequences (SMILES) for sequence-based models (RNN and GPT-2).
+
+    Parameters
+    ----------
+    molecules : Union[Iterable[str], MolSupplier]
+        Stream or collection of SMILES strings.
+    vocabulary : SequenceVocabulary | None, optional
+        Vocabulary instance used for tokenization and index mapping, by default VocSmiles(False).
+    update_voc : bool, optional
+        If True, new tokens encountered in the dataset are dynamically added to the vocabulary,
+        by default True.
+    throw : bool, optional
+        If True, molecules containing tokens absent from the vocabulary are skipped, by default False.
+    check_unique : bool, optional
+        If True, duplicate sequences in `molecules` are skipped, by default True.
     """
-    A `Corpus` to encode molecules for the sequence-based models.
-    """
 
-    def __init__(self, molecules, vocabulary=VocSmiles(False), update_voc=True, throw = False, check_unique=True):
+    def __init__(
+        self,
+        molecules: Union[Iterable[str], MolSupplier],
+        vocabulary: Optional[SequenceVocabulary] = None,
+        update_voc: bool = True,
+        throw: bool = False,
+        check_unique: bool = True,
+    ) -> None:
+        """Initialize the SequenceCorpus.
+
+        Parameters
+        ----------
+        molecules : Union[Iterable[str], MolSupplier]
+            Input SMILES dataset or supplier.
+        vocabulary : SequenceVocabulary | None, optional
+            Target vocabulary, by default VocSmiles(False).
+        update_voc : bool, optional
+            Whether to update vocabulary with unseen tokens, by default True.
+        throw : bool, optional
+            Whether to discard molecules with unseen tokens, by default False.
+        check_unique : bool, optional
+            Whether to enforce molecule uniqueness, by default True.
         """
-        Create a sequence corpus.
-
-        Args:
-            molecules: an `iterable`, `MolSupplier` or a `list`-like data structure to supply sequence representations of molecules (i.e. SMILES strings)
-            vocabulary: a `SequenceVocabulary` instance to be used for encoding and collecting tokens
-            update_voc: `True` if the tokens in the vocabulary should be updated with new tokens derived from the data (the `SequenceVocabulary.addWordsFromSeq()` method is used for splitting instead of doing simply `SequenceVocabulary.splitSequence()`)
-            throw: 'True' if molecules that contain tokens that are not in the vocabulary should be thrown out of corpus (the `SequenceVocabulary.removeIfNew()` method is used for splitting instead of doing simply `SequenceVocabulary.splitSequence()`)
-            check_unique: Skip identical sequences in "molecules".
-        """
-
         super().__init__(molecules)
-        self.vocabulary = vocabulary
+        self.vocabulary: SequenceVocabulary = vocabulary if vocabulary is not None else VocSmiles(False)
         self.updateVoc = update_voc
         self.throw = throw
         if self.updateVoc and self.throw:
-            logger.warning(f"update_voc and throw cannot both be true at same time, defaulting to update_voc")
+            logger.warning("update_voc and throw cannot both be true at same time, defaulting to update_voc")
         self.checkUnique = check_unique
-        self._unique = set()
+        self._unique: Set[str] = set()
 
-    def saveVoc(self, path):
+    def saveVoc(self, path: str) -> None:
+        """Save current vocabulary tokens to a text file.
+
+        Parameters
+        ----------
+        path : str
+            Destination file path.
         """
-        Save the current state of the vocabulary to a file.
-
-        Args:
-            path: Path to the generated file.
-
-        Returns:
-            `None`
-        """
-
         self.vocabulary.toFile(path)
 
-    def getVoc(self):
-        """
-        Return current vocabulary.
+    def getVoc(self) -> SequenceVocabulary:
+        """Return the active SequenceVocabulary instance.
 
-        Returns:
-            Current vocabulary as a `SequenceVocabulary` instance.
+        Returns
+        -------
+        SequenceVocabulary
+            Currently active sequence vocabulary.
         """
-
         return self.vocabulary
 
-    def processMolecule(self, seq):
+    def processMolecule(self, seq: str) -> Optional[List[int]]:
+        """Tokenize and integer-encode a single SMILES sequence.
+
+        Parameters
+        ----------
+        seq : str
+            Input SMILES sequence string.
+
+        Returns
+        -------
+        Optional[List[int]]
+            List of encoded integer token indices, or None if molecule was rejected
+            (duplicate or invalid length/tokens).
         """
-        Generate encoding information for the given molecule sequence.
-
-        Args:
-            seq: molecule as a sequence (i.e. SMILES string)
-
-        Returns:
-            a `dict` where "seq" is the key to the original sequence and "token" to the generated encoding of this sequence
-        """
-
         if self.checkUnique and seq in self._unique:
             return None
 
-        tokens = None
+        tokens: Optional[List[str]] = None
         if self.updateVoc:
             tokens = self.vocabulary.addWordsFromSeq(seq)
         elif self.throw:
@@ -79,6 +108,7 @@ class SequenceCorpus(Corpus):
         if tokens:
             if self.checkUnique:
                 self._unique.add(seq)
-            output = self.vocabulary.encode([tokens[: -1]])
-            code = output[0].reshape(-1).tolist()
+            output = self.vocabulary.encode([tokens[:-1]])
+            code: List[int] = output[0].reshape(-1).tolist()
             return code
+        return None

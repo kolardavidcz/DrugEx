@@ -124,7 +124,7 @@ class Environment(ModelEvaluator):
         return self.getScores(smiles, frags)
 
     @abstractmethod
-    def getScores(self, smiles, frags=None):
+    def getScores(self, smiles, frags=None, no_multifrag_smiles=True):
         """
         Calculate the scores of all objectives per molecule and qualify generated molecules (valid, accurate, desired).
 

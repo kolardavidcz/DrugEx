@@ -1,28 +1,33 @@
-"""CDPKit-based ROCS scorer implementation."""
+"""CDPKit-based ROCS shape and pharmacophoric overlay similarity scorer using `CDPL.Shape`."""
 
+from __future__ import annotations
+
+import logging
 import os
 import tempfile
 from collections import defaultdict
-from multiprocessing import Pool, cpu_count
 from dataclasses import dataclass
-from typing import ClassVar, Dict, List, Optional, Tuple, Union
+from multiprocessing import Pool, cpu_count
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import numpy as np
 from rdkit import Chem
 
 try:
-    import CDPL.Chem as CDPLChem
-    import CDPL.Shape as CDPLShape
-    import CDPL.Pharm as CDPLPharm
+    import CDPL.Chem as CDPLChem  # type: ignore
+    import CDPL.Pharm as CDPLPharm  # type: ignore
+    import CDPL.Shape as CDPLShape  # type: ignore
 
     CDPL_AVAILABLE = True
 except ImportError:
     CDPL_AVAILABLE = False
-    CDPLChem = None
-    CDPLShape = None
-    CDPLPharm = None
+    CDPLChem = None  # type: ignore
+    CDPLShape = None  # type: ignore
+    CDPLPharm = None  # type: ignore
 
 from drugex.training.scorers.interfaces import ConformerGenerator, Scorer
+
+logger = logging.getLogger(__name__)
 
 MAX_OPTIMIZATION_ITERATIONS = 20
 OPTIMIZATION_STOP_GRADIENT = 1.0
@@ -32,63 +37,55 @@ _DEFAULT_CDPKIT_GROUP_NAME = "_default_group"
 
 @dataclass
 class CDPKitWorkerContext:
-    """Immutable context for CDPKit scoring workers.
+    """Immutable state context passed to CDPKit worker processes in multiprocessing Pools.
 
-    This dataclass encapsulates all state needed by worker processes,
-    replacing module-level global variables. It is sent once per worker
-    via the Pool initializer, not with each task.
-
-    Attributes:
-        reference_shapes: List of CDPKit GaussianShape objects for alignment.
-        group_to_indices: Mapping from group index to reference shape indices.
-        conf_file: Path to the conformer SDF file to score.
+    Parameters
+    ----------
+    reference_shapes : List[Any]
+        List of pre-computed CDPKit `GaussianShape` instances for reference structures.
+    group_to_indices : List[List[int]]
+        Mapping from reference group indices to indices in `reference_shapes`.
+    conf_file : str
+        Path to query conformer SDF file.
     """
 
-    reference_shapes: List
+    reference_shapes: List[Any]
     group_to_indices: List[List[int]]
     conf_file: str
 
 
 class CDPKitScoringWorker:
-    """Callable worker for scoring molecules in parallel.
+    """Callable worker evaluating query conformer alignment against CDPKit Gaussian shapes.
 
-    This class encapsulates the worker logic and holds the context
-    that would otherwise be stored in global variables. When used
-    with multiprocessing.Pool, the initializer sets up the context
-    once per worker process.
-
-    Usage with Pool:
-        worker = CDPKitScoringWorker()
-        with Pool(n_workers, initializer=worker.initialize,
-                  initargs=(context,)) as pool:
-            results = pool.map(worker, mol_ids)
+    Designed for memory efficiency in `multiprocessing.Pool` workflows. State is
+    initialized once per worker process to avoid serializing heavy molecular graphs.
     """
 
     _context: ClassVar[Optional[CDPKitWorkerContext]] = None
 
     @staticmethod
     def initialize(context: CDPKitWorkerContext) -> None:
-        """Initialize worker with shared context.
+        """Initialize worker process with shared context.
 
-        Called once per worker process by Pool's initializer.
-        Stores context at class level within the worker process.
-
-        Args:
-            context: The CDPKitWorkerContext containing reference shapes and config.
+        Parameters
+        ----------
+        context : CDPKitWorkerContext
+            Immutable reference and file path context.
         """
         CDPKitScoringWorker._context = context
 
     def __call__(self, mol_id: int) -> Tuple[int, List[float]]:
-        """Score a single molecule.
+        """Score all conformers belonging to `mol_id` against reference groups.
 
-        This method is called by pool.map() for each molecule ID.
-        Accesses the context set up by initialize().
+        Parameters
+        ----------
+        mol_id : int
+            Unique identifier of query molecule.
 
-        Args:
-            mol_id: Index of the molecule to score.
-
-        Returns:
-            Tuple of (mol_id, list of scores per group).
+        Returns
+        -------
+        Tuple[int, List[float]]
+            `(mol_id, best_scores_per_group)`
         """
         ctx = CDPKitScoringWorker._context
         if ctx is None:
@@ -100,7 +97,6 @@ class CDPKitScoringWorker:
 
         group_scores = [0.0] * num_groups
         try:
-            # Re-read SDF and process only conformers for this mol_id
             reader = CDPLChem.FileSDFMoleculeReader(ctx.conf_file)
             target_prefix = f"mol_{mol_id}+"
             while True:
@@ -113,7 +109,7 @@ class CDPKitScoringWorker:
                     continue
                 if not name or not name.startswith(target_prefix):
                     continue
-                # Generate shapes for all conformers of this record and evaluate best
+
                 query_shapes = _generate_shape_helper(m)
                 if not query_shapes:
                     continue
@@ -132,17 +128,23 @@ class CDPKitScoringWorker:
         return mol_id, group_scores
 
 
-def _generate_shape_helper(cdpkit_mol):
-    """Generate Gaussian shape(s) for a molecule.
+def _generate_shape_helper(cdpkit_mol: Any) -> List[Any]:
+    """Generate pharmacophore-annotated Gaussian shape representations for a molecule.
 
-    Returns a list of shapes to ensure all conformers are considered.
-    If no shapes can be generated, returns an empty list.
+    Parameters
+    ----------
+    cdpkit_mol : CDPLChem.BasicMolecule
+        CDPKit molecule with 3D coordinates.
+
+    Returns
+    -------
+    List[CDPLShape.GaussianShape]
+        List of generated shape objects (one per conformer).
     """
     try:
         CDPLPharm.prepareForPharmacophoreGeneration(cdpkit_mol)
         shape_gen = CDPLShape.GaussianShapeGenerator()
         shape_gen.generatePharmacophoreShape(True)
-        # Enable multi-conformer mode so every available conformer contributes a shape
         shape_gen.multiConformerMode(True)
         shape_set = shape_gen.generate(cdpkit_mol)
         if shape_set.getSize() == 0:
@@ -152,8 +154,21 @@ def _generate_shape_helper(cdpkit_mol):
         return []
 
 
-def _align_and_score_helper(query_shape, ref_shape):
-    """Align two shapes and return the best TanimotoCombo score."""
+def _align_and_score_helper(query_shape: Any, ref_shape: Any) -> float:
+    """Align query Gaussian shape to reference shape and return optimal TanimotoCombo score.
+
+    Parameters
+    ----------
+    query_shape : CDPLShape.GaussianShape
+        Query Gaussian shape.
+    ref_shape : CDPLShape.GaussianShape
+        Reference Gaussian shape.
+
+    Returns
+    -------
+    float
+        Highest TanimotoCombo score in [0.0, 2.0].
+    """
     try:
         aligner = CDPLShape.GaussianShapeAlignment()
         start_generator = CDPLShape.PrincipalAxesAlignmentStartGenerator()
@@ -174,28 +189,34 @@ def _align_and_score_helper(query_shape, ref_shape):
 
 
 class CDPKitROCSScorer(Scorer):
-    """ROCS-like scoring using CDPKit Gaussian shapes.
+    """ROCS-like 3D shape and pharmacophore similarity scorer powered by CDPKit `CDPL.Shape`.
 
     Features:
-    - Multi-reference support with automatic Gaussian shape generation.
-    - Best-score selection across conformers and reference shapes.
-    - Optional progress reporting and multiprocessing.
-    - Dict-based reference grouping for multi-target optimization.
-    - SMILES deduplication for efficient batch processing.
-    - Memory-efficient worker design for scalability.
+    - Multi-reference shape support with automatic Gaussian pharmacophore generation.
+    - Principal axes alignment and gradient-based shape overlap optimization.
+    - Dict-based reference grouping for multi-target or multi-conformer targets.
+    - SMILES deduplication to minimize 3D conformer generation overhead.
+    - Multiprocessing Pool execution with low-memory worker contexts.
 
-    Attributes:
-        conformer_generator: 3D conformer generator used for query molecules.
-        group_definitions: List of (name, paths) tuples defining reference groups.
-        group_names: List of reference group names.
-        shape_generator: CDPKit GaussianShapeGenerator instance.
-        start_generator: CDPKit PrincipalAxesAlignmentStartGenerator instance.
-        reference_mols: Loaded CDPKit molecules containing reference conformers.
-        reference_shapes: Pre-computed Gaussian shapes for all references.
-        group_to_indices: List mapping group indices to reference indices.
-        show_progress: Whether to print progress and warnings.
-        n_jobs: Requested worker count (-1 maps to available CPUs).
-        _is_supermol: True when initialized with a single reference file.
+    Parameters
+    ----------
+    conformer_generator : ConformerGenerator
+        Conformer generator used to produce 3D conformers for query molecules.
+    references : Union[str, List[str], Dict[str, List[str]]]
+        Reference SDF file path(s) or dictionary mapping group names to file paths.
+    show_progress : bool, optional
+        Whether to print progress indicators, by default True.
+    n_jobs : int, optional
+        Worker process count for parallel scoring (-1 uses all available CPU cores), by default -1.
+
+    Raises
+    ------
+    ImportError
+        If CDPKit Python bindings (`CDPL`) are not installed.
+    FileNotFoundError
+        If a specified reference file does not exist.
+    ValueError
+        If no valid 3D shapes can be extracted from reference files.
     """
 
     def __init__(
@@ -204,26 +225,27 @@ class CDPKitROCSScorer(Scorer):
         references: Union[str, List[str], Dict[str, List[str]]],
         show_progress: bool = True,
         n_jobs: int = -1,
-    ):
-        """Build a CDPKit ROCS scorer.
+    ) -> None:
+        """Initialize the CDPKit ROCS scorer.
 
-        Args:
-            conformer_generator: Conformer generator used to produce query conformers.
-            references: Path(s) to SDF references or a dict mapping group names
-                to lists of reference paths.
-            show_progress: Enables stdout progress indicators when True.
-            n_jobs: Number of worker processes (-1 uses all available CPUs).
-
-        Raises:
-            ImportError: If CDPKit bindings are not available.
-            TypeError: If reference input types are unsupported.
-            FileNotFoundError: If a reference path does not exist.
-            ValueError: If reference shapes cannot be generated.
+        Parameters
+        ----------
+        conformer_generator : ConformerGenerator
+            Conformer generator instance.
+        references : Union[str, List[str], Dict[str, List[str]]]
+            Target reference file mapping.
+        show_progress : bool, optional
+            Progress logging flag, by default True.
+        n_jobs : int, optional
+            Number of parallel processes, by default -1.
         """
         super().__init__()
 
         if not CDPL_AVAILABLE:
-            raise ImportError("CDPKit is required. Install with `pip install cdpkit`.")
+            raise ImportError(
+                "CDPKit is required for CDPKitROCSScorer. "
+                "Install with `pip install cdpkit` or conda."
+            )
 
         self.conformer_generator = conformer_generator
         self.show_progress = show_progress
@@ -237,8 +259,8 @@ class CDPKitROCSScorer(Scorer):
         self.shape_generator.multiConformerMode(False)
         self.start_generator = CDPLShape.PrincipalAxesAlignmentStartGenerator()
 
-        self.reference_mols: List = []
-        self.reference_shapes: List = []
+        self.reference_mols: List[Any] = []
+        self.reference_shapes: List[Any] = []
         self.group_to_indices: List[List[int]] = []
         self._load_reference_groups()
 
@@ -247,89 +269,142 @@ class CDPKitROCSScorer(Scorer):
         )
 
         if self.show_progress:
-            print(
-                f"CDPKit ROCS ready with {len(self.reference_shapes)} reference "
-                "shape(s)."
-            )
+            print(f"CDPKit ROCS ready with {len(self.reference_shapes)} reference shape(s).")
 
     def _prepare_reference_groups(
         self, references: Union[str, List[str], Dict[str, List[str]]]
     ) -> List[Tuple[str, List[str]]]:
+        """Normalize reference specification into group tuples.
+
+        Parameters
+        ----------
+        references : Union[str, List[str], Dict[str, List[str]]]
+            Input reference paths or dictionary.
+
+        Returns
+        -------
+        List[Tuple[str, List[str]]]
+            List of `(group_name, list_of_file_paths)`.
+        """
         groups: List[Tuple[str, List[str]]] = []
         if isinstance(references, dict):
             for name, paths in references.items():
-                normalized = self._normalize_reference_list(paths)
-                groups.append((str(name), normalized))
+                norm_paths = self._normalize_reference_list(paths)
+                groups.append((str(name), norm_paths))
         else:
-            normalized = self._normalize_reference_list(references)
-            groups.append((_DEFAULT_CDPKIT_GROUP_NAME, normalized))
+            norm_paths = self._normalize_reference_list(references)
+            groups.append((_DEFAULT_CDPKIT_GROUP_NAME, norm_paths))
 
         if not groups:
             raise ValueError("At least one reference group must be provided")
         return groups
 
-    def _normalize_reference_list(
-        self, refs: Union[str, List[str]]
-    ) -> List[str]:
+    def _normalize_reference_list(self, refs: Union[str, List[str]]) -> List[str]:
+        """Validate and convert reference paths into a list of strings.
+
+        Parameters
+        ----------
+        refs : Union[str, List[str]]
+            Single path or list of paths.
+
+        Returns
+        -------
+        List[str]
+            List of validated file paths.
+        """
         if isinstance(refs, str):
             refs = [refs]
-        if not isinstance(refs, list) or not refs:
-            raise ValueError("Reference group cannot be empty")
-        for item in refs:
-            if not isinstance(item, str):
-                raise TypeError("CDPKit references must be file paths")
+        if not isinstance(refs, list):
+            raise TypeError("Reference collection must be a path string or list of paths")
+        for path in refs:
+            if not isinstance(path, str):
+                raise TypeError("Reference path must be string")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Reference file not found: {path}")
         return refs
 
     def _load_reference_groups(self) -> None:
+        """Load molecules and compute Gaussian shapes for each reference group.
+
+        Raises
+        ------
+        ValueError
+            If any group yields zero valid Gaussian shapes.
+        """
         for name, paths in self.group_definitions:
-            group_indices: List[int] = []
+            indices: List[int] = []
             for path in paths:
-                if not os.path.exists(path):
-                    raise FileNotFoundError(f"Reference file not found: {path}")
                 mols = self._load_reference_molecules(path)
-                if not mols:
-                    raise ValueError(f"No valid molecules loaded from {path}")
                 for mol in mols:
                     shape = self._generate_gaussian_shape(mol)
                     if shape is None:
                         continue
-                    group_indices.append(len(self.reference_shapes))
-                    self.reference_mols.append(mol)
+                    indices.append(len(self.reference_shapes))
                     self.reference_shapes.append(shape)
-            if not group_indices:
-                raise ValueError(
-                    f"Reference group '{name}' produced no valid Gaussian shapes"
-                )
-            self.group_to_indices.append(group_indices)
+                    self.reference_mols.append(mol)
+            if not indices:
+                raise ValueError(f"No valid reference shapes generated for group: {name}")
+            self.group_to_indices.append(indices)
 
-    def _load_reference_molecules(self, filepath: str) -> List:
-        molecules = []
-        try:
-            reader = CDPLChem.FileSDFMoleculeReader(filepath)
-            while True:
-                mol = CDPLChem.BasicMolecule()
-                if not reader.read(mol):
-                    break
-                if mol.getNumAtoms() > 0:
-                    molecules.append(mol)
-        except Exception as exc:
-            if self.show_progress:
-                print(f"Warning: failed to read {filepath}: {exc}")
-        return molecules
+    def _load_reference_molecules(self, filepath: str) -> List[Any]:
+        """Read 3D molecules from an SDF file using CDPKit reader.
 
-    def _generate_gaussian_shape(self, mol) -> Optional[object]:
+        Parameters
+        ----------
+        filepath : str
+            Path to SDF file.
+
+        Returns
+        -------
+        List[CDPLChem.BasicMolecule]
+            Loaded molecules.
+        """
+        mols: List[Any] = []
+        reader = CDPLChem.FileSDFMoleculeReader(filepath)
+        while True:
+            mol = CDPLChem.BasicMolecule()
+            if not reader.read(mol):
+                break
+            mols.append(mol)
+        return mols
+
+    def _generate_gaussian_shape(self, mol: Any) -> Optional[Any]:
+        """Generate a single pharmacophore-aware Gaussian shape for a reference molecule.
+
+        Parameters
+        ----------
+        mol : CDPLChem.BasicMolecule
+            Reference molecule.
+
+        Returns
+        -------
+        CDPLShape.GaussianShape | None
+            Generated shape or None on failure.
+        """
         try:
             CDPLPharm.prepareForPharmacophoreGeneration(mol)
             shape_set = self.shape_generator.generate(mol)
             if shape_set.getSize() == 0:
                 return None
             return shape_set.getElement(0)
-        except (RuntimeError, ValueError) as exc:
-            if self.show_progress:
-                print(f"Warning: shape generation failed: {exc}")
+        except (RuntimeError, ValueError):
             return None
 
-    def _align_and_score(self, query_shape, ref_shape) -> float:
+    def _align_and_score(self, query_shape: Any, ref_shape: Any) -> float:
+        """Align query shape to reference shape using internal alignment settings.
+
+        Parameters
+        ----------
+        query_shape : CDPLShape.GaussianShape
+            Query shape.
+        ref_shape : CDPLShape.GaussianShape
+            Reference shape.
+
+        Returns
+        -------
+        float
+            Optimal TanimotoCombo score.
+        """
         try:
             aligner = CDPLShape.GaussianShapeAlignment()
             aligner.setStartGenerator(self.start_generator)
@@ -340,27 +415,42 @@ class CDPKitROCSScorer(Scorer):
                 return 0.0
             best_score = 0.0
             for i in range(aligner.getNumResults()):
-                result = aligner.getResult(i)
-                score = CDPLShape.calcTanimotoComboScore(result)
-                best_score = max(best_score, score)
+                res = aligner.getResult(i)
+                best_score = max(best_score, CDPLShape.calcTanimotoComboScore(res))
             return best_score
-        except (RuntimeError, ValueError) as exc:
-            if self.show_progress:
-                print(f"Warning: alignment failed: {exc}")
+        except (RuntimeError, ValueError):
             return 0.0
 
     def getKey(self) -> List[str]:
-        if (
-            len(self.group_names) == 1
-            and self.group_names[0] == _DEFAULT_CDPKIT_GROUP_NAME
-        ):
+        """Return list of identifier keys for the reference groups.
+
+        Returns
+        -------
+        List[str]
+            Formatted identifier strings.
+        """
+        if len(self.group_names) == 1 and self.group_names[0] == _DEFAULT_CDPKIT_GROUP_NAME:
             if self._is_supermol:
                 return ["CDPKit_ROCS_Supermol_TanimotoCombo"]
             refs = len(self.reference_shapes)
             return [f"CDPKit_ROCS_Aggregate_{refs}refs_TanimotoCombo"]
         return [f"CDPKit_{name}" for name in self.group_names]
 
-    def create_progress_bar(self, total, desc):
+    def create_progress_bar(self, total: int, desc: str) -> Any:
+        """Create a tqdm progress bar instance if progress reporting is enabled.
+
+        Parameters
+        ----------
+        total : int
+            Total items.
+        desc : str
+            Progress description.
+
+        Returns
+        -------
+        tqdm | None
+            Configured progress bar or None.
+        """
         if not self.show_progress:
             return None
         try:
@@ -370,15 +460,24 @@ class CDPKitROCSScorer(Scorer):
         except ImportError:
             return None
 
-    def getScores(self, mols, frags=None) -> np.ndarray:
-        """Score molecules using CDPKit Gaussian shape alignment.
+    def getScores(
+        self,
+        mols: Sequence[Any],
+        frags: Sequence[str | None] | None = None,
+    ) -> np.ndarray:
+        """Score input molecules against reference query groups using CDPKit shape alignment.
 
-        Args:
-            mols: List of molecules (RDKit Mol objects or SMILES strings).
-            frags: Unused, kept for interface compatibility.
+        Parameters
+        ----------
+        mols : Sequence[Any]
+            List or sequence of SMILES strings or RDKit molecules.
+        frags : Sequence[str | None] | None, optional
+            Fragment constraints (unused).
 
-        Returns:
-            Array of shape (len(mols), num_groups) with TanimotoCombo scores.
+        Returns
+        -------
+        np.ndarray
+            2D numpy array of shape `(len(mols), num_groups)` containing TanimotoCombo scores in [0.0, 2.0].
         """
         num_groups = len(self.group_to_indices)
         if num_groups == 0:
@@ -386,14 +485,17 @@ class CDPKitROCSScorer(Scorer):
         if not mols:
             return np.zeros((0, num_groups))
 
-        smiles_list = []
+        smiles_list: List[str | None] = []
         for mol in mols:
             if mol is None:
                 smiles_list.append(None)
             elif isinstance(mol, str):
                 smiles_list.append(mol)
             else:
-                smiles_list.append(Chem.MolToSmiles(mol))
+                try:
+                    smiles_list.append(Chem.MolToSmiles(mol))
+                except Exception:
+                    smiles_list.append(None)
 
         unique_smiles, unique_to_original = self._deduplicate_smiles(smiles_list)
         if not unique_smiles:
@@ -406,8 +508,7 @@ class CDPKitROCSScorer(Scorer):
                     print("Warning: conformer file not generated")
                 return np.zeros((len(mols), num_groups))
 
-            # Build quick presence map without holding molecules in memory
-            present_ids = set()
+            present_ids: Set[int] = set()
             try:
                 reader = CDPLChem.FileSDFMoleculeReader(conf_file)
                 while True:
@@ -428,7 +529,6 @@ class CDPKitROCSScorer(Scorer):
             num_unique = len(unique_smiles)
             scores_unique = np.zeros((num_unique, num_groups), dtype=np.float32)
 
-            # Create worker context and callable worker instance
             context = CDPKitWorkerContext(
                 reference_shapes=self.reference_shapes,
                 group_to_indices=self.group_to_indices,
@@ -437,7 +537,6 @@ class CDPKitROCSScorer(Scorer):
             worker = CDPKitScoringWorker()
 
             if self.n_jobs == 1:
-                # Sequential mode: initialize and call worker directly
                 worker.initialize(context)
                 for mol_id in range(num_unique):
                     if mol_id not in present_ids:
@@ -446,7 +545,6 @@ class CDPKitROCSScorer(Scorer):
                     if len(group_scores) == num_groups:
                         scores_unique[mol_id] = np.asarray(group_scores, dtype=np.float32)
             else:
-                # Parallel mode: use Pool with worker initializer
                 worker_args = [mol_id for mol_id in range(num_unique) if mol_id in present_ids]
                 effective_jobs = max(1, self.n_jobs)
                 chunksize = max(1, len(worker_args) // (effective_jobs * 4))
@@ -469,10 +567,7 @@ class CDPKitROCSScorer(Scorer):
                                 )
                             except ImportError:
                                 results = pool.map(worker, worker_args, chunksize=chunksize)
-                                print(
-                                    f"  Scored {len(worker_args)} molecules "
-                                    "(parallel)"
-                                )
+                                print(f"  Scored {len(worker_args)} molecules (parallel)")
                         else:
                             results = pool.map(worker, worker_args, chunksize=chunksize)
                     for mol_id, group_scores in results:
@@ -484,7 +579,6 @@ class CDPKitROCSScorer(Scorer):
                             f"Warning: parallel processing failed ({exc}), "
                             "switching to sequential mode"
                         )
-                    # Fallback to sequential: initialize worker and process directly
                     worker.initialize(context)
                     for mol_id in range(num_unique):
                         if mol_id not in present_ids:
@@ -502,9 +596,20 @@ class CDPKitROCSScorer(Scorer):
 
     @staticmethod
     def _deduplicate_smiles(
-        smiles_list: List[Optional[str]],
+        smiles_list: Sequence[Optional[str]],
     ) -> Tuple[List[str], Dict[int, List[int]]]:
-        """Return unique SMILES plus mapping back to originals."""
+        """Group identical SMILES strings to avoid redundant conformer generation.
+
+        Parameters
+        ----------
+        smiles_list : Sequence[Optional[str]]
+            List of input SMILES.
+
+        Returns
+        -------
+        Tuple[List[str], Dict[int, List[int]]]
+            (unique_smiles_list, index_mapping)
+        """
         unique_smiles: List[str] = []
         unique_lookup: Dict[str, int] = {}
         unique_to_original: Dict[int, List[int]] = defaultdict(list)
