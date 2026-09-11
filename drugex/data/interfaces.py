@@ -1,82 +1,109 @@
+"""Abstract base classes and core interfaces for DrugEx data management."""
+
+from __future__ import annotations
+
 import os
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Optional, Sequence, Tuple, Type, Union
 
 import numpy as np
 import pandas as pd
 
 from drugex.logs import logger
-from drugex.parallel.interfaces import ResultCollector
+
+if TYPE_CHECKING:
+    from torch.utils.data import DataLoader
+    from drugex.data.corpus.interfaces import Vocabulary
+
 
 class DataSplitter(ABC):
-    """
-    Splits input data into multiple parts.
-    """
+    """Abstract strategy for partitioning datasets into train, test, and validation subsets."""
 
     @abstractmethod
-    def __call__(self, data):
+    def __call__(self, data: Any) -> Any:
+        """Partition the input data into subsets.
+
+        Parameters
+        ----------
+        data : Any
+            Input dataset to partition.
+
+        Returns
+        -------
+        splits : Any
+            Collection of partitioned data subsets.
         """
-
-        Args:
-            data: input data to split
-
-        Returns:
-            a tuple of splits
-
-        """
-
         pass
+
 
 class DataToLoader(ABC):
-    """
-    Responsible for the conversion of raw input data into data loaders used by the DrugEx models for training.
-    """
+    """Abstract converter from raw dataset arrays into PyTorch DataLoaders."""
 
     @abstractmethod
-    def __call__(self, data, batch_size, vocabulary):
+    def __call__(self, data: Any, batch_size: int, vocabulary: Any) -> DataLoader:
+        """Convert array data into a PyTorch DataLoader.
+
+        Parameters
+        ----------
+        data : Any
+            Raw data matrix.
+        batch_size : int
+            Mini-batch size.
+        vocabulary : Any
+            Vocabulary used for token mapping and tensor shape constraints.
+
+        Returns
+        -------
+        loader : DataLoader
+            Configured PyTorch DataLoader.
+        """
         pass
 
-class DataSet(ResultCollector, ABC):
-    """
-    Data sets represent encoded input data for the various DrugEx models. Each `DataSet` is associated with a file and also acts as a `ResultCollector` to append data from parallel operations (see `ParallelProcessor`). The `DataSet` is also coupled with the `Vocabulary` used to encode the data in it. However, `Vocabulary` is usually saved in a separate file(s) and needs to be loaded explicitly with `DataSet.readVocs()`.
-    """
 
-    def __init__(self, path, rewrite=False, save_voc=True, voc_file=None):
-        """
-        Initialize this `DataSet`. A path to the associated file must be given. Data is saved to this file upon calling `DataSet.save()`.
+class DataSet(ABC):
+    """Abstract base class managing disk serialization, vocabulary integration, and DataLoader generation for DrugEx models."""
 
-        If the associated file already exists, the data is loaded automatically upon initialization.
+    def __init__(
+        self,
+        path: str,
+        rewrite: bool = False,
+        save_voc: bool = True,
+        voc_file: Optional[str] = None
+    ) -> None:
+        """Initialize the dataset instance.
 
         Parameters
         ----------
         path : str
-            Path to the file to use for this `DataSet`.
-        rewrite : bool
-            If `True`, the associated file is deleted and a new one is created. If `False`, the data is loaded from the file if it exists.
-        save_voc : bool
-            If `True`, the vocabulary is saved to a separate file. If `False`, the vocabulary is not saved.
-        voc_file : str
-            Path to the file to use for the vocabulary. If `None`, the vocabulary is saved to a file with the same name as the data set file but with the `.vocab` extension.
+            Filesystem path for storing the serialized dataset.
+        rewrite : bool, optional
+            Whether to delete existing dataset files at `path` upon initialization (default: False).
+        save_voc : bool, optional
+            Whether to serialize the associated vocabulary alongside the dataset (default: True).
+        voc_file : str, optional
+            Explicit file path for saving the vocabulary. If None, defaults to `f"{path}.vocab"`.
         """
+        self.outpath: str = path
+        self.rewrite: bool = rewrite
+        self.voc: Optional[Vocabulary] = None
+        self.save_voc: bool = save_voc
+        self.voc_file: Optional[str] = voc_file
 
-        self.outpath = path
-        self.save_voc = save_voc
-        self.voc_file = voc_file
+        if self.rewrite:
+            self.reset()
+        else:
+            if not os.path.exists(self.outpath):
+                logger.info(
+                    f"Initialized empty dataset. The data set file does not exist (yet): {self.outpath}. "
+                    "You can add data by calling this instance with the appropriate parameters."
+                )
 
-        if not os.path.exists(os.path.dirname(self.outpath)):
-            os.makedirs(os.path.dirname(self.outpath))
-        self.voc = None
-        try:
-            self.fromFile(self.outpath)
-            if rewrite:
-                self.reset()
-        except FileNotFoundError:
-            logger.warning(f"Initialized empty dataset. The data set file does not exist (yet): {self.outpath}. You can add data by calling this instance with the appropriate parameters.")
-
-    def reset(self):
-        logger.info(f"Initializing new {self.__class__.__name__} at {self.outpath}...")
+    def reset(self) -> None:
+        """Remove existing dataset and vocabulary files from disk."""
         if os.path.exists(self.outpath):
             os.remove(self.outpath)
             logger.info(f"Removed: {self.outpath}")
+
         voc_path = self.getVocPath()
         if os.path.exists(voc_path):
             os.remove(voc_path)
@@ -84,16 +111,35 @@ class DataSet(ResultCollector, ABC):
 
         logger.info(f"{self} initialized.")
 
-    def getVocPath(self):
+    def getVocPath(self) -> str:
+        """Determine the filesystem path for the vocabulary file.
+
+        Returns
+        -------
+        path : str
+            Resolved vocabulary file path.
+        """
         if self.voc_file:
             return self.voc_file
         else:
-            return f'{self.outpath}.vocab'
+            return f"{self.outpath}.vocab"
 
-    def sendDataToFile(self, data, columns=None):
+    def sendDataToFile(self, data: Sequence[Any], columns: Optional[Sequence[str]] = None) -> None:
+        """Append a batch of records to the on-disk TSV dataset file.
+
+        Parameters
+        ----------
+        data : sequence of Any
+            Batch of records to serialize.
+        columns : sequence of str, optional
+            TSV header column names. If None, generated as `'Col1'`, `'Col2'`, etc.
+        """
         header_written = os.path.isfile(self.outpath)
         open_mode = 'a' if header_written else 'w'
-        pd.DataFrame(data, columns=columns if columns else [f'Col{x+1}' for x in range(len(data[0]))]).to_csv(
+        pd.DataFrame(
+            data,
+            columns=columns if columns else [f'Col{x+1}' for x in range(len(data[0]))]
+        ).to_csv(
             self.outpath,
             sep='\t',
             index=False,
@@ -102,89 +148,113 @@ class DataSet(ResultCollector, ABC):
             encoding='utf-8'
         )
 
-    def getData(self, chunk_size=None):
-        """
-        Get this `DataSet` as a pandas `DataFrame`.
+    def getData(self, chunk_size: Optional[int] = None) -> np.ndarray:
+        """Load dataset records from disk into a NumPy array.
 
-        Args:
-            chunk_size: the size of the chunk to load at a time
+        Parameters
+        ----------
+        chunk_size : int, optional
+            Size of chunks to read iteratively if dataset is large (default: None).
 
-        Returns:
-            pandas `DataFrame` representing this instance. If "chunks" is specified an iterator is returned that supplies the chunks.
+        Returns
+        -------
+        data : np.ndarray
+            Loaded dataset matrix.
         """
-        kwargs = dict()
+        kwargs: Dict[str, Any] = dict()
         if chunk_size:
             kwargs['chunksize'] = chunk_size
 
         return pd.read_csv(self.outpath, sep='\t', header=0, **kwargs).to_numpy()
 
-    def updateVoc(self, voc):
+    def updateVoc(self, voc: Vocabulary) -> None:
+        """Combine an incoming vocabulary into the active dataset vocabulary.
+
+        Parameters
+        ----------
+        voc : Vocabulary
+            Vocabulary instance to merge.
         """
-        Accept a `Vocabulary` instance and add it to the existing one.
-
-        Args:
-            voc: vocabulary to add
-
-        Returns:
-            `None`
-        """
-
         if not self.voc:
             self.voc = voc
         else:
             self.voc += voc
 
         if self.save_voc:
-            self.voc.toFile(self.getVocPath())   
+            self.voc.toFile(self.getVocPath())
 
-    def getVoc(self):
+    def getVoc(self) -> Optional[Vocabulary]:
+        """Return the active vocabulary associated with this dataset.
+
+        Returns
+        -------
+        voc : Vocabulary or None
+            Active token vocabulary.
         """
-        Return the `Vocabulary` associated with this data set (should comprise all tokens within it). The vocabulary can be generated from the results collected from `CorpusEncoder` or `FragmentCorpusEncoder` on which this class acts as a collector. Or it can be loaded from files with `DataSet.readVocs()`.
-
-        Returns:
-            the associated `Vocabulary` instance.
-        """
-
         return self.voc
 
-    def setVoc(self, voc):
+    def setVoc(self, voc: Vocabulary) -> None:
+        """Set the active vocabulary for this dataset.
+
+        Parameters
+        ----------
+        voc : Vocabulary
+            Vocabulary to assign.
+        """
         self.voc = voc
 
-    def fromFile(self, path, vocs=tuple(), voc_class=None):
+    def fromFile(self, path: str, vocs: Sequence[str] = (), voc_class: Optional[Type[Vocabulary]] = None) -> None:
+        """Load dataset from an existing file and initialize its vocabulary.
+
+        Parameters
+        ----------
+        path : str
+            Path to existing TSV data file.
+        vocs : sequence of str, optional
+            Paths to vocabulary files to load.
+        voc_class : type of Vocabulary, optional
+            Vocabulary class to instantiate.
+
+        Raises
+        ------
+        FileNotFoundError
+            If `path` does not exist on disk.
         """
-        Initialize this `DataSet` from file and load the associated vocabulary.
-
-        Args:
-            path: Path to the encoded data.
-            vocs: Paths to the file(s) containing the vocabulary
-            voc_class: The `Vocabulary` implementation to initialize.
-
-        Returns:
-            `None`
-        """
-
         self.outpath = path
         if os.path.exists(self.outpath):
-            if vocs:
+            if vocs and voc_class:
                 self.readVocs(vocs, voc_class)
         else:
             raise FileNotFoundError(f"The specified data file does not exist: {self.outpath}")
 
-    def asDataLoader(self, batch_size, splitter=None, split_converter=None, n_samples=-1, n_samples_ratio=None):
+    def asDataLoader(
+        self,
+        batch_size: int = 32,
+        splitter: Optional[DataSplitter] = None,
+        split_converter: Optional[Union[DataToLoader, Callable[[np.ndarray, int, Any], DataLoader]]] = None,
+        n_samples: int = -1,
+        n_samples_ratio: Optional[float] = None
+    ) -> Union[DataLoader, List[DataLoader]]:
+        """Convert on-disk data into one or more PyTorch DataLoaders.
+
+        Parameters
+        ----------
+        batch_size : int, optional
+            Mini-batch size (default: 32).
+        splitter : DataSplitter, optional
+            Optional partition strategy to split dataset into train/test subsets.
+        split_converter : DataToLoader or callable, optional
+            Custom converter mapping partition arrays into DataLoaders (defaults to `self.dataToLoader`).
+        n_samples : int, optional
+            Desired fixed sample size. If larger than dataset length, samples are replicated (default: -1).
+        n_samples_ratio : float, optional
+            Scaling factor applied to `n_samples` before partitioning.
+
+        Returns
+        -------
+        loaders : DataLoader or list of DataLoader
+            Single DataLoader if unsplit, or list of DataLoaders matching splitter partitions.
         """
-        Convert the data in this `DataSet` to a compatible PyTorch `DataLoader`.
-
-        Args:
-            batch_size: the desired batch size
-            splitter: If a split of the data is required (i.e. training/validation set) a custom `ChunkSplitter` can be supplied. Otherwise, only a single `DataLoader` is created.
-            split_converter: a custom `DataToLoader` implementation can be supplied to convert each split to a `DataLoader`. By default, the `DataSet.dataToLoader()` method is used instead.
-            n_samples: Number of desired samples in the supplied data before splitting. If "n_samples > 0" and "len(data) < n_samples", the data of the `DataSet` is oversampled to match "len(data) == n_samples"
-            n_samples_ratio: If supplied only "n_samples*n_samples_ratio" samples are generated from this `DataSet` before splitting.
-
-        Returns:
-            a `tuple` of PyTorch `DataLoader` instances matching the number of splits as defined by the current "splitter". If only one `DataLoader` split data set is created, it returns its `DataLoader` directly.
-        """
-
         split_converter = split_converter if split_converter else self.dataToLoader
 
         data = self.getData()
@@ -192,12 +262,12 @@ class DataSet(ResultCollector, ABC):
             raise ValueError("DataSet is not initialized. Cannot convert to data loader.")
 
         if n_samples_ratio:
-            n_samples = int(n_samples*n_samples_ratio)
+            n_samples = int(n_samples * n_samples_ratio)
 
         if n_samples > 0 and n_samples > len(data):
-            logger.info('Replicating original {} samples of data to have set of {} samples.'.format(len(data), n_samples))
+            logger.info(f"Replicating original {len(data)} samples of data to have set of {n_samples} samples.")
             data = np.asarray(data)
-            m = int(n_samples/data.shape[0])
+            m = int(n_samples / data.shape[0])
             data = data.repeat(m, axis=0)
 
         results = []
@@ -211,35 +281,50 @@ class DataSet(ResultCollector, ABC):
 
     @staticmethod
     @abstractmethod
-    def dataToLoader(data, batch_size, vocabulary):
+    def dataToLoader(data: np.ndarray, batch_size: int, vocabulary: Any) -> DataLoader:
+        """Convert a raw data array into a PyTorch DataLoader.
+
+        Parameters
+        ----------
+        data : np.ndarray
+            Input dataset array.
+        batch_size : int
+            Number of samples per mini-batch.
+        vocabulary : Any
+            Active vocabulary instance.
+
+        Returns
+        -------
+        loader : DataLoader
+            Constructed DataLoader.
         """
-        The default method to use to convert data (as returned from `DataSet.getData()`) to a PyTorch `DataLoader`. Basically, mirrors the `DataToLoader` interface.
-
-        Args:
-            data: data from `DataSet.getData()`
-            batch_size: specified batch size for the `DataLoader`
-            vocabulary: a `Vocabulary` instance (in this case should be the same as returned by `DataSet.getVoc()`)
-
-        Returns:
-            typically an instance of PyTorch `DataLoader` generated from "data", but depends on the implementation
-        """
-
         pass
 
-    def createLoaders(self, data, batch_size, splitter=None, converter=None):
+    def createLoaders(
+        self,
+        data: np.ndarray,
+        batch_size: int,
+        splitter: Optional[DataSplitter] = None,
+        converter: Optional[Union[DataToLoader, Callable[[np.ndarray, int, Any], DataLoader]]] = None
+    ) -> List[Any]:
+        """Split data and construct DataLoader instances for each partition.
+
+        Parameters
+        ----------
+        data : np.ndarray
+            Dataset array.
+        batch_size : int
+            Mini-batch size.
+        splitter : DataSplitter, optional
+            Partitioning strategy.
+        converter : callable, optional
+            Conversion function mapping arrays to DataLoaders.
+
+        Returns
+        -------
+        loaders : list of Any
+            List of DataLoaders or split arrays.
         """
-        Facilitates splitting and conversion of data to `DataLoader`s.
-
-        Args:
-            data: data to convert
-            batch_size: batch size
-            splitter: the `ChunkSplitter` to use
-            converter: the `DataToLoader` instance to convert with
-
-        Returns:
-            a `list` of created data loaders (same length as the "splitter" return value)
-        """
-
         splits = []
         if splitter:
             splits = splitter(data)
@@ -247,21 +332,28 @@ class DataSet(ResultCollector, ABC):
             splits.append(data)
         return [converter(split, batch_size, self.getVoc()) if converter else split for split in splits]
 
-    def readVocs(self, paths, voc_class, *args, **kwargs):
-        """
-        Read vocabularies from files and add them together to form the full vocabulary for this `DataSet`.
+    def readVocs(
+        self,
+        paths: Sequence[str],
+        voc_class: Type[Vocabulary],
+        *args: Any,
+        **kwargs: Any
+    ) -> None:
+        """Read vocabulary files from disk and combine them into the active vocabulary.
 
-        Args:
-            paths: file paths to vocabulary files
-            voc_class: `Vocabulary` implementation to initialize from the files
-            *args: any positional arguments passed to the `Vocabulary` constructor besides "words"
-            **kwargs: any keyword arguments passed to the `Vocabulary` constructor
-
-        Returns:
-            `None`
+        Parameters
+        ----------
+        paths : sequence of str
+            File paths to vocabulary definitions.
+        voc_class : type of Vocabulary
+            Vocabulary class to instantiate.
+        *args : Any
+            Positional arguments forwarded to `voc_class.fromFile`.
+        **kwargs : Any
+            Keyword arguments forwarded to `voc_class.fromFile`.
         """
         if not paths:
-            raise ValueError(f'Invalid paths: {paths}.')
+            raise ValueError(f"Invalid paths: {paths}.")
 
         vocs = [voc_class.fromFile(path, *args, **kwargs) for path in paths]
         if len(vocs) > 1:
@@ -271,47 +363,53 @@ class DataSet(ResultCollector, ABC):
 
         return self.setVoc(voc)
 
+
 class FragmentPairEncoder(ABC):
-    """
-    Encode fragments and the associated molecules for the fragment-based DrugEx models.
-    """
+    """Abstract encoder for fragment-molecule pairs used in conditioned DrugEx models."""
 
     @abstractmethod
-    def encodeMol(self, mol):
-        """
-        Encode molecule.
+    def encodeMol(self, mol: Any) -> Tuple[Optional[List[str]], Optional[List[int]]]:
+        """Encode parent molecule sequence into token strings and index codes.
 
-        Args:
-            mol: molecule as SMILES
+        Parameters
+        ----------
+        mol : Any
+            Parent molecule representation (e.g. SMILES string).
 
-        Returns:
-            a `tuple` of the molecule tokens (as determined by the specified vocabulary) and the encoded representation
+        Returns
+        -------
+        result : tuple of (list of str or None, list of int or None)
+            Extracted token sequence and corresponding numerical index codes.
         """
         pass
 
     @abstractmethod
-    def encodeFrag(self, mol, mol_tokens, frag):
-        """
-        Encode fragment.
+    def encodeFrag(self, mol: Any, mol_tokens: Any, frag: Any) -> Optional[List[int]]:
+        """Encode fragment within parent molecule context.
 
-        Args:
-            mol: the parent molecule of this fragment
-            mol_tokens: the encoded representation of the parent molecule
-            frag: the fragment to encode
+        Parameters
+        ----------
+        mol : Any
+            Parent molecule representation.
+        mol_tokens : Any
+            Extracted parent molecule token sequence.
+        frag : Any
+            Fragment representation.
 
-        Returns:
-            the encoded representation of the fragment-molecule pair (i.e. the generated tokens corresponding to both the fragment and the parent molecule)
+        Returns
+        -------
+        codes : list of int or None
+            Encoded numerical representation of the fragment-molecule pair.
         """
         pass
 
     @abstractmethod
-    def getVoc(self):
+    def getVoc(self) -> Optional[Vocabulary]:
+        """Return the active vocabulary used for encoding.
+
+        Returns
+        -------
+        vocabulary : Vocabulary or None
+            Active vocabulary instance.
         """
-        The vocabulary used for encoding.
-
-        Returns:
-            a `Vocabulary` instance
-
-        """
-
         pass
