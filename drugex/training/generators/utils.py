@@ -98,6 +98,16 @@ class PositionwiseFeedForward(nn.Module):
     """
 
     def __init__(self, d_in: int, d_hid: int) -> None:
+        """
+        Initialize position-wise feed-forward network with two linear transformations.
+
+        Parameters
+        ----------
+        d_in : int
+            Dimensionality of input and output feature vectors.
+        d_hid : int
+            Dimensionality of the inner hidden projection.
+        """
         super().__init__()
         self.w_1 = nn.Linear(d_in, d_hid)
         self.w_2 = nn.Linear(d_hid, d_in)
@@ -136,6 +146,16 @@ class SublayerConnection(nn.Module):
     """
 
     def __init__(self, size: int, dropout: float = 0.1) -> None:
+        """
+        Initialize residual connection with layer normalization and dropout.
+
+        Parameters
+        ----------
+        size : int
+            Feature dimensionality of the sublayer input.
+        dropout : float, optional
+            Dropout probability applied after the sublayer transformation (default: 0.1).
+        """
         super(SublayerConnection, self).__init__()
         self.norm = nn.LayerNorm(size)
         self.dropout = nn.Dropout(dropout)
@@ -179,6 +199,18 @@ class PositionalEmbedding(nn.Module):
     """
 
     def __init__(self, d_model: int, max_len: int = 100, batch_first: bool = False) -> None:
+        """
+        Initialize sinusoidal positional embeddings for sequence tokens.
+
+        Parameters
+        ----------
+        d_model : int
+            Dimensionality of the positional embeddings matching token representations.
+        max_len : int, optional
+            Maximum sequence length supported (default: 100).
+        batch_first : bool, optional
+            If True, tensors are assumed to have shape `(batch_size, seq_len, d_model)` (default: False).
+        """
         super(PositionalEmbedding, self).__init__()
         self.batch_first = batch_first
         pe = torch.zeros(max_len, d_model).float()
@@ -228,6 +260,18 @@ class PositionalEncoding(nn.Module):
     """
 
     def __init__(self, d_model: int, max_len: int = 100, batch_first: bool = False) -> None:
+        """
+        Initialize sinusoidal positional encodings for sequence tokens.
+
+        Parameters
+        ----------
+        d_model : int
+            Dimensionality of the positional embeddings matching token representations.
+        max_len : int, optional
+            Maximum sequence length supported (default: 100).
+        batch_first : bool, optional
+            If True, tensors are assumed to have shape `(batch_size, seq_len, d_model)` (default: False).
+        """
         super(PositionalEncoding, self).__init__()
         self.batch_first = batch_first
         pe = torch.zeros(max_len, d_model).float()

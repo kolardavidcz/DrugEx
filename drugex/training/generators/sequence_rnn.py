@@ -72,6 +72,26 @@ class SequenceRNN(Generator):
         device: Union[torch.device, str] = DEFAULT_DEVICE,
         use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None:
+        """
+        Initialize the Recurrent Neural Network sequence generator.
+
+        Parameters
+        ----------
+        voc : VocSmiles
+            Vocabulary mapping SMILES tokens to numerical indices and defining special tokens.
+        embed_size : int, optional
+            Dimensionality of the dense token embedding space (default: 128).
+        hidden_size : int, optional
+            Dimensionality of the recurrent hidden states across layers (default: 512).
+        is_lstm : bool, optional
+            If True, uses 3-layer LSTM cells (`nn.LSTM`). If False, uses 3-layer GRU cells (`nn.GRU`) (default: True).
+        lr : float, optional
+            Initial learning rate for the Adam optimizer (default: 1e-3).
+        device : torch.device or str, optional
+            Hardware execution device (default: `DEFAULT_DEVICE`).
+        use_gpus : sequence of int, optional
+            GPU hardware indices (default: `DEFAULT_GPUS`).
+        """
         super(SequenceRNN, self).__init__(device=device, use_gpus=use_gpus)
         self.voc = voc
         self.embed_size = embed_size

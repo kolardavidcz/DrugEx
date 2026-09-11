@@ -237,7 +237,6 @@ class Model(nn.Module, ModelProvider, ABC):
     """
 
     def __init__(self, device=DEFAULT_DEVICE, use_gpus=DEFAULT_GPUS):
-        super().__init__()
         """
         Initialize the model with the given device and GPUs.
 
@@ -248,6 +247,7 @@ class Model(nn.Module, ModelProvider, ABC):
         use_gpus : list, optional
             List of GPUs to use for the model. If `None`, the default GPUs are used.
         """
+        super().__init__()
 
         self.device = None
         self.gpus = None

@@ -52,6 +52,18 @@ class Block(nn.Module):
     """
 
     def __init__(self, d_model: int, n_head: int, d_inner: int) -> None:
+        """
+        Initialize a Transformer block consisting of multi-head attention and feed-forward sublayers.
+
+        Parameters
+        ----------
+        d_model : int
+            Dimensionality of input and output token representations.
+        n_head : int
+            Number of parallel self-attention heads.
+        d_inner : int
+            Dimensionality of intermediate feed-forward representations.
+        """
         super(Block, self).__init__()
         self.attn = nn.MultiheadAttention(d_model, n_head)
         self.pffn = PositionwiseFeedForward(d_model, d_inner)
@@ -120,6 +132,26 @@ class GPT2Layer(nn.Module):
         n_layer: int = 12,
         pad_idx: int = 0
     ) -> None:
+        """
+        Initialize the GPT-2 decoder layer stack for sequence generation.
+
+        Parameters
+        ----------
+        voc : SequenceVocabulary
+            Active sequence token vocabulary.
+        d_emb : int, optional
+            Token embedding dimensionality (default: 512).
+        d_model : int, optional
+            Transformer hidden representation dimensionality (default: 512).
+        n_head : int, optional
+            Number of attention heads (default: 12).
+        d_inner : int, optional
+            Dimensionality of position-wise feed-forward hidden layer (default: 1024).
+        n_layer : int, optional
+            Number of stacked Transformer blocks (default: 12).
+        pad_idx : int, optional
+            Index of the padding token in the vocabulary (default: 0).
+        """
         super(GPT2Layer, self).__init__()
         self.n_layer = n_layer
         self.d_emb = d_emb
@@ -215,6 +247,30 @@ class SequenceTransformer(FragGenerator):
         device: Union[torch.device, str] = DEFAULT_DEVICE,
         use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None:
+        """
+        Initialize the Sequence Transformer generator for fragment-to-lead molecule elaboration.
+
+        Parameters
+        ----------
+        voc_trg : SequenceVocabulary
+            Active sequence vocabulary defining valid chemical tokens.
+        d_emb : int, optional
+            Embedding dimensionality for vocabulary tokens (default: 512).
+        d_model : int, optional
+            Dimensionality of hidden representations across transformer layers (default: 512).
+        n_head : int, optional
+            Number of parallel attention heads (default: 8).
+        d_inner : int, optional
+            Dimensionality of feed-forward hidden transformations (default: 1024).
+        n_layer : int, optional
+            Total number of transformer block layers (default: 12).
+        pad_idx : int, optional
+            Index corresponding to padding tokens in the vocabulary (default: 0).
+        device : torch.device or str, optional
+            Hardware execution device (default: `DEFAULT_DEVICE`).
+        use_gpus : sequence of int, optional
+            Hardware GPU device indices (default: `DEFAULT_GPUS`).
+        """
         super(SequenceTransformer, self).__init__(device=device, use_gpus=use_gpus)
         self.mol_type = 'smiles'
         self.voc_trg = voc_trg

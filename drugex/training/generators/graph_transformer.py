@@ -47,6 +47,18 @@ class Block(nn.Module):
     """
 
     def __init__(self, d_model: int, n_head: int, d_inner: int) -> None:
+        """
+        Initialize a Transformer block with multi-head attention and position-wise feed-forward layers.
+
+        Parameters
+        ----------
+        d_model : int
+            Dimensionality of graph token embeddings.
+        n_head : int
+            Number of self-attention heads.
+        d_inner : int
+            Dimensionality of inner feed-forward transformations.
+        """
         super(Block, self).__init__()
         self.attn = nn.MultiheadAttention(d_model, n_head)
         self.pffn = PositionwiseFeedForward(d_model, d_inner)
@@ -103,6 +115,20 @@ class AtomLayer(nn.Module):
         d_inner: int = 1024,
         n_layer: int = 12
     ) -> None:
+        """
+        Initialize the AtomLayer transformer stack for graph feature extraction.
+
+        Parameters
+        ----------
+        d_model : int, optional
+            Dimensionality of atom and node feature representations (default: 512).
+        n_head : int, optional
+            Number of attention heads per block (default: 8).
+        d_inner : int, optional
+            Inner feed-forward hidden layer size (default: 1024).
+        n_layer : int, optional
+            Number of sequential transformer blocks (default: 12).
+        """
         super(AtomLayer, self).__init__()
         self.n_layer = n_layer
         self.d_model = d_model
@@ -206,6 +232,30 @@ class GraphTransformer(FragGenerator):
         device: Union[torch.device, str] = DEFAULT_DEVICE,
         use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None:
+        """
+        Initialize the Graph Transformer generator for fragment-based molecular graph generation.
+
+        Parameters
+        ----------
+        voc_trg : VocGraph
+            Active graph vocabulary defining atom, bond, and modifier tokens.
+        d_emb : int, optional
+            Dimensionality of atom and bond embeddings (default: 512).
+        d_model : int, optional
+            Dimensionality of the model internal hidden states (default: 512).
+        n_head : int, optional
+            Number of multi-head attention heads (default: 8).
+        d_inner : int, optional
+            Intermediate feed-forward projection dimension (default: 1024).
+        n_layer : int, optional
+            Total number of transformer layers in `AtomLayer` (default: 12).
+        pad_idx : int, optional
+            Index of the padding token (default: 0).
+        device : torch.device or str, optional
+            Computation device (default: `DEFAULT_DEVICE`).
+        use_gpus : sequence of int, optional
+            GPU indices available for training and sampling (default: `DEFAULT_GPUS`).
+        """
         super(GraphTransformer, self).__init__(device=device, use_gpus=use_gpus)
         self.mol_type = 'graph'
         self.voc_trg = voc_trg
