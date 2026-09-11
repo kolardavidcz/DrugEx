@@ -29,25 +29,6 @@ class SequenceRNN(Generator):
     space, propagated through recurrent layers, and mapped to vocabulary logits to predict
     next-token probability distributions.
 
-    Parameters
-    ----------
-    voc : VocSmiles
-        Vocabulary mapping SMILES tokens to numerical indices and defining special tokens
-        (`GO`, `EOS`, padding).
-    embed_size : int, optional
-        Dimensionality of the dense token embedding space (default: 128).
-    hidden_size : int, optional
-        Dimensionality of the recurrent hidden states across layers (default: 512).
-    is_lstm : bool, optional
-        If True, uses 3-layer LSTM cells (`nn.LSTM`) with separate hidden and cell states.
-        If False, uses 3-layer GRU cells (`nn.GRU`) with fewer parameters (default: True).
-    lr : float, optional
-        Initial learning rate for the Adam optimizer (default: 1e-3).
-    device : torch.device or str, optional
-        Hardware execution device (default: `DEFAULT_DEVICE`).
-    use_gpus : sequence of int, optional
-        GPU hardware indices. SequenceRNN binds to the primary GPU in the sequence (default: `DEFAULT_GPUS`).
-
     Attributes
     ----------
     voc : VocSmiles
@@ -78,19 +59,21 @@ class SequenceRNN(Generator):
         Parameters
         ----------
         voc : VocSmiles
-            Vocabulary mapping SMILES tokens to numerical indices and defining special tokens.
+            Vocabulary mapping SMILES tokens to numerical indices and defining special tokens
+            (`GO`, `EOS`, padding).
         embed_size : int, optional
             Dimensionality of the dense token embedding space (default: 128).
         hidden_size : int, optional
             Dimensionality of the recurrent hidden states across layers (default: 512).
         is_lstm : bool, optional
-            If True, uses 3-layer LSTM cells (`nn.LSTM`). If False, uses 3-layer GRU cells (`nn.GRU`) (default: True).
+            If True, uses 3-layer LSTM cells (`nn.LSTM`) with separate hidden and cell states.
+            If False, uses 3-layer GRU cells (`nn.GRU`) with fewer parameters (default: True).
         lr : float, optional
             Initial learning rate for the Adam optimizer (default: 1e-3).
         device : torch.device or str, optional
             Hardware execution device (default: `DEFAULT_DEVICE`).
         use_gpus : sequence of int, optional
-            GPU hardware indices (default: `DEFAULT_GPUS`).
+            GPU hardware indices. SequenceRNN binds to the primary GPU in the sequence (default: `DEFAULT_GPUS`).
         """
         super(SequenceRNN, self).__init__(device=device, use_gpus=use_gpus)
         self.voc = voc

@@ -88,13 +88,6 @@ class PositionwiseFeedForward(nn.Module):
     Two-layer position-wise feed-forward network with ReLU activation.
 
     Applies `Linear(d_in -> d_hid) -> ReLU -> Linear(d_hid -> d_in)`.
-
-    Parameters
-    ----------
-    d_in : int
-        Input and output feature dimensionality.
-    d_hid : int
-        Inner hidden layer dimensionality.
     """
 
     def __init__(self, d_in: int, d_hid: int) -> None:
@@ -104,9 +97,9 @@ class PositionwiseFeedForward(nn.Module):
         Parameters
         ----------
         d_in : int
-            Dimensionality of input and output feature vectors.
+            Input and output feature dimensionality.
         d_hid : int
-            Dimensionality of the inner hidden projection.
+            Inner hidden layer dimensionality.
         """
         super().__init__()
         self.w_1 = nn.Linear(d_in, d_hid)
@@ -136,25 +129,18 @@ class SublayerConnection(nn.Module):
     Residual connection wrapper with Dropout and Layer Normalization.
 
     Computes `LayerNorm(x + Dropout(sublayer(x)))`.
-
-    Parameters
-    ----------
-    size : int
-        Feature dimension passed to `nn.LayerNorm`.
-    dropout : float, optional
-        Dropout probability (default: 0.1).
     """
 
     def __init__(self, size: int, dropout: float = 0.1) -> None:
         """
-        Initialize residual connection with layer normalization and dropout.
+        Initialize residual connection wrapper with Dropout and Layer Normalization.
 
         Parameters
         ----------
         size : int
-            Feature dimensionality of the sublayer input.
+            Feature dimension passed to `nn.LayerNorm`.
         dropout : float, optional
-            Dropout probability applied after the sublayer transformation (default: 0.1).
+            Dropout probability (default: 0.1).
         """
         super(SublayerConnection, self).__init__()
         self.norm = nn.LayerNorm(size)
@@ -186,30 +172,21 @@ class PositionalEmbedding(nn.Module):
     Sinusoidal positional embedding module for sequence transformers.
 
     Computes deterministic sine/cosine encodings across token positions.
-
-    Parameters
-    ----------
-    d_model : int
-        Embedding vector dimensionality (must be an even integer).
-    max_len : int, optional
-        Maximum sequence length capacity (default: 100).
-    batch_first : bool, optional
-        If True, returns output with shape `(1, seq_len, d_model)`.
-        If False, returns output with shape `(seq_len, 1, d_model)` (default: False).
     """
 
     def __init__(self, d_model: int, max_len: int = 100, batch_first: bool = False) -> None:
         """
-        Initialize sinusoidal positional embeddings for sequence tokens.
+        Initialize sinusoidal positional embedding module for sequence transformers.
 
         Parameters
         ----------
         d_model : int
-            Dimensionality of the positional embeddings matching token representations.
+            Embedding vector dimensionality (must be an even integer).
         max_len : int, optional
-            Maximum sequence length supported (default: 100).
+            Maximum sequence length capacity (default: 100).
         batch_first : bool, optional
-            If True, tensors are assumed to have shape `(batch_size, seq_len, d_model)` (default: False).
+            If True, returns output with shape `(1, seq_len, d_model)`.
+            If False, returns output with shape `(seq_len, 1, d_model)` (default: False).
         """
         super(PositionalEmbedding, self).__init__()
         self.batch_first = batch_first
@@ -248,29 +225,20 @@ class PositionalEmbedding(nn.Module):
 class PositionalEncoding(nn.Module):
     """
     Sinusoidal positional encoding lookup table for molecular graph loci.
-
-    Parameters
-    ----------
-    d_model : int
-        Dimensionality of the graph node/site encoding.
-    max_len : int, optional
-        Maximum site index capacity (default: 100).
-    batch_first : bool, optional
-        Format flag (default: False).
     """
 
     def __init__(self, d_model: int, max_len: int = 100, batch_first: bool = False) -> None:
         """
-        Initialize sinusoidal positional encodings for sequence tokens.
+        Initialize sinusoidal positional encoding lookup table for molecular graph loci.
 
         Parameters
         ----------
         d_model : int
-            Dimensionality of the positional embeddings matching token representations.
+            Dimensionality of the graph node/site encoding.
         max_len : int, optional
-            Maximum sequence length supported (default: 100).
+            Maximum site index capacity (default: 100).
         batch_first : bool, optional
-            If True, tensors are assumed to have shape `(batch_size, seq_len, d_model)` (default: False).
+            Format flag (default: False).
         """
         super(PositionalEncoding, self).__init__()
         self.batch_first = batch_first

@@ -40,29 +40,20 @@ class Block(nn.Module):
 
     Comprises multi-head self-attention, position-wise feed-forward networks,
     and residual sublayer connections with layer normalization.
-
-    Parameters
-    ----------
-    d_model : int
-        Dimensionality of the input and output features.
-    n_head : int
-        Number of parallel attention heads.
-    d_inner : int
-        Dimensionality of the inner hidden layer in the position-wise feed-forward network.
     """
 
     def __init__(self, d_model: int, n_head: int, d_inner: int) -> None:
         """
-        Initialize a Transformer block consisting of multi-head attention and feed-forward sublayers.
+        Initialize standard Transformer decoder block.
 
         Parameters
         ----------
         d_model : int
-            Dimensionality of input and output token representations.
+            Dimensionality of the input and output features.
         n_head : int
-            Number of parallel self-attention heads.
+            Number of parallel attention heads.
         d_inner : int
-            Dimensionality of intermediate feed-forward representations.
+            Dimensionality of the inner hidden layer in the position-wise feed-forward network.
         """
         super(Block, self).__init__()
         self.attn = nn.MultiheadAttention(d_model, n_head)
@@ -103,23 +94,6 @@ class GPT2Layer(nn.Module):
 
     Combines learned token embeddings, sinusoidal positional encodings, stacked
     transformer attention blocks, layer normalization, and a linear vocabulary projection.
-
-    Parameters
-    ----------
-    voc : SequenceVocabulary
-        Vocabulary defining token set and size.
-    d_emb : int, optional
-        Embedding vector dimensionality (default: 512).
-    d_model : int, optional
-        Transformer feature space dimensionality (default: 512).
-    n_head : int, optional
-        Number of attention heads (default: 12).
-    d_inner : int, optional
-        Hidden layer dimensionality in feed-forward networks (default: 1024).
-    n_layer : int, optional
-        Number of stacked transformer blocks (default: 12).
-    pad_idx : int, optional
-        Padding token index in the vocabulary (default: 0).
     """
 
     def __init__(
@@ -133,24 +107,24 @@ class GPT2Layer(nn.Module):
         pad_idx: int = 0
     ) -> None:
         """
-        Initialize the GPT-2 decoder layer stack for sequence generation.
+        Initialize the stacked GPT-2 style autoregressive Transformer decoder.
 
         Parameters
         ----------
         voc : SequenceVocabulary
-            Active sequence token vocabulary.
+            Vocabulary defining token set and size.
         d_emb : int, optional
-            Token embedding dimensionality (default: 512).
+            Embedding vector dimensionality (default: 512).
         d_model : int, optional
-            Transformer hidden representation dimensionality (default: 512).
+            Transformer feature space dimensionality (default: 512).
         n_head : int, optional
             Number of attention heads (default: 12).
         d_inner : int, optional
-            Dimensionality of position-wise feed-forward hidden layer (default: 1024).
+            Hidden layer dimensionality in feed-forward networks (default: 1024).
         n_layer : int, optional
-            Number of stacked Transformer blocks (default: 12).
+            Number of stacked transformer blocks (default: 12).
         pad_idx : int, optional
-            Index of the padding token in the vocabulary (default: 0).
+            Padding token index in the vocabulary (default: 0).
         """
         super(GPT2Layer, self).__init__()
         self.n_layer = n_layer
@@ -204,27 +178,6 @@ class SequenceTransformer(FragGenerator):
     Employs a causal GPT-2 decoder architecture to generate full chemical structures
     by conditioning on input fragment scaffolds or building blocks.
 
-    Parameters
-    ----------
-    voc_trg : SequenceVocabulary
-        Target token vocabulary for decoding and encoding SMILES sequences.
-    d_emb : int, optional
-        Embedding vector dimensionality (default: 512).
-    d_model : int, optional
-        Model hidden dimension across transformer blocks (default: 512).
-    n_head : int, optional
-        Number of multi-head attention heads (default: 8).
-    d_inner : int, optional
-        Inner feed-forward layer dimension (default: 1024).
-    n_layer : int, optional
-        Number of stacked transformer layers (default: 12).
-    pad_idx : int, optional
-        Vocabulary index corresponding to padding (default: 0).
-    device : torch.device or str, optional
-        Hardware device for computation (default: `DEFAULT_DEVICE`).
-    use_gpus : sequence of int, optional
-        GPU indices available for training and inference (default: `DEFAULT_GPUS`).
-
     Attributes
     ----------
     mol_type : str
@@ -248,28 +201,28 @@ class SequenceTransformer(FragGenerator):
         use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None:
         """
-        Initialize the Sequence Transformer generator for fragment-to-lead molecule elaboration.
+        Initialize autoregressive sequence Transformer for fragment-conditioned SMILES generation.
 
         Parameters
         ----------
         voc_trg : SequenceVocabulary
-            Active sequence vocabulary defining valid chemical tokens.
+            Target token vocabulary for decoding and encoding SMILES sequences.
         d_emb : int, optional
-            Embedding dimensionality for vocabulary tokens (default: 512).
+            Embedding vector dimensionality (default: 512).
         d_model : int, optional
-            Dimensionality of hidden representations across transformer layers (default: 512).
+            Model hidden dimension across transformer blocks (default: 512).
         n_head : int, optional
-            Number of parallel attention heads (default: 8).
+            Number of multi-head attention heads (default: 8).
         d_inner : int, optional
-            Dimensionality of feed-forward hidden transformations (default: 1024).
+            Inner feed-forward layer dimension (default: 1024).
         n_layer : int, optional
-            Total number of transformer block layers (default: 12).
+            Number of stacked transformer layers (default: 12).
         pad_idx : int, optional
-            Index corresponding to padding tokens in the vocabulary (default: 0).
+            Vocabulary index corresponding to padding (default: 0).
         device : torch.device or str, optional
-            Hardware execution device (default: `DEFAULT_DEVICE`).
+            Hardware device for computation (default: `DEFAULT_DEVICE`).
         use_gpus : sequence of int, optional
-            Hardware GPU device indices (default: `DEFAULT_GPUS`).
+            GPU indices available for training and inference (default: `DEFAULT_GPUS`).
         """
         super(SequenceTransformer, self).__init__(device=device, use_gpus=use_gpus)
         self.mol_type = 'smiles'
