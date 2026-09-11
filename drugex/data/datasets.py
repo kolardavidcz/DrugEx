@@ -134,15 +134,16 @@ class SmilesFragDataSet(DataSet):
                 for i, (ix, tgt) in enumerate(arr):
                     collated_ix[i] = ix
                     collated_seq[i, :] = tgt
-                return torch.from_numpy(collated_ix), collated_seq
+                return collated_ix, collated_seq
 
         def __call__(self, data: np.ndarray, batch_size: int, vocabulary: VocSmiles) -> DataLoader:
             dataset = data[:, 0]
             dataset = pd.Series(dataset).drop_duplicates()
             dataset = [seq.split(' ') for seq in dataset]
-            encoded = vocabulary.encode(dataset)
-            tgt_dataset = self.TgtData(encoded, ix=[vocabulary.decode(seq, is_tk=False) for seq in encoded])
-            return DataLoader(tgt_dataset, batch_size=batch_size, collate_fn=tgt_dataset.collate_fn)
+            dataset = vocabulary.encode(dataset)
+            dataset = self.TgtData(dataset, ix=[vocabulary.decode(seq, is_tk=False) for seq in dataset])
+            dataset = DataLoader(dataset, batch_size=batch_size, collate_fn=dataset.collate_fn)
+            return dataset
 
     def __init__(
         self,

@@ -9,7 +9,7 @@ from drugex import VERSION
 from drugex.logs import logger
 
 
-def getVocPaths(data_path: str, voc_files: Sequence[str], mol_type: str = 'smiles') -> List[str]:
+def getVocPaths(data_path: str, voc_files: Sequence[str], mol_type: str) -> List[str]:
     """Retrieve filesystem paths to vocabulary files, logging fallbacks if absent.
 
     Parameters
@@ -45,8 +45,8 @@ def getVocPaths(data_path: str, voc_files: Sequence[str], mol_type: str = 'smile
 def getDataPaths(
     data_path: str,
     input_prefix: str,
-    mol_type: str = 'smiles',
-    unique_frags: bool = False
+    mol_type: str,
+    unique_frags: bool
 ) -> Tuple[str, str]:
     """Resolve filesystem paths for training and validation datasets.
 

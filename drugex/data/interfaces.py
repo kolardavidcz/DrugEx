@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from drugex.logs import logger
+from drugex.parallel.interfaces import ResultCollector
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
@@ -60,7 +61,7 @@ class DataToLoader(ABC):
         pass
 
 
-class DataSet(ABC):
+class DataSet(ResultCollector, ABC):
     """Abstract base class managing disk serialization, vocabulary integration, and DataLoader generation for DrugEx models."""
 
     def __init__(
@@ -83,23 +84,26 @@ class DataSet(ABC):
         voc_file : str, optional
             Explicit file path for saving the vocabulary. If None, defaults to `f"{path}.vocab"`.
         """
-        self.outpath: str = path
-        self.rewrite: bool = rewrite
-        self.voc: Optional[Vocabulary] = None
-        self.save_voc: bool = save_voc
-        self.voc_file: Optional[str] = voc_file
+        self.outpath = path
+        self.save_voc = save_voc
+        self.voc_file = voc_file
 
-        if self.rewrite:
-            self.reset()
-        else:
-            if not os.path.exists(self.outpath):
-                logger.info(
-                    f"Initialized empty dataset. The data set file does not exist (yet): {self.outpath}. "
-                    "You can add data by calling this instance with the appropriate parameters."
-                )
+        if not os.path.exists(os.path.dirname(self.outpath)):
+            os.makedirs(os.path.dirname(self.outpath))
+        self.voc = None
+        try:
+            self.fromFile(self.outpath)
+            if rewrite:
+                self.reset()
+        except FileNotFoundError:
+            logger.warning(
+                f"Initialized empty dataset. The data set file does not exist (yet): {self.outpath}. "
+                "You can add data by calling this instance with the appropriate parameters."
+            )
 
     def reset(self) -> None:
         """Remove existing dataset and vocabulary files from disk."""
+        logger.info(f"Initializing new {self.__class__.__name__} at {self.outpath}...")
         if os.path.exists(self.outpath):
             os.remove(self.outpath)
             logger.info(f"Removed: {self.outpath}")
@@ -203,7 +207,7 @@ class DataSet(ABC):
         """
         self.voc = voc
 
-    def fromFile(self, path: str, vocs: Sequence[str] = (), voc_class: Optional[Type[Vocabulary]] = None) -> None:
+    def fromFile(self, path: str, vocs: Sequence[str] = tuple(), voc_class: Optional[Type[Vocabulary]] = None) -> None:
         """Load dataset from an existing file and initialize its vocabulary.
 
         Parameters
@@ -222,14 +226,14 @@ class DataSet(ABC):
         """
         self.outpath = path
         if os.path.exists(self.outpath):
-            if vocs and voc_class:
+            if vocs:
                 self.readVocs(vocs, voc_class)
         else:
             raise FileNotFoundError(f"The specified data file does not exist: {self.outpath}")
 
     def asDataLoader(
         self,
-        batch_size: int = 32,
+        batch_size: int,
         splitter: Optional[DataSplitter] = None,
         split_converter: Optional[Union[DataToLoader, Callable[[np.ndarray, int, Any], DataLoader]]] = None,
         n_samples: int = -1,
@@ -239,8 +243,8 @@ class DataSet(ABC):
 
         Parameters
         ----------
-        batch_size : int, optional
-            Mini-batch size (default: 32).
+        batch_size : int
+            Desired batch size for the DataLoader.
         splitter : DataSplitter, optional
             Optional partition strategy to split dataset into train/test subsets.
         split_converter : DataToLoader or callable, optional
@@ -265,7 +269,7 @@ class DataSet(ABC):
             n_samples = int(n_samples * n_samples_ratio)
 
         if n_samples > 0 and n_samples > len(data):
-            logger.info(f"Replicating original {len(data)} samples of data to have set of {n_samples} samples.")
+            logger.info('Replicating original {} samples of data to have set of {} samples.'.format(len(data), n_samples))
             data = np.asarray(data)
             m = int(n_samples / data.shape[0])
             data = data.repeat(m, axis=0)

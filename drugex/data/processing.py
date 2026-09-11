@@ -168,10 +168,9 @@ class RandomTrainTestSplitter(DataSplitter):
         splits : tuple of (sequence, sequence)
             Partitioned `(train_split, test_split)`.
         """
-        test_size = self.testSize
-        if len(data) * test_size > self.maxSize:
-            test_size = int(self.maxSize)
-            logger.info(f"Capping test set size to {test_size} samples.")
-
-        train, test = train_test_split(data, test_size=test_size, shuffle=self.shuffle)
-        return train, test
+        test_size = min(int(math.ceil(len(data) * self.testSize)), int(self.maxSize))
+        if len(data) * self.testSize > int(self.maxSize):
+            logger.warning(
+                f"To speed up the training, the test set is reduced to a random sample of {self.maxSize} from the original test!"
+            )
+        return train_test_split(data, test_size=test_size, shuffle=self.shuffle)

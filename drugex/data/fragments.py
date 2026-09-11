@@ -95,7 +95,6 @@ class SequenceFragmentEncoder(FragmentPairEncoder):
             output = self.vocabulary.encode([tokens[:-1]])
             code = output[0].reshape(-1).tolist()
             return code
-        return None
 
     def getVoc(self) -> VocSmiles:
         """Return active SMILES vocabulary.
@@ -219,7 +218,7 @@ class FragmentPairsEncodedSupplier(MolSupplier):
         pair = next(self.pairs)
 
         tokens, encoded_mol = self.encoder.encodeMol(pair[1])
-        if not tokens or encoded_mol is None:
+        if not tokens:
             raise self.MoleculeEncodingException(f'Failed to encode molecule: {pair[1]}')
 
         encoded_frag = self.encoder.encodeFrag(pair[1], tokens, pair[0])
@@ -476,7 +475,7 @@ class FragmentPairsSplitter(DataSplitter):
             self.trainCollect(train)
         if self.testCollect:
             self.testCollect(test)
-        if self.uniqueCollect and unique is not None:
+        if self.uniqueCollect:
             self.uniqueCollect(unique)
 
         if unique:
