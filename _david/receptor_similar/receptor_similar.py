@@ -100,6 +100,54 @@ class PipelineResult:
         """Alias for `papyrus_curated` maintaining backward compatibility."""
         return self.papyrus_curated
 
+    def get_unique_smiles(
+        self,
+        source: str = "all",
+        min_paffinity: Optional[float] = None
+    ) -> List[str]:
+        """Extract a clean, deduplicated list of candidate ligand SMILES strings.
+
+        Parameters
+        ----------
+        source : str, optional
+            Candidate pool to draw from:
+            - ``'all'`` (default): Combines Papyrus curated and ChEMBL public ligands.
+            - ``'papyrus'``: Only curated benchmark ligands (Outcome 2).
+            - ``'public'``: Only ChEMBL harvested ligands (Outcome 1).
+        min_paffinity : float, optional
+            Optional minimum pAffinity cutoff.
+
+        Returns
+        -------
+        List[str]
+            Deduplicated list of canonical SMILES strings.
+        """
+        candidates: List[str] = []
+
+        if source in ("all", "papyrus") and not self.papyrus_curated.empty:
+            df = self.papyrus_curated
+            if min_paffinity is not None and "pAffinity" in df.columns:
+                df = df[df["pAffinity"] >= min_paffinity]
+            col = "SMILES" if "SMILES" in df.columns else "smiles"
+            if col in df.columns:
+                candidates.extend(df[col].dropna().tolist())
+
+        if source in ("all", "public") and not self.public_bioactivities.empty:
+            df = self.public_bioactivities
+            if min_paffinity is not None and "pAffinity" in df.columns:
+                df = df[df["pAffinity"] >= min_paffinity]
+            col = "SMILES" if "SMILES" in df.columns else "smiles"
+            if col in df.columns:
+                candidates.extend(df[col].dropna().tolist())
+
+        # Preserve order while deduplicating
+        return list(dict.fromkeys(s for s in candidates if isinstance(s, str) and len(s) > 3))
+
+    @property
+    def unique_smiles(self) -> List[str]:
+        """Deduplicated list of all candidate ligand SMILES across Papyrus and ChEMBL."""
+        return self.get_unique_smiles(source="all")
+
 
 class MoleculeBioactivityPipeline:
     """Automated multi-target bioactivity extraction and Papyrus enrichment pipeline.
@@ -328,6 +376,7 @@ class MoleculeBioactivityPipeline:
         target_accessions: Sequence[str],
         limit_per_target: int = 500,
         min_paffinity: float = 5.0,
+        deduplicate: bool = True,
         progress_callback: Optional[Any] = None
     ) -> pd.DataFrame:
         """Harvest shared-target ligands across public assays (Universal AI Dataset - Outcome 1).
@@ -420,6 +469,8 @@ class MoleculeBioactivityPipeline:
 
         df = pd.DataFrame(all_records)
         df["SMILES"] = df["smiles"]
+        if deduplicate and not df.empty:
+            df = df.sort_values(by="pAffinity", ascending=False).drop_duplicates(subset=["smiles"]).reset_index(drop=True)
         return df
 
     # Backward compatibility alias
@@ -430,6 +481,7 @@ class MoleculeBioactivityPipeline:
         target_accessions: Sequence[str],
         min_paffinity: Optional[float] = 6.0,
         quality_filter: Optional[str] = "High",
+        deduplicate: bool = True,
         public_bioactivities_df: Optional[pd.DataFrame] = None
     ) -> pd.DataFrame:
         """Harvest and enrich dataset with curated Papyrus benchmark data (Outcome 2).
@@ -538,6 +590,12 @@ class MoleculeBioactivityPipeline:
 
         if not filtered_papyrus.empty and "smiles" in filtered_papyrus.columns:
             filtered_papyrus["SMILES"] = filtered_papyrus["smiles"]
+            if deduplicate:
+                filtered_papyrus = (
+                    filtered_papyrus.sort_values(by="pAffinity", ascending=False)
+                    .drop_duplicates(subset=["smiles"])
+                    .reset_index(drop=True)
+                )
 
         return filtered_papyrus
 
@@ -590,6 +648,7 @@ class MoleculeBioactivityPipeline:
         min_ligands_threshold: int = 1000,
         auto_relax: bool = True,
         min_relax_paffinity: float = 5.0,
+        deduplicate: bool = True,
         show_progress: bool = True
     ) -> PipelineResult:
         """Execute the complete end-to-end bioactivity deconvolution pipeline.
@@ -667,6 +726,7 @@ class MoleculeBioactivityPipeline:
                 target_accessions=target_accessions,
                 limit_per_target=limit_per_target,
                 min_paffinity=max(current_paffinity - 1.0, 4.0),
+                deduplicate=deduplicate,
                 progress_callback=_on_target_progress if show_progress else None
             )
 
@@ -678,6 +738,7 @@ class MoleculeBioactivityPipeline:
                 target_accessions=target_accessions,
                 min_paffinity=current_paffinity,
                 quality_filter=quality_filter,
+                deduplicate=deduplicate,
                 public_bioactivities_df=public_bioactivities
             )
 
