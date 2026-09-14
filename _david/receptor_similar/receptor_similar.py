@@ -1,4 +1,4 @@
-﻿"""End-to-End Molecular Bioactivity & Target Deconvolution Pipeline.
+"""End-to-End Molecular Bioactivity & Target Deconvolution Pipeline.
 
 This module automates the extraction and curation of shared-target ligand spaces:
 1. Standardizes a query molecule (SMILES -> canonical SMILES, InChIKey, connectivity).
@@ -12,10 +12,13 @@ This module automates the extraction and curation of shared-target ligand spaces
 from __future__ import annotations
 
 import os
+import sys
+import warnings
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, TypedDict, Union
 
-import polars as pl
+import pandas as pd
 import requests
 from rdkit import Chem
 from rdkit.Chem.MolStandardize import rdMolStandardize
@@ -76,24 +79,24 @@ class PipelineResult:
         Standardized query structure and associated InChIKey hashes.
     targets : List[TargetRecord]
         List of identified target receptors interacting with the query compound.
-    public_bioactivities : pl.DataFrame
+    public_bioactivities : pd.DataFrame
         Universal multi-target bioactivity matrix harvested across public repositories (Outcome 1).
-    papyrus_curated : pl.DataFrame
+    papyrus_curated : pd.DataFrame
         Curated, quality-filtered benchmark subset cross-referenced against Papyrus (Outcome 2).
     """
 
     query_molecule: NormalizedMolecule
     targets: List[TargetRecord]
-    public_bioactivities: pl.DataFrame
-    papyrus_curated: pl.DataFrame
+    public_bioactivities: pd.DataFrame
+    papyrus_curated: pd.DataFrame
 
     @property
-    def outcome_1(self) -> pl.DataFrame:
+    def outcome_1(self) -> pd.DataFrame:
         """Alias for `public_bioactivities` maintaining backward compatibility."""
         return self.public_bioactivities
 
     @property
-    def outcome_2(self) -> pl.DataFrame:
+    def outcome_2(self) -> pd.DataFrame:
         """Alias for `papyrus_curated` maintaining backward compatibility."""
         return self.papyrus_curated
 
@@ -102,7 +105,7 @@ class MoleculeBioactivityPipeline:
     """Automated multi-target bioactivity extraction and Papyrus enrichment pipeline.
 
     Connects ligand structural input to public bioactivity registries (ChEMBL REST API)
-    and curated high-performance chemogenomic datasets (Papyrus Polars engine).
+    and curated high-performance chemogenomic datasets (Papyrus chemogenomic engine).
 
     Parameters
     ----------
@@ -125,9 +128,33 @@ class MoleculeBioactivityPipeline:
     >>> print(f"Papyrus curated (Outcome 2): {len(result.papyrus_curated)}")
     """
 
+    @staticmethod
+    def _resolve_papyrus_path() -> Optional[str]:
+        """Automatically locate local Papyrus repository cache if present on disk.
+
+        Returns
+        -------
+        path : str or None
+            Absolute path to the local Papyrus root directory, or None if not found.
+        """
+        candidate_roots = [
+            Path(__file__).resolve().parents[2] / "tutorial" / "data" / "data" / ".Papyrus",
+            Path(__file__).resolve().parents[2] / "data" / "data" / ".Papyrus",
+            Path(__file__).resolve().parents[2] / ".Papyrus",
+            Path.home() / ".Papyrus",
+            Path.home() / ".data",
+        ]
+        for candidate in candidate_roots:
+            if candidate.exists() and (candidate / "papyrus" / "versions.json").exists():
+                return str(candidate)
+            if candidate.exists() and (candidate / "versions.json").exists():
+                return str(candidate.parent)
+        return None
+
     def __init__(
         self,
         papyrus_version: str = "latest",
+        papyrus_source_path: Optional[str] = None,
         timeout: int = 15,
         session: Optional[requests.Session] = None
     ) -> None:
@@ -135,6 +162,9 @@ class MoleculeBioactivityPipeline:
         self.timeout: int = timeout
         self.chembl_api: str = "https://www.ebi.ac.uk/chembl/api/data"
         self.session: requests.Session = session if session is not None else requests.Session()
+        self.papyrus_source_path: Optional[str] = (
+            papyrus_source_path if papyrus_source_path is not None else self._resolve_papyrus_path()
+        )
 
     def standardize_molecule(self, smiles: str) -> NormalizedMolecule:
         """Normalize chemical structure, remove counter-ions, and generate InChIKey hashes.
@@ -297,8 +327,9 @@ class MoleculeBioactivityPipeline:
         self,
         target_accessions: Sequence[str],
         limit_per_target: int = 500,
-        min_paffinity: float = 5.0
-    ) -> pl.DataFrame:
+        min_paffinity: float = 5.0,
+        progress_callback: Optional[Any] = None
+    ) -> pd.DataFrame:
         """Harvest shared-target ligands across public assays (Universal AI Dataset - Outcome 1).
 
         Gathers all molecules documented to bind any of the target receptors, capturing
@@ -312,11 +343,13 @@ class MoleculeBioactivityPipeline:
             Maximum number of bioactivity records retrieved per target receptor (default: 500).
         min_paffinity : float, optional
             Minimum pChEMBL affinity cutoff for inclusion (default: 5.0, corresponding to 10 uM).
+        progress_callback : callable, optional
+            Optional callback invoked as ``callback(current_idx, total_targets, accession, records_count)``.
 
         Returns
         -------
-        public_bioactivities : pl.DataFrame
-            Polars DataFrame containing:
+        public_bioactivities : pd.DataFrame
+            Pandas DataFrame containing:
             - ``'smiles'`` : Canonical SMILES representation.
             - ``'molecule_chembl_id'`` : ChEMBL compound identifier.
             - ``'target_accession'`` : Interacting UniProt accession code.
@@ -331,9 +364,16 @@ class MoleculeBioactivityPipeline:
         pre-training, graph representations, and exploratory ligand screening.
         """
         all_records: List[Dict[str, Any]] = []
+        total_targets = len(target_accessions)
 
-        for acc in target_accessions:
-            url = f"{self.chembl_api}/activity.json?target_components__accession={acc}&limit={limit_per_target}"
+        for idx, acc in enumerate(target_accessions, 1):
+            if progress_callback is not None:
+                progress_callback(idx, total_targets, acc, len(all_records))
+
+            url = (
+                f"{self.chembl_api}/activity.json?target_components__accession={acc}"
+                f"&pchembl_value__gte={min_paffinity}&limit={limit_per_target}"
+            )
             try:
                 r = self.session.get(url, timeout=self.timeout)
                 if r.status_code != 200:
@@ -368,27 +408,31 @@ class MoleculeBioactivityPipeline:
                 })
 
         if not all_records:
-            return pl.DataFrame(schema={
-                "smiles": pl.Utf8,
-                "molecule_chembl_id": pl.Utf8,
-                "target_accession": pl.Utf8,
-                "pAffinity": pl.Float64,
-                "type": pl.Utf8,
-                "source": pl.Utf8
-            })
+            return pd.DataFrame(columns=[
+                "smiles",
+                "SMILES",
+                "molecule_chembl_id",
+                "target_accession",
+                "pAffinity",
+                "type",
+                "source"
+            ])
 
-        return pl.DataFrame(all_records)
+        df = pd.DataFrame(all_records)
+        df["SMILES"] = df["smiles"]
+        return df
 
     # Backward compatibility alias
     get_outcome_1 = get_public_bioactivities
 
     def get_papyrus_curated(
         self,
-        public_bioactivities_df: pl.DataFrame,
         target_accessions: Sequence[str],
-        quality_filter: Optional[str] = "High"
-    ) -> pl.DataFrame:
-        """Cross-reference and enrich dataset with curated Papyrus benchmark data (Outcome 2).
+        min_paffinity: Optional[float] = 6.0,
+        quality_filter: Optional[str] = "High",
+        public_bioactivities_df: Optional[pd.DataFrame] = None
+    ) -> pd.DataFrame:
+        """Harvest and enrich dataset with curated Papyrus benchmark data (Outcome 2).
 
         Filters the shared-target ligands against the pre-curated Papyrus chemogenomic
         database using high-performance Polars lazy query execution. Enriches each record
@@ -396,86 +440,145 @@ class MoleculeBioactivityPipeline:
 
         Parameters
         ----------
-        public_bioactivities_df : pl.DataFrame
-            The universal bioactivity DataFrame produced by `get_public_bioactivities`.
         target_accessions : sequence of str
             Target UniProt accession codes to filter against in Papyrus.
+        min_paffinity : float, optional
+            Minimum consensus pAffinity (-log10 M) threshold (default: 6.0).
         quality_filter : str, optional
             Data curation reliability threshold (``'High'``, ``'Medium'``, or None).
             When ``'High'`` (default), only rigorously validated assays with confirmed
             chemical structures and non-ambiguous endpoints are retained.
+        public_bioactivities_df : pd.DataFrame, optional
+            Optional public bioactivity DataFrame for backward compatibility.
 
         Returns
         -------
-        papyrus_curated : pl.DataFrame
-            Curated Polars DataFrame containing harmonized Papyrus bioactivity columns:
+        papyrus_curated : pd.DataFrame
+            Curated Pandas DataFrame containing harmonized Papyrus bioactivity columns:
             - ``'smiles'`` : Canonical SMILES string.
+            - ``'SMILES'`` : Canonical SMILES string (alias for DrugEx pipelines).
             - ``'InChIKey'`` : Fully defined stereochemical InChIKey.
             - ``'connectivity'`` : Flat InChIKey connectivity scaffold.
             - ``'target_accession'`` : Validated UniProt protein accession code.
+            - ``'pAffinity'`` : Multi-assay consensus pAffinity (-log10 M).
             - ``'pchembl_value_Mean'`` : Multi-assay consensus pAffinity (-log10 M).
             - ``'Quality'`` : Papyrus curation tier (e.g. 'High').
             - ``'type'`` : Standardized measurement class.
             - ``'organism'`` : Validated organism species.
-
-        Raises
-        ------
-        ImportError
-            If ``papyrus_scripts`` is not installed in the environment.
-
-        Notes
-        -----
-        Outcome 2 represents the gold standard for machine learning in drug discovery.
-        By eliminating assay protocol discrepancies, duplicate publication bias, and
-        counter-ion mismatches, it directly supports Proteochemometric (PCM) modeling,
-        multi-task deep learning, and DrugEx reinforcement learning reward functions.
         """
-        if public_bioactivities_df.is_empty():
-            return pl.DataFrame()
+        if not target_accessions:
+            return pd.DataFrame(columns=[
+                "smiles",
+                "SMILES",
+                "InChIKey",
+                "connectivity",
+                "target_accession",
+                "pAffinity",
+                "pchembl_value_Mean",
+                "Quality",
+                "type",
+                "organism"
+            ])
 
         try:
+            import polars as pl
             from papyrus_scripts.reader import read_papyrus
-        except ImportError as err:
-            raise ImportError(
-                "papyrus_scripts is required for Papyrus enrichment. "
-                "Install via 'pip install papyrus-scripts'."
-            ) from err
+        except ImportError:
+            warnings.warn("papyrus_scripts (or polars) not installed. Returning empty Papyrus dataset.")
+            return pd.DataFrame()
 
-        # Load Papyrus LazyFrame
-        papyrus_lf = read_papyrus(version=self.papyrus_version, plusplus=True)
+        try:
+            papyrus_data = read_papyrus(
+                version=self.papyrus_version,
+                source_path=self.papyrus_source_path,
+                plusplus=True,
+                chunksize=1
+            )
+            papyrus_lf = papyrus_data.lazy() if isinstance(papyrus_data, pl.DataFrame) else papyrus_data
+        except (OSError, ValueError, Exception) as err:
+            warnings.warn(f"Unable to read local Papyrus database: {err}. Returning empty Papyrus dataset.")
+            return pd.DataFrame()
 
-        # Apply target and quality filtering lazily
+        # Apply target, affinity, and quality filtering lazily using Polars expression engine
         query_filter = pl.col("accession").is_in(list(target_accessions))
         if quality_filter is not None:
             query_filter = query_filter & (pl.col("Quality") == quality_filter)
+        if min_paffinity is not None:
+            query_filter = query_filter & (pl.col("pchembl_value_Mean") >= float(min_paffinity))
+
+        available_cols = papyrus_lf.collect_schema().names()
+        select_exprs = [
+            pl.col("SMILES").alias("smiles"),
+            pl.col("InChIKey"),
+            pl.col("connectivity"),
+            pl.col("accession").alias("target_accession"),
+            pl.col("pchembl_value_Mean").alias("pAffinity"),
+            pl.col("pchembl_value_Mean"),
+            pl.col("Quality"),
+        ]
+        if "Activity_class" in available_cols:
+            select_exprs.append(pl.col("Activity_class").alias("type"))
+        elif "type" in available_cols:
+            select_exprs.append(pl.col("type"))
+        else:
+            select_exprs.append(pl.lit("Papyrus").alias("type"))
+
+        if "source" in available_cols:
+            select_exprs.append(pl.col("source"))
+        else:
+            select_exprs.append(pl.lit("Papyrus").alias("source"))
 
         filtered_papyrus = (
             papyrus_lf
             .filter(query_filter)
-            .select([
-                pl.col("SMILES").alias("smiles"),
-                pl.col("InChIKey"),
-                pl.col("connectivity"),
-                pl.col("accession").alias("target_accession"),
-                pl.col("pchembl_value_Mean"),
-                pl.col("Quality"),
-                pl.col("type"),
-                pl.col("organism")
-            ])
+            .select(select_exprs)
             .collect()
+            .to_pandas()
         )
 
-        # Perform inner join with public bioactivities on SMILES and Target Accession
-        papyrus_curated = public_bioactivities_df.join(
-            filtered_papyrus,
-            on=["smiles", "target_accession"],
-            how="inner"
-        )
+        if not filtered_papyrus.empty and "smiles" in filtered_papyrus.columns:
+            filtered_papyrus["SMILES"] = filtered_papyrus["smiles"]
 
-        return papyrus_curated
+        return filtered_papyrus
 
     # Backward compatibility alias
     get_outcome_2 = get_papyrus_curated
+
+    @staticmethod
+    def _print_progress(
+        fraction: float,
+        message: str = "",
+        bar_len: int = 25,
+        prefix: str = "[Pipeline]"
+    ) -> None:
+        """Render an in-place updating terminal progress bar to sys.stdout using carriage return (\\r).
+
+        Parameters
+        ----------
+        fraction : float
+            Current progress fraction between 0.0 and 1.0.
+        message : str
+            Status message to display beside the progress bar.
+        bar_len : int
+            Width in characters of the progress bar itself.
+        prefix : str
+            Prefix label for the bar.
+        """
+        fraction = min(max(fraction, 0.0), 1.0)
+        filled = int(round(bar_len * fraction))
+        if 0 < filled < bar_len:
+            bar = "=" * (filled - 1) + ">"
+        else:
+            bar = "=" * filled
+        bar = bar.ljust(bar_len)
+        percent = int(fraction * 100)
+        # Use carriage return \r to overwrite line in terminal stdout
+        line = f"\r{prefix} [{bar}] {percent:3d}% | {message}"
+        sys.stdout.write(line.ljust(95))
+        sys.stdout.flush()
+        if fraction >= 1.0:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
     def run(
         self,
@@ -483,13 +586,21 @@ class MoleculeBioactivityPipeline:
         min_paffinity: float = 6.0,
         limit_per_target: int = 500,
         quality_filter: Optional[str] = "High",
-        organism: Optional[str] = "Homo sapiens"
+        organism: Optional[str] = "Homo sapiens",
+        min_ligands_threshold: int = 1000,
+        auto_relax: bool = True,
+        min_relax_paffinity: float = 5.0,
+        show_progress: bool = True
     ) -> PipelineResult:
         """Execute the complete end-to-end bioactivity deconvolution pipeline.
 
         Chains Step 1 (standardization) -> Step 2 (target identification) ->
         Step 3 & 4 (shared-target ligand harvesting / public_bioactivities) ->
         Step 5 (Papyrus cross-referencing / papyrus_curated).
+
+        If the affinity threshold is too strict to yield enough candidate ligands
+        (fewer than `min_ligands_threshold`), the pipeline can automatically relax
+        the affinity threshold progressively down to `min_relax_paffinity`.
 
         Parameters
         ----------
@@ -503,6 +614,14 @@ class MoleculeBioactivityPipeline:
             Papyrus data quality filter (``'High'``, ``'Medium'``, or None, default: ``'High'``).
         organism : str, optional
             Target source taxonomy filter (default: ``'Homo sapiens'``).
+        min_ligands_threshold : int, optional
+            Minimum number of unique candidate ligands desired (default: 1000).
+        auto_relax : bool, optional
+            Whether to automatically relax pAffinity threshold if fewer candidates are found (default: True).
+        min_relax_paffinity : float, optional
+            Floor limit for automatic affinity relaxation (default: 5.0).
+        show_progress : bool, optional
+            Whether to stream in-place updating progress bar to stdout (default: True).
 
         Returns
         -------
@@ -513,31 +632,85 @@ class MoleculeBioactivityPipeline:
             - ``public_bioactivities`` : Universal bioactivity DataFrame (Outcome 1 - broad coverage).
             - ``papyrus_curated`` : Curated Papyrus benchmark DataFrame (Outcome 2 - high-fidelity ML).
         """
+        if show_progress:
+            self._print_progress(0.05, "Step 1/5: Standardizing molecule structure...")
+
         # Step 1: Standardize
         normalized = self.standardize_molecule(smiles)
 
-        # Step 2: Discover Receptors
-        targets = self.find_targets(
-            inchikey=normalized.inchikey,
-            min_paffinity=min_paffinity,
-            organism=organism
-        )
+        current_paffinity = float(min_paffinity)
 
-        target_accessions = [t["uniprot_acc"] for t in targets]
+        while True:
+            if show_progress:
+                smi_preview = normalized.canonical_smiles[:25] + ("..." if len(normalized.canonical_smiles) > 25 else "")
+                self._print_progress(0.20, f"Step 2/5: Querying ChEMBL for targets of {smi_preview} (pAffinity >= {current_paffinity:.1f})...")
 
-        # Step 3 & 4: Harvest Shared-Target Ligands (public_bioactivities)
-        public_bioactivities = self.get_public_bioactivities(
-            target_accessions=target_accessions,
-            limit_per_target=limit_per_target,
-            min_paffinity=min_paffinity - 1.0  # Slightly broader threshold for candidate ligands
-        )
+            # Step 2: Discover Receptors
+            targets = self.find_targets(
+                inchikey=normalized.inchikey,
+                min_paffinity=current_paffinity,
+                organism=organism
+            )
 
-        # Step 5: Enrich via Papyrus (papyrus_curated)
-        papyrus_curated = self.get_papyrus_curated(
-            public_bioactivities_df=public_bioactivities,
-            target_accessions=target_accessions,
-            quality_filter=quality_filter
-        )
+            target_accessions = [t["uniprot_acc"] for t in targets]
+
+            if show_progress:
+                self._print_progress(0.40, f"Step 3/5: Found {len(targets)} targets. Harvesting ligands from ChEMBL...")
+
+            def _on_target_progress(idx: int, total: int, acc: str, n_records: int) -> None:
+                if show_progress and total > 0:
+                    frac = 0.40 + 0.35 * (idx / total)
+                    self._print_progress(frac, f"Harvesting target {idx}/{total} ({acc}) - {n_records} ligands collected")
+
+            # Step 3 & 4: Harvest Shared-Target Ligands (public_bioactivities)
+            public_bioactivities = self.get_public_bioactivities(
+                target_accessions=target_accessions,
+                limit_per_target=limit_per_target,
+                min_paffinity=max(current_paffinity - 1.0, 4.0),
+                progress_callback=_on_target_progress if show_progress else None
+            )
+
+            if show_progress:
+                self._print_progress(0.75, f"Step 4/5: Enriching {len(target_accessions)} targets from curated Papyrus chemogenomics...")
+
+            # Step 5: Enrich via Papyrus (papyrus_curated)
+            papyrus_curated = self.get_papyrus_curated(
+                target_accessions=target_accessions,
+                min_paffinity=current_paffinity,
+                quality_filter=quality_filter,
+                public_bioactivities_df=public_bioactivities
+            )
+
+            # Check total candidate yield
+            unique_candidates: Set[str] = set()
+            if not public_bioactivities.empty and "smiles" in public_bioactivities.columns:
+                unique_candidates.update(public_bioactivities["smiles"].dropna())
+            if not papyrus_curated.empty and "smiles" in papyrus_curated.columns:
+                unique_candidates.update(papyrus_curated["smiles"].dropna())
+
+            # If threshold was too strict to yield enough candidates, relax threshold
+            if (
+                auto_relax
+                and (len(targets) == 0 or len(unique_candidates) < min_ligands_threshold)
+                and current_paffinity > min_relax_paffinity
+            ):
+                next_paffinity = max(min_relax_paffinity, current_paffinity - 0.5)
+                if show_progress:
+                    msg = (
+                        f"Retrieved {len(unique_candidates)} candidates across {len(targets)} targets at "
+                        f"pAffinity >= {current_paffinity:.1f}. Auto-relaxing threshold to {next_paffinity:.1f}..."
+                    )
+                    self._print_progress(0.20, msg)
+                current_paffinity = next_paffinity
+                continue
+
+            break
+
+        if show_progress:
+            self._print_progress(
+                1.00,
+                f"Step 5/5: Done! {len(targets)} targets | {len(public_bioactivities)} public ligands | {len(papyrus_curated)} Papyrus curated"
+            )
 
         return PipelineResult(
             query_molecule=normalized,
