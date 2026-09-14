@@ -7,10 +7,39 @@
 /drugex/_version.py
 /drugex/training/test_data/A2A_LIGANDS.tsv
 /drugex/training/test_data/AR_LIGANDS.tsv
+# Downloaded tutorial data & root data directory / symlink
+/data
+/data/
 /tutorial/data
 /tutorial/advanced/data
 /tutorial/CLI/examples
 /tutorial/download.json
+download.json
+download.log
+**/download.json
+**/download.log
+**/.Papyrus/
+
+# Tutorial generated datasets, models & run outputs
+/tutorial/advanced/datasets/
+/tutorial/advanced/models/
+/tutorial/advanced/rocs/demo_out/
+/tutorial/advanced/rocs/rl_runs_demo/
+/tutorial/advanced/rocs/threshold_analysis_results/
+/tutorial/advanced/rocs/rocs_rl_ccr/
+/tutorial/advanced/rocs/*.log
+/tutorial/advanced/rocs/*.png
+/tutorial/advanced/rocs/*.csv
+/tutorial/advanced/rocs/*.txt
+
+# Test directories, copies & runners
+/_test_*
+_test_*/
+test_notebook_runner.py
+test_cell*.py
+test_*.py
+
+# Intermediate test & CLI artifacts
 /testing/clitest/data/*.txt
 /testing/clitest/data/*.vocab
 /testing/clitest/data/backup*
@@ -25,8 +54,12 @@ tmp*
 *.tgz
 *.gzip
 *.tar.gz
+*.vocab
+*.tsv.vocab
 **/*.cv.tsv
 **/*.ind.tsv
+**/*_fit.tsv
+**/*_smiles.tsv
 
 ### Python template
 # Byte-compiled / optimized / DLL files
