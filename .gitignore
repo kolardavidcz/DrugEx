@@ -31,6 +31,8 @@ download.log
 /tutorial/advanced/rocs/*.png
 /tutorial/advanced/rocs/*.csv
 /tutorial/advanced/rocs/*.txt
+_david/outputs/
+**/_david/outputs/
 
 # Test directories, copies & runners
 /_test_*
