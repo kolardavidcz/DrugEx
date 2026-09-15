@@ -43,8 +43,9 @@ class DrugExHubHandler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-def run_server():
-    server_address = ("0.0.0.0", PORT)
+def run_server() -> None:
+    """Initialize and run the DrugEx development HTTP server bound to localhost."""
+    server_address = ("127.0.0.1", PORT)
     httpd = HTTPServer(server_address, DrugExHubHandler)
     print(f"================================================================")
     print(f" 🧬 DrugEx Hub · De Novo Drug Design & ROCS Shape Matching ")
