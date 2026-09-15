@@ -1,48 +1,68 @@
+from _david import receptor_similar
+
 from qsprpred.data import MoleculeTable
-from scaffviz.clustering.manifold import TSNE
-from scaffviz.depiction.plot import Plot
 from qsprpred.data.descriptors.fingerprints import MorganFP
-from drugex.training import explorers
-from pandas.core.frame import DataFrame
+from qsprpred.models.scikit_learn import SklearnModel
+
+
 import drugex.training.generators.sequence_rnn
-from drugex.training.scorers.properties import Property
-from drugex.training.scorers.qsprpred import QSPRPredScorer
+from drugex.training import explorers
 from drugex.training.environment import DrugExEnvironment
-from drugex.data.corpus import vocabulary
 from drugex.training.monitors import FileMonitor
-from torch.utils.data import DataLoader
+from drugex.training.generators import SequenceRNN
+
+from drugex.training.scorers.qsprpred import QSPRPredScorer
+from drugex.training.scorers.modifiers import ClippedScore
+from drugex.training.scorers.properties import Property
+from drugex.training.scorers.modifiers import SmoothClippedScore
+from drugex.training.scorers.qsprpred import QSPRPredScorer
+
+# PARETO DISTANCE: like comparing AI model cost vs acurrecy
+# NSGA-II Crowding Distance: Model receives minimal reinforcement for generating another identical/similar molecule
+from drugex.training.rewards import ParetoCrowdingDistance
+from drugex.training.explorers import SequenceExplorer
+
 from drugex.data.corpus import vocabulary
+from drugex.data.corpus.vocabulary import VocSmiles
+from drugex.data.corpus.corpus import SequenceCorpus
+
 from drugex.data.datasets import SmilesDataSet
+
 from drugex.data.processing import RandomTrainTestSplitter
-try:
-    # pyrefly: ignore [missing-import]
-    import receptor_similar
-except ModuleNotFoundError:
-    from _david import receptor_similar
+from drugex.data.processing import Standardization
+from drugex.data.processing import CorpusEncoder, RandomTrainTestSplitter
+
+from drugex.logs import logger
+logger.setLevel("ERROR")
+
+import warnings
+warnings.filterwarnings("ignore")
+
 import pandas as pd
+from pandas.core.frame import DataFrame
+from pandas.core.series import Series
+from torch.utils.data import DataLoader
+
+from typing import Any
+
+import os
+from pathlib import Path
 from datetime import datetime
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from scaffviz.clustering.manifold import TSNE
+from scaffviz.depiction.plot import Plot
 
-#df = pd.read_csv(f'{DATASETS_PATH}/SPECIFIC_LIGANDS.tsv', sep='\t', header=0, na_values=('NA', 'nan', 'NaN'))
-
-import os
-from pathlib import Path
-
-from drugex.training.generators import SequenceRNN
-from drugex.data.corpus.vocabulary import VocSmiles
-from drugex.data.processing import Standardization
 
 GPUS = [1] # we will use only one GPU with ID=0, but if you have more, you can list more GPU IDs here
 
 class david:
 
+    #https://pubchem.ncbi.nlm.nih.gov/compound/Epigallocatechin-Gallate
     MOLECULE = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
-    GLOBAL_MODELS_PR_PATH = "data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/"
-    MODELS_PR_PATH = Path(__file__).resolve().parent.parent.joinpath(GLOBAL_MODELS_PR_PATH)
-    DATA_DIR = "data/datasets/encoded/rnn/"
 
     N_PROCESSES = 12 # number of CPU cores to use
     CHUNK_SIZE = 1000 # largest chunk per CPU core (regulates RAM usage)
@@ -52,122 +72,118 @@ class david:
     EPSILON = 0.1
     BATCH_SIZE = 32
 
-    # Dedicated outputs folder inside _david/
-    BASE_OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
-    RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
-    OUTPUT_DIR = BASE_OUTPUT_DIR / RUN_ID
-
     def __init__(self):
-        # Create output folders for transfer learning and reinforcement learning
-        self.transfer_dir = self.OUTPUT_DIR / "transfer_learning"
-        self.rl_dir = self.OUTPUT_DIR / "reinforcement_learning"
-        self.transfer_dir.mkdir(parents=True, exist_ok=True)
-        self.rl_dir.mkdir(parents=True, exist_ok=True)
 
-        self.MODEL_DIR = str(self.transfer_dir)
-        self.MODEL_DIR_RL = str(self.rl_dir)
-        self.DATA_DIR = str(self.transfer_dir / "data")
-        os.makedirs(self.DATA_DIR, exist_ok=True)
+        ROOT_PATH : Path = Path(__file__).resolve().parent.parent
+        BASE_OUTPUT_DIR: Path = ROOT_PATH / "_david" / "outputs"
 
-        self.voc = VocSmiles.fromFile(os.path.join(self.MODELS_PR_PATH, "Papyrus05.5_smiles_rnn_PT.vocab"), encode_frags=False)
+        #imput data
+        MODELS_PR_PATH: Path = ROOT_PATH / "data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/"
 
-        self.pretrained = SequenceRNN(self.voc, is_lstm=True, use_gpus=GPUS)
-        self.pretrained.loadStatesFromFile(os.path.join(self.MODELS_PR_PATH, "Papyrus05.5_smiles_rnn_PT.pkg"))
+        #output
+        RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        OUTPUT_DIR: Path = BASE_OUTPUT_DIR / RUN_ID
 
-    #https://pubchem.ncbi.nlm.nih.gov/compound/Epigallocatechin-Gallate
+        TRANSFER_DIR: Path = OUTPUT_DIR / "transfer_learning"
+        RL_DIR : Path = OUTPUT_DIR / "reinforcement_learning"
+        DATA_DIR : Path = TRANSFER_DIR / "data"
 
-    def __TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(self, source_smile : str):
+        #dir creation
+        self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        self.TRANSFER_DIR.mkdir(parents=True, exist_ok=True)
+        self.RL_DIR.mkdir(parents=True, exist_ok=True)
+        self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+        self.VOC = VocSmiles.fromFile((MODELS_PR_PATH / "Papyrus05.5_smiles_rnn_PT.vocab"))
+
+        self.PRETRAINED = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS) # is_lstm = MORE PARAMETERS
+        self.PRETRAINED.loadStatesFromFile(os.path.join(self.MODELS_PR_PATH, "Papyrus05.5_smiles_rnn_PT.pkg"))
+
+    def __TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(self, molecule_smile : str) -> list[Any]:
 
         pipline = receptor_similar.MoleculeBioactivityPipeline()
-        result = pipline.run(source_smile)
-        smiles_train = result.papyrus_curated["SMILES"]
+        result: DataFrame = pipline.run(molecule_smile).papyrus_curated
+        smiles: Series = result["SMILES"]
 
-        standardizer = Standardization(n_proc=self.N_PROCESSES, chunk_size=self.CHUNK_SIZE)
-        smiles_train = standardizer.apply(smiles_train)
-        #        df = pd.read_csv(f'{self.DATASETS_PATH}/{smiles_train_path}', sep='\t', header=0, na_values=('NA', 'nan', 'NaN'))
-        #        smiles_train = df.SMILES
-        print("="*30, "__TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES", "="*30, *smiles_train[0:10], sep='\n')
+        smiles_paralel: list[Any] = Standardization(n_proc=self.N_PROCESSES, chunk_size=self.CHUNK_SIZE) \
+                                                   .apply(smiles)
 
-        # Save harvested training ligands
-        pd.Series(smiles_train, name="SMILES").to_csv(os.path.join(self.MODEL_DIR, "training_ligands.tsv"), sep='\t', index=False)
+        pd.Series(smiles_paralel, name="SMILES") \
+          .to_csv(os.path.join(self.MODEL_DIR, "training_ligands.tsv"), sep="\t", index=False)
 
-        return smiles_train
 
-    def __TRANSFER_LEARNING_tokenization(self, smiles_train : list[any] ) -> SmilesDataSet:
-        from drugex.data.processing import CorpusEncoder, RandomTrainTestSplitter
-        from drugex.data.corpus.corpus import SequenceCorpus
-        from drugex.data.datasets import SmilesDataSet
-        from drugex.logs import logger
-        logger.setLevel('ERROR')
+        return smiles_paralel
 
-        os.makedirs(self.DATA_DIR, exist_ok=True)
+    def __TRANSFER_LEARNING_tokenization(self, smiles_train : list[any] ) -> tuple[SmilesDataSet, CorpusEncoder]:
 
-        encoder = CorpusEncoder( # CorpusEcoder uses the supplied corpus class to encode tokens for the new data set
-            SequenceCorpus, # The corpus CLASS (NOT OBJECT, just just as a constructor) implements how each SMILES string is divided into words by the vocabulary
-            {
-                # arguments of the SequenceCorpus
-                'vocabulary': self.voc, # used vocabulary
-                'update_voc': False, # if False, the vocabulary stays fixed (no new tokens are added to it)
-                'throw': True # compounds containing unknown tokens are thrown out of the resulting data set
+        encoder = CorpusEncoder(
+            SequenceCorpus, # The corpus CLASS (NOT OBJECT, just just as a constructor)
+            {               # implements how each SMILES string is divided into words by the vocabulary
+                "vocabulary": self.VOC,
+                "update_voc": False,
+                "throw": True # compounds containing unknown tokens are thrown out of the resulting data set
 
             },
             n_proc=self.N_PROCESSES,
             chunk_size=self.CHUNK_SIZE
         )
 
-        data_collector = SmilesDataSet(os.path.join(self.DATA_DIR, 'ligand_corpus.tsv'), rewrite=True)
+        data_collector = SmilesDataSet(self.DATA_DIR / "ligand_corpus.tsv", rewrite=True)
+        
         encoder.apply(smiles_train, collector=data_collector)
 
-        return data_collector
+        return data_collector, encoder
 
     def __TRANSFER_LEARNING_make_test_dataset(self, data_collector : SmilesDataSet) -> tuple[DataLoader, DataLoader]:
 
         splitter = RandomTrainTestSplitter(0.1, 1e4)
         train, test = splitter(data_collector.getData())
         
-        # split data
-        for data, name in zip([train, test], ['train', 'test']):
-            pd.DataFrame(data, columns=data_collector.getColumns()).to_csv(os.path.join(self.DATA_DIR, f'ligand_{name}.tsv'), header=True, index=False, sep='\t')
 
-        #save updated vocabulary (but we had 'update_voc' = False)
-        self.voc.toFile(os.path.join(self.DATA_DIR, 'pretrained.vocab'))
-       
+        # tbh is just a beckup
+        pd.DataFrame(train, columns=data_collector.getColumns()).to_csv(
+            self.DATA_DIR / "ligand_train.tsv", header=True, index=False, sep="\t"
+        )
+        pd.DataFrame(test, columns=data_collector.getColumns()).to_csv(
+            self.DATA_DIR / "ligand_test.tsv", header=True, index=False, sep="\t"
+        )    
 
         #get data path (from files as it would be useful for later)
-        data_set_train = SmilesDataSet(os.path.join(self.DATA_DIR, 'ligand_train.tsv'), voc=self.voc)
+        data_set_train = SmilesDataSet(self.DATA_DIR / "ligand_train.tsv", voc=self.VOC)
         train_loader = data_set_train.asDataLoader(batch_size=self.BATCH_SIZE)
 
-        data_set_test = SmilesDataSet(os.path.join(self.DATA_DIR, 'ligand_test.tsv'), voc=self.voc)
-        valid_loader = data_set_test.asDataLoader(batch_size=self.BATCH_SIZE)
+        data_set_valid = SmilesDataSet(self.DATA_DIR / "ligand_train.tsv", voc=self.VOC)
+        valid_loader = data_set_train.asDataLoader(batch_size=self.BATCH_SIZE)
 
-        return (train_loader, valid_loader)
+        return train_loader, valid_loader
 
     def __TRANSFER_LEARNING_transfer_learning(self, train_loader : DataLoader, valid_loader : DataLoader, destination_folder : str) -> SequenceRNN:
-        from drugex.training.monitors import FileMonitor
 
         ft_path = os.path.join(self.MODEL_DIR, destination_folder)
-        finetuned = SequenceRNN(self.voc, is_lstm=True, use_gpus=GPUS)
-        finetuned.loadStatesFromFile(os.path.join(self.MODELS_PR_PATH, 'Papyrus05.5_smiles_rnn_PT.pkg'))
+        finetuned = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
+        finetuned.loadStatesFromFile(os.path.join(self.MODELS_PR_PATH, "Papyrus05.5_smiles_rnn_PT.pkg"))
 
         reset_directory : bool =True
         monitor = FileMonitor(ft_path, save_smiles=True, reset_directory=reset_directory)
         finetuned.fit(train_loader, valid_loader, epochs=self.EPOCHS, monitor=monitor, loss_tolerance=self.LOSS_TOLERANCE)
 
-        self.voc.toFile(os.path.join(self.MODEL_DIR, 'finetuned.vocab'))
+        self.VOC.toFile(os.path.join(self.MODEL_DIR, "finetuned.VOCab"))
 
         return finetuned
 
     def __TRANSFER_LEARNING_vizualize(self, finetuned : SequenceRNN, destination_folder) -> DataFrame:
         from . import smilesToGrid #from c compiled utiles
         
-        df_info = pd.read_csv(f"{self.MODEL_DIR}/{destination_folder}_fit.tsv", sep='\t')
-        ax = df_info[['loss_train', 'loss_valid', 'valid_ratio']].plot.line(logy=True)
+        df_info = pd.read_csv(f"{self.MODEL_DIR}/{destination_folder}_fit.tsv", sep="\t")
+        ax = df_info[["loss_train", "loss_valid", "valid_ratio"]].plot.line(logy=True)
         fig = ax.get_figure()
         fig.savefig(os.path.join(self.MODEL_DIR, "training_loss.png"), bbox_inches="tight")
         plt.close(fig)
 
         generated_sample: DataFrame = finetuned.generate(num_samples=100)
-        generated_sample.to_csv(os.path.join(self.MODEL_DIR, "generated_molecules.tsv"), sep='\t', index=False)
+        generated_sample.to_csv(os.path.join(self.MODEL_DIR, "generated_molecules.tsv"), sep="\t", index=False)
         try:
             smilesToGrid(generated_sample.SMILES, molsPerRow=5, n_rows=5)
         except Exception:
@@ -178,9 +194,10 @@ class david:
         
         smiles_train = self.__TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(my_molecule)
 
-        data_collector : SmilesDataSet = self.__TRANSFER_LEARNING_tokenization(smiles_train)
+        data_collector, encoder,  = self.__TRANSFER_LEARNING_tokenization(smiles_train)
         
-        train_loader, valid_loader = self.__TRANSFER_LEARNING_make_test_dataset(data_collector)        
+        train_loader, valid_loader = self.__TRANSFER_LEARNING_make_test_dataset(data_collector)
+
         finetuned: SequenceRNN = self.__TRANSFER_LEARNING_transfer_learning(train_loader, valid_loader, "david_finetuned")
         generated_sample = self.__TRANSFER_LEARNING_vizualize(finetuned, "david_finetuned")
         return generated_sample
@@ -251,8 +268,8 @@ class david:
 
     def RAINFORCEMENT_LEARNING_SCORE_SHOWCASE(self, environment : DrugExEnvironment):
 
-        agent = SequenceRNN(self.voc, is_lstm=True, use_gpus=GPUS)
-        agent.loadStatesFromFile(f'{self.MODEL_DIR_RL}/david_agent.pkg')
+        agent = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
+        agent.loadStatesFromFile(f"{self.MODEL_DIR_RL}/david_agent.pkg")
 
         generated_sample = agent.generate(num_samples=100)
 
@@ -267,7 +284,6 @@ class david:
 
     def RAINFORCEMENT_LEARNING(self):
 
-        from qsprpred.models.scikit_learn import SklearnModel
 
         qsar_base = os.path.join(Path(__file__).resolve().parent.parent, "tutorial/data/models/qsar")
         if not os.path.exists(qsar_base):
@@ -277,24 +293,16 @@ class david:
             name="A2AR_RandomForestClassifier",
             base_dir=qsar_base
         )
-        
-        from drugex.training.scorers.qsprpred import QSPRPredScorer
-        from drugex.training.scorers.modifiers import ClippedScore
+
         #TODO: how about more functions?
 
         qsprpred_scorer = QSPRPredScorer(predictor)
-        qsprpred_scorer.setModifier(ClippedScore(lower_x=0.2, upper_x=0.8))
 
-        from drugex.training.scorers.properties import Property
-        from drugex.training.scorers.modifiers import SmoothClippedScore
 
         sascore = Property("SA")
         sascore.setModifier(SmoothClippedScore(lower_x=5, upper_x=3))
+        qsprpred_scorer.setModifier(ClippedScore(lower_x=0.2, upper_x=0.8))
 
-        from drugex.training.environment import DrugExEnvironment
-        # PARETO DISTANCE: like comparing AI model cost vs acurrecy
-        # NSGA-II Crowding Distance: Model receives minimal reinforcement for generating another identical/similar molecule
-        from drugex.training.rewards import ParetoCrowdingDistance
 
         scorers: list[Property | QSPRPredScorer] = [
             qsprpred_scorer,
@@ -307,12 +315,9 @@ class david:
 
         environment = DrugExEnvironment(scorers, thresholds, reward_scheme=ParetoCrowdingDistance())
 
-        from drugex.training.explorers import SequenceExplorer
-        import warnings
-        warnings.filterwarnings('ignore')
 
-        finetuned = SequenceRNN(self.voc, is_lstm=True, use_gpus=GPUS)
-        finetuned_path = os.path.join(self.MODEL_DIR, 'david_finetuned.pkg')
+        finetuned = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
+        finetuned_path = os.path.join(self.MODEL_DIR, "david_finetuned.pkg")
         if not os.path.exists(finetuned_path):
             finetuned_path = os.path.join(Path(__file__).resolve().parent.parent, "tutorial/data/models/finetuned/smiles-rnn/david_finetuned.pkg")
         finetuned.loadStatesFromFile(finetuned_path)
@@ -327,12 +332,12 @@ class david:
 
         MODEL_DIR_RL = self.MODEL_DIR_RL
 
-        monitor = FileMonitor(os.path.join(MODEL_DIR_RL, 'david_agent'), save_smiles=True, reset_directory=True)
+        monitor = FileMonitor(os.path.join(MODEL_DIR_RL, "david_agent"), save_smiles=True, reset_directory=True)
         explorer.fit(monitor=monitor, epochs=100)
 
-        df_info = pd.read_csv(f'{MODEL_DIR_RL}/david_agent_fit.tsv', sep='\t')
+        df_info = pd.read_csv(f"{MODEL_DIR_RL}/david_agent_fit.tsv", sep="\t")
         df_info.head()
-        ax = df_info[['loss_train', 'valid_ratio','unique_ratio', 'desired_ratio']].plot.line()
+        ax = df_info[["loss_train", "valid_ratio","unique_ratio", "desired_ratio"]].plot.line()
         fig = ax.get_figure()
         fig.savefig(os.path.join(MODEL_DIR_RL, "rl_training_curves.png"), bbox_inches="tight")
         plt.close(fig)
