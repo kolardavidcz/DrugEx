@@ -649,11 +649,31 @@ from drugex.training.scorers.properties import Property
 from drugex.training.scorers.conformer_generators import CDPKitConformerGenerator
 from drugex.training.scorers.rocs_cdpkit import CDPKitROCSScorer
 
-def create_cdpkit_environment(reference_sdf: Path, max_confs: int = 30):
+def create_cdpkit_environment(
+    reference_sdf: Path,
+    max_conformers: int = 30,
+    max_isomers: int = 4,
+) -> DrugExEnvironment:
+    """Vytvoření MORL tréninkového prostředí s CDPKit ROCS skórovačem.
+
+    Parameters
+    ----------
+    reference_sdf : Path
+        Cesta k referenčnímu SDF souboru se strukturami ligandů.
+    max_conformers : int, optional
+        Maximální počet generovaných konformací na molekulu (výchozí: 30).
+    max_isomers : int, optional
+        Maximální počet uvažovaných stereoizomerů (výchozí: 4).
+
+    Returns
+    -------
+    DrugExEnvironment
+        Zkonfigurované DrugEx multi-objektivní prostředí pro RL trénink.
+    """
     # 1. CDPKit generátor konformací s RMSD clusteringem
     cdp_gen = CDPKitConformerGenerator(
-        max_conformers=max_confs,
-        max_isomers=4,
+        max_conformers=max_conformers,
+        max_isomers=max_isomers,
         max_heavy_atoms=40,
         energy_window=20.0,
         min_rmsd=0.5,
@@ -669,7 +689,7 @@ def create_cdpkit_environment(reference_sdf: Path, max_confs: int = 30):
     )
 
     # 3. Skórovač syntetické dostupnosti (SAScore)
-    sa_scorer = Property('SA')
+    sa_scorer = Property("SA")
     sa_scorer.setModifier(SmoothClippedScore(lower_x=5.0, upper_x=3.0))
 
     # 4. Sestavení multi-objektivního prostředí s Paretovým odměňováním
@@ -681,7 +701,7 @@ def create_cdpkit_environment(reference_sdf: Path, max_confs: int = 30):
     return env`,
         output: `[Environment] Initializing DrugExEnvironment with CDPKit ROCS Backend...
 [CDPKitConformerGenerator] max_confs=30, max_isomers=4, energy_window=20.0 kcal/mol, min_rmsd=0.5 A
-[CDPKitROCSScorer] References loaded: rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf (1 mol)
+[CDPKitROCSScorer] References loaded: CCR2_reference_ligands.sdf (5 mols)
 [Property:SA] SmoothClippedScore modifier configured (lower=5.0, upper=3.0)
 [Environment] Registered 2 objectives: ['CDPKit_ROCS' (thr=0.871), 'SA' (thr=0.100)]
 [Environment] Reward scheme: ParetoCrowdingDistance (active)`
@@ -711,27 +731,65 @@ def create_cdpkit_environment(reference_sdf: Path, max_confs: int = 30):
           <li><strong>Kompatibilita verzí knihoven</strong>: Zabraňuje konfliktům sdílených dynamických knihoven (např. verze libstdc++, OpenMP, CUDA) mezi PyTorchem a OpenEye Toolkitem.</li>
           <li><strong>Stabilita na superpočítačích (HPC)</strong>: Umožňuje bezproblémové spouštění na distribuovaných výpočetních uzlech bez kolizí v Python GILu.</li>
         </ol>`,
-        code: `class OpenEyeROCSScorer(Scorer):
+        code: `import shutil
+from typing import Dict, List, Optional, Union
+from drugex.training.scorers.interfaces import ConformerGenerator, Scorer
+
+class OpenEyeROCSScorer(Scorer):
+    """Subprocess orchestrátor pro komerční CLI binárku OpenEye ROCS."""
+
     def __init__(
         self,
         conformer_generator: ConformerGenerator,
-        references: dict[str, List[str] | str],
+        references: Dict[str, Union[List[str], str]],
         score_type: str = "TanimotoCombo",
         shape_only: bool = False,
         optimize: bool = True,
         color_optimize: bool = True,
         color_force_field: str = "ImplicitMillsDean",
         rocs_binary: str = "rocs",
-        binary_path: str | None = None,
+        binary_path: Optional[str] = None,
         show_progress: bool = True,
-    ):
+    ) -> None:
+        """Inicializace OpenEye ROCS CLI skórovače.
+
+        Parameters
+        ----------
+        conformer_generator : ConformerGenerator
+            Instance generátoru konformací (např. OmegaConformerGenerator).
+        references : Dict[str, Union[List[str], str]]
+            Slovník referenčních souborů (.sdf nebo .sq) mapovaných ke skupinám.
+        score_type : str, optional
+            Metrika skórování (výchozí: 'TanimotoCombo').
+        shape_only : bool, optional
+            Zda vyhodnocovat pouze čistý tvar bez barev (výchozí: False).
+        optimize : bool, optional
+            Aktivace optimalizace prostorového překryvu (výchozí: True).
+        color_optimize : bool, optional
+            Optimalizace farmakoforových barev (výchozí: True).
+        color_force_field : str, optional
+            Použité silové pole barev (výchozí: 'ImplicitMillsDean').
+        rocs_binary : str, optional
+            Název binárky ROCS (výchozí: 'rocs').
+        binary_path : Optional[str], optional
+            Přímá cesta ke spustitelnému souboru rocs (výchozí: None).
+        show_progress : bool, optional
+            Zobrazení průběhu vyhodnocení (výchozí: True).
+        """
         super().__init__()
-        if not OE_AVAILABLE:
-            raise ImportError("OpenEye toolkits required")
         self.conformer_generator = conformer_generator
-        self.queries = references
-        self._validate_query_files()
-        # ...`,
+        self.queries: Dict[str, List[str]] = {
+            k: [v] if isinstance(v, str) else list(v)
+            for k, v in references.items()
+        }
+        self.score_type = score_type
+        self.shape_only = shape_only
+        self.optimize = optimize
+        self.color_optimize = color_optimize
+        self.color_force_field = color_force_field
+        self.binary_path = binary_path or rocs_binary
+        self.show_progress = show_progress
+        self._validate_query_files()`,
         output: `[OpenEyeROCSScorer] OpenEye Toolkits version 2023.2.1 detected.
 [OpenEyeROCSScorer] License status: Valid (OE_LICENSE checked).
 [OpenEyeROCSScorer] Subprocess binary: /opt/openeye/bin/rocs (version 3.4.3.1).
@@ -757,24 +815,43 @@ def create_cdpkit_environment(reference_sdf: Path, max_confs: int = 30):
           <li><strong>Váhové přizpůsobení farmakoforových bodů</strong>: Možnost nastavit např. $2.0\\times$ vyšší váhu na klíčovou H-vazbu k aminokyselině v pantech (Hinge region) kinázy, nebo naopak vypnout nevýznamné hydrofobní body.</li>
           <li><strong>Tvarová tolerance a sterické vylučovací sféry (Exclusion Spheres)</strong>: Možnost definovat zakázané zóny v prostoru, kam molekula nesmí zasahovat (např. stěny proteinové kapsy), což penalizuje molekuly způsobující sterické srážky s receptorem.</li>
         </ul>`,
-        code: `def _validate_query_files(self):
-    """Validace existence a validity referenčních SDF a .sq souborů."""
-    for name, list_of_qf in self.queries.items():
+        code: `import os
+from typing import Dict, List, Union
+
+def _validate_query_files(queries: Dict[str, Union[str, List[str]]]) -> None:
+    """Validace existence a validity referenčních SDF a .sq souborů.
+
+    Parameters
+    ----------
+    queries : Dict[str, Union[str, List[str]]]
+        Slovník referenčních souborů mapovaných na skupiny dotazů.
+
+    Raises
+    ------
+    FileNotFoundError
+        Pokud referenční soubor neexistuje na disku.
+    ValueError
+        Pokud soubor .sq nebo .sdf nelze načíst nástrojem OpenEye.
+    """
+    for name, list_of_qf in queries.items():
         if isinstance(list_of_qf, str):
             list_of_qf = [list_of_qf]
         for qf in list_of_qf:
             if not os.path.exists(qf):
                 raise FileNotFoundError(f"Reference file not found: {qf}")
-            ext = oechem.OEGetFileExtension(qf)
+            ext = os.path.splitext(qf)[1].lstrip(".").lower()
             if ext == "sq":
                 # Validace Shape Query souboru přes OpenEye OEShape
+                from openeye import oeshape
                 query = oeshape.OEShapeQuery()
                 if not oeshape.OEReadShapeQuery(qf, query):
                     raise ValueError(f"Invalid reference .sq file: {qf}")
             else:
                 # Validace SDF molekuly
+                from openeye import oechem
                 qfs = oechem.oemolistream()
-                qfs.open(qf)
+                if not qfs.open(qf):
+                    raise ValueError(f"Unable to open SDF query: {qf}")
                 query = oechem.OEGraphMol()
                 if not oechem.OEReadMolecule(qfs, query):
                     raise ValueError(f"Unable to read SDF query: {qf}")`,
@@ -800,13 +877,48 @@ def create_cdpkit_environment(reference_sdf: Path, max_confs: int = 30):
           <li><code>-chemff ImplicitMillsDean</code>: Definuje použité farmakoforové silové pole.</li>
           <li><code>-opt true</code>: Aktivuje analytickou kvazi-Newtonovu optimalizaci prostorového překryvu.</li>
         </ul>`,
-        code: `def _build_rocs_command(
-    self, query_file: str, input_file: str, output_file: str
+        code: `import os
+from typing import List
+
+def _build_rocs_command(
+    binary_path: str,
+    query_file: str,
+    input_file: str,
+    output_file: str,
+    score_type: str = "TanimotoCombo",
+    color_force_field: str = "ImplicitMillsDean",
+    shape_only: bool = False,
+    optimize: bool = True,
 ) -> List[str]:
-    """Sestavení optimalizovaného CLI příkazu pro binárku rocs."""
+    """Sestavení optimalizovaného CLI příkazu pro spuštění binárky rocs.
+
+    Parameters
+    ----------
+    binary_path : str
+        Cesta ke spustitelné binárce rocs.
+    query_file : str
+        Cesta k referenčnímu souboru (.sdf nebo .sq).
+    input_file : str
+        Cesta k databázi vygenerovaných konformerů (.oeb.gz).
+    output_file : str
+        Cesta pro uložení výsledného TSV reportu.
+    score_type : str, optional
+        Metrika pro řazení (výchozí: 'TanimotoCombo').
+    color_force_field : str, optional
+        Farmakoforové silové pole (výchozí: 'ImplicitMillsDean').
+    shape_only : bool, optional
+        Zda provádět čistě tvarové zarovnání bez barev (výchozí: False).
+    optimize : bool, optional
+        Zda provést analytickou optimalizaci překryvu (výchozí: True).
+
+    Returns
+    -------
+    List[str]
+        Seznam argumentů pro subprocess.run.
+    """
     output_dir = os.path.dirname(output_file) or "."
     cmd = [
-        self.binary_path,
+        binary_path,
         "-query", query_file,
         "-dbase", input_file,
         "-report", "one",
@@ -817,13 +929,13 @@ def create_cdpkit_environment(reference_sdf: Path, max_confs: int = 30):
         "-nostructs",           # Neukládat 3D výstupní soubory (obří úspora I/O)
         "-scdbase",             # Neslučovat konformery
     ]
-    if self.shape_only:
+    if shape_only:
         cmd.extend(["-shapeonly", "true"])
     else:
-        cmd.extend(["-rankby", self.score_type])
-        cmd.extend(["-chemff", self.color_force_field])
+        cmd.extend(["-rankby", score_type])
+        cmd.extend(["-chemff", color_force_field])
         
-    cmd.extend(["-opt", str(self.optimize).lower()])
+    cmd.extend(["-opt", str(optimize).lower()])
     return cmd`,
         output: `[CLI Command] /opt/openeye/bin/rocs \\
   -query /dev/shm/cli_rocs_a83f/ref_query.sq \\
@@ -852,9 +964,22 @@ def create_cdpkit_environment(reference_sdf: Path, max_confs: int = 30):
         Binárka <code>rocs</code> je kompilována s podporou OpenMP a standardně by se pokusila obsadit všechna dostupná CPU jádra. Při paralelním volání více instancí by došlo k totálnímu přetížení procesoru.
         <br><br>
         Při spuštění <code>subprocess.run</code> je proto prostředí striktně omezeno nastavením <code>env=dict(os.environ, OMP_NUM_THREADS="1")</code>, což zajišťuje deterministické a vyrovnané vytížení všech jader.`,
-        code: `@contextmanager
-def _managed_tmpdir():
-    """Kontextový manažer dočasného adresáře s garantovaným úklidem."""
+        code: `import os
+import shutil
+import subprocess
+import tempfile
+from contextlib import contextmanager
+from typing import Iterator, List
+
+@contextmanager
+def _managed_tmpdir() -> Iterator[str]:
+    """Kontextový manažer dočasného adresáře v RAM disku s garantovaným úklidem.
+
+    Yields
+    ------
+    str
+        Absolutní cesta k vytvořenému dočasnému adresáři.
+    """
     path = tempfile.mkdtemp(prefix="cli_rocs_")
     try:
         yield path
@@ -864,14 +989,26 @@ def _managed_tmpdir():
         except Exception as e:
             print(f"Chyba při úklidu dočasného adresáře {path}: {e}")
 
-# Spuštění subprocessu s OpenMP thread throttlingem
-result = subprocess.run(
-    cmd,
-    capture_output=True,
-    text=True,
-    timeout=300,
-    env=dict(os.environ, OMP_NUM_THREADS="1")
-)`,
+def _run_rocs_subprocess(cmd: List[str]) -> subprocess.CompletedProcess:
+    """Spuštění subprocessu rocs se striktním OpenMP thread throttlingem.
+
+    Parameters
+    ----------
+    cmd : List[str]
+        Seznam CLI parametrů pro binárku rocs.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        Výsledek dokončeného subprocessu včetně návratového kódu a výstupů.
+    """
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=dict(os.environ, OMP_NUM_THREADS="1")
+    )`,
         output: `[ManagedTmpDir] Created RAM scratch dir: /dev/shm/cli_rocs_x92df8
 [Subprocess] Executing rocs CLI with OMP_NUM_THREADS="1"...
 [Subprocess] Process completed in 1.42s (returncode: 0).
@@ -915,10 +1052,33 @@ assert "OE_LICENSE" in os.environ, "Nastavte proměnnou prostředí OE_LICENSE!"
 rocs_bin = shutil.which("rocs")
 assert rocs_bin is not None, "Binárka 'rocs' nebyla nalezena v systémové PATH!"
 
-def create_openeye_environment(reference_sdf: Path, use_gpu: bool = False):
+def create_openeye_environment(
+    reference_sdf: Path,
+    max_conformers: int = 30,
+    use_gpu: bool = False,
+    optimize: bool = True,
+) -> DrugExEnvironment:
+    """Vytvoření produkčního prostředí DrugEx MORL s OpenEye ROCS skórovačem.
+
+    Parameters
+    ----------
+    reference_sdf : Path
+        Cesta k referenčnímu souboru ligandů (.sdf nebo .sq).
+    max_conformers : int, optional
+        Maximální počet generovaných konformací na molekulu (výchozí: 30).
+    use_gpu : bool, optional
+        Zda aktivovat GPU akceleraci pro generování konformací (výchozí: False).
+    optimize : bool, optional
+        Zda provádět analytickou optimalizaci prostorového překryvu (výchozí: True).
+
+    Returns
+    -------
+    DrugExEnvironment
+        Zkonfigurované tréninkové prostředí pro vícecílové posilované učení.
+    """
     # 2. OpenEye OMEGA generátor konformací s volitelnou GPU akcelerací
     omega_gen = OmegaConformerGenerator(
-        max_conformers=30,
+        max_conformers=max_conformers,
         max_centers=2,
         max_heavy_atoms=40,
         use_gpu=use_gpu,
@@ -928,10 +1088,10 @@ def create_openeye_environment(reference_sdf: Path, use_gpu: bool = False):
     # 3. OpenEye ROCS CLI skórovač
     oe_scorer = OpenEyeROCSScorer(
         conformer_generator=omega_gen,
-        references={'CCR2_pocket': str(reference_sdf)},
-        score_type='TanimotoCombo',
+        references={"CCR2_pocket": str(reference_sdf)},
+        score_type="TanimotoCombo",
         shape_only=False,
-        optimize=True,
+        optimize=optimize,
         color_optimize=True,
         color_force_field="ImplicitMillsDean",
         rocs_binary=rocs_bin,
@@ -939,7 +1099,7 @@ def create_openeye_environment(reference_sdf: Path, use_gpu: bool = False):
     )
 
     # 4. Syntetická dostupnost (SAScore)
-    sa_scorer = Property('SA')
+    sa_scorer = Property("SA")
     sa_scorer.setModifier(SmoothClippedScore(lower_x=5.0, upper_x=3.0))
 
     # 5. Sestavení prostředí
