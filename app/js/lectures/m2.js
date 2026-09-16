@@ -516,11 +516,11 @@ for i, name in enumerate(["Mol A", "Mol B", "Mol C", "Mol D", "Mol E"]):
   Front 3 (Rank 3): indexy molekul [3]
 
 Přiřazené normalizované odměny R(X):
-  Mol A | Skóre: [0.9  0.3 ] | Odměna: 0.800
-  Mol B | Skóre: [0.5  0.95] | Odměna: 1.000
-  Mol C | Skóre: [0.85 0.8 ] | Odměna: 0.600
-  Mol D | Skóre: [0.4  0.4 ] | Odměna: 0.000
-  Mol E | Skóre: [0.82 0.78] | Odměna: 0.400`
+  Mol A | Skóre: [0.9 0.3] | Odměna: 0.800
+  Mol B | Skóre: [0.5  0.95] | Odměna: 0.600
+  Mol C | Skóre: [0.85 0.8 ] | Odměna: 0.400
+  Mol D | Skóre: [0.4 0.4] | Odměna: 0.000
+  Mol E | Skóre: [0.82 0.78] | Odměna: 0.200`
       }
     ]
   },
@@ -683,7 +683,7 @@ sa_scorer = Property(
     )
 )
 print("Konfigurace skórovače SAScore:")
-print(f"  Vlastnost: {sa_scorer.key}")
+print(f"  Vlastnost: {sa_scorer.getKey()}")
 print(f"  Modifikátor: SmoothClippedScore(lower={sa_scorer.modifier.lower_x}, upper={sa_scorer.modifier.upper_x})")
 print("  Prahová hodnota pro Desired: 0.5 (odpovídá SAScore 3.5)")`,
         output: `Konfigurace skórovače SAScore:

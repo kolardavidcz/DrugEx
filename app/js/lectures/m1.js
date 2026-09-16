@@ -93,15 +93,18 @@ smiles = "Cc1ccc(NC(=O)c2cccc(C(=O)N3CCN(Cc4ccccc4)CC3)c2)cc1"
 mol = Chem.MolFromSmiles(smiles)
 
 # Rozštěpení na synteticky dostupné stavební bloky (synthony)
-frags = BRICS.BRICSDecompose(mol)
+frags = sorted(list(BRICS.BRICSDecompose(mol)))
 print("Extrahované BRICS fragmenty s attachment points:")
 for f in frags:
     print(f"  Synthon: {f}")`,
         output: `Extrahované BRICS fragmenty s attachment points:
-  Synthon: [1*]C(=O)c1cccc(C(=O)N2CCN(Cc3ccccc3)CC2)c1
-  Synthon: [5*]Nc1ccc(C)cc1
-  Synthon: [14*]c1ccccc1
-  Synthon: [15*]C1CCN(CC1)c2ccccc2`
+  Synthon: [1*]C([6*])=O
+  Synthon: [16*]c1ccc(C)cc1
+  Synthon: [16*]c1cccc([16*])c1
+  Synthon: [16*]c1ccccc1
+  Synthon: [4*]C[8*]
+  Synthon: [5*]N1CCN([5*])CC1
+  Synthon: [5*]N[5*]`
       },
       {
         title: "4. Srovnávací analýza reprezentací pro generativní AI",
@@ -236,10 +239,10 @@ print(encoded_tensor[0, :12])
 # Zpětné dekódování tenzoru na čistý SMILES
 decoded_smiles = voc.decode(encoded_tensor[0], is_tk=False, is_smiles=True)
 print(f"Dekódovaný SMILES: {decoded_smiles}")`,
-        output: `Velikost chemického slovníku |V|: 84
-Řídicí tokeny slovníku: ['_', 'GO', 'EOS', 'UNK']
+        output: `Velikost chemického slovníku |V|: 87
+Řídicí tokeny slovníku: ('GO', 'EOS')
 Zakódovaný tenzor tvaru torch.Size([1, 100]):
-tensor([ 1, 14, 28, 14, 14, 14, 14, 14, 28,  2,  0,  0])
+tensor([ 0, 82,  8, 82, 82, 82, 82, 82,  8,  1,  0,  0])
 Dekódovaný SMILES: c1ccccc1`
       },
       {
@@ -298,11 +301,11 @@ reconstructed = voc.decode(tensor[0], is_tk=False, is_smiles=True)
 print(f"Zrekonstruovaný SMILES: {reconstructed}")
 assert Chem.CanonSmiles(clean_smiles) == Chem.CanonSmiles(reconstructed), "Chyba v rekonstrukci!"
 print("✓ Validace úspěšná: Reprezentace je 100% invertibilní.")`,
-        output: `Vstupní surový SMILES: Cc1ccc(C(=O)O[Na])cc1.O.[2H]C
-Sanitovaný kanonický SMILES: Cc1ccc(C(=O)O)cc1
-Rozložené chemické tokeny (13 ks): ['C', 'c', '1', 'c', 'c', 'c', '(', 'C', '(', '=', 'O', ')', 'O', ')', 'c', 'c', '1']
+        output: `Vstupní surový SMILES: [Na+].[O-]C(=O)c1ccc(C(=O)NC[C@@H](N)C(=O)[O-])cc1.Cl
+Sanitovaný kanonický SMILES: NC(CNC(=O)c1ccc(C(=O)O)cc1)C(=O)O
+Rozložené chemické tokeny (34 ks): ['N', 'C', '(', 'C', 'N', 'C', '(', '=', 'O', ')', 'c', '1', 'c', 'c', 'c', '(', 'C', '(', '=', 'O', ')', 'O', ')', 'c', 'c', '1', ')', 'C', '(', '=', 'O', ')', 'O', 'EOS']
 PyTorch LongTensor shape: torch.Size([1, 100])
-Zrekonstruovaný SMILES: Cc1ccc(C(=O)O)cc1
+Zrekonstruovaný SMILES: NC(CNC(=O)c1ccc(C(=O)O)cc1)C(=O)O
 ✓ Validace úspěšná: Reprezentace je 100% invertibilní.`
       }
     ]
@@ -388,6 +391,7 @@ def sample_with_temperature(logits: torch.Tensor, temperature: float = 1.0) -> i
     return sampled_token_idx
 
 # Demonstrace vzorkování pro logity 5 možných atomů
+torch.manual_seed(42)
 logits = torch.tensor([2.1, 0.5, -1.2, 3.8, 1.4])
 print("Vzorkovaný index tokenu (T=1.0):", sample_with_temperature(logits, temperature=1.0))
 print("Greedy deterministický index (T=0.0):", sample_with_temperature(logits, temperature=0.0))`,
@@ -446,9 +450,9 @@ print("Kauzální maska M (0 = povoleno, -inf = maskováno):")
 print(mask_4)`,
         output: `Kauzální maska M (0 = povoleno, -inf = maskováno):
 tensor([[0., -inf, -inf, -inf],
-        [0.,  0., -inf, -inf],
-        [0.,  0.,  0., -inf],
-        [0.,  0.,  0.,  0.]])`
+        [0., 0., -inf, -inf],
+        [0., 0., 0., -inf],
+        [0., 0., 0., 0.]])`
       },
       {
         title: "6. GraphTransformer: 2D Generování molekulárních grafů z fragmentů",
@@ -512,36 +516,35 @@ tensor([[0., -inf, -inf, -inf],
         content: `Následující kód ukazuje inicializaci modelů <code>SequenceRNN</code> a <code>SequenceTransformer</code> v DrugEx a vzorkování kandidátních molekul:`,
         code: `import torch
 from drugex.data.corpus.vocabulary import VocSmiles
-from drugex.training.generators import SequenceRNN, SequenceTransformer
+from drugex.training.generators import SequenceRNN
 
-# 1. Načtení chemického slovníku
-voc = VocSmiles.fromFile("data/Papyrus05.5_smiles_voc.txt", encode_frags=False)
+# 1. Načtení slovníku z předtrénovaného modelu Papyrus
+voc = VocSmiles.fromFile("tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.vocab", encode_frags=False)
 
-# 2. Inicializace 3-vrstvého SequenceRNN s LSTM buňkami
-rnn_generator = SequenceRNN(
-    voc=voc,
-    embed_size=128,
-    hidden_size=512,
-    is_lstm=True,
-    lr=1e-3
-)
-print(f"SequenceRNN inicializován na zařízení: {rnn_generator.device}")
+# 2. Načtení předtrénovaného generátoru SequenceRNN
+rnn_generator = SequenceRNN(voc=voc, is_lstm=True)
+rnn_generator.loadStatesFromFile("tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.pkg")
+rnn_generator.eval()
+
+print(f"SequenceRNN načten na zařízení: {rnn_generator.device}")
+print(f"Velikost slovníku: {voc.size} tokenů")
 
 # 3. Autoregresní vygenerování 5 nových SMILES sekvencí
-rnn_generator.eval()
+torch.manual_seed(42)
 with torch.no_grad():
     sampled_smiles = rnn_generator.sample(batch_size=5)
 
 print("Vygenerované molekuly ze SequenceRNN:")
-for i, smi in enumerate(sampled_smiles):
-    print(f"  [{i+1}] {smi}")`,
-        output: `SequenceRNN inicializován na zařízení: cuda:0
+for i, smi in enumerate(sampled_smiles, 1):
+    print(f"  [{i}] {smi}")`,
+        output: `SequenceRNN načten na zařízení: cuda:0
+Velikost slovníku: 95 tokenů
 Vygenerované molekuly ze SequenceRNN:
-  [1] CC(C)Cc1ccc(C(C)C(=O)O)cc1
-  [2] COc1ccc(CCN2CCN(c3cccc(Cl)c3)CC2)cc1
-  [3] O=C(Nc1ccc(F)cc1)c2cccnc2
-  [4] CN1CCN(c2nc3ccccc3nc2O)CC1
-  [5] Cc1cccc(NC(=O)CSc2nnc(C)s2)c1`
+  [1] CCCCCCCCCCCCCCCCCCC(=O)OC(COP(=O)(O)O)C(F)F
+  [2] CCc1ccc(NC(=O)c2oc3ccccc3c2NC(=O)c2cccc(C)c2)cc1
+  [3] Nc1nc(N)c2c(n1)CCC(CNc1ccnc3ccc(Cl)cc13)C2
+  [4] CCC(=O)NC1CCC(C(=O)N(C)c2ccc(-c3cc(C)no3)cc2)C1
+  [5] CC(=O)NC(C)Cc1ccc(C#Cc2ccc(C#N)cc2)cc1`
       }
     ]
   },
@@ -610,7 +613,7 @@ Vygenerované molekuly ze SequenceRNN:
         code: `import torch
 from torch.utils.data import DataLoader
 from drugex.data.corpus.vocabulary import VocSmiles
-from drugex.data.datasets import SequenceDataSet
+from drugex.data.datasets import SmilesDataSet
 from drugex.training.generators import SequenceRNN
 
 # 1. Načtení slovníku a předtrénovaného obecného modelu
@@ -619,7 +622,7 @@ model = SequenceRNN(voc, is_lstm=True, lr=1e-4) # Snížený LR pro fine-tuning!
 model.loadStatesFromFile("models/Papyrus05.5_general_rnn.pkg")
 
 # 2. Příprava cílových ligandů CCR2
-target_dataset = SequenceDataSet("data/benchmarks/actives_ccr2_N75.csv", voc=voc)
+target_dataset = SmilesDataSet("data/benchmarks/actives_ccr2_N75.csv", voc=voc)
 train_loader = DataLoader(target_dataset, batch_size=32, shuffle=True)
 
 # 3. Fine-tuning smyčka (zkrácená ukázka)
@@ -720,7 +723,7 @@ print("✓ Fine-tuning dokončen. Model uložen.")`,
         content: `Následující ucelený Python skript demonstruje kompletní workflow od načtení surových dat až po přípravu modelů pro MORL:`,
         code: `import os
 from drugex.data.corpus.vocabulary import VocSmiles
-from drugex.data.datasets import SequenceDataSet
+from drugex.data.datasets import SmilesDataSet
 from drugex.training.generators import SequenceRNN
 from drugex.training.monitors import FileMonitor
 
@@ -740,7 +743,7 @@ if os.path.exists(GENERAL_MODEL):
     print("✓ Načten obecný předtrénovaný model Papyrus.")
 
 # 4. Příprava datové sady pro cílový fine-tuning
-dataset = SequenceDataSet(ACTIVES_DATA, voc=voc)
+dataset = SmilesDataSet(ACTIVES_DATA, voc=voc)
 train_loader = dataset.asDataLoader(batch_size=32, shuffle=True)
 
 # 5. Spuštění fine-tuningu s monitorem postupu

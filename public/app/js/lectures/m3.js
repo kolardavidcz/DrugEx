@@ -187,7 +187,7 @@ from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 conf_gen = RDKitConformerGenerator(max_conformers=30, max_isomers=2, num_threads=1)
 rocs_scorer = RDKitROCSScorer(
     conformer_generator=conf_gen,
-    references="CCR2_reference_ligands.sdf",
+    references="data/benchmarks/CCR2_reference_ligands.sdf",
     score_type="TanimotoCombo",  # Shape (0..1) + Color (0..1) = Combo (0..2)
     use_colors=True,
     show_progress=False
@@ -202,7 +202,7 @@ print(f"  Referenční soubor: {rocs_scorer.references}")`,
         output: `Konfigurace RDKitROCSScorer:
   Metrika: TanimotoCombo (rozsah 0.0 - 2.0)
   Max konformerů: 30, stereoisomery: 2
-  Referenční soubor: CCR2_reference_ligands.sdf`
+  Referenční soubor: data/benchmarks/CCR2_reference_ligands.sdf`
       }
     ]
   },
@@ -346,19 +346,19 @@ conf_gen = RDKitConformerGenerator(max_conformers=50, max_isomers=4, num_threads
 scorer = RDKitROCSScorer(
     conformer_generator=conf_gen,
     references={
-        "CCR2_pocket_A": ["references/ref_ligand_1.sdf", "references/ref_ligand_2.sdf"],
-        "CCR2_pocket_B": ["references/ref_ligand_3.sdf"]
+        "CCR2_orthosteric": ["rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf"],
+        "CCR2_allosteric": ["rocs_rl_ccr/rdkit_cdpkit/supermol_123.sdf"]
     },
     score_type="TanimotoCombo",
     use_colors=True,
-    n_jobs=-1
+    n_jobs=1
 )
-print(f"✓ Multi-Reference Grouping inicializován s {len(scorer.references)} kapsami:")
-for grp, refs in scorer.references.items():
-    print(f"  Skupina '{grp}': {len(refs)} referenčních konformerů")`,
+print(f"✓ Multi-Reference Grouping inicializován s {len(scorer.group_definitions)} kapsami:")
+for grp, mols in scorer.group_definitions:
+    print(f"  Skupina '{grp}': {len(mols)} referenčních struktur")`,
         output: `✓ Multi-Reference Grouping inicializován s 2 kapsami:
-  Skupina 'CCR2_pocket_A': 2 referenčních konformerů
-  Skupina 'CCR2_pocket_B': 1 referenčních konformerů`
+  Skupina 'CCR2_orthosteric': 5 referenčních struktur
+  Skupina 'CCR2_allosteric': 1 referenčních struktur`
       }
     ]
   },
@@ -408,32 +408,11 @@ for grp, refs in scorer.references.items():
           <li><strong>Silová optimalizace</strong>: Geometrie je dočištěna silovým polem MMFF94 nebo UFF pro odstranění sterických srážek.</li>
           <li><strong>RMSD prořezávání (Pruning)</strong>: Konformace s geometrickou odchylkou $\\text{RMSD} < 0.5\\,\\text{Å}$ jsou zahozeny (<code>params.pruneRmsThresh = 0.5</code>), což brání redundanci.</li>
         </ol>`,
-        code: `class RDKitConformerGenerator(ConformerGenerator):
-    def __init__(
-        self,
-        max_conformers: int = 10,
-        max_isomers: int = 4,
-        max_heavy_atoms: int = 35,
-        max_rotatable_bonds: int = 15,
-        num_threads: int = 0,
-        show_progress: bool = False,
-    ):
-        self.max_conformers = min(max_conformers, 200)
-        self.max_isomers = max_isomers
-        self.max_heavy_atoms = max_heavy_atoms
-        self.max_rotatable_bonds = max_rotatable_bonds
-        self.num_threads = num_threads
-        self.show_progress = show_progress
+        code: `from rdkit.Chem import AllChem
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 
-    def _create_fresh_etkdg(self):
-        params = AllChem.ETKDGv3()
-        params.randomSeed = 0xc0ffee
-        params.numThreads = self.num_threads
-        params.pruneRmsThresh = 0.5
-        return params
-
-# Demonstrace inicializace ETKDGv3 parametrů
-conf_gen = RDKitConformerGenerator(max_conformers=50, num_threads=1)
+# Demonstrace konfigurace RDKitConformerGenerator s ETKDGv3 parametry
+conf_gen = RDKitConformerGenerator(max_conformers=50, max_isomers=4, num_threads=1)
 params = conf_gen._create_fresh_etkdg()
 print("Inicializace ETKDGv3 parametrů:")
 print(f"  Prune RMSD práh: {params.pruneRmsThresh} Å")
@@ -520,7 +499,9 @@ print("  GPU akcelerace: Automatická detekce CUDA")`,
         </ul>
         <br>
         V <code>conformer_generators.py</code> byl tento problém vyřešen elegantní automatickou post-processing korekcí: k z-souřadnici každého atomu je přičten nepatrný ofset $+0.01\\,\\text{Å}$, což zachová geometrii, ale odstraní numerickou singularitu:`,
-        code: `# Oprava souřadnic v SchrodingerConformerGenerator
+        code: `from rdkit import Chem
+
+# Oprava souřadnic v SchrodingerConformerGenerator
 suppl = Chem.SDMolSupplier(tmp_outfile, removeHs=False)
 corrected_mols = []
 for mol in suppl:
