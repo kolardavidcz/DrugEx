@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# --- Standard Library ---
 import warnings
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -7,22 +8,26 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+# --- Numerical Data, Cheminformatics & PyTorch ---
 import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import pandas as pd
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
-from qsprpred.data import MoleculeTable
-from qsprpred.data.descriptors.fingerprints import MorganFP
-from qsprpred.models.scikit_learn import SklearnModel
 from rdkit import Chem
 from rdkit.Chem import Draw
-from scaffviz.clustering.manifold import TSNE
-from scaffviz.depiction.plot import Plot
 from torch.utils.data import DataLoader
 
+matplotlib.use("Agg")
+
+# --- Plotting, QSPRPred & Chemical Space Visualization ---
+import matplotlib.pyplot as plt
+from qsprpred import data as qspr_data
+from qsprpred.data.descriptors import fingerprints as qspr_fps
+from qsprpred.models import scikit_learn as qspr_models
+from scaffviz.clustering import manifold
+from scaffviz.depiction import plot as scaff_plot
+
+# --- Project Modules (Local & DrugEx) ---
 from _david import receptor_similar
 from drugex.data import datasets, processing
 from drugex.data.corpus import corpus, vocabulary
@@ -250,13 +255,13 @@ class david:
         fig.savefig(self.MODEL_DIR_RL / "rl_score_distributions.png", bbox_inches="tight")
         plt.close(fig)
 
-        dataset = MoleculeTable("david_agent", df=generated)
+        dataset = qspr_data.MoleculeTable("david_agent", df=generated)
         dataset.addProperty(qsprpred_scorer.getKey(), scores[qsprpred_scorer.getKey()].values)
         dataset.addDescriptors(
-            [MorganFP(radius=3, nBits=2048)]
+            [qspr_fps.MorganFP(radius=3, nBits=2048)]
         )
 
-        plt_manifold = Plot(TSNE())
+        plt_manifold = scaff_plot.Plot(manifold.TSNE())
         fig_manifold = plt_manifold.plot(
             dataset,
             color_by=qsprpred_scorer.getKey(),
@@ -278,10 +283,10 @@ class david:
             ]
         )
 
-        dataset = MoleculeTable(name="david_joined", df = df_joined)
-        dataset.addDescriptors([MorganFP(radius=3, nBits=2048)])
+        dataset = qspr_data.MoleculeTable(name="david_joined", df = df_joined)
+        dataset.addDescriptors([qspr_fps.MorganFP(radius=3, nBits=2048)])
 
-        plt_manifold = Plot(TSNE())
+        plt_manifold = scaff_plot.Plot(manifold.TSNE())
         fig_manifold = plt_manifold.plot(dataset, recalculate=False, color_by="Group", interactive=False)
         if fig_manifold is not None:
             fig_manifold.write_html(str(self.MODEL_DIR_RL / "chemical_space_comparison.html"))
@@ -306,7 +311,7 @@ class david:
 
         QSAR_DIR_old_way_for_external_package : str = str(self.QSAR_DIR)
 
-        predictor = SklearnModel(
+        predictor = qspr_models.SklearnModel(
             name="DAVID_RandomForestClassifier",
             base_dir=QSAR_DIR_old_way_for_external_package
         )
