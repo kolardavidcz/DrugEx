@@ -22,6 +22,20 @@
     display: none !important;
   }
 
+  /* Override dark tokens for print so text and surfaces are crisp light/dark */
+  :root, html, html[data-theme="dark"], html[data-theme="light"] {
+    --bg: #ffffff !important;
+    --editor: #f8fafc !important;
+    --card-bg: #ffffff !important;
+    --text: #0f172a !important;
+    --text-bright: #0f172a !important;
+    --text-muted: #334155 !important;
+    --text-faint: #64748b !important;
+    --border: #cbd5e1 !important;
+    --border-subtle: #e2e8f0 !important;
+    --accent: #0284c7 !important;
+  }
+
   /* Reset body and layout for high-fidelity continuous printing */
   html, body, #app, .workbench, .main-area, .content-viewport {
     height: auto !important;
@@ -228,16 +242,60 @@
   .syn-dec { color: #7ee787 !important; }
   .syn-op { color: #ff7b72 !important; }
 
+  /* General Slide Content Contrast in Print */
+  .slide-content,
+  .slide-content p,
+  .slide-content li,
+  .slide-content ul,
+  .slide-content ol,
+  .slide-content span:not([class*="syn-"]) {
+    color: #0f172a !important;
+  }
+  .slide-content strong,
+  .slide-content b {
+    color: #0f172a !important;
+    font-weight: 700 !important;
+  }
+  .slide-content h3,
+  .slide-content h4,
+  .slide-content h5 {
+    color: #0284c7 !important;
+    font-weight: 700 !important;
+  }
+
+  /* Inline Code Tokens in Print */
+  code:not(.code-block code) {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 1pt 3.5pt !important;
+    border-radius: 2.5pt !important;
+    font-size: 8.5pt !important;
+    font-weight: 600 !important;
+  }
+
   /* Math Formulas & KaTeX in Print */
   .math-card {
+    display: block !important;
+    width: fit-content !important;
+    max-width: 100% !important;
     background: #f8fafc !important;
     border: 1px solid #cbd5e1 !important;
     border-radius: 4pt !important;
-    padding: 8pt 12pt !important;
-    margin: 8pt 0 !important;
+    padding: 4pt 14pt !important;
+    margin: 6pt auto !important;
     text-align: center !important;
+    color: #0f172a !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    box-sizing: border-box !important;
+  }
+  .math-card,
+  .math-card * {
+    color: #0f172a !important;
+  }
+  .math-card .katex-display {
+    margin: 2pt 0 !important;
   }
   .katex {
     color: #0f172a !important;
@@ -251,8 +309,12 @@
     padding: 8pt 12pt !important;
     margin: 8pt 0 !important;
     border-radius: 3pt !important;
+    color: #0f172a !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+  }
+  .alert-box, .alert-box div, .alert-box p {
+    color: #0f172a !important;
   }
   .alert-box.alert-note { border-left: 4pt solid #0284c7 !important; }
   .alert-box.alert-tip { border-left: 4pt solid #10b981 !important; }

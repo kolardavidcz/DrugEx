@@ -217,7 +217,7 @@ print(f"Uložené vizualizace                : threshold_analysis_results/combin
             <br><br>
             Dataset je rozdělen v poměru 95:5 na trénovací a testovací množinu:
             <div class="math-card">
-              $$\\mathcal{L}_{FT}(\\theta) = -\\frac{1}{|D_{train}|} \\sum_{X \\in D_{train}} \\sum_{t=1}^{T} \\log P(x_t \\mid x_{<t}; \\theta)$$
+              $$\\mathcal{L}_{FT}(\\theta) = -\\frac{1}{|D_{train}|} \\sum_{X \\in D_{train}} \\sum_{t=1}^{T} \\log P(x_t \\mid x_{\\lt t}; \\theta)$$
             </div>
             Model je dotrénován po dobu 100 epoch s learning rate $\\eta = 10^{-4}$ a early stoppingem s trpělivostí (patience) 30 epoch.
           </li>
@@ -304,7 +304,7 @@ env = DrugExEnvironment(
         <br>
         V každém kroku generování tokenu se s pravděpodobností $\\epsilon = 0.20$ ($20\\%$) použije distribuce pravděpodobností ze sítě $\\pi_0$ a s pravděpodobností $1 - \\epsilon = 0.80$ ($80\\%$) ze sítě $\\pi_\\theta$:
         <div class="math-card">
-          $$P(x_t \\mid x_{<t}) = (1 - \\epsilon) \\cdot \\pi_\\theta(x_t \\mid x_{<t}) + \\epsilon \\cdot \\pi_0(x_t \\mid x_{<t})$$
+          $$P(x_t \\mid x_{\\lt t}) = (1 - \\epsilon) \\cdot \\pi_\\theta(x_t \\mid x_{\\lt t}) + \\epsilon \\cdot \\pi_0(x_t \\mid x_{\\lt t})$$
         </div>`,
         code: `from drugex.training.explorers import SequenceExplorer
 
@@ -325,11 +325,11 @@ explorer = SequenceExplorer(
         <br><br>
         Gradient účelové funkce podle parametrů sítě $\\theta$ je odvozen pomocí věty o policy gradientu (Williams, 1992):
         <div class="math-card">
-          $$\\nabla_\\theta \\mathcal{J}(\\theta) = \\mathbb{E}_{X \\sim \\pi_\\theta} \\left[ \\sum_{t=1}^{T} \\nabla_\\theta \\log \\pi_\\theta(x_t \\mid x_{<t}) \\cdot (R(X) - \\beta) \\right]$$
+          $$\\nabla_\\theta \\mathcal{J}(\\theta) = \\mathbb{E}_{X \\sim \\pi_\\theta} \\left[ \\sum_{t=1}^{T} \\nabla_\\theta \\log \\pi_\\theta(x_t \\mid x_{\\lt t}) \\cdot (R(X) - \\beta) \\right]$$
         </div>
         kde:
         <ul>
-          <li>$x_t$ je token vygenerovaný v čase $t$ a $x_{<t}$ je dosavadní prefix SMILES sekvence.</li>
+          <li>$x_t$ je token vygenerovaný v čase $t$ a $x_{\\lt t}$ je dosavadní prefix SMILES sekvence.</li>
           <li>$R(X) \\in [0, 2]$ je celková Paretova odměna molekuly spočtená z Paretova ranku a Crowding Distance:
             $$R(X_i) = \\frac{1}{\\text{Rank}(X_i)} + \\frac{d_i}{1 + d_i}$$
           </li>
@@ -483,7 +483,7 @@ plt.show()`
         <ol>
           <li>Načte natrénovanou síť <code>SequenceRNN</code> a chemický slovník <code>VocSmiles</code>.</li>
           <li>Provede autoregresivní vzorkování token po tokenu pomocí <strong>teplotního vzorkování (Temperature Sampling)</strong> s parametrem $T = 1.0$:
-            $$P(x_t = k \\mid x_{<t}) = \\frac{\\exp(z_k / T)}{\\sum_j \\exp(z_j / T)}$$
+            $$P(x_t = k \\mid x_{\\lt t}) = \\frac{\\exp(z_k / T)}{\\sum_j \\exp(z_j / T)}$$
           </li>
           <li>Okamžitě ohodnotí všechny vygenerované molekuly v prostředí <code>DrugExEnvironment</code> (3D ROCS + SAScore).</li>
           <li>Uloží kompletní tabulku výsledků včetně detailních skóre jednotlivých cílů do <code>CCR2_rdkit_reinforced_generated.tsv</code>.</li>

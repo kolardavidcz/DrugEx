@@ -305,15 +305,15 @@ print("✓ Validace úspěšná: Reprezentace je 100% invertibilní.")`
         title: "1. Autoregresní pravděpodobnostní modelování chemického jazyka",
         content: `Generování molekuly jako lineárního SMILES řetězce $X = (x_1, x_2, \\dots, x_T)$ lze formalizovat jako odhad sdružené pravděpodobnosti výskytu sekvence tokenů $P(X)$. Pomocí řetízkového pravidla pravděpodobnosti rozkládáme sdruženou pravděpodobnost na součin podmíněných pravděpodobností:
         <div class="math-card">
-          $$P(X; \\theta) = P(x_1, x_2, \\dots, x_T; \\theta) = \\prod_{t=1}^{T} P(x_t \\mid x_1, x_2, \\dots, x_{t-1}; \\theta) = \\prod_{t=1}^{T} P(x_t \\mid x_{<t}; \\theta)$$
+          $$P(X; \\theta) = P(x_1, x_2, \\dots, x_T; \\theta) = \\prod_{t=1}^{T} P(x_t \\mid x_1, x_2, \\dots, x_{t-1}; \\theta) = \\prod_{t=1}^{T} P(x_t \\mid x_{\\lt t}; \\theta)$$
         </div>
-        kde $x_t \\in \\mathcal{V}$ je token vygenerovaný v čase $t$, $x_{<t}$ představuje dosud vygenerovaný prefix sekvence a $\\theta$ jsou trénovatelné parametry neuronové sítě.
+        kde $x_t \\in \\mathcal{V}$ je token vygenerovaný v čase $t$, $x_{\\lt t}$ představuje dosud vygenerovaný prefix sekvence a $\\theta$ jsou trénovatelné parametry neuronové sítě.
         <br><br>
-        Při trénování (supervizované učení) aplikujeme režim <strong>Teacher Forcing</strong>: v každém časovém kroku $t$ předkládáme síti skutečný historický prefix $x_{<t}$ z trénovací databáze a minimalizujeme zápornou logaritmickou věrohodnost (NLL / Cross-Entropy Loss):
+        Při trénování (supervizované učení) aplikujeme režim <strong>Teacher Forcing</strong>: v každém časovém kroku $t$ předkládáme síti skutečný historický prefix $x_{\\lt t}$ z trénovací databáze a minimalizujeme zápornou logaritmickou věrohodnost (NLL / Cross-Entropy Loss):
         <div class="math-card">
-          $$\\mathcal{L}_{\\text{NLL}}(\\theta) = - \\sum_{t=1}^{T} \\log P(x_t^* \\mid x_{<t}^*; \\theta)$$
+          $$\\mathcal{L}_{\\text{NLL}}(\\theta) = - \\sum_{t=1}^{T} \\log P(x_t^* \\mid x_{\\lt t}^*; \\theta)$$
         </div>
-        Při inferenci (generování de novo) síť funguje <strong>autoregresně</strong>: v každém kroku $t$ model predikuje pravděpodobnostní rozdělení nad celým slovníkem $\\mathcal{V}$, náhodně vzorkuje další token $\\hat{x}_t \\sim P(\\cdot \\mid \\hat{x}_{<t})$ a tento token vrací na svůj vlastní vstup v čase $t+1$.`
+        Při inferenci (generování de novo) síť funguje <strong>autoregresně</strong>: v každém kroku $t$ model predikuje pravděpodobnostní rozdělení nad celým slovníkem $\\mathcal{V}$, náhodně vzorkuje další token $\\hat{x}_t \\sim P(\\cdot \\mid \\hat{x}_{\\lt t})$ a tento token vrací na svůj vlastní vstup v čase $t+1$.`
       },
       {
         title: "2. SequenceRNN: Tenzorová algebra LSTM a GRU buněk",
@@ -347,7 +347,7 @@ print("✓ Validace úspěšná: Reprezentace je 100% invertibilní.")`
         title: "3. Autoregresní vzorkování & Teplotní škálování (Temperature Sampling)",
         content: `Výstupem lineární projekce v čase $t$ je vektor surových logitů $\\mathbf{z}_t = (z_{t, 1}, z_{t, 2}, \\dots, z_{t, |\\mathcal{V}|})^T$. Pro převod logitů na pravděpodobnostní rozdělení se aplikuje <strong>teplotně modifikovaná funkce Softmax</strong> s hyperparametrem teploty $T > 0$:
         <div class="math-card">
-          $$P(x_t = v \\mid x_{<t}; T) = \\frac{\\exp\\left( \\frac{z_{t, v}}{T} \\right)}{\\sum_{j=1}^{|\\mathcal{V}|} \\exp\\left( \\frac{z_{t, j}}{T} \\right)}$$
+          $$P(x_t = v \\mid x_{\\lt t}; T) = \\frac{\\exp\\left( \\frac{z_{t, v}}{T} \\right)}{\\sum_{j=1}^{|\\mathcal{V}|} \\exp\\left( \\frac{z_{t, j}}{T} \\right)}$$
         </div>
         <br>
         Vliv teploty $T$ na chemické vlastnosti generovaných molekul:
@@ -550,7 +550,7 @@ for i, smi in enumerate(sampled_smiles):
         <h4>Průběh a parametry předtrénování</h4>
         Model (např. <code>SequenceRNN</code>) je trénován po dobu 50–100 epoch s optimalizátorem Adam ($lr = 10^{-3}$, batch size 512). Cílem je minimalizace ztráty Cross-Entropy napříč celou databází:
         <div class="math-card">
-          $$\\mathcal{L}_{\\text{CE}}(\\theta) = -\\frac{1}{|\\mathcal{D}|} \\sum_{X \\in \\mathcal{D}} \\frac{1}{|X|} \\sum_{t=1}^{|X|} \\log P(x_t \\mid x_{<t}; \\theta)$$
+          $$\\mathcal{L}_{\\text{CE}}(\\theta) = -\\frac{1}{|\\mathcal{D}|} \\sum_{X \\in \\mathcal{D}} \\frac{1}{|X|} \\sum_{t=1}^{|X|} \\log P(x_t \\mid x_{\\lt t}; \\theta)$$
         </div>
         Výsledkem je <strong>obecný generátor (General Prior)</strong>, který dosahuje validity generovaných molekul > 98% a dokáže syntetizovat rozmanité chemické třídy napříč celým známým chemickým prostorem.`,
         alert: {

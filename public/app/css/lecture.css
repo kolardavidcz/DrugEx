@@ -195,15 +195,23 @@
 
 /* Math Box */
 .math-card {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px auto;
   background: rgba(192, 132, 252, 0.08);
   border: 1px solid rgba(192, 132, 252, 0.25);
   border-radius: var(--radius);
-  padding: 14px 20px;
+  padding: 6px 18px;
   text-align: center;
   font-family: serif;
-  font-size: 1.15em;
+  font-size: 1.12em;
   color: var(--text-bright);
   overflow-x: auto;
+  box-sizing: border-box;
+}
+.math-card .katex-display {
+  margin: 3px 0 !important;
 }
 
 /* Action Strip in Lecture Header */
