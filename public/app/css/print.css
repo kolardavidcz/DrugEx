@@ -193,8 +193,8 @@
     border: 1px solid #30363d !important;
     border-radius: 4pt !important;
     margin: 8pt 0 !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -207,6 +207,8 @@
     font-weight: 600 !important;
     display: flex !important;
     justify-content: space-between !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -223,60 +225,83 @@
     overflow: visible !important;
     white-space: pre-wrap !important;
     word-break: break-word !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
   .code-block code {
     color: #e6edf3 !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
     font-family: 'Consolas', 'Courier New', monospace !important;
     font-size: inherit !important;
   }
 
-  /* Code Output (stdout) Showcase in Print */
+  /* Code Output (stdout) Showcase in Print - Beautiful terminal matching website */
   .code-output-header {
-    background: #0f172a !important;
+    background: #111822 !important;
     color: #38bdf8 !important;
-    border-top: 1px solid #334155 !important;
-    border-bottom: 1px solid #1e293b !important;
-    padding: 3pt 10pt !important;
+    border-top: 1px solid #283344 !important;
+    border-bottom: 1px solid #1c2633 !important;
+    padding: 4pt 10pt !important;
     font-size: 8pt !important;
     font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
+    page-break-before: auto !important;
+    break-before: auto !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
   .code-output-badge {
     color: #4ade80 !important;
-    background: rgba(74, 222, 128, 0.15) !important;
-    border: 1px solid #10b981 !important;
-    padding: 0.5pt 4pt !important;
+    background: rgba(74, 222, 128, 0.12) !important;
+    border: 1px solid rgba(74, 222, 128, 0.35) !important;
+    padding: 1pt 5pt !important;
     border-radius: 2pt !important;
     font-size: 7.5pt !important;
+    font-weight: 600 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
   .code-output-block {
-    background: #090d16 !important;
-    color: #4ade80 !important;
-    padding: 6pt 10pt !important;
+    background: #080c12 !important;
+    color: #7ee787 !important;
+    padding: 8pt 12pt !important;
     font-size: 8pt !important;
-    line-height: 1.4 !important;
+    line-height: 1.45 !important;
     margin: 0 !important;
     font-family: 'Consolas', 'Courier New', monospace !important;
     white-space: pre-wrap !important;
     word-break: break-word !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
   .code-output-block code {
-    color: #4ade80 !important;
+    color: #7ee787 !important;
     background: transparent !important;
     border: none !important;
+    border-radius: 0 !important;
     padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
     font-family: inherit !important;
     font-size: inherit !important;
+    display: inline !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* High-Contrast Syntax Colors for Dark Print Code */
@@ -310,8 +335,13 @@
     font-weight: 700 !important;
   }
 
-  /* Inline Code Tokens in Print */
-  code:not(.code-block code) {
+  /* Inline Code Tokens in Print (never applied to code blocks or terminal output blocks) */
+  :not(pre) > code,
+  p code,
+  li code,
+  td code,
+  th code,
+  .slide-content > code {
     background: #f1f5f9 !important;
     color: #0f172a !important;
     border: 1px solid #cbd5e1 !important;
@@ -380,112 +410,202 @@
   .alert-box.alert-warning .alert-title { color: #f59e0b !important; }
   .alert-box.alert-caution .alert-title { color: #ef4444 !important; }
 
-  /* Quiz Cards & Questions in Print */
+  /* Quiz Section in Print — Compact Double-Column Questions + Answer Key */
+  .quiz-section-print {
+    margin-top: 18pt !important;
+    page-break-before: always !important;
+    break-before: always !important;
+  }
+
   .quiz-module-divider {
     background: #0284c7 !important;
     color: #ffffff !important;
-    page-break-before: always !important;
-    break-before: always !important;
-    margin-top: 20pt !important;
-    margin-bottom: 12pt !important;
-    padding: 8pt 14pt !important;
+    padding: 6pt 12pt !important;
     border-radius: 3pt !important;
+    margin-bottom: 10pt !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
   .quiz-module-divider h2 {
     color: #ffffff !important;
-    font-size: 13pt !important;
+    font-size: 11.5pt !important;
     margin: 0 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-
-  .quiz-card-print {
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    margin: 10pt 0 !important;
-    padding-bottom: 8pt !important;
-    border-bottom: 1px solid #e2e8f0 !important;
+  .quiz-count-badge {
+    color: #e0f2fe !important;
+    background: rgba(255, 255, 255, 0.2) !important;
+    padding: 1.5pt 6pt !important;
+    border-radius: 2pt !important;
+    font-size: 8pt !important;
+    font-weight: 600 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  .quiz-options-print {
+  /* Two-column questions grid (compact test sheet) */
+  .quiz-grid-print {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8pt 10pt !important;
+    margin-bottom: 14pt !important;
+  }
+
+  .quiz-qcard-compact {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 3pt !important;
+    padding: 6pt 8pt !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 4pt !important;
-    margin: 6pt 0 !important;
   }
 
-  .quiz-option-print {
+  .quiz-qhead {
+    display: flex !important;
+    gap: 4pt !important;
+    align-items: baseline !important;
+  }
+  .quiz-qnum {
+    font-weight: 700 !important;
+    color: #0284c7 !important;
+    font-size: 8.5pt !important;
+    min-width: 14pt !important;
+  }
+  .quiz-qtext {
+    font-size: 8.5pt !important;
+    font-weight: 600 !important;
+    color: #0f172a !important;
+    line-height: 1.3 !important;
+  }
+
+  .quiz-opts-compact {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2.5pt !important;
+    margin-top: 2pt !important;
+    padding-left: 14pt !important;
+  }
+  .quiz-opt-compact {
     display: flex !important;
     align-items: baseline !important;
-    gap: 6pt !important;
-    padding: 4pt 8pt !important;
-    border-radius: 3pt !important;
-    font-size: 8.5pt !important;
-    line-height: 1.35 !important;
-    border: 1px solid #e2e8f0 !important;
-    background: #ffffff !important;
-    color: #334155 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-
-  .quiz-option-print.option-correct-print {
-    background: #f0fdf4 !important;
-    border: 1.5pt solid #16a34a !important;
-    color: #14532d !important;
-    font-weight: 600 !important;
-  }
-
-  .quiz-opt-letter {
-    font-weight: 700 !important;
-    min-width: 14pt !important;
-    color: #0f172a !important;
-  }
-
-  .quiz-option-print.option-correct-print .quiz-opt-letter {
-    color: #16a34a !important;
-  }
-
-  .quiz-opt-text {
-    flex: 1 !important;
-    color: inherit !important;
-  }
-
-  .quiz-correct-badge {
-    margin-left: auto !important;
+    gap: 4pt !important;
     font-size: 7.5pt !important;
+    line-height: 1.25 !important;
+    color: #334155 !important;
+  }
+  .quiz-opt-letter-compact {
+    font-weight: 700 !important;
+    color: #64748b !important;
+    min-width: 11pt !important;
+  }
+  .quiz-opt-text-compact {
+    flex: 1 !important;
+    color: #334155 !important;
+  }
+
+  /* Answer Key & Scientific Explanations Container */
+  .quiz-key-container {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 3pt !important;
+    padding: 8pt 10pt !important;
+    margin-top: 8pt !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  .quiz-key-title-bar {
+    border-bottom: 1.5pt solid #0284c7 !important;
+    padding-bottom: 3pt !important;
+    margin-bottom: 8pt !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: baseline !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+  .quiz-key-title-bar h3 {
+    font-size: 10pt !important;
+    font-weight: 700 !important;
+    color: #0284c7 !important;
+    margin: 0 !important;
+  }
+  .quiz-key-subtitle {
+    font-size: 7.5pt !important;
+    color: #64748b !important;
+    font-style: italic !important;
+  }
+
+  /* Two-column answer key grid */
+  .quiz-key-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6pt 8pt !important;
+  }
+
+  .quiz-key-item {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-left: 2.5pt solid #16a34a !important;
+    border-radius: 2pt !important;
+    padding: 5pt 7pt !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .quiz-key-item-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-bottom: 2pt !important;
+  }
+  .quiz-key-item-qnum {
+    font-weight: 700 !important;
+    color: #0f172a !important;
+    font-size: 8pt !important;
+  }
+  .quiz-key-badge {
+    font-size: 7pt !important;
     font-weight: 700 !important;
     color: #15803d !important;
     background: #dcfce7 !important;
-    border: 1px solid #86efac !important;
-    padding: 0.5pt 5pt !important;
+    border: 0.5pt solid #86efac !important;
+    padding: 0.5pt 4pt !important;
     border-radius: 2pt !important;
-    white-space: nowrap !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  .quiz-explanation-print {
-    margin-top: 6pt !important;
-    padding: 6pt 10pt !important;
-    background: #f8fafc !important;
-    border-left: 3pt solid #0284c7 !important;
-    border-top: 1px solid #e2e8f0 !important;
-    border-right: 1px solid #e2e8f0 !important;
-    border-bottom: 1px solid #e2e8f0 !important;
-    border-radius: 2pt !important;
-    font-size: 8pt !important;
-    color: #334155 !important;
-    line-height: 1.4 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
+  .quiz-key-correct-text {
+    font-size: 7.5pt !important;
+    color: #14532d !important;
+    line-height: 1.25 !important;
+    margin-bottom: 3pt !important;
+  }
+  .quiz-key-correct-text strong {
+    color: #15803d !important;
   }
 
-  .quiz-explanation-print strong {
-    color: #0284c7 !important;
+  .quiz-key-explanation {
+    font-size: 7.2pt !important;
+    line-height: 1.3 !important;
+    color: #475569 !important;
+    border-top: 0.5pt dashed #cbd5e1 !important;
+    padding-top: 3pt !important;
+    margin-top: 2pt !important;
+  }
+  .quiz-key-exp-tag {
     font-weight: 700 !important;
+    color: #0284c7 !important;
   }
 
   /* Page Setup */

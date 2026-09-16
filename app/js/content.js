@@ -435,38 +435,70 @@ export async function renderHandbookPrintView(container) {
     // Module Review Assessment Quiz
     const quizData = quizMap[mod.num];
     if (quizData && quizData.questions && quizData.questions.length > 0) {
-      const quizDiv = el("div", { className: "module-print-divider quiz-module-divider" }, [
-        el("h2", {}, `Závěrečný Autoevaluační Test — Modul ${mod.num}: ${quizData.title || mod.title}`)
+      const quizSection = el("div", { className: "quiz-section-print" }, [
+        el("div", { className: "module-print-divider quiz-module-divider" }, [
+          el("h2", {}, `Modul ${mod.num} — Závěrečný Autoevaluační Test`),
+          el("span", { className: "quiz-count-badge" }, `${quizData.questions.length} otázek`)
+        ])
       ]);
-      view.appendChild(quizDiv);
+
+      const qGrid = el("div", { className: "quiz-grid-print" });
+      const letters = ["A", "B", "C", "D"];
+      const solutions = [];
 
       quizData.questions.forEach((rawQ, qIdx) => {
         const { options, correct } = ensureShuffledOptions(rawQ, `m${mod.num}`, qIdx);
-        const letters = ["A", "B", "C", "D"];
+        solutions.push({
+          qNum: qIdx + 1,
+          question: rawQ.question,
+          correctLetter: letters[correct],
+          correctText: options[correct],
+          explanation: rawQ.explanation
+        });
 
-        const qCard = el("section", { className: "slide-card quiz-card-print" }, [
-          el("div", { className: "slide-title-bar" }, [
-            el("div", { className: "slide-title" }, `${qIdx + 1}. ${rawQ.question}`),
-            el("span", { className: "slide-number" }, `Test M${mod.num} · Otázka ${qIdx + 1}/${quizData.questions.length}`)
+        const qCard = el("div", { className: "quiz-qcard-compact" }, [
+          el("div", { className: "quiz-qhead" }, [
+            el("span", { className: "quiz-qnum" }, `${qIdx + 1}.`),
+            el("span", { className: "quiz-qtext" }, rawQ.question)
           ]),
-          el("div", { className: "quiz-options-print" }, options.map((optText, optIdx) => {
-            const isCorrect = optIdx === correct;
-            return el("div", {
-              className: `quiz-option-print ${isCorrect ? "option-correct-print" : ""}`
-            }, [
-              el("span", { className: "quiz-opt-letter" }, `${letters[optIdx]})`),
-              el("span", { className: "quiz-opt-text" }, optText),
-              isCorrect ? el("span", { className: "quiz-correct-badge" }, "✓ Správné řešení") : null
-            ]);
-          })),
-          rawQ.explanation ? el("div", { className: "quiz-explanation-print" }, [
-            el("strong", {}, "💡 Odborné vysvětlení: "),
-            el("span", { innerHTML: rawQ.explanation })
-          ]) : null
+          el("div", { className: "quiz-opts-compact" }, options.map((optText, optIdx) => el("div", {
+            className: "quiz-opt-compact"
+          }, [
+            el("span", { className: "quiz-opt-letter-compact" }, `${letters[optIdx]})`),
+            el("span", { className: "quiz-opt-text-compact" }, optText)
+          ])))
         ]);
 
-        view.appendChild(qCard);
+        qGrid.appendChild(qCard);
       });
+      quizSection.appendChild(qGrid);
+
+      // Answer Key & Explanations at the end of the module's quiz
+      const keySection = el("div", { className: "quiz-key-container" }, [
+        el("div", { className: "quiz-key-title-bar" }, [
+          el("h3", {}, `Klíč Správných Odpovědí & Odborná Zdůvodnění — Modul ${mod.num}`),
+          el("span", { className: "quiz-key-subtitle" }, "Správná řešení a vysvětlení principů")
+        ]),
+        el("div", { className: "quiz-key-grid" }, solutions.map(sol => el("div", {
+          className: "quiz-key-item"
+        }, [
+          el("div", { className: "quiz-key-item-header" }, [
+            el("span", { className: "quiz-key-item-qnum" }, `Otázka ${sol.qNum}`),
+            el("span", { className: "quiz-key-badge" }, `Správně: ${sol.correctLetter}`)
+          ]),
+          el("div", { className: "quiz-key-correct-text" }, [
+            el("strong", {}, `${sol.correctLetter}) `),
+            el("span", {}, sol.correctText)
+          ]),
+          sol.explanation ? el("div", { className: "quiz-key-explanation" }, [
+            el("span", { className: "quiz-key-exp-tag" }, "💡 Vysvětlení: "),
+            el("span", { innerHTML: sol.explanation })
+          ]) : null
+        ])))
+      ]);
+      quizSection.appendChild(keySection);
+
+      view.appendChild(quizSection);
     }
   });
 

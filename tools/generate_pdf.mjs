@@ -64,7 +64,10 @@ async function main() {
   const slideCount = await page.evaluate(() => {
     return document.querySelectorAll('.slide-card').length;
   });
-  console.log(`✓ Detected ${slideCount} rendered handbook slide cards across all 6 modules.`);
+  const quizCount = await page.evaluate(() => {
+    return document.querySelectorAll('.quiz-qcard-compact').length;
+  });
+  console.log(`✓ Detected ${slideCount} rendered handbook slide cards and ${quizCount} compact quiz questions across all 6 modules.`);
 
   console.log('📄 Exporting continuous publication A4 PDF with dark code showcases...');
   await page.pdf({
