@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import os
+from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -101,12 +103,12 @@ class Vocabulary(ABC):
 
     @staticmethod
     @abstractmethod
-    def fromFile(path: str, *args: Any, **kwargs: Any) -> Vocabulary:
+    def fromFile(path: Union[str, os.PathLike[str], Path], *args: Any, **kwargs: Any) -> Vocabulary:
         """Load vocabulary words from an external file.
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             Path to vocabulary file.
         *args : Any
             Additional configuration parameters.
@@ -121,12 +123,12 @@ class Vocabulary(ABC):
         pass
 
     @abstractmethod
-    def toFile(self, path: str) -> None:
+    def toFile(self, path: Union[str, os.PathLike[str], Path]) -> None:
         """Persist vocabulary tokens to a text or TSV file.
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             Destination file path.
         """
         pass
@@ -204,12 +206,12 @@ class SequenceVocabulary(Vocabulary, ABC):
         """
         pass
 
-    def toFile(self, path: str) -> None:
+    def toFile(self, path: Union[str, os.PathLike[str], Path]) -> None:
         """Save vocabulary tokens (excluding control tokens) separated by newlines.
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             Destination file path.
         """
         with open(path, "w") as log:

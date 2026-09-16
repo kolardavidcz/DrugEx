@@ -72,3 +72,28 @@ where = ["."]
 
 [tool.setuptools_scm]
 write_to = "drugex/_version.py"
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
+
+[tool.pyrefly.errors]
+missing-attribute = "error"
+implicitly-defined-attribute = "error"
+redefinition = "error"
+unbound-name = "error"
+unknown-name = "error"
+division-by-zero = "error"
+bad-argument-type = "error"
+bad-return = "error"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "UP", "SIM", "I"]
+ignore = ["E501"]
+

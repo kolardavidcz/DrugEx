@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from itertools import chain
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Tuple, Type, Union
 
 import numpy as np
@@ -26,12 +28,12 @@ class SmilesDataSet(DataSet):
 
     columns: Tuple[str, str] = ('Smiles', 'Token')
 
-    def __init__(self, path: str, voc: Optional[VocSmiles] = None, rewrite: bool = False) -> None:
+    def __init__(self, path: Union[str, os.PathLike, Path], voc: Optional[VocSmiles] = None, rewrite: bool = False) -> None:
         """Initialize the SMILES dataset.
 
         Parameters
         ----------
-        path : str
+        path : str or Path
             Filesystem path to the dataset file.
         voc : VocSmiles, optional
             Vocabulary mapping SMILES tokens to indices. If None, defaults to `VocSmiles(False)`.
@@ -85,12 +87,12 @@ class SmilesDataSet(DataSet):
         """
         return ['C%d' % d for d in range(self.getVoc().max_len)]
 
-    def readVocs(self, paths: Sequence[str], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any) -> None:
+    def readVocs(self, paths: Sequence[Union[str, os.PathLike[str], Path]], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any) -> None:
         """Read and combine vocabulary files into the active vocabulary.
 
         Parameters
         ----------
-        paths : sequence of str
+        paths : sequence of (str or Path)
             Paths to vocabulary files.
         voc_class : type of VocSmiles
             Vocabulary class to instantiate.
@@ -250,12 +252,12 @@ class SmilesFragDataSet(DataSet):
         """
         return ['C%d' % d for d in range(self.getVoc().max_len * 2)]
 
-    def readVocs(self, paths: Sequence[str], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any) -> None:
+    def readVocs(self, paths: Sequence[Union[str, os.PathLike[str], Path]], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any) -> None:
         """Read and combine vocabulary files into the active vocabulary.
 
         Parameters
         ----------
-        paths : sequence of str
+        paths : sequence of (str or Path)
             Paths to vocabulary files.
         voc_class : type of VocSmiles
             Vocabulary class to instantiate.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 import re
 from typing import (
     Any,
@@ -185,7 +187,7 @@ class VocSmiles(SequenceVocabulary):
 
     @staticmethod
     def fromFile(
-        path: str,
+        path: Union[str, os.PathLike[str], Path],
         encode_frags: bool = False,
         min_len: int = 10,
         max_len: int = 100,
@@ -194,7 +196,7 @@ class VocSmiles(SequenceVocabulary):
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             Path to vocabulary file.
         encode_frags : bool, optional
             Whether to support fragment delimiter tokens, by default False.
@@ -352,7 +354,7 @@ class VocNonGPT(VocSmiles):
 
     @staticmethod
     def fromFile(
-        path: str,
+        path: Union[str, os.PathLike[str], Path],
         src_len: int = 1000,
         trg_len: int = 100,
         max_len: int = 100,
@@ -362,7 +364,7 @@ class VocNonGPT(VocSmiles):
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             Path to vocabulary file.
         src_len : int, optional
             Source sequence length, by default 1000.
@@ -488,7 +490,7 @@ class VocGraph(Vocabulary):
 
     @staticmethod
     def fromFile(
-        path: str,
+        path: Union[str, os.PathLike[str], Path],
         word_col: str = "Word",
         max_len: int = 80,
         n_frags: int = 4,
@@ -497,7 +499,7 @@ class VocGraph(Vocabulary):
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             Path to TSV file.
         word_col : str, optional
             Column name containing token words, by default 'Word'.
@@ -541,12 +543,12 @@ class VocGraph(Vocabulary):
         """
         return VocGraph(df[word_col].tolist(), max_len=max_len, n_frags=n_frags)
 
-    def toFile(self, path: str) -> None:
+    def toFile(self, path: Union[str, os.PathLike[str], Path]) -> None:
         """Save vocabulary words and parsed atom properties to a TSV file.
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             Output file path.
         """
         self.toDataFrame().to_csv(path, index=False, sep="\t")

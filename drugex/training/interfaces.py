@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Literal
+import os
+from pathlib import Path
+from typing import Literal, Union
 
 import numpy as np
 import torch
@@ -308,13 +312,13 @@ class Model(nn.Module, ModelProvider, ABC):
         """
         pass
 
-    def loadStatesFromFile(self, path):
+    def loadStatesFromFile(self, path: Union[str, os.PathLike[str], Path]) -> None:
         """
         Load the model states from a file.
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             The path to the file containing the model states.
         """
 

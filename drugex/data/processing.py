@@ -155,17 +155,17 @@ class RandomTrainTestSplitter(DataSplitter):
         self.maxSize = max_test_size
         self.shuffle = shuffle
 
-    def __call__(self, data: Sequence[Any]) -> Tuple[Sequence[Any], Sequence[Any]]:
+    def __call__(self, data: Union[Sequence[Any], np.ndarray]) -> Tuple[Any, Any]:
         """Split input dataset into train and test partitions.
 
         Parameters
         ----------
-        data : sequence
+        data : Union[Sequence[Any], np.ndarray]
             Input data array or list.
 
         Returns
         -------
-        splits : tuple of (sequence, sequence)
+        splits : Tuple[Any, Any]
             Partitioned `(train_split, test_split)`.
         """
         test_size = min(int(math.ceil(len(data) * self.testSize)), int(self.maxSize))
@@ -173,4 +173,5 @@ class RandomTrainTestSplitter(DataSplitter):
             logger.warning(
                 f"To speed up the training, the test set is reduced to a random sample of {self.maxSize} from the original test!"
             )
-        return train_test_split(data, test_size=test_size, shuffle=self.shuffle)
+        splits = train_test_split(data, test_size=test_size, shuffle=self.shuffle)
+        return splits[0], splits[1]

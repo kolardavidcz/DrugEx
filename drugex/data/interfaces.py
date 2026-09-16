@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Optional, Sequence, Tuple, Type, Union
 
 import numpy as np
@@ -66,30 +67,29 @@ class DataSet(ResultCollector, ABC):
 
     def __init__(
         self,
-        path: str,
+        path: Union[str, os.PathLike, Path],
         rewrite: bool = False,
         save_voc: bool = True,
-        voc_file: Optional[str] = None
+        voc_file: Optional[Union[str, os.PathLike, Path]] = None
     ) -> None:
         """Initialize the dataset instance.
 
         Parameters
         ----------
-        path : str
+        path : str or Path
             Filesystem path for storing the serialized dataset.
         rewrite : bool, optional
             Whether to delete existing dataset files at `path` upon initialization (default: False).
         save_voc : bool, optional
             Whether to serialize the associated vocabulary alongside the dataset (default: True).
-        voc_file : str, optional
+        voc_file : str or Path, optional
             Explicit file path for saving the vocabulary. If None, defaults to `f"{path}.vocab"`.
         """
-        self.outpath = path
+        self.outpath: Path = Path(path)
         self.save_voc = save_voc
-        self.voc_file = voc_file
+        self.voc_file: Optional[Path] = Path(voc_file) if voc_file is not None else None
 
-        if not os.path.exists(os.path.dirname(self.outpath)):
-            os.makedirs(os.path.dirname(self.outpath))
+        self.outpath.parent.mkdir(parents=True, exist_ok=True)
         self.voc = None
         try:
             self.fromFile(self.outpath)
@@ -104,29 +104,29 @@ class DataSet(ResultCollector, ABC):
     def reset(self) -> None:
         """Remove existing dataset and vocabulary files from disk."""
         logger.info(f"Initializing new {self.__class__.__name__} at {self.outpath}...")
-        if os.path.exists(self.outpath):
-            os.remove(self.outpath)
+        if self.outpath.exists():
+            self.outpath.unlink(missing_ok=True)
             logger.info(f"Removed: {self.outpath}")
 
         voc_path = self.getVocPath()
-        if os.path.exists(voc_path):
-            os.remove(voc_path)
+        if voc_path.exists():
+            voc_path.unlink(missing_ok=True)
             logger.info(f"Removed: {voc_path}")
 
         logger.info(f"{self} initialized.")
 
-    def getVocPath(self) -> str:
+    def getVocPath(self) -> Path:
         """Determine the filesystem path for the vocabulary file.
 
         Returns
         -------
-        path : str
+        path : Path
             Resolved vocabulary file path.
         """
         if self.voc_file:
             return self.voc_file
         else:
-            return f"{self.outpath}.vocab"
+            return self.outpath.with_suffix(f"{self.outpath.suffix}.vocab" if self.outpath.suffix else ".vocab")
 
     def sendDataToFile(self, data: Sequence[Any], columns: Optional[Sequence[str]] = None) -> None:
         """Append a batch of records to the on-disk TSV dataset file.
@@ -138,7 +138,7 @@ class DataSet(ResultCollector, ABC):
         columns : sequence of str, optional
             TSV header column names. If None, generated as `'Col1'`, `'Col2'`, etc.
         """
-        header_written = os.path.isfile(self.outpath)
+        header_written = self.outpath.is_file()
         open_mode = 'a' if header_written else 'w'
         pd.DataFrame(
             data,
@@ -207,14 +207,19 @@ class DataSet(ResultCollector, ABC):
         """
         self.voc = voc
 
-    def fromFile(self, path: str, vocs: Sequence[str] = tuple(), voc_class: Optional[Type[Vocabulary]] = None) -> None:
+    def fromFile(
+        self,
+        path: Union[str, os.PathLike[str], Path],
+        vocs: Sequence[Union[str, os.PathLike[str], Path]] = tuple(),
+        voc_class: Optional[Type[Vocabulary]] = None,
+    ) -> None:
         """Load dataset from an existing file and initialize its vocabulary.
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             Path to existing TSV data file.
-        vocs : sequence of str, optional
+        vocs : sequence of (str or Path), optional
             Paths to vocabulary files to load.
         voc_class : type of Vocabulary, optional
             Vocabulary class to instantiate.
@@ -224,9 +229,9 @@ class DataSet(ResultCollector, ABC):
         FileNotFoundError
             If `path` does not exist on disk.
         """
-        self.outpath = path
-        if os.path.exists(self.outpath):
-            if vocs:
+        self.outpath = Path(path)
+        if self.outpath.exists():
+            if vocs and voc_class is not None:
                 self.readVocs(vocs, voc_class)
         else:
             raise FileNotFoundError(f"The specified data file does not exist: {self.outpath}")
@@ -338,7 +343,7 @@ class DataSet(ResultCollector, ABC):
 
     def readVocs(
         self,
-        paths: Sequence[str],
+        paths: Sequence[Union[str, os.PathLike[str], Path]],
         voc_class: Type[Vocabulary],
         *args: Any,
         **kwargs: Any
@@ -347,7 +352,7 @@ class DataSet(ResultCollector, ABC):
 
         Parameters
         ----------
-        paths : sequence of str
+        paths : sequence of (str or Path)
             File paths to vocabulary definitions.
         voc_class : type of Vocabulary
             Vocabulary class to instantiate.
