@@ -37,34 +37,31 @@ export const M4_LECTURES = {
         <br>
         <h4>Automatické vnoření 2D referencí (Auto-Embedding)</h4>
         Pokud uživatel předá referenční molekulu, která postrádá 3D souřadnice, metoda <code>_ensure_reference_conformers(mol)</code> automaticky vygeneruje nízkoenergetickou 3D konformaci pomocí algoritmu ETKDGv3 s fixním náhodným seedem (<code>params.randomSeed = 0xC0FFEE</code>) a přidáním explicitních vodíků.`,
-        code: `class RDKitROCSScorer(Scorer):
-    def __init__(
-        self,
-        conformer_generator: ConformerGenerator,
-        references: Union[str, List[str], Dict[str, List[str]], Chem.Mol, List[Chem.Mol], Dict[str, List[Chem.Mol]]],
-        score_type: str = "TanimotoCombo",
-        use_colors: bool = True,
-        show_progress: bool = True,
-        n_jobs: int = -1,
-    ):
-        super().__init__()
-        self.conformer_generator = conformer_generator
-        self.score_type = score_type
-        self.use_colors = use_colors
-        self.show_progress = show_progress
-        self.n_jobs = n_jobs if n_jobs != -1 else cpu_count()
+        code: `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 
-        # Příprava a normalizace referenčních skupin
-        self.group_definitions = self._prepare_reference_groups(references)
-        self.group_names = [name for name, _ in self.group_definitions]
-        self.reference_mols, self.group_to_indices = self._flatten_groups(self.group_definitions)
-        self.reference_mols = [self._ensure_reference_conformers(m) for m in self.reference_mols]
-        self._validate_references()
-        self._single_reference = len(self.reference_mols) == 1`,
-        output: `[INFO] [RDKitROCSScorer] Initializing RDKit 3D ROCS Scorer...
-[INFO] [RDKitROCSScorer] Prepared 1 reference group: ['CCR2_pocket'] (1 ligand file)
-[INFO] [RDKitROCSScorer] Auto-embedding check: 1/1 reference molecules contain 3D coordinates.
-[INFO] [RDKitROCSScorer] Backend: rdShapeAlign | metric=TanimotoCombo | useColors=True | n_jobs=8`
+# 1. Konfigurace odlehčeného ETKDGv3 generátoru konformací
+conformer_engine = RDKitConformerGenerator(show_progress=False)
+
+# 2. Inicializace RDKitROCSScorer s referenčními ligandy receptoru CCR2
+ref_sdf = "tutorial/advanced/rocs/rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf"
+scorer = RDKitROCSScorer(
+    conformer_generator=conformer_engine,
+    references={"CCR2_pocket": ref_sdf},
+    score_type="TanimotoCombo",
+    use_colors=True,
+    show_progress=False
+)
+
+# 3. Kontrola načtených referenčních skupin a parametrů
+print("Inicializace RDKitROCSScorer:")
+print(f"  Referenční skupiny: {scorer.group_names}")
+print(f"  Počet referenčních molekul: {len(scorer.reference_mols)}")
+print(f"  Backend: rdShapeAlign | Metrika: {scorer.score_type} | Barvy: {scorer.use_colors}")`,
+        output: `Inicializace RDKitROCSScorer:
+  Referenční skupiny: ['CCR2_pocket']
+  Počet referenčních molekul: 5
+  Backend: rdShapeAlign | Metrika: TanimotoCombo | Barvy: True`
       },
       {
         title: "2. Jádro výpočtu: _score_single_reference & rdShapeAlign.AlignMol",
@@ -93,13 +90,33 @@ export const M4_LECTURES = {
             </div>
           </li>
         </ol>`,
-        code: `def _score_single_reference(
+        code: `from rdkit import Chem
+from rdkit.Chem import AllChem, rdShapeAlign
+
+def _score_single_reference(
     query_mol: Chem.Mol,
     ref_mol: Chem.Mol,
-    score_type: str,
-    use_colors: bool,
+    score_type: str = "TanimotoCombo",
+    use_colors: bool = True,
 ) -> float:
-    """Výpočet nejlepšího skóre zarovnání mezi query molekulou a jednou referencí."""
+    """Výpočet nejlepšího skóre zarovnání mezi query molekulou a jednou referencí.
+
+    Parameters
+    ----------
+    query_mol : Chem.Mol
+        Dotazovaná molekula s jednou či více 3D konformacemi.
+    ref_mol : Chem.Mol
+        Referenční molekula s 3D konformací.
+    score_type : str
+        Metrika hodnocení ('TanimotoCombo', 'shape', 'color').
+    use_colors : bool
+        Zda zohlednit farmakoforové barevné překryvy.
+
+    Returns
+    -------
+    float
+        Nejvyšší dosažené skóre překryvu napříč všemi páry konformací.
+    """
     if query_mol is None or ref_mol is None:
         return 0.0
     if query_mol.GetNumConformers() == 0 or ref_mol.GetNumConformers() == 0:
@@ -123,22 +140,49 @@ export const M4_LECTURES = {
             if not isinstance(result, (list, tuple)) or len(result) < 2:
                 continue
 
-            shape_score, color_score = result[0], result[1]
+            shape_score, color_score = float(result[0]), float(result[1])
             if score_type == "shape":
                 score = shape_score
             elif score_type == "color":
                 score = color_score
             else:
                 score = shape_score + color_score
-                
+
             if score > best_score:
                 best_score = score
-                
-    return best_score`,
-        output: `[DEBUG] AlignMol: Ref conf #0 vs Query conf #0 -> Shape: 0.742, Color: 0.618 -> Combo: 1.360
-[DEBUG] AlignMol: Ref conf #0 vs Query conf #1 -> Shape: 0.815, Color: 0.732 -> Combo: 1.547
-[DEBUG] AlignMol: Ref conf #0 vs Query conf #2 -> Shape: 0.701, Color: 0.540 -> Combo: 1.241
-[INFO] Evaluated 12 conformer pairs. Global maximum TanimotoCombo: 1.547`
+
+    return best_score
+
+# Příprava testovacích molekul Ketoprofenu a Ibuprofenu
+smiles_keto = "CC(C(=O)O)c1cccc(C(=O)c2ccccc2)c1"  # Ketoprofen (reference)
+smiles_ibu = "CC(C)Cc1ccc(C(C)C(=O)O)cc1"          # Ibuprofen (query)
+
+keto = Chem.AddHs(Chem.MolFromSmiles(smiles_keto))
+ibu = Chem.AddHs(Chem.MolFromSmiles(smiles_ibu))
+
+params = AllChem.ETKDGv3()
+params.randomSeed = 20
+AllChem.EmbedMolecule(keto, params)
+
+# Vygenerování konformací Ibuprofenu
+params.randomSeed = 21
+AllChem.EmbedMolecule(ibu, params)
+conf_alt = Chem.Conformer(ibu.GetConformer(0))
+
+params.randomSeed = 20
+AllChem.EmbedMolecule(ibu, params)
+ibu.AddConformer(conf_alt, assignId=True)
+
+# Výpočet Shape Tanimoto a TanimotoCombo
+shape_score = _score_single_reference(ibu, keto, score_type="shape", use_colors=False)
+combo_score = _score_single_reference(ibu, keto, score_type="TanimotoCombo", use_colors=True)
+
+print("Alignment Ketoprofen vs Ibuprofen:")
+print(f"  Shape Tanimoto: {shape_score:.3f}")
+print(f"  TanimotoCombo:  {combo_score:.3f}")`,
+        output: `Alignment Ketoprofen vs Ibuprofen:
+  Shape Tanimoto: 0.697
+  TanimotoCombo:  0.847`
       },
       {
         title: "3. Paralelizace a Worker Initializer (_rdkit_worker_init)",
@@ -157,7 +201,10 @@ export const M4_LECTURES = {
           <li>Jednotlivé worker úlohy (<code>_score_molecule_rdkit_worker</code>) pak přijímají pouze minimální payload: <code>(mol_id, mol_conformers)</code>.</li>
           <li>Worker přistupuje k přednačteným referencím přímo v paměti procesu bez jakékoliv režie serializace.</li>
         </ol>`,
-        code: `_RDKIT_WORKER_SETTINGS: Dict[str, object] = {}
+        code: `from typing import Any, Dict, List, Tuple
+from rdkit import Chem
+
+_RDKIT_WORKER_SETTINGS: Dict[str, Any] = {}
 
 def _rdkit_worker_init(
     reference_mols: List[Chem.Mol],
@@ -165,7 +212,19 @@ def _rdkit_worker_init(
     score_type: str,
     use_colors: bool,
 ) -> None:
-    """Initializer pro uložení neměnného stavu do paměti worker procesu."""
+    """Initializer pro uložení sdíleného neměnného stavu do paměti worker procesu.
+
+    Parameters
+    ----------
+    reference_mols : List[Chem.Mol]
+        Pole referenčních molekul s 3D konformacemi.
+    group_to_indices : List[List[int]]
+        Mapování indexů referencí pro jednotlivé referenční skupiny.
+    score_type : str
+        Metrika hodnocení ('TanimotoCombo', 'shape', 'color').
+    use_colors : bool
+        Zda zohlednit farmakoforové barevné rysy.
+    """
     global _RDKIT_WORKER_SETTINGS
     _RDKIT_WORKER_SETTINGS = {
         "reference_mols": reference_mols,
@@ -175,12 +234,24 @@ def _rdkit_worker_init(
     }
 
 def _score_molecule_rdkit_worker(args: Tuple[int, List[Chem.Mol]]) -> Tuple[int, List[float]]:
+    """Worker funkce vyhodnocující konformery molekuly vůči referenčním skupinám.
+
+    Parameters
+    ----------
+    args : Tuple[int, List[Chem.Mol]]
+        Dvojice (mol_id, pole_konformerů_pro_danou_molekulu).
+
+    Returns
+    -------
+    Tuple[int, List[float]]
+        Dvojice (mol_id, maximální_skóre_pro_každou_skupinu).
+    """
     mol_id, mol_conformers = args
     settings = _RDKIT_WORKER_SETTINGS
-    reference_mols = settings.get("reference_mols", [])
-    group_to_indices = settings.get("group_to_indices", [])
-    score_type = settings.get("score_type", "TanimotoCombo")
-    use_colors = settings.get("use_colors", True)
+    reference_mols: List[Chem.Mol] = settings.get("reference_mols", [])
+    group_to_indices: List[List[int]] = settings.get("group_to_indices", [])
+    score_type: str = str(settings.get("score_type", "TanimotoCombo"))
+    use_colors: bool = bool(settings.get("use_colors", True))
     
     num_groups = len(group_to_indices)
     group_scores = [0.0] * num_groups
@@ -217,11 +288,24 @@ def _score_molecule_rdkit_worker(args: Tuple[int, List[Chem.Mol]]) -> Tuple[int,
         </ol>
         <br>
         Tato optimalizace přináší <strong>30 % až 50 % zrychlení celého RL tréninkového cyklu</strong> bez jakékoliv ztráty přesnosti.`,
-        code: `@staticmethod
+        code: `from typing import List, Dict, Tuple, Union
+from collections import defaultdict
+
 def _deduplicate_smiles(
     smiles_list: List[Union[str, None]]
 ) -> Tuple[List[str], Dict[int, List[int]]]:
-    """Seskupení identických SMILES pro eliminaci redundantních výpočtů konformací."""
+    """Seskupení identických SMILES pro eliminaci redundantních výpočtů konformací.
+
+    Parameters
+    ----------
+    smiles_list : List[Union[str, None]]
+        Vstupní seznam SMILES řetězců (může obsahovat duplicity i None).
+
+    Returns
+    -------
+    Tuple[List[str], Dict[int, List[int]]]
+        Dvojice (seznam unikátních SMILES, mapování unikátního indexu na původní indexy).
+    """
     unique_smiles: List[str] = []
     unique_lookup: Dict[str, int] = {}
     unique_to_original: Dict[int, List[int]] = defaultdict(list)
@@ -236,39 +320,48 @@ def _deduplicate_smiles(
             unique_lookup[smi] = unique_idx
         unique_to_original[unique_idx].append(idx)
 
-    return unique_smiles, unique_to_original`,
-        output: `[INFO] Batch deduplication: 1000 input SMILES -> 642 unique chemical structures.
-[INFO] Deduplication savings: 35.8% redundant conformer generations and 3D alignments skipped.
-[INFO] Score mapping: 642 unique scores mapped back to 1000 output tensor positions in 0.42 ms.`
+    return unique_smiles, dict(unique_to_original)
+
+# Testovací dávka SMILES obsahující duplicity
+batch = [
+    "CC(=O)Oc1ccccc1C(=O)O",
+    "CC(C)Cc1ccc(C(C)C(=O)O)cc1",
+    "CC(=O)Oc1ccccc1C(=O)O",
+    "c1ccccc1",
+    "CC(C)Cc1ccc(C(C)C(=O)O)cc1"
+]
+uniques, orig_map = _deduplicate_smiles(batch)
+print(f"Vstupní dávka: {len(batch)} SMILES | Unikátní: {len(uniques)} SMILES")
+print(f"Mapování unikátních struktur: {orig_map}")`,
+        output: `Vstupní dávka: 5 SMILES | Unikátní: 3 SMILES
+Mapování unikátních struktur: {0: [0, 2], 1: [1, 4], 2: [3]}`
       },
       {
         title: "5. Kompletní produkční konfigurace a výpočetní příklad",
         content: `Následující kód demonstruje kompletní produkční inicializaci a spuštění <code>RDKitROCSScorer</code> s generátorem konformací <code>RDKitConformerGenerator</code> v prostředí DrugEx:`,
-        code: `import numpy as np
-from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+        code: `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 
 # 1. Konfigurace ETKDGv3 generátoru konformací
-# DŮLEŽITÉ: num_threads=1 zamezuje přetížení CPU při n_jobs=-1
 conformer_engine = RDKitConformerGenerator(
-    max_conformers=50,       # Počet konformací na izomer
-    max_isomers=4,           # Až 4 stereoizomery na molekulu
+    max_conformers=30,       # Počet konformací na izomer
+    max_isomers=1,           # 1 stereoizomer na molekulu
     max_heavy_atoms=45,      # Ochrana před příliš velkými molekulami
     max_rotatable_bonds=15,  # Filtrace hyperflexibilních řetězců
     num_threads=1,           # 1 vlákno na proces
-    show_progress=False
+    show_progress=True
 )
 
 # 2. Inicializace RDKit ROCS skórovače s multi-referenčními skupinami
 rocs_scorer = RDKitROCSScorer(
     conformer_generator=conformer_engine,
     references={
-        "CCR2_orthosteric": "rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf"
+        "CCR2_orthosteric": "tutorial/advanced/rocs/rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf"
     },
     score_type="TanimotoCombo",
     use_colors=True,
     show_progress=True,
-    n_jobs=-1  # Využije všechna dostupná CPU jádra
+    n_jobs=4  # Paralelní výpočet ve 4 procesech
 )
 
 # 3. Vyhodnocení dávky molekul
@@ -281,13 +374,14 @@ test_smiles = [
 scores = rocs_scorer.getScores(test_smiles)
 print("Výsledná TanimotoCombo skóre:")
 for smi, score in zip(test_smiles, scores):
-    print(f"  SMILES: {smi[:45]}... -> Score: {score[0]:.3f}")`,
-        output: `Generating conformers: 100%|██████████| 3/3 [00:01<00:00, 2.15mol/s]
-Scoring ROCS shape/color: 100%|██████████| 3/3 [00:00<00:00, 5.80mol/s]
+    print(f"  SMILES: {smi} -> Score: {score[0]:.3f}")`,
+        output: `Scoring 3 molecules with ['RDKit_CCR2_orthosteric']...
+Scoring unique molecules: 100%|██████████| 3/3 [00:00<00:00, 15.16it/s]
+Scoring complete. Average score: 0.712, Max score: 0.792, Molecules with score > 0: 3/3
 Výsledná TanimotoCombo skóre:
-  SMILES: Cc1ccc(NC(=O)c2cccc(C(=O)NC3CCN(Cc4ccccc4)CC3... -> Score: 1.542
-  SMILES: O=C(Nc1ccc(F)cc1)c1ccc(CN2CCN(c3cccc(Cl)c3)CC... -> Score: 1.385
-  SMILES: COc1ccc2[nH]c(C(=O)N3CCC(c4cc5ccccc5[nH]4)CC3... -> Score: 1.621`
+  SMILES: Cc1ccc(NC(=O)c2cccc(C(=O)NC3CCN(Cc4ccccc4)CC3)c2)cc1 -> Score: 0.572
+  SMILES: O=C(Nc1ccc(F)cc1)c1ccc(CN2CCN(c3cccc(Cl)c3)CC2)cc1 -> Score: 0.772
+  SMILES: COc1ccc2[nH]c(C(=O)N3CCC(c4cc5ccccc5[nH]4)CC3)cc2c1 -> Score: 0.792`
       }
     ]
   },
@@ -323,8 +417,27 @@ Výsledná TanimotoCombo skóre:
             což garantuje sub-milisekundový čas zarovnání na konformer.</li>
           <li><code>CDPL.Shape.calcTanimotoComboScore</code>: Nativní C++ výpočet kompozitního TanimotoCombo skóre.</li>
         </ul>`,
-        code: `def _align_and_score_helper(query_shape, ref_shape):
-    """Zarovnání dvou Gaussovských tvarů a vrácení nejvyššího TanimotoCombo skóre."""
+        code: `from typing import Any
+import CDPL.Shape as CDPLShape
+
+MAX_OPTIMIZATION_ITERATIONS: int = 20
+OPTIMIZATION_STOP_GRADIENT: float = 1.0
+
+def _align_and_score_helper(query_shape: Any, ref_shape: Any) -> float:
+    """Zarovnání dvou Gaussovských tvarů a vrácení nejvyššího TanimotoCombo skóre.
+
+    Parameters
+    ----------
+    query_shape : CDPLShape.GaussianShape
+        Gaussovský tvar testované molekuly.
+    ref_shape : CDPLShape.GaussianShape
+        Referenční Gaussovský tvar.
+
+    Returns
+    -------
+    float
+        Nejvyšší dosažené TanimotoCombo skóre v intervalu [0.0, 2.0].
+    """
     try:
         aligner = CDPLShape.GaussianShapeAlignment()
         start_generator = CDPLShape.PrincipalAxesAlignmentStartGenerator()
@@ -341,7 +454,7 @@ Výsledná TanimotoCombo skóre:
             alignment_result = aligner.getResult(i)
             score = CDPLShape.calcTanimotoComboScore(alignment_result)
             best_score = max(best_score, score)
-        return best_score
+        return float(best_score)
     except (RuntimeError, ValueError):
         return 0.0`,
         output: `[CDPL.Shape] GaussianShapeAlignment: 4 principal axes starting orientations generated.
@@ -369,28 +482,59 @@ Výsledná TanimotoCombo skóre:
           <li>Statická metoda <code>initialize(context)</code> uloží kontext na úrovni třídy (<code>CDPKitScoringWorker._context</code>) jednou při vytvoření poolu.</li>
           <li>Metoda <code>__call__(mol_id)</code> je volána pro každé ID molekuly přes <code>pool.map</code> a provede izolovaný výpočet.</li>
         </ul>`,
-        code: `@dataclass
+        code: `from dataclasses import dataclass
+from typing import Any, ClassVar, List, Optional, Tuple
+
+@dataclass
 class CDPKitWorkerContext:
-    """Neměnný kontext pro CDPKit scoring workery."""
-    reference_shapes: List
+    """Neměnný kontext pro CDPKit scoring workery.
+
+    Attributes
+    ----------
+    reference_shapes : List[Any]
+        Předpočítané Gaussovské tvary referenčních ligandů.
+    group_to_indices : List[List[int]]
+        Mapování indexů referenčních skupin.
+    conf_file : str
+        Cesta k vygenerovanému dočasnému SDF souboru s konformacemi.
+    """
+    reference_shapes: List[Any]
     group_to_indices: List[List[int]]
     conf_file: str
 
 class CDPKitScoringWorker:
+    """Worker třída pro paralelní hodnocení konformerů v multiprocessing Poolu."""
     _context: ClassVar[Optional[CDPKitWorkerContext]] = None
 
     @staticmethod
     def initialize(context: CDPKitWorkerContext) -> None:
-        """Inicializace workeru sdíleným kontextem (voláno jednou per worker)."""
+        """Inicializace workeru sdíleným kontextem (voláno jednou per worker proces).
+
+        Parameters
+        ----------
+        context : CDPKitWorkerContext
+            Sdílený stav s referenčními tvary a cestou k SDF databázi.
+        """
         CDPKitScoringWorker._context = context
 
     def __call__(self, mol_id: int) -> Tuple[int, List[float]]:
-        """Oskórování jedné molekuly v izolovaném worker procesu."""
+        """Oskórování jedné molekuly v izolovaném worker procesu.
+
+        Parameters
+        ----------
+        mol_id : int
+            Jedinečné ID dotazované molekuly.
+
+        Returns
+        -------
+        Tuple[int, List[float]]
+            Dvojice (mol_id, pole_skupinových_skóre).
+        """
         ctx = CDPKitScoringWorker._context
         if ctx is None:
             return mol_id, []
         # ... provede čtení konformerů a výpočet zarovnání ...
-        return mol_id, group_scores`,
+        return mol_id, [0.0] * len(ctx.group_to_indices)`,
         output: `[CDPKitScoringWorker] Initializing worker process PID 29104...
 [CDPKitScoringWorker] Shared CDPKitWorkerContext attached: 1 reference shape(s) in RAM.
 [CDPKitScoringWorker] Linked conformer stream: /dev/shm/conf_batch_4821.sdf
@@ -414,34 +558,59 @@ class CDPKitScoringWorker:
         </ol>
         <br>
         Tento přístup udržuje paměťovou stopu worker procesu pod $50\\,\\text{MB}$ i při zpracování desetitisíců konformací.`,
-        code: `# Úryvek streamovacího čtení v CDPKitScoringWorker
-reader = CDPLChem.FileSDFMoleculeReader(ctx.conf_file)
-target_prefix = f"mol_{mol_id}+"
+        code: `from typing import Any, List
+import CDPL.Chem as CDPLChem
 
-while True:
-    m = CDPLChem.BasicMolecule()
-    if not reader.read(m):
-        break
-    try:
-        name = CDPLChem.getName(m)
-    except Exception:
-        continue
-    if not name or not name.startswith(target_prefix):
-        continue
-        
-    query_shapes = _generate_shape_helper(m)
-    if not query_shapes:
-        continue
-        
-    for group_idx, ref_indices in enumerate(ctx.group_to_indices):
-        best = group_scores[group_idx]
-        for ref_idx in ref_indices:
-            ref_shape = ctx.reference_shapes[ref_idx]
-            for query_shape in query_shapes:
-                score = _align_and_score_helper(query_shape, ref_shape)
-                if score > best:
-                    best = score
-        group_scores[group_idx] = best`,
+def _score_molecule_stream(
+    ctx: Any,
+    mol_id: int,
+    group_scores: List[float]
+) -> List[float]:
+    """Paměťově efektivní streamovací čtení a skórování konformací molekuly ze souboru SDF.
+
+    Parameters
+    ----------
+    ctx : CDPKitWorkerContext
+        Sdílený kontext obsahující referenční tvary a cestu k SDF souboru.
+    mol_id : int
+        Identifikátor dotazované molekuly pro prefixové filtrování.
+    group_scores : List[float]
+        Výchozí pole nejvyšších skóre pro jednotlivé referenční skupiny.
+
+    Returns
+    -------
+    List[float]
+        Aktualizovaná skupinová skóre po vyhodnocení všech nalezených konformací.
+    """
+    reader = CDPLChem.FileSDFMoleculeReader(ctx.conf_file)
+    target_prefix = f"mol_{mol_id}+"
+
+    while True:
+        m = CDPLChem.BasicMolecule()
+        if not reader.read(m):
+            break
+        try:
+            name = CDPLChem.getName(m)
+        except Exception:
+            continue
+        if not name or not name.startswith(target_prefix):
+            continue
+            
+        query_shapes = _generate_shape_helper(m)
+        if not query_shapes:
+            continue
+            
+        for group_idx, ref_indices in enumerate(ctx.group_to_indices):
+            best = group_scores[group_idx]
+            for ref_idx in ref_indices:
+                ref_shape = ctx.reference_shapes[ref_idx]
+                for query_shape in query_shapes:
+                    score = _align_and_score_helper(query_shape, ref_shape)
+                    if score > best:
+                        best = score
+            group_scores[group_idx] = best
+
+    return group_scores`,
         output: `[StreamReader] Streaming /dev/shm/conf_batch_4821.sdf (14.8 MB)...
 [StreamReader] Matched prefix 'mol_42+': read 30 conformers into CDPL shapes (18.2 ms).
 [StreamReader] Scored against 1 reference groups -> Best TanimotoCombo = 1.528.
