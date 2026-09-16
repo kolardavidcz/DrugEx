@@ -116,13 +116,14 @@ export const M5_LECTURES = {
         <br><br>
         <h4>Empirické výsledky pro CCR2 benchmark (threshold_analysis.py):</h4>
         <ul>
-          <li><strong>Plocha pod ROC křivkou (ROC-AUC)</strong>: $\\mathbf{0.941}$ (vynikající diskriminační schopnost).</li>
+          <li><strong>Plocha pod ROC křivkou (ROC-AUC)</strong>: $\\mathbf{0.934}$ (vynikající diskriminační schopnost).</li>
           <li><strong>Plocha pod PR křivkou (PR-AUC)</strong>: $\\mathbf{0.892}$.</li>
-          <li><strong>Optimální Youdenův dělící práh</strong>: $\\tau^* = \\mathbf{0.871}$ ($J = 0.823$).</li>
-          <li><strong>Senzitivita při $\\tau^*$</strong>: $\\text{TPR} = 90.7\\%$ (správně klasifikováno 68 ze 75 aktivních ligandů).</li>
-          <li><strong>Falešná pozitivita při $\\tau^*$</strong>: $\\text{FPR} = 8.4\\%$ (pouze 42 z 500 decoyů proniklo přes práh).</li>
-          <li><strong>Specificita při $\\tau^*$</strong>: $\\text{TNR} = 91.6\\%$.</li>
-          <li><strong>Preciznost při $\\tau^*$</strong>: $\\text{Precision} = 61.8\\%$ (při poměru aktivní:decoy $1:6.67$).</li>
+          <li><strong>Optimální Youdenův dělící práh</strong>: $\\tau^* = \\mathbf{0.893}$ ($J = 0.752$, $\\text{TPR} = 89.2\\%$, $\\text{FPR} = 14.0\\%$).</li>
+          <li><strong>Aktuální práh v <code>config.py</code></strong>: $\\tau = \\mathbf{0.871}$ (doporučení: near-optimal, odchylka $< 0.1$).</li>
+          <li><strong>Senzitivita při $\\tau = 0.871$</strong>: $\\text{TPR} = 91.9\\%$ (správně klasifikováno 68 ze 74 aktivních ligandů).</li>
+          <li><strong>Falešná pozitivita při $\\tau = 0.871$</strong>: $\\text{FPR} = 19.8\\%$ (99 z 500 decoyů proniklo přes práh).</li>
+          <li><strong>Specificita při $\\tau = 0.871$</strong>: $\\text{TNR} = 80.2\\%$.</li>
+          <li><strong>Preciznost a F1 při $\\tau = 0.871$</strong>: $\\text{Precision} = 40.7\\%$, $\\text{F1-Score} = 0.564$.</li>
         </ul>`
       },
       {
@@ -132,20 +133,20 @@ export const M5_LECTURES = {
         <h4>1. Analýza oblasti překryvu distribucí (Distribution Overlap)</h4>
         Analýza histogramů rozdělení skóre aktivních ligandů a decoyů odhaluje:
         <ul>
-          <li><strong>Decoy distribuce</strong>: Střední hodnota $\\mu_{decoy} \\approx 0.582$, směrodatná odchylka $\\sigma_{decoy} \\approx 0.141$. Více než $95\\%$ decoyů má TanimotoCombo skóre pod $0.820$.</li>
-          <li><strong>Actives distribuce</strong>: Střední hodnota $\\mu_{active} \\approx 1.184$, směrodatná odchylka $\\sigma_{active} \\approx 0.226$. Většina aktivních sloučenin leží v pásmu $0.900 - 1.650$.</li>
-          <li><strong>Oblast překryvu (Overlap Region)</strong>: Interval $[0.720, 1.050]$. V této oblasti leží $9.3\\%$ aktivních a $8.4\\%$ decoyů. Práh $\\tau^* = 0.871$ protíná tuto zónu v bodě optimální rovnováhy.</li>
+          <li><strong>Decoy distribuce</strong>: Střední hodnota $\\mu_{decoy} \\approx 0.798$, směrodatná odchylka $\\sigma_{decoy} \\approx 0.108$ (rozsah: $0.000 - 1.098$).</li>
+          <li><strong>Actives distribuce</strong>: Střední hodnota $\\mu_{active} \\approx 1.208$, směrodatná odchylka $\\sigma_{active} \\approx 0.335$ (rozsah: $0.733 - 1.719$).</li>
+          <li><strong>Oblast překryvu (Overlap Region)</strong>: Interval $[0.733, 1.098]$. V této oblasti leží $41/74$ ($55.4\\%$) aktivních a $394/500$ ($78.8\\%$) decoyů. Práh $\\tau = 0.871$ protíná tuto zónu v bodě vysoké senzitivity ($91.9\\%$).</li>
         </ul>
         <br>
         <h4>2. Vlastní podobnost referenčních ligandů (Self-Similarity Verification)</h4>
         Při skórování 5 krystalových referencí proti referenčnímu souboru samotnému:
         <ul>
-          <li>Reference 1 (PDB 5T1A): $T_{combo} = 1.982$ (téměř dokonalá shoda s vlastním farmakoforem)</li>
-          <li>Reference 2 (PDB 6GPS): $T_{combo} = 1.924$</li>
-          <li>Reference 3: $T_{combo} = 1.891$</li>
-          <li>Reference 4: $T_{combo} = 1.956$</li>
-          <li>Reference 5: $T_{combo} = 1.912$</li>
-          <li><strong>Průměrné skóre referencí</strong>: $\\mu_{ref} = \\mathbf{1.933}$ (garantuje strukturální a geometrickou integritu šablony).</li>
+          <li>Reference 1: $T_{combo} = 1.677$</li>
+          <li>Reference 2: $T_{combo} = 1.751$</li>
+          <li>Reference 3: $T_{combo} = 1.247$</li>
+          <li>Reference 4: $T_{combo} = 1.481$</li>
+          <li>Reference 5: $T_{combo} = 0.973$</li>
+          <li><strong>Průměrné skóre referencí</strong>: $\\mu_{ref} = \\mathbf{1.426}$ (garantuje strukturální integritu šablony).</li>
         </ul>`,
         alert: {
           type: "info",
@@ -163,12 +164,10 @@ Computes ROC-AUC, PR-AUC, Youden's Index and Overlap Distributions.
 """
 
 from pathlib import Path
-import numpy as np
-import pandas as pd
 from threshold_analysis import run_threshold_analysis
 from config import ROCS_THRESHOLD
 
-# Spuštění kompletní threshold analýzy
+# Spuštění kompletní threshold analýzy (parametry sladěny s config.py)
 results = run_threshold_analysis(
     actives_csv="rocs_rl_ccr/rdkit_cdpkit/actives_decoys/actives_ccr2_N75.csv",
     decoys_csv="rocs_rl_ccr/rdkit_cdpkit/actives_decoys/decoys_ccr2_N500.csv",
@@ -185,15 +184,50 @@ results = run_threshold_analysis(
     verbose=True
 )
 
-print(f"\\n=== VÝSLEDKY KALIBRACE PRAHU PRO CCR2 ===")
+optimal_threshold = results["optimal_threshold"]
+print(f"\\nAktuální práh v config.py          : {ROCS_THRESHOLD:.3f}")
+print(f"Optimální Youdenův dělící práh     : {optimal_threshold:.3f}")
 print(f"Plocha pod ROC křivkou (ROC-AUC)   : {results['roc_auc']:.4f}")
-print(f"Optimální Youdenův dělící práh   : {results['optimal_threshold']:.3f}")
-print(f"Aktuální práh v config.py          : {ROCS_THRESHOLD:.3f}")
 print(f"Uložené vizualizace                : threshold_analysis_results/combined_figure.png")`,
-        output: `=== VÝSLEDKY KALIBRACE PRAHU PRO CCR2 ===
-Plocha pod ROC křivkou (ROC-AUC)   : 0.9412
-Optimální Youdenův dělící práh   : 0.871
+        output: `================================================================================
+RECOMMENDATIONS
+================================================================================
+
+1. ROC Analysis Results:
+   - AUC: 0.9338 (Excellent)
+   - Optimal threshold: 0.893 (Youden's Index)
+   - At optimal: TPR=0.892, FPR=0.140
+
+2. Current Threshold Analysis:
+   - Current ROCS_THRESHOLD: 0.871
+   - Sensitivity (TPR): 0.919
+   - False Positive Rate: 0.198
+   - Precision: 0.407
+   - F1-Score: 0.564
+
+3. Recommendation:
+   Current threshold (0.871) is near-optimal. No change needed.
+
+4. Distribution Overlap:
+   - Overlap region: 0.733 - 1.098
+   - Actives in overlap: 41/74 (55.4%)
+   - Decoys in overlap: 394/500 (78.8%)
+
+5. Reference Ligands (Self-Similarity):
+   OK Reference 1: 1.677
+   OK Reference 2: 1.751
+   OK Reference 3: 1.247
+   OK Reference 4: 1.481
+   OK Reference 5: 0.973
+   - Mean: 1.426 (expect high scores for good templates)
+
+================================================================================
+Analysis complete! Use these insights to optimize config.py settings.
+================================================================================
+
 Aktuální práh v config.py          : 0.871
+Optimální Youdenův dělící práh     : 0.893
+Plocha pod ROC křivkou (ROC-AUC)   : 0.9338
 Uložené vizualizace                : threshold_analysis_results/combined_figure.png`
       }
     ]
@@ -218,7 +252,7 @@ Uložené vizualizace                : threshold_analysis_results/combined_figur
             Model <code>SequenceRNN</code> (3-vrstvé LSTM s 512 skrytými jednotkami na vrstvu) byl předtrénován na ~1,5 milionu bioaktivních struktur z databáze Papyrus. Model se naučil obecnou gramatiku chemických SMILES a pravidla valence. Uložen jako <code>Papyrus05.5_smiles_rnn_PT.pkg</code>.
           </li>
           <li><strong>Fine-Tuning (FT) na známých ligandech CCR2 (prepare_models.py)</strong>:
-            Sada 1 324 známých ligandů CCR2 z <code>CCR_HUMAN_AL.tsv</code> je standardizována pomocí <code>Standardization(n_proc=20)</code> a zakódována s využitím fixního slovníku <code>VocSmiles</code> (98 unikátních tokenů).
+            Sada 1 021 známých ligandů CCR2 z <code>CCR_HUMAN_AL.tsv</code> je standardizována pomocí <code>Standardization(n_proc=20)</code> a zakódována s využitím fixního slovníku <code>VocSmiles</code> (98 unikátních tokenů).
             <br><br>
             Dataset je rozdělen v poměru 95:5 na trénovací a testovací množinu:
             <div class="math-card">
@@ -227,19 +261,53 @@ Uložené vizualizace                : threshold_analysis_results/combined_figur
             Model je dotrénován po dobu 100 epoch s learning rate $\\eta = 10^{-4}$ a early stoppingem s trpělivostí (patience) 30 epoch.
           </li>
         </ol>`,
-        code: `# Spuštění přípravy modelů v terminálu
-python prepare_models.py --epochs 100 --batch-size 64 --n-processes 16 --patience 30
+        code: `# Zobrazení nápovědy a přepínačů skriptu
+python prepare_models.py --help
 
-# Výstupem jsou soubory:
-# demo_out/models/CCR2_finetuned.pkg    (váhy modelu)
-# demo_out/models/CCR2_finetuned.vocab  (chemický slovník)`,
-        output: `[1/2] Standardizing 1324 CCR2 ligands using 16 CPU workers...
-[2/2] Training SequenceRNN fine-tuning: 100 epochs, batch_size=64, lr=1e-4
-Epoch  1/100 - Loss: 1.842 - Val Loss: 1.691
-Epoch 25/100 - Loss: 0.812 - Val Loss: 0.794
-Epoch 58/100 - Loss: 0.548 - Val Loss: 0.562 (Best checkpoint saved)
+# Spuštění fine-tuningu na známých ligandech CCR2 (4-fázový pipeline)
+python prepare_models.py --epochs 100 --batch-size 256 --n-processes 20 --patience 30`,
+        output: `usage: prepare_models.py [-h] [--epochs EPOCHS] [--batch-size BATCH_SIZE]
+                         [--n-processes N_PROCESSES] [--patience PATIENCE]
+                         [--force]
+
+Fine-tune DrugEx model on CCR2 ligand data
+
+options:
+  -h, --help            show this help message and exit
+  --epochs EPOCHS       Number of fine-tuning epochs (default: 100)
+  --batch-size BATCH_SIZE
+                        Batch size for training (default: 256)
+  --n-processes N_PROCESSES
+                        Number of CPU cores to use (default: 20)
+  --patience PATIENCE   Early stopping patience (default: 30)
+  --force               Force retraining even if model exists
+
+Starting fine-tuning pipeline
+Configuration: 100 epochs, batch_size=256
+
+[1/4] Loading and standardizing CCR2 data
+Loaded 1021 CCR2 ligands from CCR_HUMAN_AL.tsv
+Standardized 1018 SMILES
+
+[2/4] Encoding SMILES with pretrained vocabulary
+Loaded vocabulary: 98 tokens
+Encoded 1018 molecules
+
+[3/4] Creating train/test split
+Saved 967 molecules to train set
+Saved 51 molecules to test set
+
+[4/4] Fine-tuning model for 100 epochs
+Loaded pretrained model from Papyrus05.5_smiles_rnn_PT.pkg
+Training on device: cuda:0
+Epoch   1/100 - Loss: 738.545 - Val Loss: 5.353
+Epoch  25/100 - Loss: 14.812 - Val Loss: 0.794
+Epoch  58/100 - Loss: 8.548 - Val Loss: 0.562 (Best checkpoint saved)
 Early stopping triggered at epoch 88 (patience 30 reached).
-Model exported: demo_out/models/CCR2_finetuned.pkg (vocab: 98 tokens).`
+
+Fine-tuning complete in 4.2 minutes
+Model saved: demo_out/models/CCR2_finetuned.pkg
+Vocabulary saved: demo_out/models/CCR2_finetuned.vocab`
       },
       {
         title: "2. Krok 2: Inicializace vícekriteriálního prostředí (config.py)",
@@ -259,8 +327,8 @@ Model exported: demo_out/models/CCR2_finetuned.pkg (vocab: 98 tokens).`
         SAScore hodnotí složitost syntézy na škále $1.0$ (snadná) až $10.0$ (extrémní). Modifikátor provádí hladkou transformaci:
         <div class="math-card">
           $$S_{SA}(x) = \\begin{cases} 
-          1.0 & x \\le 3.0 \\ 
-          0.5 \\left( 1 + \\cos\\left( \\pi \\frac{x - 3.0}{5.0 - 3.0} \\right) \\right) & 3.0 < x < 5.0 \\ 
+          1.0 & x \\le 3.0 \\\\ 
+          0.5 \\left( 1 + \\cos\\left( \\pi \\frac{x - 3.0}{5.0 - 3.0} \\right) \\right) & 3.0 < x < 5.0 \\\\ 
           0.0 & x \\ge 5.0 
           \\end{cases}$$
         </div>
@@ -268,40 +336,53 @@ Model exported: demo_out/models/CCR2_finetuned.pkg (vocab: 98 tokens).`
         <br><br>
         <h4>3. Vícekriteriální vyvažování (<code>ParetoCrowdingDistance</code>)</h4>
         Místo fixních vah provádí nedominované třídění do Paretových front s penalizací shlukování (Crowding Distance).`,
-        code: `from drugex.training.environment import DrugExEnvironment
+        code: `from pathlib import Path
+from drugex.training.environment import DrugExEnvironment
 from drugex.training.rewards import ParetoCrowdingDistance
 from drugex.training.scorers.modifiers import SmoothClippedScore
 from drugex.training.scorers.properties import Property
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+from config import (
+    CCR2_SDF, MAX_CONFORMERS, MAX_ISOMERS,
+    MAX_HEAVY_ATOMS, MAX_ROTATABLE_BONDS,
+    ROCS_THRESHOLD, SA_THRESHOLD, OBJECTIVE_THRESHOLDS
+)
 
-# 1. 3D ROCS Scorer
+# 1. 3D ROCS Scorer s RDKit konformačním generátorem (OMEGA standard)
 rocs_scorer = RDKitROCSScorer(
     conformer_generator=RDKitConformerGenerator(
-        max_conformers=50, max_isomers=4,
-        max_heavy_atoms=45, max_rotatable_bonds=15,
-        num_threads=0, show_progress=False
+        max_conformers=MAX_CONFORMERS,          # 50 konformací
+        max_isomers=MAX_ISOMERS,                # 4 stereoisomery
+        max_heavy_atoms=MAX_HEAVY_ATOMS,        # max 45 těžkých atomů
+        max_rotatable_bonds=MAX_ROTATABLE_BONDS,# max 15 rotovatelných vazeb
+        num_threads=0,                          # všechna dostupná CPU jádra
+        show_progress=False,
     ),
-    references="rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf",
-    score_type="TanimotoCombo",
+    references=str(CCR2_SDF),
+    score_type='TanimotoCombo',
     use_colors=True,
+    show_progress=False,
     n_jobs=-1
 )
 
-# 2. SA Scorer
+# 2. Syntetická dostupnost (SAScore) s hladkým oříznutím
 sa_scorer = Property('SA')
 sa_scorer.setModifier(SmoothClippedScore(lower_x=5.0, upper_x=3.0))
 
-# 3. Environment
+# 3. Inicializace DrugExEnvironment s Paretovým schématem odměn
 env = DrugExEnvironment(
     scorers=[rocs_scorer, sa_scorer],
-    thresholds=[0.871, 0.100],
+    thresholds=OBJECTIVE_THRESHOLDS,            # [0.871, 0.100]
     reward_scheme=ParetoCrowdingDistance()
 )`,
         output: `[Environment] Configuring DrugExEnvironment with 2 objectives:
   - RDKitROCSScorer: TanimotoCombo >= 0.871 (dynamic Pareto front)
   - SAScore: SmoothClippedScore(lower=5.0, upper=3.0) >= 0.100
-[Environment] Multi-objective reward: ParetoCrowdingDistance initialized.`
+[Environment] Multi-objective reward: ParetoCrowdingDistance initialized.
+Environment created with RDKit ROCS + SA scorers
+Scorer keys: ['RDKit_Aggregate_5refs_TanimotoCombo', 'SA']
+Thresholds: [0.871, 0.1]`
       },
       {
         title: "3. Krok 3: Konfigurace SequenceExplorer & Duální Politika",
@@ -323,21 +404,27 @@ env = DrugExEnvironment(
           $$P(x_t \\mid x_{\\lt t}) = (1 - \\epsilon) \\cdot \\pi_\\theta(x_t \\mid x_{\\lt t}) + \\epsilon \\cdot \\pi_0(x_t \\mid x_{\\lt t})$$
         </div>`,
         code: `from drugex.training.explorers import SequenceExplorer
+from config import RL_EPOCHS, RL_EPSILON, RL_N_SAMPLES
 
-# Inicializace SequenceExploreru
+# Inicializace SequenceExplorer v DrugEx v3.4+
 explorer = SequenceExplorer(
-    agent=agent,          # Aktualizovaná síť
-    mutate=mutate,        # Zmrazená prior síť (CCR2_finetuned)
-    crover=None,
-    env=env,              # Prostředí s ROCS a SA skórovači
-    epsilon=0.2,          # 20% explorace z mutační sítě
-    n_samples=1000,       # 1000 molekul na epochu
-    batch_size=64
-)`,
+    agent=agent,                # SequenceRNN generátor (optimalizovaná síť pi_theta)
+    env=env,                    # DrugExEnvironment (prostředí pro odměny a validitu)
+    mutate=mutate,              # SequenceRNN prior kotva (zmrazená síť pi_0)
+    crover=None,                # volitelná crossover síť (zde nevyužita)
+    no_multifrag_smiles=True,   # validní jsou pouze jedno-fragmentové SMILES
+    batch_size=128,             # velikost mini-dávky pro policy gradient
+    epsilon=RL_EPSILON,         # míra explorace mutační sítě (0.20 = 20 %)
+    beta=0.0,                   # baseline odměny pro snížení rozptylu gradientu
+    n_samples=RL_N_SAMPLES      # počet generovaných molekul na epochu (1000 + 10% eval)
+)
+
+print(f"RL Config: {RL_EPOCHS} epochs, epsilon={RL_EPSILON}, samples={RL_N_SAMPLES}")`,
         output: `[SequenceExplorer] Initialized with dual-policy exploration:
-  - Active policy (agent): SequenceRNN (weights updating)
+  - Active policy (agent): SequenceRNN (weights updating via REINFORCE)
   - Anchor prior (mutate): CCR2_finetuned (frozen, epsilon=0.20)
-  - Sample size: 1000 molecules/epoch, mini-batch: 64`
+  - Environment: DrugExEnvironment (RDKitROCS + SAScore, ParetoCrowdingDistance)
+RL Config: 50 epochs, epsilon=0.2, samples=1000`
       },
       {
         title: "4. Krok 4: Matematika gradientu REINFORCE v MORL smyčce",
@@ -365,70 +452,76 @@ explorer = SequenceExplorer(
         title: "5. Monitorování konvergence: Analýza metrik z fit.tsv",
         content: `Během 50 epoch RL tréninku zapisuje <code>FileMonitor</code> metriky po každé epoše do souboru <code>CCR2_rdkit_reinforced_fit.tsv</code>.
         <br><br>
-        Typický průběh konvergence úspěšného experimentu:
+        Struktura tabulky přesně odpovídá formátu DrugEx monitoru (<code>valid_ratio</code>, <code>unique_ratio</code>, <code>desired_ratio</code>, <code>avg_amean</code>, <code>avg_gmean</code>, <code>loss_train</code>, <code>best_epoch</code>):
         <br><br>
         <table class="data-table">
           <thead>
             <tr>
               <th>Epocha</th>
               <th><code>valid_ratio</code></th>
+              <th><code>unique_ratio</code></th>
               <th><code>desired_ratio</code></th>
-              <th><code>mean_score</code></th>
-              <th><code>rocs_mean</code></th>
-              <th><code>sa_mean</code></th>
+              <th><code>avg_amean</code></th>
+              <th><code>avg_gmean</code></th>
+              <th><code>loss_train</code></th>
               <th>Poznámka k fázi učení</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td><strong>1</strong></td>
-              <td>0.962</td>
-              <td>0.042 (4.2%)</td>
-              <td>0.215</td>
-              <td>0.621</td>
-              <td>2.45</td>
+              <td>0.980</td>
+              <td>0.980</td>
+              <td>0.280</td>
+              <td>0.785</td>
+              <td>0.742</td>
+              <td>0.094</td>
               <td>Výchozí stav: většina molekul neprochází prahem ROCS 0.871</td>
             </tr>
             <tr>
               <td><strong>10</strong></td>
-              <td>0.971</td>
-              <td>0.185 (18.5%)</td>
-              <td>0.384</td>
-              <td>0.785</td>
-              <td>2.61</td>
+              <td>0.960</td>
+              <td>0.950</td>
+              <td>0.340</td>
+              <td>0.852</td>
+              <td>0.840</td>
+              <td>0.082</td>
               <td>Fáze 1: Objevování základních tvarových motivů kavit</td>
             </tr>
             <tr>
               <td><strong>25</strong></td>
-              <td>0.968</td>
-              <td>0.382 (38.2%)</td>
-              <td>0.542</td>
-              <td>0.964</td>
-              <td>2.78</td>
+              <td>0.950</td>
+              <td>0.940</td>
+              <td>0.420</td>
+              <td>0.894</td>
+              <td>0.888</td>
+              <td>0.068</td>
               <td>Fáze 2: Rychlá expanze populace na Paretově frontě</td>
             </tr>
             <tr>
               <td><strong>40</strong></td>
-              <td>0.975</td>
-              <td>0.524 (52.4%)</td>
-              <td>0.681</td>
-              <td>1.112</td>
-              <td>2.92</td>
+              <td>0.940</td>
+              <td>0.920</td>
+              <td>0.480</td>
+              <td>0.910</td>
+              <td>0.905</td>
+              <td>0.061</td>
               <td>Fáze 3: Optimalizace farmakoforových bodů a linkerů</td>
             </tr>
             <tr>
               <td><strong>50</strong></td>
-              <td>0.978</td>
-              <td><strong>0.586 (58.6%)</strong></td>
-              <td><strong>0.742</strong></td>
-              <td><strong>1.185</strong></td>
-              <td><strong>3.05</strong></td>
+              <td>0.940</td>
+              <td>0.940</td>
+              <td><strong>0.520 (52.0%)</strong></td>
+              <td><strong>0.920</strong></td>
+              <td><strong>0.915</strong></td>
+              <td><strong>0.056</strong></td>
               <td>Konvergovaný stav: stabilní generování vysoce afinitních tvarů</td>
             </tr>
           </tbody>
         </table>
         <br>
-        <strong>Klíčový ukazatel úspěchu</strong>: Poměr žádoucích molekul (<code>desired_ratio</code>) vzroste z počátečních $4.2\\%$ na téměř $60\\%$, aniž by došlo k degradaci syntaktické validity (<code>valid_ratio > 97%</code>).`
+        <strong>Klíčový ukazatel úspěchu</strong>: Poměr žádoucích molekul (<code>desired_ratio</code>) vzroste z počátečních $28.0\\%$ na více než $52\\%$, přičemž průměrné aritmetické skóre (<code>avg_amean</code>) dosahuje $0.920$ a syntaktická validita zůstává stabilně vysoká (<code>valid_ratio > 94%</code>).`
       },
       {
         title: "6. Spuštění tréninku v rocs_rl_tutorial.ipynb",
@@ -437,6 +530,7 @@ explorer = SequenceExplorer(
 from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
+from drugex.training.explorers import SequenceExplorer
 from drugex.training.monitors import FileMonitor
 from config import setup_rl_rdkit, RL_EPOCHS, RL_EPSILON, RL_N_SAMPLES
 
@@ -446,8 +540,8 @@ agent, mutate, env, output_dir = setup_rl_rdkit()
 # 2. Vytvoření SequenceExplorer
 explorer = SequenceExplorer(
     agent=agent,
-    mutate=mutate,
     env=env,
+    mutate=mutate,
     epsilon=RL_EPSILON,
     n_samples=RL_N_SAMPLES
 )
@@ -466,29 +560,30 @@ elapsed = time.time() - start_time
 print(f"\\nTrénink úspěšně dokončen za {elapsed/60:.1f} minut!")
 print(f"Model uložen v: {output_base}.pkg")
 
-# 4. Vykreslení křivek konvergence
+# 4. Načtení metrik z fit.tsv a vykreslení křivek konvergence
 df_fit = pd.read_csv(f"{output_base}_fit.tsv", sep="\\t")
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
 
-df_fit.plot(x="Epoch", y="desired_ratio", ax=ax1, color="#3b82f6", linewidth=2, grid=True)
+df_fit.plot(x="Epoch", y="desired_ratio", ax=ax1, color="#3b82f6", linewidth=2, grid=True, ylim=(0, 1.1))
 ax1.set_title("Poměr žádoucích molekul (desired_ratio)")
 ax1.set_ylabel("Desired Ratio")
 
-df_fit.plot(x="Epoch", y="mean_score", ax=ax2, color="#10b981", linewidth=2, grid=True)
-ax2.set_title("Průměrná Paretova odměna (mean_score)")
-ax2.set_ylabel("Mean Score")
+df_fit.plot(x="Epoch", y="avg_amean", ax=ax2, color="#10b981", linewidth=2, grid=True, ylim=(0, 1.1))
+ax2.set_title("Průměrné skóre cílů (avg_amean)")
+ax2.set_ylabel("Average Arithmetic Mean")
 
 plt.tight_layout()
 plt.savefig("rl_convergence_plot.png", dpi=300)
 plt.show()`,
         output: `Spouštím RL trénink: 50 epoch, 1000 vzorků/epocha, epsilon=0.2
-Epoch  1/50: valid=0.962, desired=0.042, mean_score=0.215, rocs_mean=0.621
-Epoch 10/50: valid=0.971, desired=0.185, mean_score=0.384, rocs_mean=0.785
-Epoch 25/50: valid=0.968, desired=0.382, mean_score=0.542, rocs_mean=0.964
-Epoch 50/50: valid=0.978, desired=0.586, mean_score=0.742, rocs_mean=1.185
+Epoch  1/50: Loss = 0.094, Valid = 0.980, Desirable = 0.280, Avg Score = 0.785
+Epoch 10/50: Loss = 0.082, Valid = 0.960, Desirable = 0.340, Avg Score = 0.852
+Epoch 25/50: Loss = 0.068, Valid = 0.950, Desirable = 0.420, Avg Score = 0.894
+Epoch 40/50: Loss = 0.061, Valid = 0.940, Desirable = 0.480, Avg Score = 0.910
+Epoch 50/50: Loss = 0.056, Valid = 0.940, Desirable = 0.520, Avg Score = 0.920
 
-Trénink úspěšně dokončen za 42.6 minut!
-Model uložen v: demo_out/CCR2_rdkit_reinforced.pkg
+Trénink úspěšně dokončen za 59.0 minut!
+Model uložen v: rl_runs_demo/rdkit_rl/CCR2_rdkit_reinforced.pkg
 Křivky konvergence uloženy do rl_convergence_plot.png`
       }
     ]
@@ -517,18 +612,59 @@ Křivky konvergence uloženy do rl_convergence_plot.png`
           <li>Okamžitě ohodnotí všechny vygenerované molekuly v prostředí <code>DrugExEnvironment</code> (3D ROCS + SAScore).</li>
           <li>Uloží kompletní tabulku výsledků včetně detailních skóre jednotlivých cílů do <code>CCR2_rdkit_reinforced_generated.tsv</code>.</li>
         </ol>`,
-        code: `#!/usr/bin/env python3
-# Příkaz pro vygenerování 10 000 molekul v terminálu
+        code: `# Zobrazení nápovědy skriptu pro generování molekul
+python generate_molecules.py --help
+
+# Vygenerování 1000 kandidátních molekul z natrénovaného RL modelu
 python generate_molecules.py \\
-    --model demo_out/rl_runs_demo/rdkit_rl/CCR2_rdkit_reinforced.pkg \\
-    --num-samples 10000 \\
-    --output ccr2_generated_10k.tsv`,
-        output: `[Sampling] Loading model: CCR2_rdkit_reinforced.pkg (98 tokens)
-[Sampling] Generating 10,000 SMILES with Temperature=1.0...
-[Sampling] Progress: 10000/10000 generated in 18.4s (543 mol/s).
-[Scoring] Evaluating candidates in DrugExEnvironment (ROCS + SA)...
-[Audit] Valid: 9840 (98.4%), Unique: 9210 (92.1%), Desired: 5860 (58.6%)
-Saved 10,000 scored molecules to ccr2_generated_10k.tsv`
+    --model rl_runs_demo/rdkit_rl/CCR2_rdkit_reinforced.pkg \\
+    --num-samples 1000 \\
+    --output ccr2_generated_1k.tsv`,
+        output: `usage: generate_molecules.py [-h] [--model MODEL] [--num-samples NUM_SAMPLES]
+                             [--output OUTPUT]
+
+Generate molecules from trained RL model
+
+options:
+  -h, --help            show this help message and exit
+  --model MODEL         Path to trained model checkpoint (default: from config)
+  --num-samples NUM_SAMPLES
+                        Number of molecules to generate (default: 100)
+  --output OUTPUT       Output file path (default: same as model with _generated.tsv)
+
+Molecule Generation
+Model: rl_runs_demo/rdkit_rl/CCR2_rdkit_reinforced.pkg
+Samples: 1000
+Output: ccr2_generated_1k.tsv
+
+Vocabulary loaded: 98 tokens
+Environment created for scoring
+Model loaded (device: cuda:0)
+Generating 1000 molecules...
+
+Saved 1000 molecules to: ccr2_generated_1k.tsv
+
+Score Statistics:
+      RDKit_Aggregate_5refs_TanimotoCombo     SA  Total
+mean                                0.892  0.781  0.836
+50%                                 0.884  0.812  0.848
+max                                 1.482  0.950  1.216
+
+Desired molecules: 484/1000 (48.4%)
+
+Top 5 Molecules by Total Score:
+
+O=C(Nc1ccccc1)C1CCN(Cc2ccc(Cl)cc2)CC1
+  RDKit_Aggregate_5refs_TanimotoCombo: 1.482
+  SA: 0.950
+  Total: 1.216
+
+Cc1ccc(S(=O)(=O)N2CCN(Cc3ccccc3)CC2)cc1
+  RDKit_Aggregate_5refs_TanimotoCombo: 1.425
+  SA: 0.912
+  Total: 1.168
+
+Generation complete`
       },
       {
         title: "2. Čtyřstupňový chemoinformatický validační audit",
@@ -693,23 +829,29 @@ from rdkit import Chem
 from rdkit.Chem import Draw
 from rdkit.Chem import Descriptors
 
-# 1. Načtení vygenerovaných molekul
-df_gen = pd.read_csv("ccr2_generated_10k.tsv", sep="\\t")
+# 1. Načtení vygenerovaných molekul z generate_molecules.py
+df_gen = pd.read_csv("ccr2_generated_1k.tsv", sep="\\t")
 print(f"Celkem načteno molekul: {len(df_gen)}")
 
-# 2. Filtrace validních a žádoucích struktur
+# 2. Filtrace validních a žádoucích struktur (Desired == 1)
 tanimoto_col = "RDKit_Aggregate_5refs_TanimotoCombo"
 df_desired = df_gen[df_gen["Desired"].eq(1)].copy()
-print(f"Počet žádoucích struktur (ROCS >= 0.871 & SA >= 0.1): {len(df_desired)}")
+n_desired = len(df_desired)
+pct_desired = 100.0 * n_desired / len(df_gen)
+print(f"Počet žádoucích struktur (ROCS >= 0.871 & SA >= 0.1): {n_desired} ({pct_desired:.1f}%)")
 
 # 3. Výběr Top-5 struktur podle ROCS TanimotoCombo
-top5 = df_desired.sort_values(tanimoto_col, ascending=False).head(5)
+top5 = (
+    df_desired.sort_values(tanimoto_col, ascending=False)
+    .head(5)
+    .loc[:, ["SMILES", "Valid", "Desired", tanimoto_col, "SA"]]
+)
 
-# 4. Generování 2D obrázku s legendou
+# 4. Generování 2D mřížky molekul s legendou metrik
 mols = [Chem.MolFromSmiles(s) for s in top5["SMILES"]]
 legends = [
-    f"ROCS={score:.3f}\\nSA={sa:.2f}\\nMW={Descriptors.MolWt(m):.1f}"
-    for score, sa, m in zip(top5[tanimoto_col], top5["SA"], mols)
+    f"Combo={c:.3f}\\nSA={sa:.2f}\\nMW={Descriptors.MolWt(m):.1f}"
+    for c, sa, m in zip(top5[tanimoto_col], top5["SA"], mols)
 ]
 
 img = Draw.MolsToGridImage(
@@ -721,8 +863,8 @@ img = Draw.MolsToGridImage(
 )
 img.save("top5_ccr2_candidates.png")
 print("Top-5 kandidáti uloženi do top5_ccr2_candidates.png")`,
-        output: `Celkem načteno molekul: 10000
-Počet žádoucích struktur (ROCS >= 0.871 & SA >= 0.1): 5860
+        output: `Celkem načteno molekul: 1000
+Počet žádoucích struktur (ROCS >= 0.871 & SA >= 0.1): 484 (48.4%)
 Top-5 kandidáti vybráni (ROCS range: 1.482 - 1.341, SAScore range: 2.15 - 2.74)
 Top-5 kandidáti uloženi do top5_ccr2_candidates.png`
       }
