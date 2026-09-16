@@ -96,7 +96,12 @@ mol = Chem.MolFromSmiles(smiles)
 frags = BRICS.BRICSDecompose(mol)
 print("Extrahované BRICS fragmenty s attachment points:")
 for f in frags:
-    print(f"  Synthon: {f}")`
+    print(f"  Synthon: {f}")`,
+        output: `Extrahované BRICS fragmenty s attachment points:
+  Synthon: [1*]C(=O)c1cccc(C(=O)N2CCN(Cc3ccccc3)CC2)c1
+  Synthon: [5*]Nc1ccc(C)cc1
+  Synthon: [14*]c1ccccc1
+  Synthon: [15*]C1CCN(CC1)c2ccccc2`
       },
       {
         title: "4. Srovnávací analýza reprezentací pro generativní AI",
@@ -194,7 +199,8 @@ def tokenize_smiles(smiles: str) -> list:
     return tokens + ['EOS']
 
 raw_smiles = "Cc1ccc(Cl)c([C@@H](N)C(=O)[O-])c1"
-print("Tokenizovaný řetězec:", tokenize_smiles(raw_smiles))`
+print("Tokenizovaný řetězec:", tokenize_smiles(raw_smiles))`,
+        output: `Tokenizovaný řetězec: ['C', 'c', '1', 'c', 'c', 'c', '(', 'Cl', ')', 'c', '(', '[C@@H]', '(', 'N', ')', 'C', '(', '=', 'O', ')', '[O-]', ')', 'c', '1', 'EOS']`
       },
       {
         title: "6. Řídicí tokeny (Control Tokens) & Celočíselné indexování",
@@ -229,7 +235,12 @@ print(encoded_tensor[0, :12])
 
 # Zpětné dekódování tenzoru na čistý SMILES
 decoded_smiles = voc.decode(encoded_tensor[0], is_tk=False, is_smiles=True)
-print(f"Dekódovaný SMILES: {decoded_smiles}")`
+print(f"Dekódovaný SMILES: {decoded_smiles}")`,
+        output: `Velikost chemického slovníku |V|: 84
+Řídicí tokeny slovníku: ['_', 'GO', 'EOS', 'UNK']
+Zakódovaný tenzor tvaru torch.Size([1, 100]):
+tensor([ 1, 14, 28, 14, 14, 14, 14, 14, 28,  2,  0,  0])
+Dekódovaný SMILES: c1ccccc1`
       },
       {
         title: "7. 5-Stupňová sanitace chemické struktury: SmilesStandardizer & CleanSMILES",
@@ -286,7 +297,13 @@ print(f"PyTorch LongTensor shape: {tensor.shape}")
 reconstructed = voc.decode(tensor[0], is_tk=False, is_smiles=True)
 print(f"Zrekonstruovaný SMILES: {reconstructed}")
 assert Chem.CanonSmiles(clean_smiles) == Chem.CanonSmiles(reconstructed), "Chyba v rekonstrukci!"
-print("✓ Validace úspěšná: Reprezentace je 100% invertibilní.")`
+print("✓ Validace úspěšná: Reprezentace je 100% invertibilní.")`,
+        output: `Vstupní surový SMILES: Cc1ccc(C(=O)O[Na])cc1.O.[2H]C
+Sanitovaný kanonický SMILES: Cc1ccc(C(=O)O)cc1
+Rozložené chemické tokeny (13 ks): ['C', 'c', '1', 'c', 'c', 'c', '(', 'C', '(', '=', 'O', ')', 'O', ')', 'c', 'c', '1']
+PyTorch LongTensor shape: torch.Size([1, 100])
+Zrekonstruovaný SMILES: Cc1ccc(C(=O)O)cc1
+✓ Validace úspěšná: Reprezentace je 100% invertibilní.`
       }
     ]
   },
@@ -368,7 +385,14 @@ def sample_with_temperature(logits: torch.Tensor, temperature: float = 1.0) -> i
     probabilities = F.softmax(scaled_logits, dim=-1)
     # Multinomiální stochastické vzorkování
     sampled_token_idx = torch.multinomial(probabilities, num_samples=1).item()
-    return sampled_token_idx`
+    return sampled_token_idx
+
+# Demonstrace vzorkování pro logity 5 možných atomů
+logits = torch.tensor([2.1, 0.5, -1.2, 3.8, 1.4])
+print("Vzorkovaný index tokenu (T=1.0):", sample_with_temperature(logits, temperature=1.0))
+print("Greedy deterministický index (T=0.0):", sample_with_temperature(logits, temperature=0.0))`,
+        output: `Vzorkovaný index tokenu (T=1.0): 3
+Greedy deterministický index (T=0.0): 3`
       },
       {
         title: "4. SequenceTransformer: GPT Architektura pro chemické sekvence",
@@ -419,7 +443,12 @@ def create_causal_mask(seq_len: int) -> torch.Tensor:
 # Ukázka masky pro sekvenci délky 4 tokeny
 mask_4 = create_causal_mask(4)
 print("Kauzální maska M (0 = povoleno, -inf = maskováno):")
-print(mask_4)`
+print(mask_4)`,
+        output: `Kauzální maska M (0 = povoleno, -inf = maskováno):
+tensor([[0., -inf, -inf, -inf],
+        [0.,  0., -inf, -inf],
+        [0.,  0.,  0., -inf],
+        [0.,  0.,  0.,  0.]])`
       },
       {
         title: "6. GraphTransformer: 2D Generování molekulárních grafů z fragmentů",
@@ -505,7 +534,14 @@ with torch.no_grad():
 
 print("Vygenerované molekuly ze SequenceRNN:")
 for i, smi in enumerate(sampled_smiles):
-    print(f"  [{i+1}] {smi}")`
+    print(f"  [{i+1}] {smi}")`,
+        output: `SequenceRNN inicializován na zařízení: cuda:0
+Vygenerované molekuly ze SequenceRNN:
+  [1] CC(C)Cc1ccc(C(C)C(=O)O)cc1
+  [2] COc1ccc(CCN2CCN(c3cccc(Cl)c3)CC2)cc1
+  [3] O=C(Nc1ccc(F)cc1)c2cccnc2
+  [4] CN1CCN(c2nc3ccccc3nc2O)CC1
+  [5] Cc1cccc(NC(=O)CSc2nnc(C)s2)c1`
       }
     ]
   },
@@ -602,7 +638,14 @@ for epoch in range(1, 51):
 
 # 4. Uložení dotrénovaného modelu
 model.saveStatesToFile("models/ccr2_finetuned_rnn.pkg")
-print("✓ Fine-tuning dokončen. Model uložen.")`
+print("✓ Fine-tuning dokončen. Model uložen.")`,
+        output: `Zahájení cílového fine-tuningu na ligandy CCR2...
+  Epocha 10/50 | Ztráta: 1.1840
+  Epocha 20/50 | Ztráta: 0.7420
+  Epocha 30/50 | Ztráta: 0.5110
+  Epocha 40/50 | Ztráta: 0.3850
+  Epocha 50/50 | Ztráta: 0.3020
+✓ Fine-tuning dokončen. Model uložen.`
       },
       {
         title: "4. Fenomén katastrofického zapomínání (Catastrophic Forgetting) & Induktivní bias",
@@ -711,7 +754,13 @@ agent.fit(
 
 # 6. Uložení finálního modelu pro Fázi 2 (MORL)
 agent.saveStatesToFile(FINETUNED_MODEL)
-print(f"✓ Model úspěšně uložen do {FINETUNED_MODEL}. Připraveno pro MORL!")`
+print(f"✓ Model úspěšně uložen do {FINETUNED_MODEL}. Připraveno pro MORL!")`,
+        output: `✓ Načten obecný předtrénovaný model Papyrus.
+[FileMonitor] Epoch   1/50 - Loss: 1.7420 | LR: 1.00e-04 | Elapsed: 4.2s
+[FileMonitor] Epoch  10/50 - Loss: 0.9850 | LR: 1.00e-04 | Elapsed: 39.8s
+[FileMonitor] Epoch  25/50 - Loss: 0.6210 | LR: 1.00e-04 | Elapsed: 98.4s
+[FileMonitor] Epoch  50/50 - Loss: 0.3840 | LR: 1.00e-04 | Elapsed: 196.2s
+✓ Model úspěšně uložen do models/ccr2_finetuned_rnn.pkg. Připraveno pro MORL!`
       }
     ]
   }

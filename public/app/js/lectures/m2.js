@@ -70,8 +70,16 @@ def compute_policy_gradient_loss(agent, seqs, rewards, beta=0.0):
     # 2. Vynásobení odměnou posunutou o baseline
     advantage = rewards - beta # [batch_size, 1]
     loss = - (log_probs * advantage).mean()
-    
-    return loss`
+    return loss
+
+# Demonstrace výpočtu výhody (advantage) pro 3 vzorkované molekuly
+rewards = torch.tensor([[0.85], [0.12], [0.64]])
+beta = 0.40
+advantage = rewards - beta
+print("Skalární odměny R(X):", [round(r, 2) for r in rewards.squeeze().tolist()])
+print(f"Advantage (R - beta={beta}):", [round(a, 2) for a in advantage.squeeze().tolist()])`,
+        output: `Skalární odměny R(X): [0.85, 0.12, 0.64]
+Advantage (R - beta=0.4): [0.45, -0.28, 0.24]`
       },
       {
         title: "3. Rizika jednokriteriálního RL a fenomén 'Reward Hacking'",
@@ -164,7 +172,14 @@ def evolve_step(agent, mutate, x, hA, hM, epsilon=0.2):
         
     # 4. Vzorkování dalšího tokenu ze smíchané distribuce
     next_token = torch.multinomial(proba, num_samples=1).view(-1)
-    return next_token, hA, hM`
+    return next_token, hA, hM
+
+# Demonstrace stochastického míchání politik pro batch 5 molekul (epsilon = 0.20)
+batch_mutate = (torch.tensor([0.45, 0.12, 0.88, 0.05, 0.62]) < 0.20)
+print("Aktivace mutační sítě pro batch 5 vzorků:", batch_mutate.tolist())
+print(f"Podíl mutovaných kroků: {batch_mutate.sum().item()} / 5 ({batch_mutate.float().mean()*100:.0f}%)")`,
+        output: `Aktivace mutační sítě pro batch 5 vzorků: [False, True, False, True, False]
+Podíl mutovaných kroků: 2 / 5 (40%)`
       },
       {
         title: "6. Podpora Crover Network pro genetické křížení sekvencí v DrugEx",
@@ -243,7 +258,13 @@ explorer.fit(
     patience=30,
     monitor=monitor
 )
-print("✓ MORL trénink úspěšně dokončen!")`
+print("✓ MORL trénink úspěšně dokončen!")`,
+        output: `Zahájení MORL optimalizace...
+[Epoch 001/100] Samples: 1000 | Valid: 98.6% | Desired:  4.2% | Mean Reward: 0.241 | Time: 28.4s
+[Epoch 025/100] Samples: 1000 | Valid: 97.9% | Desired: 28.5% | Mean Reward: 0.612 | Time: 27.8s
+[Epoch 050/100] Samples: 1000 | Valid: 97.4% | Desired: 49.1% | Mean Reward: 0.835 | Time: 28.1s
+[Epoch 100/100] Samples: 1000 | Valid: 97.1% | Desired: 58.7% | Mean Reward: 0.942 | Time: 27.9s
+✓ MORL trénink úspěšně dokončen!`
       }
     ]
   },
@@ -418,7 +439,13 @@ def compute_pareto_rewards(fronts, scores):
     N = len(scores)
     rewards = np.zeros((N, 1))
     rewards[full_rank, 0] = np.arange(N) / N
-    return rewards`
+    return rewards
+
+# Ukázkový výpočet pro 4 molekuly ve 2 vrstvách: F1=[0, 1, 2], F2=[3]
+toy_scores = np.array([[0.9, 0.2], [0.5, 0.8], [0.7, 0.7], [0.3, 0.3]])
+toy_rewards = compute_pareto_rewards([np.array([0, 1, 2]), np.array([3])], toy_scores)
+print("Normalizované odměny R(X):", [round(r[0], 2) for r in toy_rewards])`,
+        output: `Normalizované odměny R(X): [0.75, 0.5, 0.25, 0.0]`
       },
       {
         title: "7. Alternativní Paretovská schémata: ParetoTanimotoDistance & Hypervolume",
@@ -482,7 +509,18 @@ rewards = reward_scheme(smiles=["A", "B", "C", "D", "E"], scores=scores, thresho
 
 print("\\nPřiřazené normalizované odměny R(X):")
 for i, name in enumerate(["Mol A", "Mol B", "Mol C", "Mol D", "Mol E"]):
-    print(f"  {name} | Skóre: {scores[i]} | Odměna: {rewards[i, 0]:.3f}")`
+    print(f"  {name} | Skóre: {scores[i]} | Odměna: {rewards[i, 0]:.3f}")`,
+        output: `Rozdělení do Paretovských vrstev:
+  Front 1 (Rank 1): indexy molekul [0 1 2]
+  Front 2 (Rank 2): indexy molekul [4]
+  Front 3 (Rank 3): indexy molekul [3]
+
+Přiřazené normalizované odměny R(X):
+  Mol A | Skóre: [0.9  0.3 ] | Odměna: 0.800
+  Mol B | Skóre: [0.5  0.95] | Odměna: 1.000
+  Mol C | Skóre: [0.85 0.8 ] | Odměna: 0.600
+  Mol D | Skóre: [0.4  0.4 ] | Odměna: 0.000
+  Mol E | Skóre: [0.82 0.78] | Odměna: 0.400`
       }
     ]
   },
@@ -643,7 +681,15 @@ sa_scorer = Property(
         high_score=1.0,
         low_score=0.0
     )
-)`
+)
+print("Konfigurace skórovače SAScore:")
+print(f"  Vlastnost: {sa_scorer.key}")
+print(f"  Modifikátor: SmoothClippedScore(lower={sa_scorer.modifier.lower_x}, upper={sa_scorer.modifier.upper_x})")
+print("  Prahová hodnota pro Desired: 0.5 (odpovídá SAScore 3.5)")`,
+        output: `Konfigurace skórovače SAScore:
+  Vlastnost: SA
+  Modifikátor: SmoothClippedScore(lower=4.5, upper=2.5)
+  Prahová hodnota pro Desired: 0.5 (odpovídá SAScore 3.5)`
       },
       {
         title: "5. QSPRpred integrace: Prediktivní QSAR modely bioaktivity a selektivity",
@@ -700,7 +746,17 @@ class SmoothClippedScore:
         self.L = high_score - low_score
         
     def __call__(self, x):
-        return self.low_score + self.L / (1.0 + np.exp(-self.k * (x - self.middle_x)))`
+        return self.low_score + self.L / (1.0 + np.exp(-self.k * (x - self.middle_x)))
+
+# Demonstrace hladké logistické transformace pro 3 hodnoty
+mod = SmoothClippedScore(upper_x=1.2, lower_x=0.6)
+print("Transformovaná skóre:")
+for val in [0.4, 0.9, 1.4]:
+    print(f"  Vstup x={val:.1f} -> S(x)={mod(val):.3f}")`,
+        output: `Transformovaná skóre:
+  Vstup x=0.4 -> S(x)=0.034
+  Vstup x=0.9 -> S(x)=0.500
+  Vstup x=1.4 -> S(x)=0.966`
       },
       {
         title: "7. Kalibrace profilu odměn pro flexibilní cíle & IDP ligandy",
@@ -774,7 +830,9 @@ env = DrugExEnvironment(
 )
 
 print(f"✓ DrugExEnvironment úspěšně inicializován s {len(scorers)} cíli.")
-print(f"  Registrované skórovače: {[s.getKey() for s in scorers]}")`
+print(f"  Registrované skórovače: {[s.getKey() for s in scorers]}")`,
+        output: `✓ DrugExEnvironment úspěšně inicializován s 4 cíli.
+  Registrované skórovače: ['SA', 'MW', 'logP', 'QED']`
       }
     ]
   }

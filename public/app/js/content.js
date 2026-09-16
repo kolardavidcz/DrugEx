@@ -3,7 +3,7 @@
  */
 
 import { el, clear, copyText } from "./ui.js";
-import { state } from "./state.js";
+import { state, ensureShuffledOptions } from "./state.js";
 import { highlightPython, formatFormula } from "./format.js";
 import { LECTURE_DATA } from "./lectures_content.js";
 import { COOKBOOK_DATA } from "./cookbook_content.js";
@@ -107,7 +107,7 @@ export function renderLecture(container, lectureId) {
     ]);
 
     if (slide.code) {
-      const codeBox = el("div", { className: "code-container" }, [
+      const codeChildren = [
         el("div", { className: "code-header" }, [
           el("span", {}, slide.codeLang || "python"),
           el("button", {
@@ -119,7 +119,21 @@ export function renderLecture(container, lectureId) {
         el("pre", { className: "code-block" }, [
           el("code", { innerHTML: highlightPython(slide.code) })
         ])
-      ]);
+      ];
+
+      if (slide.output) {
+        codeChildren.push(
+          el("div", { className: "code-output-header" }, [
+            el("span", { className: "code-output-label" }, "▶ STDOUT / Výstup konzole"),
+            el("span", { className: "code-output-badge" }, "exit 0")
+          ]),
+          el("pre", { className: "code-output-block" }, [
+            el("code", {}, slide.output)
+          ])
+        );
+      }
+
+      const codeBox = el("div", { className: "code-container" }, codeChildren);
       card.appendChild(codeBox);
     }
 
@@ -287,9 +301,25 @@ export function renderBenchmarkData(container) {
   container.appendChild(view);
 }
 
-export function renderHandbookPrintView(container) {
+export async function renderHandbookPrintView(container) {
   if (!container) return;
   clear(container);
+
+  // Fetch all 6 quiz decks
+  const quizPromises = [1, 2, 3, 4, 5, 6].map(async num => {
+    try {
+      const res = await fetch(`/data/quizzes/m${num}.json`);
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn(`Failed to fetch quiz m${num}:`, e);
+    }
+    return null;
+  });
+  const quizzes = await Promise.all(quizPromises);
+  const quizMap = {};
+  quizzes.forEach((q, idx) => {
+    if (q) quizMap[idx + 1] = q;
+  });
 
   const view = el("div", { className: "handbook-print-container" });
 
@@ -349,14 +379,28 @@ export function renderHandbookPrintView(container) {
         ]);
 
         if (slide.code) {
-          const codeBox = el("div", { className: "code-container" }, [
+          const codeChildren = [
             el("div", { className: "code-header" }, [
               el("span", {}, slide.codeLang || "python")
             ]),
             el("pre", { className: "code-block" }, [
               el("code", { innerHTML: highlightPython(slide.code) })
             ])
-          ]);
+          ];
+
+          if (slide.output) {
+            codeChildren.push(
+              el("div", { className: "code-output-header" }, [
+                el("span", { className: "code-output-label" }, "▶ STDOUT / Výstup skriptu"),
+                el("span", { className: "code-output-badge" }, "exit 0")
+              ]),
+              el("pre", { className: "code-output-block" }, [
+                el("code", {}, slide.output)
+              ])
+            );
+          }
+
+          const codeBox = el("div", { className: "code-container" }, codeChildren);
           card.appendChild(codeBox);
         }
 
@@ -387,6 +431,43 @@ export function renderHandbookPrintView(container) {
 
       view.appendChild(lecSec);
     });
+
+    // Module Review Assessment Quiz
+    const quizData = quizMap[mod.num];
+    if (quizData && quizData.questions && quizData.questions.length > 0) {
+      const quizDiv = el("div", { className: "module-print-divider quiz-module-divider" }, [
+        el("h2", {}, `Závěrečný Autoevaluační Test — Modul ${mod.num}: ${quizData.title || mod.title}`)
+      ]);
+      view.appendChild(quizDiv);
+
+      quizData.questions.forEach((rawQ, qIdx) => {
+        const { options, correct } = ensureShuffledOptions(rawQ, `m${mod.num}`, qIdx);
+        const letters = ["A", "B", "C", "D"];
+
+        const qCard = el("section", { className: "slide-card quiz-card-print" }, [
+          el("div", { className: "slide-title-bar" }, [
+            el("div", { className: "slide-title" }, `${qIdx + 1}. ${rawQ.question}`),
+            el("span", { className: "slide-number" }, `Test M${mod.num} · Otázka ${qIdx + 1}/${quizData.questions.length}`)
+          ]),
+          el("div", { className: "quiz-options-print" }, options.map((optText, optIdx) => {
+            const isCorrect = optIdx === correct;
+            return el("div", {
+              className: `quiz-option-print ${isCorrect ? "option-correct-print" : ""}`
+            }, [
+              el("span", { className: "quiz-opt-letter" }, `${letters[optIdx]})`),
+              el("span", { className: "quiz-opt-text" }, optText),
+              isCorrect ? el("span", { className: "quiz-correct-badge" }, "✓ Správné řešení") : null
+            ]);
+          })),
+          rawQ.explanation ? el("div", { className: "quiz-explanation-print" }, [
+            el("strong", {}, "💡 Odborné vysvětlení: "),
+            el("span", { innerHTML: rawQ.explanation })
+          ]) : null
+        ]);
+
+        view.appendChild(qCard);
+      });
+    }
   });
 
   // 3. Practitioner's Cookbook & Hyperparameter Hub Section

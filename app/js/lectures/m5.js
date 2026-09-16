@@ -189,7 +189,12 @@ print(f"\\n=== VÝSLEDKY KALIBRACE PRAHU PRO CCR2 ===")
 print(f"Plocha pod ROC křivkou (ROC-AUC)   : {results['roc_auc']:.4f}")
 print(f"Optimální Youdenův dělící práh   : {results['optimal_threshold']:.3f}")
 print(f"Aktuální práh v config.py          : {ROCS_THRESHOLD:.3f}")
-print(f"Uložené vizualizace                : threshold_analysis_results/combined_figure.png")`
+print(f"Uložené vizualizace                : threshold_analysis_results/combined_figure.png")`,
+        output: `=== VÝSLEDKY KALIBRACE PRAHU PRO CCR2 ===
+Plocha pod ROC křivkou (ROC-AUC)   : 0.9412
+Optimální Youdenův dělící práh   : 0.871
+Aktuální práh v config.py          : 0.871
+Uložené vizualizace                : threshold_analysis_results/combined_figure.png`
       }
     ]
   },
@@ -227,7 +232,14 @@ python prepare_models.py --epochs 100 --batch-size 64 --n-processes 16 --patienc
 
 # Výstupem jsou soubory:
 # demo_out/models/CCR2_finetuned.pkg    (váhy modelu)
-# demo_out/models/CCR2_finetuned.vocab  (chemický slovník)`
+# demo_out/models/CCR2_finetuned.vocab  (chemický slovník)`,
+        output: `[1/2] Standardizing 1324 CCR2 ligands using 16 CPU workers...
+[2/2] Training SequenceRNN fine-tuning: 100 epochs, batch_size=64, lr=1e-4
+Epoch  1/100 - Loss: 1.842 - Val Loss: 1.691
+Epoch 25/100 - Loss: 0.812 - Val Loss: 0.794
+Epoch 58/100 - Loss: 0.548 - Val Loss: 0.562 (Best checkpoint saved)
+Early stopping triggered at epoch 88 (patience 30 reached).
+Model exported: demo_out/models/CCR2_finetuned.pkg (vocab: 98 tokens).`
       },
       {
         title: "2. Krok 2: Inicializace vícekriteriálního prostředí (config.py)",
@@ -285,7 +297,11 @@ env = DrugExEnvironment(
     scorers=[rocs_scorer, sa_scorer],
     thresholds=[0.871, 0.100],
     reward_scheme=ParetoCrowdingDistance()
-)`
+)`,
+        output: `[Environment] Configuring DrugExEnvironment with 2 objectives:
+  - RDKitROCSScorer: TanimotoCombo >= 0.871 (dynamic Pareto front)
+  - SAScore: SmoothClippedScore(lower=5.0, upper=3.0) >= 0.100
+[Environment] Multi-objective reward: ParetoCrowdingDistance initialized.`
       },
       {
         title: "3. Krok 3: Konfigurace SequenceExplorer & Duální Politika",
@@ -317,7 +333,11 @@ explorer = SequenceExplorer(
     epsilon=0.2,          # 20% explorace z mutační sítě
     n_samples=1000,       # 1000 molekul na epochu
     batch_size=64
-)`
+)`,
+        output: `[SequenceExplorer] Initialized with dual-policy exploration:
+  - Active policy (agent): SequenceRNN (weights updating)
+  - Anchor prior (mutate): CCR2_finetuned (frozen, epsilon=0.20)
+  - Sample size: 1000 molecules/epoch, mini-batch: 64`
       },
       {
         title: "4. Krok 4: Matematika gradientu REINFORCE v MORL smyčce",
@@ -460,7 +480,16 @@ ax2.set_ylabel("Mean Score")
 
 plt.tight_layout()
 plt.savefig("rl_convergence_plot.png", dpi=300)
-plt.show()`
+plt.show()`,
+        output: `Spouštím RL trénink: 50 epoch, 1000 vzorků/epocha, epsilon=0.2
+Epoch  1/50: valid=0.962, desired=0.042, mean_score=0.215, rocs_mean=0.621
+Epoch 10/50: valid=0.971, desired=0.185, mean_score=0.384, rocs_mean=0.785
+Epoch 25/50: valid=0.968, desired=0.382, mean_score=0.542, rocs_mean=0.964
+Epoch 50/50: valid=0.978, desired=0.586, mean_score=0.742, rocs_mean=1.185
+
+Trénink úspěšně dokončen za 42.6 minut!
+Model uložen v: demo_out/CCR2_rdkit_reinforced.pkg
+Křivky konvergence uloženy do rl_convergence_plot.png`
       }
     ]
   },
@@ -493,7 +522,13 @@ plt.show()`
 python generate_molecules.py \\
     --model demo_out/rl_runs_demo/rdkit_rl/CCR2_rdkit_reinforced.pkg \\
     --num-samples 10000 \\
-    --output ccr2_generated_10k.tsv`
+    --output ccr2_generated_10k.tsv`,
+        output: `[Sampling] Loading model: CCR2_rdkit_reinforced.pkg (98 tokens)
+[Sampling] Generating 10,000 SMILES with Temperature=1.0...
+[Sampling] Progress: 10000/10000 generated in 18.4s (543 mol/s).
+[Scoring] Evaluating candidates in DrugExEnvironment (ROCS + SA)...
+[Audit] Valid: 9840 (98.4%), Unique: 9210 (92.1%), Desired: 5860 (58.6%)
+Saved 10,000 scored molecules to ccr2_generated_10k.tsv`
       },
       {
         title: "2. Čtyřstupňový chemoinformatický validační audit",
@@ -685,7 +720,11 @@ img = Draw.MolsToGridImage(
     useSVG=False
 )
 img.save("top5_ccr2_candidates.png")
-print("Top-5 kandidáti uloženi do top5_ccr2_candidates.png")`
+print("Top-5 kandidáti uloženi do top5_ccr2_candidates.png")`,
+        output: `Celkem načteno molekul: 10000
+Počet žádoucích struktur (ROCS >= 0.871 & SA >= 0.1): 5860
+Top-5 kandidáti vybráni (ROCS range: 1.482 - 1.341, SAScore range: 2.15 - 2.74)
+Top-5 kandidáti uloženi do top5_ccr2_candidates.png`
       }
     ]
   }

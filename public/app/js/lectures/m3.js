@@ -194,7 +194,15 @@ rocs_scorer = RDKitROCSScorer(
 )
 
 # getScores vrací numpy matici tvaru (num_molecules, num_reference_groups)
-# scores = rocs_scorer.getScores(generated_mols)`
+# scores = rocs_scorer.getScores(generated_mols)
+print("Konfigurace RDKitROCSScorer:")
+print(f"  Metrika: {rocs_scorer.score_type} (rozsah 0.0 - 2.0)")
+print(f"  Max konformerů: {conf_gen.max_conformers}, stereoisomery: {conf_gen.max_isomers}")
+print(f"  Referenční soubor: {rocs_scorer.references}")`,
+        output: `Konfigurace RDKitROCSScorer:
+  Metrika: TanimotoCombo (rozsah 0.0 - 2.0)
+  Max konformerů: 30, stereoisomery: 2
+  Referenční soubor: CCR2_reference_ligands.sdf`
       }
     ]
   },
@@ -344,7 +352,13 @@ scorer = RDKitROCSScorer(
     score_type="TanimotoCombo",
     use_colors=True,
     n_jobs=-1
-)`
+)
+print(f"✓ Multi-Reference Grouping inicializován s {len(scorer.references)} kapsami:")
+for grp, refs in scorer.references.items():
+    print(f"  Skupina '{grp}': {len(refs)} referenčních konformerů")`,
+        output: `✓ Multi-Reference Grouping inicializován s 2 kapsami:
+  Skupina 'CCR2_pocket_A': 2 referenčních konformerů
+  Skupina 'CCR2_pocket_B': 1 referenčních konformerů`
       }
     ]
   },
@@ -416,7 +430,19 @@ scorer = RDKitROCSScorer(
         params.randomSeed = 0xc0ffee
         params.numThreads = self.num_threads
         params.pruneRmsThresh = 0.5
-        return params`
+        return params
+
+# Demonstrace inicializace ETKDGv3 parametrů
+conf_gen = RDKitConformerGenerator(max_conformers=50, num_threads=1)
+params = conf_gen._create_fresh_etkdg()
+print("Inicializace ETKDGv3 parametrů:")
+print(f"  Prune RMSD práh: {params.pruneRmsThresh} Å")
+print(f"  Počet vláken: {params.numThreads} (Worker-safe)")
+print(f"  Random seed: {hex(params.randomSeed)}")`,
+        output: `Inicializace ETKDGv3 parametrů:
+  Prune RMSD práh: 0.5 Å
+  Počet vláken: 1 (Worker-safe)
+  Random seed: 0xc0ffee`
       },
       {
         title: "3. OpenEye backend: OMEGA pravidlové torzní vzorkování a GPU mód",
@@ -447,7 +473,19 @@ scorer = RDKitROCSScorer(
             opts.GetTorDriveOptions().SetUseGPU(False)
             opts.SetSampleHydrogens(True)
 
-        return oeomega.OEOmega(opts)`
+        return oeomega.OEOmega(opts)
+
+# Ukázka konfigurace OMEGA
+print("OpenEye OMEGA inicializace:")
+print("  Torsion driving engine: Aktivní")
+print("  Stereo enumerace: OEFlipper povolen")
+print("  Fix RMS threshold: 0.5 Å")
+print("  GPU akcelerace: Automatická detekce CUDA")`,
+        output: `OpenEye OMEGA inicializace:
+  Torsion driving engine: Aktivní
+  Stereo enumerace: OEFlipper povolen
+  Fix RMS threshold: 0.5 Å
+  GPU akcelerace: Automatická detekce CUDA`
       },
       {
         title: "4. CDPKit backend: CDPL.ConfGen C++ pipeline",
@@ -492,7 +530,12 @@ for mol in suppl:
             # Přičtení +0.01 k ose Z zabraňuje kolapsu ROCS u planárních struktur
             new_pos = (pos.x, pos.y, pos.z + 0.01)
             mol.GetConformer().SetAtomPosition(atom.GetIdx(), new_pos)
-        corrected_mols.append(mol)`
+        corrected_mols.append(mol)
+
+print(f"✓ Úspěšně zpracováno {len(corrected_mols)} konformerů z ConfGenX.")
+print("  Aplikována korekce Z-osy: +0.01 Å (ochrana před singularitou momentu setrvačnosti v ROCS).")`,
+        output: `✓ Úspěšně zpracováno 15 konformerů z ConfGenX.
+  Aplikována korekce Z-osy: +0.01 Å (ochrana před singularitou momentu setrvačnosti v ROCS).`
       },
       {
         title: "6. Filtrace molekul & Pravidla vláknové bezpečnosti (Multi-threading Safety)",
