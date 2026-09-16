@@ -125,8 +125,8 @@ class david:
     def __LEARNING_TRANSFER_LEARNING_tokenization(self, smiles_train : list[Any] ) -> tuple[datasets.SmilesDataSet, processing.CorpusEncoder]:
 
         encoder = processing.CorpusEncoder(
-            corpus.SequenceCorpus, # The corpus CLASS (NOT OBJECT, just just as a constructor)
-            {               # implements how each SMILES string is divided into words by the vocabulary
+            corpus.SequenceCorpus,  # The corpus CLASS (NOT OBJECT, just just as a constructor)
+            {                       # implements how each SMILES string is divided into words by the vocabulary
                 "vocabulary": self.VOC,
                 "update_voc": False,
                 "throw": True # compounds containing unknown tokens are thrown out of the resulting data set
