@@ -184,25 +184,24 @@ export const M3_LECTURES = {
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 
 # Příklad výpočtu TanimotoCombo pro sadu molekul
-conf_gen = RDKitConformerGenerator(max_conformers=30, max_isomers=2, num_threads=1)
+conf_gen = RDKitConformerGenerator(max_conformers=30, max_isomers=2, num_threads=1, show_progress=False)
 rocs_scorer = RDKitROCSScorer(
     conformer_generator=conf_gen,
-    references="data/benchmarks/CCR2_reference_ligands.sdf",
+    references="tutorial/advanced/rocs/rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf",
     score_type="TanimotoCombo",  # Shape (0..1) + Color (0..1) = Combo (0..2)
     use_colors=True,
     show_progress=False
 )
 
 # getScores vrací numpy matici tvaru (num_molecules, num_reference_groups)
-# scores = rocs_scorer.getScores(generated_mols)
 print("Konfigurace RDKitROCSScorer:")
 print(f"  Metrika: {rocs_scorer.score_type} (rozsah 0.0 - 2.0)")
 print(f"  Max konformerů: {conf_gen.max_conformers}, stereoisomery: {conf_gen.max_isomers}")
-print(f"  Referenční soubor: {rocs_scorer.references}")`,
+print(f"  Počet referenčních molekul: {len(rocs_scorer.reference_mols)}")`,
         output: `Konfigurace RDKitROCSScorer:
   Metrika: TanimotoCombo (rozsah 0.0 - 2.0)
   Max konformerů: 30, stereoisomery: 2
-  Referenční soubor: data/benchmarks/CCR2_reference_ligands.sdf`
+  Počet referenčních molekul: 5`
       }
     ]
   },
@@ -340,18 +339,19 @@ print(f"  Referenční soubor: {rocs_scorer.references}")`,
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 
-conf_gen = RDKitConformerGenerator(max_conformers=50, max_isomers=4, num_threads=1)
+conf_gen = RDKitConformerGenerator(max_conformers=50, max_isomers=4, num_threads=1, show_progress=False)
 
 # Skórovač s definicí funkčních skupin referencí
 scorer = RDKitROCSScorer(
     conformer_generator=conf_gen,
     references={
-        "CCR2_orthosteric": ["rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf"],
-        "CCR2_allosteric": ["rocs_rl_ccr/rdkit_cdpkit/supermol_123.sdf"]
+        "CCR2_orthosteric": ["tutorial/advanced/rocs/rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf"],
+        "CCR2_allosteric": ["tutorial/advanced/rocs/rocs_rl_ccr/rdkit_cdpkit/supermol_123.sdf"]
     },
     score_type="TanimotoCombo",
     use_colors=True,
-    n_jobs=1
+    n_jobs=1,
+    show_progress=False
 )
 print(f"✓ Multi-Reference Grouping inicializován s {len(scorer.group_definitions)} kapsami:")
 for grp, mols in scorer.group_definitions:
@@ -434,34 +434,26 @@ print(f"  Random seed: {hex(params.randomSeed)}")`,
           <li><strong>Enumerace stereoizomerů přes OEFlipper</strong>: Pro neoznačená chirální centra generuje stereoizomery třída <code>oeomega.OEFlipper</code> s limitem <code>max_centers</code>.</li>
           <li><strong>GPU Akcelerace</strong>: Při volbě <code>use_gpu=True</code> a přítomnosti CUDA hardware se aktivuje GPU torzní engine přes <code>opts.GetTorDriveOptions().SetUseGPU(True)</code>, což umožňuje vzorkovat přes 5 000 konformací za sekundu na jedné GPU.</li>
         </ul>`,
-        code: `class OmegaConformerGenerator(ConformerGenerator):
-    def _create_fresh_omega(self):
-        opts = oeomega.OEOmegaOptions()
-        opts.SetMaxConfs(self.max_conformers)
-        opts.SetStrictStereo(False)
-        opts.SetFromCT(True)
-        opts.SetFixRMS(True)
-        opts.SetRMSThreshold(0.5)
-        opts.SetEnumRing(True)
-        opts.SetRotorOffset(False)
+        code: `from drugex.training.scorers.conformer_generators import OE_AVAILABLE, OmegaConformerGenerator
 
-        if self.use_gpu and oeomega.OEOmegaIsGPUReady():
-            opts.GetTorDriveOptions().SetUseGPU(True)
-            opts.SetSampleHydrogens(False)
-        else:
-            opts.GetTorDriveOptions().SetUseGPU(False)
-            opts.SetSampleHydrogens(True)
-
-        return oeomega.OEOmega(opts)
-
-# Ukázka konfigurace OMEGA
-print("OpenEye OMEGA inicializace:")
-print("  Torsion driving engine: Aktivní")
-print("  Stereo enumerace: OEFlipper povolen")
-print("  Fix RMS threshold: 0.5 Å")
-print("  GPU akcelerace: Automatická detekce CUDA")`,
+# Kontrola dostupnosti a konfigurace OpenEye OMEGA
+if not OE_AVAILABLE:
+    print("OpenEye OMEGA inicializace:")
+    print("  [INFO] OpenEye Toolkits nejsou v tomto prostředí licencovány.")
+    print("  Torsion driving engine: Aktivní (vyžaduje oeomega)")
+    print("  Stereo enumerace: OEFlipper povolen")
+    print("  Fix RMS threshold: 0.5 Å")
+    print("  GPU akcelerace: Automatická detekce CUDA")
+else:
+    omega_gen = OmegaConformerGenerator(max_conformers=50, max_centers=2, use_gpu=False)
+    print("OpenEye OMEGA inicializace:")
+    print("  Torsion driving engine: Aktivní")
+    print(f"  Stereo enumerace: OEFlipper povolen (max {omega_gen.max_centers} center)")
+    print(f"  Max conformers: {omega_gen.max_conformers}")
+    print(f"  GPU akcelerace: {omega_gen.use_gpu}")`,
         output: `OpenEye OMEGA inicializace:
-  Torsion driving engine: Aktivní
+  [INFO] OpenEye Toolkits nejsou v tomto prostředí licencovány.
+  Torsion driving engine: Aktivní (vyžaduje oeomega)
   Stereo enumerace: OEFlipper povolen
   Fix RMS threshold: 0.5 Å
   GPU akcelerace: Automatická detekce CUDA`
@@ -500,22 +492,23 @@ print("  GPU akcelerace: Automatická detekce CUDA")`,
         <br>
         V <code>conformer_generators.py</code> byl tento problém vyřešen elegantní automatickou post-processing korekcí: k z-souřadnici každého atomu je přičten nepatrný ofset $+0.01\\,\\text{Å}$, což zachová geometrii, ale odstraní numerickou singularitu:`,
         code: `from rdkit import Chem
+from rdkit.Chem import AllChem
 
-# Oprava souřadnic v SchrodingerConformerGenerator
-suppl = Chem.SDMolSupplier(tmp_outfile, removeHs=False)
-corrected_mols = []
-for mol in suppl:
-    if mol is not None:
-        for atom in mol.GetAtoms():
-            pos = mol.GetConformer().GetAtomPosition(atom.GetIdx())
-            # Přičtení +0.01 k ose Z zabraňuje kolapsu ROCS u planárních struktur
-            new_pos = (pos.x, pos.y, pos.z + 0.01)
-            mol.GetConformer().SetAtomPosition(atom.GetIdx(), new_pos)
-        corrected_mols.append(mol)
+# Simulace planárního aromatického konformeru (např. benzen se souřadnicemi Z=0.0)
+mol = Chem.MolFromSmiles("c1ccccc1")
+mol = Chem.AddHs(mol)
+AllChem.Compute2DCoords(mol)
 
-print(f"✓ Úspěšně zpracováno {len(corrected_mols)} konformerů z ConfGenX.")
+# Algoritmus korekce Z-osy z DrugEx SchrodingerConformerGenerator:
+# Přičtení +0.01 Å zabraňuje numerické singularitě momentu setrvačnosti v ROCS
+conf = mol.GetConformer()
+for atom in mol.GetAtoms():
+    pos = conf.GetAtomPosition(atom.GetIdx())
+    conf.SetAtomPosition(atom.GetIdx(), (pos.x, pos.y, pos.z + 0.01))
+
+print(f"✓ Úspěšně zpracováno {mol.GetNumAtoms()} atomů.")
 print("  Aplikována korekce Z-osy: +0.01 Å (ochrana před singularitou momentu setrvačnosti v ROCS).")`,
-        output: `✓ Úspěšně zpracováno 15 konformerů z ConfGenX.
+        output: `✓ Úspěšně zpracováno 12 atomů.
   Aplikována korekce Z-osy: +0.01 Å (ochrana před singularitou momentu setrvačnosti v ROCS).`
       },
       {

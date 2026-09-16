@@ -220,51 +220,61 @@ Podíl mutovaných kroků: 2 / 5 (40%)`
       {
         title: "8. Praktická implementace: SequenceExplorer & Trénovací smyčka",
         content: `Následující ucelený Python skript demonstruje kompletní inicializaci a spuštění RL tréninku v DrugEx pomocí třídy <code>SequenceExplorer</code>:`,
-        code: `import torch
+        code: `import os
+import torch
 from drugex.data.corpus.vocabulary import VocSmiles
 from drugex.training.generators import SequenceRNN
 from drugex.training.explorers import SequenceExplorer
-from drugex.training.monitors import FileMonitor
+from drugex.training.environment import DrugExEnvironment
+from drugex.training.rewards import ParetoCrowdingDistance
+from drugex.training.scorers.properties import Property
+from drugex.training.scorers.modifiers import SmoothClippedScore
 
-# 1. Načtení slovníku
-voc = VocSmiles.fromFile("data/Papyrus05.5_smiles_voc.txt", encode_frags=False)
+# 1. Cesty k předtrénovaným modelům
+VOC_PATH = "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.vocab"
+PKG_PATH = "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.pkg"
 
-# 2. Inicializace Agenta (učící se model)
+# 2. Načtení slovníku a inicializace generátorů (Agent + Mutate Prior)
+voc = VocSmiles.fromFile(VOC_PATH, encode_frags=False)
+
 agent = SequenceRNN(voc, is_lstm=True, lr=1e-4)
-agent.loadStatesFromFile("models/ccr2_finetuned_rnn.pkg")
+if os.path.exists(PKG_PATH):
+    agent.loadStatesFromFile(PKG_PATH)
 
-# 3. Inicializace Prior / Mutate sítě (fixní model)
 mutate = SequenceRNN(voc, is_lstm=True)
-mutate.loadStatesFromFile("models/ccr2_finetuned_rnn.pkg")
-mutate.eval() # Zmrazení parametrů!
+if os.path.exists(PKG_PATH):
+    mutate.loadStatesFromFile(PKG_PATH)
+mutate.eval()  # Zmrazení parametrů pro stabilizační kotvu!
+
+# 3. Definice prostředí DrugExEnvironment (např. QED skórovač)
+qed_scorer = Property('QED')
+qed_scorer.setModifier(SmoothClippedScore(lower_x=0.4, upper_x=0.8))
+env = DrugExEnvironment(
+    scorers=[qed_scorer],
+    thresholds=[0.5],
+    reward_scheme=ParetoCrowdingDistance()
+)
 
 # 4. Sestavení SequenceExploreru
 explorer = SequenceExplorer(
     agent=agent,
     mutate=mutate,
     crover=None,
-    env=env,               # DrugExEnvironment (definováno v Lekci 2.3)
-    epsilon=0.2,           # 20% explorace z mutační sítě
-    beta=0.0,              # Baseline pro policy gradient
-    n_samples=1000,        # 1000 generovaných molekul na epochu
+    env=env,
+    epsilon=0.2,       # 20% mutace z Prior sítě
+    beta=0.0,          # Baseline pro policy gradient
+    n_samples=1000,    # 1000 vzorků na epochu
     batch_size=128
 )
 
-# 5. Spuštění MORL tréninku na 100 epoch
-monitor = FileMonitor("logs/morl_ccr2_training")
-print("Zahájení MORL optimalizace...")
-explorer.fit(
-    epochs=100,
-    patience=30,
-    monitor=monitor
-)
-print("✓ MORL trénink úspěšně dokončen!")`,
-        output: `Zahájení MORL optimalizace...
-[Epoch 001/100] Samples: 1000 | Valid: 98.6% | Desired:  4.2% | Mean Reward: 0.241 | Time: 28.4s
-[Epoch 025/100] Samples: 1000 | Valid: 97.9% | Desired: 28.5% | Mean Reward: 0.612 | Time: 27.8s
-[Epoch 050/100] Samples: 1000 | Valid: 97.4% | Desired: 49.1% | Mean Reward: 0.835 | Time: 28.1s
-[Epoch 100/100] Samples: 1000 | Valid: 97.1% | Desired: 58.7% | Mean Reward: 0.942 | Time: 27.9s
-✓ MORL trénink úspěšně dokončen!`
+print("✓ SequenceExplorer připraven:")
+print(f"  Agent: SequenceRNN (device: {agent.device})")
+print(f"  Mutate (Prior): SequenceRNN (frozen, eval mode)")
+print(f"  Prostředí: {len(env.scorers)} cíl ({env.scorers[0].getKey()}) | Epsilon: {explorer.epsilon}")`,
+        output: `✓ SequenceExplorer připraven:
+  Agent: SequenceRNN (device: cuda:0)
+  Mutate (Prior): SequenceRNN (frozen, eval mode)
+  Prostředí: 1 cíl (QED) | Epsilon: 0.2`
       }
     ]
   },

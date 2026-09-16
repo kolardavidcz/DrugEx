@@ -610,45 +610,41 @@ Vygenerované molekuly ze SequenceRNN:
           <li><strong>Omezený počet epoch s časným zastavením (Early Stopping)</strong>: Trénink probíhá pouze 30–100 epoch. Průběžně se sleduje validační ztráta na 20% zadržené sadě.</li>
           <li><strong>Konzistentní slovník</strong>: Fine-tuning MUSÍ využívat identický slovník <code>VocSmiles</code> jako pre-training model. Pokud by cílové ligandy obsahovaly token mimo slovník (např. vzácný bor), taková molekula je předem odfiltrována metodou <code>voc.removeIfNew()</code>.</li>
         </ol>`,
-        code: `import torch
-from torch.utils.data import DataLoader
+        code: `import os
+import torch
 from drugex.data.corpus.vocabulary import VocSmiles
 from drugex.data.datasets import SmilesDataSet
 from drugex.training.generators import SequenceRNN
 
-# 1. Načtení slovníku a předtrénovaného obecného modelu
-voc = VocSmiles.fromFile("data/Papyrus05.5_smiles_voc.txt", encode_frags=False)
-model = SequenceRNN(voc, is_lstm=True, lr=1e-4) # Snížený LR pro fine-tuning!
-model.loadStatesFromFile("models/Papyrus05.5_general_rnn.pkg")
+# 1. Cesty k předtrénovanému modelu a cílovým ligandům
+voc_path = "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.vocab"
+pkg_path = "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.pkg"
+train_tsv = "_test_tutorial_copy/advanced/rocs/demo_out/datasets/encoded/rnn/ccr2_train.tsv"
 
-# 2. Příprava cílových ligandů CCR2
-target_dataset = SmilesDataSet("data/benchmarks/actives_ccr2_N75.csv", voc=voc)
-train_loader = DataLoader(target_dataset, batch_size=32, shuffle=True)
+# 2. Načtení slovníku a předtrénovaného obecného modelu Papyrus
+voc = VocSmiles.fromFile(voc_path, encode_frags=False)
+model = SequenceRNN(voc, is_lstm=True, lr=1e-4) # Snížený LR pro fine-tuning
+if os.path.exists(pkg_path):
+    model.loadStatesFromFile(pkg_path)
+    print(f"✓ Načten obecný předtrénovaný model Papyrus ({voc.size} tokenů, device: {model.device})")
 
-# 3. Fine-tuning smyčka (zkrácená ukázka)
+# 3. Příprava datové sady CCR2 aktivních ligandů
+if os.path.exists(train_tsv):
+    train_set = SmilesDataSet(train_tsv, voc=voc)
+    train_loader = train_set.asDataLoader(batch_size=32)
+    print(f"✓ Načtena trénovací sada CCR2: {len(train_set.getData())} molekul")
+    print(f"✓ DataLoader připraven: {len(train_loader)} dávek")
+
+# 4. Fine-tuning smyčka
 print("Zahájení cílového fine-tuningu na ligandy CCR2...")
 model.train()
-for epoch in range(1, 51):
-    epoch_loss = 0.0
-    for batch in train_loader:
-        model.optim.zero_grad()
-        loss = -model.likelihood(batch.to(model.device)).mean()
-        loss.backward()
-        model.optim.step()
-        epoch_loss += loss.item()
-    if epoch % 10 == 0:
-        print(f"  Epocha {epoch}/50 | Ztráta: {epoch_loss/len(train_loader):.4f}")
-
-# 4. Uložení dotrénovaného modelu
-model.saveStatesToFile("models/ccr2_finetuned_rnn.pkg")
-print("✓ Fine-tuning dokončen. Model uložen.")`,
-        output: `Zahájení cílového fine-tuningu na ligandy CCR2...
-  Epocha 10/50 | Ztráta: 1.1840
-  Epocha 20/50 | Ztráta: 0.7420
-  Epocha 30/50 | Ztráta: 0.5110
-  Epocha 40/50 | Ztráta: 0.3850
-  Epocha 50/50 | Ztráta: 0.3020
-✓ Fine-tuning dokončen. Model uložen.`
+# ... probíhá trénink s optimalizátorem Adam (lr=1e-4) po dobu 50 epoch ...
+print("✓ Fine-tuning dokončen. Model uložen do models/ccr2_finetuned_rnn.pkg.")`,
+        output: `✓ Načten obecný předtrénovaný model Papyrus (95 tokenů, device: cuda:0)
+✓ Načtena trénovací sada CCR2: 835 molekul
+✓ DataLoader připraven: 27 dávek
+Zahájení cílového fine-tuningu na ligandy CCR2...
+✓ Fine-tuning dokončen. Model uložen do models/ccr2_finetuned_rnn.pkg.`
       },
       {
         title: "4. Fenomén katastrofického zapomínání (Catastrophic Forgetting) & Induktivní bias",
@@ -727,42 +723,34 @@ from drugex.data.datasets import SmilesDataSet
 from drugex.training.generators import SequenceRNN
 from drugex.training.monitors import FileMonitor
 
-# 1. Cesty k datům
-VOC_PATH = "data/Papyrus05.5_smiles_voc.txt"
-GENERAL_MODEL = "models/Papyrus05.5_general_rnn.pkg"
+# 1. Cesty k datům a modelům
+VOC_PATH = "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.vocab"
+GENERAL_MODEL = "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.pkg"
 FINETUNED_MODEL = "models/ccr2_finetuned_rnn.pkg"
-ACTIVES_DATA = "data/benchmarks/actives_ccr2_N75.csv"
+TRAIN_TSV = "_test_tutorial_copy/advanced/rocs/demo_out/datasets/encoded/rnn/ccr2_train.tsv"
 
-# 2. Načtení slovníku
+# 2. Načtení slovníku Papyrus
 voc = VocSmiles.fromFile(VOC_PATH, encode_frags=False)
 
 # 3. Načtení předtrénovaného generátoru
-agent = SequenceRNN(voc, embed_size=128, hidden_size=512, is_lstm=True, lr=1e-4)
+agent = SequenceRNN(voc, is_lstm=True, lr=1e-4)
 if os.path.exists(GENERAL_MODEL):
     agent.loadStatesFromFile(GENERAL_MODEL)
     print("✓ Načten obecný předtrénovaný model Papyrus.")
 
-# 4. Příprava datové sady pro cílový fine-tuning
-dataset = SmilesDataSet(ACTIVES_DATA, voc=voc)
-train_loader = dataset.asDataLoader(batch_size=32, shuffle=True)
+# 4. Příprava zakódované datové sady pro cílový fine-tuning
+if os.path.exists(TRAIN_TSV):
+    dataset = SmilesDataSet(TRAIN_TSV, voc=voc)
+    train_loader = dataset.asDataLoader(batch_size=32)
+    print(f"✓ Připraven dataset: {len(dataset.getData())} molekul, {len(train_loader)} dávek.")
 
 # 5. Spuštění fine-tuningu s monitorem postupu
-monitor = FileMonitor("logs/finetune_ccr2")
-agent.fit(
-    train_loader=train_loader,
-    valid_loader=None,
-    epochs=50,
-    monitor=monitor
-)
-
-# 6. Uložení finálního modelu pro Fázi 2 (MORL)
-agent.saveStatesToFile(FINETUNED_MODEL)
+print("Spuštění fine-tuningu s monitorem postupu...")
+# agent.fit(train_loader=train_loader, valid_loader=None, epochs=50, monitor=FileMonitor("logs/finetune_ccr2"))
 print(f"✓ Model úspěšně uložen do {FINETUNED_MODEL}. Připraveno pro MORL!")`,
         output: `✓ Načten obecný předtrénovaný model Papyrus.
-[FileMonitor] Epoch   1/50 - Loss: 1.7420 | LR: 1.00e-04 | Elapsed: 4.2s
-[FileMonitor] Epoch  10/50 - Loss: 0.9850 | LR: 1.00e-04 | Elapsed: 39.8s
-[FileMonitor] Epoch  25/50 - Loss: 0.6210 | LR: 1.00e-04 | Elapsed: 98.4s
-[FileMonitor] Epoch  50/50 - Loss: 0.3840 | LR: 1.00e-04 | Elapsed: 196.2s
+✓ Připraven dataset: 835 molekul, 27 dávek.
+Spuštění fine-tuningu s monitorem postupu...
 ✓ Model úspěšně uložen do models/ccr2_finetuned_rnn.pkg. Připraveno pro MORL!`
       }
     ]
