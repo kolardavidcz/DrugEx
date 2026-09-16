@@ -24,23 +24,11 @@ from scaffviz.depiction.plot import Plot
 from torch.utils.data import DataLoader
 
 from _david import receptor_similar
-from drugex.data.corpus.corpus import SequenceCorpus
-from drugex.data.corpus.vocabulary import VocSmiles
-from drugex.data.datasets import SmilesDataSet
-from drugex.data.processing import (
-    CorpusEncoder,
-    RandomTrainTestSplitter,
-    Standardization,
-)
+from drugex.data import datasets, processing
+from drugex.data.corpus import corpus, vocabulary
 from drugex.logs import logger
-from drugex.training.environment import DrugExEnvironment
-from drugex.training.explorers import SequenceExplorer
-from drugex.training.generators import SequenceRNN
-from drugex.training.monitors import FileMonitor
-from drugex.training.rewards import ParetoCrowdingDistance
-from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
-from drugex.training.scorers.properties import Property
-from drugex.training.scorers.qsprpred import QSPRPredScorer
+from drugex.training import environment, explorers, generators, monitors, rewards
+from drugex.training.scorers import modifiers, properties, qsprpred, similarity  # noqa: F401
 
 logger.setLevel("ERROR")
 warnings.filterwarnings("ignore")
@@ -86,6 +74,7 @@ class david:
 
         # input data
         self.MODEL_DIR_PR: Path = self.ROOT_PATH / "data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT"
+        self.QSAR_DIR : Path = self.ROOT_PATH / "tutorial/data/models/qsar"
 
         # output
         self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -103,12 +92,12 @@ class david:
         self.MODEL_DIR_RL.mkdir(parents=True, exist_ok=True)
         self.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-        self.VOC = VocSmiles.fromFile(self.MODEL_DIR_PR / "Papyrus05.5_smiles_rnn_PT.vocab")
+        self.VOC = vocabulary.VocSmiles.fromFile(self.MODEL_DIR_PR / "Papyrus05.5_smiles_rnn_PT.vocab")
 
-        self.PRETRAINED = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)  # is_lstm = MORE PARAMETERS
+        self.PRETRAINED = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)  # is_lstm = MORE PARAMETERS
         self.PRETRAINED.loadStatesFromFile(self.MODEL_DIR_PR / "Papyrus05.5_smiles_rnn_PT.pkg")
 
-    def __TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(self, molecule_smile : str) -> list[Any]:
+    def __LEARNING_TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(self, molecule_smile : str) -> list[Any]:
 
         pipline = receptor_similar.MoleculeBioactivityPipeline()
         result: DataFrame = pipline.run(molecule_smile).papyrus_curated
@@ -117,7 +106,7 @@ class david:
 
         smiles: Series = result["SMILES"]
 
-        smiles_paralel = Standardization(n_proc=self.N_PROCESSES, chunk_size=self.CHUNK_SIZE).apply(smiles)
+        smiles_paralel = processing.Standardization(n_proc=self.N_PROCESSES, chunk_size=self.CHUNK_SIZE).apply(smiles)
         if smiles_paralel is None:
             raise RuntimeError("Standardization failed to process molecules.")
 
@@ -128,10 +117,10 @@ class david:
 
         return smiles_paralel
 
-    def __TRANSFER_LEARNING_tokenization(self, smiles_train : list[Any] ) -> tuple[SmilesDataSet, CorpusEncoder]:
+    def __LEARNING_TRANSFER_LEARNING_tokenization(self, smiles_train : list[Any] ) -> tuple[datasets.SmilesDataSet, processing.CorpusEncoder]:
 
-        encoder = CorpusEncoder(
-            SequenceCorpus, # The corpus CLASS (NOT OBJECT, just just as a constructor)
+        encoder = processing.CorpusEncoder(
+            corpus.SequenceCorpus, # The corpus CLASS (NOT OBJECT, just just as a constructor)
             {               # implements how each SMILES string is divided into words by the vocabulary
                 "vocabulary": self.VOC,
                 "update_voc": False,
@@ -141,16 +130,16 @@ class david:
             n_proc=self.N_PROCESSES,
             chunk_size=self.CHUNK_SIZE
         )
-        data_collector = SmilesDataSet(self.DATA_DIR / "ligand_corpus.tsv", rewrite=True)
+        data_collector = datasets.SmilesDataSet(self.DATA_DIR / "ligand_corpus.tsv", rewrite=True)
         
         encoder.apply(smiles_train, collector=data_collector)
 
         return data_collector, encoder
 
-    def __TRANSFER_LEARNING_make_test_dataset(self, data_collector : SmilesDataSet) -> tuple[DataLoader, DataLoader]:
+    def __LEARNING_TRANSFER_LEARNING_make_test_dataset(self, data_collector : datasets.SmilesDataSet) -> tuple[DataLoader, DataLoader]:
 
         if SAVE_PROOF:
-            splitter = RandomTrainTestSplitter(0.1, 10000)
+            splitter = processing.RandomTrainTestSplitter(0.1, 10000)
             train, test  = splitter(data_collector.getData())
             
             pd.DataFrame(train, columns=data_collector.getColumns()).to_csv(
@@ -162,26 +151,26 @@ class david:
 
             self.VOC.toFile(self.DATA_DIR / "pretrained.vocab")
             
-            train_loader = SmilesDataSet.dataToLoader(train, batch_size=self.BATCH_SIZE, vocabulary=self.VOC)
-            valid_loader = SmilesDataSet.dataToLoader(test, batch_size=self.BATCH_SIZE, vocabulary=self.VOC)
+            train_loader = datasets.SmilesDataSet.dataToLoader(train, batch_size=self.BATCH_SIZE, vocabulary=self.VOC)
+            valid_loader = datasets.SmilesDataSet.dataToLoader(test, batch_size=self.BATCH_SIZE, vocabulary=self.VOC)
             return train_loader, valid_loader
         
         loaders = data_collector.asDataLoader(
             batch_size=self.BATCH_SIZE,
-            splitter=RandomTrainTestSplitter(0.1, 10000),
+            splitter=processing.RandomTrainTestSplitter(0.1, 10000),
         )
         if isinstance(loaders, (list, tuple)) and len(loaders) == 2:
             return loaders[0], loaders[1]
         raise RuntimeError("Expected exactly two DataLoaders (train, valid) from splitter.")
 
-    def __TRANSFER_LEARNING_transfer_learning(self, train_loader : DataLoader, valid_loader : DataLoader, model_prefix : Path) -> SequenceRNN:
+    def __LEARNING_TRANSFER_LEARNING_transfer_learning(self, train_loader : DataLoader, valid_loader : DataLoader, model_prefix : Path) -> generators.SequenceRNN:
 
-        finetuned = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
+        finetuned = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
         finetuned.loadStatesFromFile(self.MODEL_DIR_PR / "Papyrus05.5_smiles_rnn_PT.pkg")
 
         reset_directory : bool =True
                                                   #save_smiles=True MAKES SAVE SAMPLE SMILES
-        monitor = FileMonitor(model_prefix, save_smiles=True, reset_directory=reset_directory)
+        monitor = monitors.FileMonitor(model_prefix, save_smiles=True, reset_directory=reset_directory)
                             
         #   _______ _____            _____ _   _ _____ _   _  _____ 
         #  |__   __|  __ \     /\   |_   _| \ | |_   _| \ | |/ ____|
@@ -203,7 +192,7 @@ class david:
             img = Draw.MolsToGridImage(mols, molsPerRow=5, subImgSize=[250, 250])
             img.save(str(self.MODEL_DIR_TL / "generated_molecules.png"))
 
-    def __TRANSFER_LEARNING_vizualize(self, finetuned : SequenceRNN, model_prefix : Path) -> DataFrame:
+    def __LEARNING_TRANSFER_LEARNING_vizualize(self, finetuned : generators.SequenceRNN, model_prefix : Path) -> DataFrame:
 
         performance_for_epoch: DataFrame = pd.read_csv(f"{model_prefix}_fit.tsv", sep="\t")
         
@@ -217,18 +206,18 @@ class david:
 
         return generated_sample
 
-    def TRANSFER_LEARNING(self, my_molecule : str = MOLECULE) -> tuple[SequenceRNN, DataFrame]:
+    def LEARNING_TRANSFER_LEARNING(self, my_molecule : str = MOLECULE) -> tuple[generators.SequenceRNN, DataFrame]:
         
-        smiles_train = self.__TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(my_molecule)
+        smiles_train = self.__LEARNING_TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(my_molecule)
 
-        data_collector, encoder = self.__TRANSFER_LEARNING_tokenization(smiles_train)
+        data_collector, encoder = self.__LEARNING_TRANSFER_LEARNING_tokenization(smiles_train)
         
-        train_loader, valid_loader = self.__TRANSFER_LEARNING_make_test_dataset(data_collector)
+        train_loader, valid_loader = self.__LEARNING_TRANSFER_LEARNING_make_test_dataset(data_collector)
 
         model_prefix = self.MODEL_DIR_TL / "david_finetuned" #wil be added ""_SOMETING.tsv" to the end
-        finetuned: SequenceRNN = self.__TRANSFER_LEARNING_transfer_learning(train_loader, valid_loader, model_prefix)
+        finetuned: generators.SequenceRNN = self.__LEARNING_TRANSFER_LEARNING_transfer_learning(train_loader, valid_loader, model_prefix)
 
-        generated_sample = self.__TRANSFER_LEARNING_vizualize(finetuned, model_prefix)
+        generated_sample = self.__LEARNING_TRANSFER_LEARNING_vizualize(finetuned, model_prefix)
 
         return finetuned, generated_sample
 
@@ -251,7 +240,8 @@ class david:
 
     #     self.__TRANSFER_LEARNING_vizualize()
 
-    def RAINFORCEMENT_LEARNING_vizualization(self, scores, generated, qsprpred_scorer):
+    def LEARNING_RAINFORCEMENT_LEARNING_vizualization(self, scores, generated, qsprpred_scorer):
+        ...
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         scores[qsprpred_scorer.getKey()].hist(ax=axes[0])
         axes[0].set_title(qsprpred_scorer.getKey())
@@ -276,7 +266,7 @@ class david:
         if fig_manifold is not None:
             fig_manifold.write_html(str(self.MODEL_DIR_RL / "rl_chemical_space.html"))
 
-    def COMPARE_vizualization(self, df, generated):
+    def LEARNING_COMPARE_vizualization(self, df, generated):
         df_joined : DataFrame = pd.concat(
             [
                 pd.DataFrame(
@@ -296,9 +286,9 @@ class david:
         if fig_manifold is not None:
             fig_manifold.write_html(str(self.MODEL_DIR_RL / "chemical_space_comparison.html"))
 
-    def RAINFORCEMENT_LEARNING_SCORE_SHOWCASE(self, environment : DrugExEnvironment):
+    def RAINFORCEMENT_LEARNING_SCORE_SHOWCASE(self, environment : environment.DrugExEnvironment):
 
-        agent = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
+        agent = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
         agent.loadStatesFromFile(self.MODEL_DIR_RL / "david_agent.pkg")
 
         generated_sample = agent.generate(num_samples=100)
@@ -309,29 +299,28 @@ class david:
         scored_df = pd.concat([generated_sample.reset_index(drop=True), scores.reset_index(drop=True)], axis=1)
         scored_df.to_csv(self.MODEL_DIR_RL / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
 
-        qsprpred_scorer = [s for s in environment.scorers if isinstance(s, QSPRPredScorer)][0]
-        self.RAINFORCEMENT_LEARNING_vizualization(scores, generated_sample, qsprpred_scorer)
+        qsprpred_scorer = [s for s in environment.scorers if isinstance(s, qsprpred.QSPRPredScorer)][0]
+        self.LEARNING_RAINFORCEMENT_LEARNING_vizualization(scores, generated_sample, qsprpred_scorer)
 
-    def RAINFORCEMENT_LEARNING(self):
+    def LEARNING_RAINFORCEMENT_LEARNING(self):
 
-        qsar_base = self.ROOT_PATH / "tutorial/data/models/qsar"
-        if not qsar_base.exists():
-            qsar_base = self.ROOT_PATH / "data/models/qsar"
+        QSAR_DIR_old_way_for_external_package : str = str(self.QSAR_DIR)
 
         predictor = SklearnModel(
-            name="A2AR_RandomForestClassifier",
-            base_dir=str(qsar_base)
+            name="DAVID_RandomForestClassifier",
+            base_dir=QSAR_DIR_old_way_for_external_package
         )
 
         #TODO: how about more functions?
 
-        qsprpred_scorer = QSPRPredScorer(predictor)
+        qsprpred_scorer = qsprpred.QSPRPredScorer(predictor)
 
-        sascore = Property("SA")
-        sascore.setModifier(SmoothClippedScore(lower_x=5, upper_x=3))
-        qsprpred_scorer.setModifier(ClippedScore(lower_x=0.2, upper_x=0.8))
+        sascore = properties.Property("SA")
+        #how about: 'QED': Quantitative Estimate of Drug-likeness
+        sascore.setModifier(modifiers.SmoothClippedScore(lower_x=5, upper_x=3))
+        qsprpred_scorer.setModifier(modifiers.ClippedScore(lower_x=0.2, upper_x=0.8))
 
-        scorers: list[Property | QSPRPredScorer] = [
+        scorers: list[properties.Property | qsprpred.QSPRPredScorer] = [
             qsprpred_scorer,
             sascore
         ]
@@ -340,23 +329,23 @@ class david:
             0.1
         ]
 
-        environment = DrugExEnvironment(scorers, thresholds, reward_scheme=ParetoCrowdingDistance())
+        env = environment.DrugExEnvironment(scorers, thresholds, reward_scheme=rewards.ParetoCrowdingDistance())
 
-        finetuned = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
+        finetuned = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
         finetuned_path = self.MODEL_DIR_TL / "david_finetuned.pkg"
         if not finetuned_path.exists():
             finetuned_path = self.ROOT_PATH / "tutorial/data/models/finetuned/smiles-rnn/david_finetuned.pkg"
         finetuned.loadStatesFromFile(finetuned_path)
 
-        explorer = SequenceExplorer(
+        explorer = explorers.SequenceExplorer(
             agent = finetuned, #TODO pretrained
-            env = environment,
+            env = env,
             mutate = self.PRETRAINED, # network introducing "random mutations" to the generated structures (rate determined by epsilon)
             epsilon = self.EPSILON,
             use_gpus = GPUS
         )
 
-        monitor = FileMonitor(self.MODEL_DIR_RL / "david_agent", save_smiles=True, reset_directory=True)
+        monitor = monitors.FileMonitor(self.MODEL_DIR_RL / "david_agent", save_smiles=True, reset_directory=True)
         explorer.fit(monitor=monitor, epochs=100)
 
         df_info = pd.read_csv(self.MODEL_DIR_RL / "david_agent_fit.tsv", sep="\t")
@@ -364,12 +353,29 @@ class david:
         with MY_save_plot(self.MODEL_DIR_RL / "rl_training_curves.png") as ax:
             df_info[["loss_train", "valid_ratio", "unique_ratio", "desired_ratio"]].plot.line(ax=ax)
 
-        self.RAINFORCEMENT_LEARNING_SCORE_SHOWCASE(environment)
+        self.RAINFORCEMENT_LEARNING_SCORE_SHOWCASE(env)
+
+    # In DrugEx, Reinforcement Learning consists of 5 modular pieces:
+
+    # The Agent (agent): The model being trained (starts from your david_finetuned.pkg).
+    # |↑        The Mutator (mutate): A frozen baseline model (usually self.PRETRAINED). With probability epsilon (e.g. 0.1), tokens are chosen from the mutator instead of the agent, preventing the agent from getting stuck generating the exact same single molecule over and over ("mode collapse").
+    # ↓|        ↓
+    # Scorers & Modifiers (Scorer + ScoreModifier): Every scorer must output values scaled between 0.0 and 1.0 (desirability utility).
+    # |   ↓↑
+    # |   The Environment (DrugExEnvironment): Takes your scorers, matching desirability thresholds, and an objective combiner (e.g. ParetoCrowdingDistance() for multi-objective optimization).
+    # ↓
+    # The Explorer (SequenceExplorer): Orchestrates the generator sampling, scoring, policy gradient updates, and passes metrics to FileMonitor.
+    def REAL_RAINFORCEMENT_LEARNING(self) -> None:
+        # TODO: similarity.TverskyFingerprintSimilarity
+        ...
+
+
 
 if __name__ == "__main__":
     tmp = david()
-    tmp.TRANSFER_LEARNING()
-   # tmp.RAINFORCEMENT_LEARNING()
+    tmp.LEARNING_TRANSFER_LEARNING()
+    tmp.LEARNING_RAINFORCEMENT_LEARNING()
+    tmp.REAL_RAINFORCEMENT_LEARNING()
 
 
 
