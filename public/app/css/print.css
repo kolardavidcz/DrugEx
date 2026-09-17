@@ -198,9 +198,12 @@
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  .code-header {
+  .code-header,
+  .code-header span,
+  .slide-content .code-header,
+  .slide-content .code-header span {
     background: #161b22 !important;
-    color: #8b949e !important;
+    color: #e6edf3 !important;
     border-bottom: 1px solid #30363d !important;
     padding: 4pt 10pt !important;
     font-size: 8.5pt !important;
@@ -211,6 +214,19 @@
     break-after: avoid !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+  .code-header span,
+  .slide-content .code-header span {
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    display: inline !important;
+  }
+  .code-header span:last-child,
+  .slide-content .code-header span:last-child,
+  .code-header span[style*="accent"],
+  .slide-content .code-header span[style*="accent"] {
+    color: #38bdf8 !important;
   }
   .code-header .tb-btn {
     display: none !important;
@@ -406,7 +422,7 @@
   .slide-content li,
   .slide-content ul,
   .slide-content ol,
-  .slide-content span:not([class*="syn-"]) {
+  .slide-content span:not([class*="syn-"]):not(.code-container *):not(.code-header *):not(.code-block *):not(.code-output-header *):not(.output-trace *):not(.output-insight *) {
     color: #0f172a !important;
   }
   .slide-content strong,

@@ -169,8 +169,11 @@
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-muted);
+  color: #e6edf3;
   font-size: 11px;
+}
+.code-header span:last-child {
+  color: var(--accent);
 }
 .code-block {
   margin: 0;
