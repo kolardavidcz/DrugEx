@@ -1,0 +1,266 @@
+{
+  "title": "Slovník Chemoinformatických Pojmů, Metrik & Zkratek",
+  "description": "Autoritativní referenční glosář pro bakalářskou a diplomovou práci (VŠCHT Praha / ÚOCHB AV ČR). Pokrývá klíčové algoritmy de novo návrhu, vícekriteriální optimalizace, 3D tvarového porovnávání a strojového učení.",
+  "terms": [
+    {
+      "id": "tanimoto_combo",
+      "term": "TanimotoCombo",
+      "en_term": "Tanimoto Combo Score",
+      "category": "3D ROCS & Konformace",
+      "formula": "T_{\\text{combo}} = T_{\\text{shape}} + T_{\\text{color}} = \\frac{I_{AB}}{I_{AA} + I_{BB} - I_{AB}} + \\frac{C_{AB}}{C_{AA} + C_{BB} - C_{AB}}",
+      "definition": "Souhrnná metrika 3D molekulární podobnosti v ROCS. Kombinuje shodu Gaussovského sterického objemu (Shape, [0, 1]) a shodu farmakoforových barevných center (Color, [0, 1]). Dosahuje maximální hodnoty 2.0 pro identické molekuly v identické konformaci.",
+      "target_range": "Pro smysluplnou vazebnou shodu > 0.85; vynikající kandidáti > 1.20.",
+      "lecture_ref": "Lekce 3.1 & 4.1"
+    },
+    {
+      "id": "idp",
+      "term": "Intrinsically Disordered Proteins (IDP)",
+      "en_term": "Intrinsically Disordered Proteins",
+      "category": "Metodologie DP",
+      "formula": null,
+      "definition": "Proteiny postrádající stabilní terciární strukturu, které existují jako dynamický konformační ansámbl. Tradiční rigidní dokování na IDP selhává, protože neexistuje stálá vazebná kapsa. Tvarové porovnávání (ROCS) zde slouží jako ligand-based alternativa modelující komplementární obálku aktivních konformací.",
+      "target_range": "Metodologická doména pro flexibilní cíle a indukované vazebné přechody.",
+      "lecture_ref": "Lekce 3.3"
+    },
+    {
+      "id": "crowding_distance",
+      "term": "Crowding Distance (PCD)",
+      "en_term": "Pareto Crowding Distance",
+      "category": "Algoritmy & AI",
+      "formula": "d_i = \\sum_{m=1}^M \\frac{f_m(i+1) - f_m(i-1)}{f_m^{\\max} - f_m^{\\min}}",
+      "definition": "Metrika hustoty řešení v objektivním prostoru převzatá z genetického algoritmu NSGA-II a adaptovaná v DrugExu pro Policy Gradient. Odměňuje molekuly nacházející se v méně zaplněných oblastech Paretovy fronty, čímž brání kolapsu chemické diverzity (Mode Collapse). Hraniční extrémy mají přiřazenu vzdálenost ∞.",
+      "target_range": "Normalizováno do vah odměn R(x) ∈ [0, 1].",
+      "lecture_ref": "Lekce 2.3"
+    },
+    {
+      "id": "policy_gradient",
+      "term": "Policy Gradient (REINFORCE)",
+      "en_term": "Policy Gradient Reinforcement Learning",
+      "category": "Algoritmy & AI",
+      "formula": "\\nabla_\\theta J(\\theta) = \\mathbb{E}_{\\pi_\\theta} \\left[ \\sum_{t=1}^T R(m) \\cdot \\nabla_\\theta \\log \\pi_\\theta(a_t \\mid s_t) \\right]",
+      "definition": "Základní algoritmus zpětnovazebního učení v DrugExu. Aktualizuje parametry θ neuronového generátoru ve směru, který zvyšuje pravděpodobnost generování tokenů vedoucích k molekulám s vysokou vícekriteriální odměnou R(m).",
+      "target_range": "Typický learning rate v DrugEx: 1e-4 až 2e-4.",
+      "lecture_ref": "Lekce 2.1"
+    },
+    {
+      "id": "prior_agent",
+      "term": "Prior & Agent Architektura",
+      "en_term": "Prior and Agent Dual-Network Architecture",
+      "category": "Algoritmy & AI",
+      "formula": "\\mathcal{L}(\\theta) = -\\mathbb{E} [R(x) \\log \\pi_\\theta(x)] + \\beta \\cdot D_{\\mathrm{KL}}(\\pi_\\theta \\parallel \\pi_0)",
+      "definition": "Dvousíťové uspořádání v DrugExu. Prior síť (π₀) je zmrazená síť předtrénovaná na obecné chemické databázi (Papyrus/ChEMBL), která uchovává znalost chemické gramatiky. Agent (π_θ) je učená síť optimalizující odměny. Penalizace Kullback-Leiblerovy divergence (DKL) drží Agenta v mezích synteticky realizovatelné chemie.",
+      "target_range": "Explorační poměr epsilon = 0.15–0.25; koeficient beta = 0.01–0.05.",
+      "lecture_ref": "Lekce 2.1 & 2.2"
+    },
+    {
+      "id": "sascore",
+      "term": "SAScore (Syntetická dostupnost)",
+      "en_term": "Synthetic Accessibility Score",
+      "category": "Chemoinformatika",
+      "formula": "\\text{SAScore} = \\text{FragmentScore} - \\text{ComplexityPenalty}",
+      "definition": "Metrika dle Ertla a Schuffenhauera hodnotící snadnost chemické syntézy molekuly. Vychází z frekvenční analýzy fragmentů v databázi PubChem a penalizuje strukturální složitost (chiralitu, spiro atomy, můstky, velké cykly). Škála 1 (triviální syntéza) až 10 (téměř nesyntetizovatelné).",
+      "target_range": "Požadavek pro praktickou syntézu v medchem: SAScore < 3.5; mezní limit < 4.5.",
+      "lecture_ref": "Lekce 1.3 & 2.2"
+    },
+    {
+      "id": "qed",
+      "term": "QED (Quantitative Estimate of Drug-likeness)",
+      "en_term": "Quantitative Estimate of Drug-likeness",
+      "category": "Chemoinformatika",
+      "formula": "\\text{QED} = \\exp \\left( \\frac{1}{k} \\sum_{i=1}^k w_i \\ln d_i \\right)",
+      "definition": "Kvantitativní odhad léčivupodobnosti navržený Bickertonem et al. Integruje 8 molekulárních vlastností (MW, logP, HBD, HBA, PSA, počet rotovatelných vazeb, počet aromatických kruhů a strukturní alerty) pomocí asymetrických žádoucích funkcí do jediného skóre v intervalu [0, 1].",
+      "target_range": "Pro de novo kandidáty QED > 0.60; ideálně > 0.75.",
+      "lecture_ref": "Lekce 1.3 & 5.3"
+    },
+    {
+      "id": "etkdgv3",
+      "term": "ETKDGv3",
+      "en_term": "Experimental Torsion Knowledge Distance Geometry v3",
+      "category": "3D ROCS & Konformace",
+      "formula": null,
+      "definition": "Algoritmus generování 3D konformerů v RDKit vyvinutý Rinikerem a Landrumem. Kombinuje distanční geometrii s empirickými preferencemi torzních úhlů extrahovanými z Cambridgeské strukturní databáze (CSD). Verze v3 přináší vylepšené vzorkování pro makrocykly a flexibilní alifatické řetězce.",
+      "target_range": "Doporučeno 30–50 konformerů na molekulu pro spolehlivý 3D ROCS scoring.",
+      "lecture_ref": "Lekce 3.2"
+    },
+    {
+      "id": "smooth_clipped_score",
+      "term": "SmoothClippedScore",
+      "en_term": "Smooth Clipped Score Modifier",
+      "category": "Algoritmy & AI",
+      "formula": "S(x) = \\frac{1}{1 + 10^{\\alpha (x - x_0)}} \\quad \\text{nebo hladký sigmoideální přechod}",
+      "definition": "Nelineární transformace v DrugExu převádějící fyzikálně-chemickou vlastnost (např. SAScore, MW, LogP) do normalizované odměny [0, 1]. Zabraňuje tomu, aby model byl nekonečně odměňován za extrémní honbu za čísly (např. triviální molekuly s MW 80) a vyhlazuje gradienty kolem požadovaného pásma.",
+      "target_range": "Pro SAScore: lower_x = 5.0 (odměna 0), upper_x = 3.0 (odměna 1).",
+      "lecture_ref": "Lekce 2.2 & 5.2"
+    },
+    {
+      "id": "brics",
+      "term": "BRICS (Retrosyntetická fragmentace)",
+      "en_term": "Breaking of Retrosynthetically Interesting Chemical Substructures",
+      "category": "Chemoinformatika",
+      "formula": null,
+      "definition": "Algoritmus retrosyntetického štěpení molekul navržený Degenem et al. Identifikuje 16 strategických typů chemických vazeb (např. amidy, estery, ethery, aryl-amidy) a nahrazuje je syntonovými exit-vektory [1*] až [16*]. Umožňuje fragment-based generování s garancí chemické valenční proveditelnosti.",
+      "target_range": "Základ fragmentových modelů v DrugEx (SmilesFragDataSet, VocFrag).",
+      "lecture_ref": "Lekce 6.1"
+    },
+    {
+      "id": "youden_index",
+      "term": "Youdenův Index (J)",
+      "en_term": "Youden's J Statistic (Informedness)",
+      "category": "Metodologie DP",
+      "formula": "J = \\text{Sensitivity} + \\text{Specificity} - 1 = \\text{TPR} - \\text{FPR}",
+      "definition": "Statistická metrika využívaná v ROC analýze pro objektivní stanovení dělícího prahu (threshold) mezi aktivními látkami a decoyi. Bod na ROC křivce, kde J dosahuje maxima, představuje optimální kompromis minimalizující falešnou pozitivitu i falešnou negativitu.",
+      "target_range": "Umožňuje kalibrovat práh TanimotoCombo (např. 0.871 pro CCR2) v scriptu threshold_analysis.py.",
+      "lecture_ref": "Lekce 5.3"
+    },
+    {
+      "id": "voc_smiles",
+      "term": "VocSmiles (Slovník tokenů)",
+      "en_term": "SMILES Vocabulary & Tokenizer Contract",
+      "category": "Chemoinformatika",
+      "formula": null,
+      "definition": "Tokenizační kontrakt v DrugExu definovaný regulárním výrazem rozdělujícím 1D SMILES na atomové symboly (včetně dvoupísmenných Br, Cl v hranatých závorkách i bez), vazby, větvení a izotopové značky. Zajišťuje invertibilní mapování mezi řetězcem a tenzorem celočíselných tokenů.",
+      "target_range": "Typická velikost slovníku: 60 až 100 tokenů.",
+      "lecture_ref": "Lekce 1.1"
+    },
+    {
+      "id": "molvs",
+      "term": "MolVS Standardizace",
+      "en_term": "Molecule Validation and Standardization",
+      "category": "Chemoinformatika",
+      "formula": null,
+      "definition": "Standardizační knihovna integrovaná v přípravě dat DrugExu. Odstraňuje anorganické soli a solváty (desalting), neutralizuje formální náboje, převádí funkční skupiny na kanonické tautomery a validuje valenční pravidla před tréninkem neuronových sítí.",
+      "target_range": "Povinný krok datové hygieny (drugex.data.processing).",
+      "lecture_ref": "Lekce 1.1"
+    },
+    {
+      "id": "papyrus",
+      "term": "Papyrus Databáze",
+      "en_term": "Papyrus Bioactivity Dataset",
+      "category": "Metodologie DP",
+      "formula": null,
+      "definition": "Rozsáhlá kurátorská databáze bioaktivních sloučenin (verze 05.5 obsahuje ~1,5 milionu látek s více než 60 miliony bioaktivit) sloučená z ChEMBL a BindingDB s harmonizovanými měřeními a stereochemií. Slouží jako referenční datový korpus pro předtrénování Prior sítí v DrugExu.",
+      "target_range": "Výchozí stav pro transfer learning a fine-tuning na specifický cíl.",
+      "lecture_ref": "Lekce 1.2"
+    },
+    {
+      "id": "decoy",
+      "term": "Decoy Sloučeniny",
+      "en_term": "Decoy Molecules (DUD-E)",
+      "category": "Metodologie DP",
+      "formula": null,
+      "definition": "Molekuly navržené tak, aby měly podobné fyzikálně-chemické vlastnosti jako známé aktivní ligandy (molekulovou hmotnost, logP, počet rotovatelných vazeb), ale zcela odlišnou 2D topologii a farmakoforové uspořádání. Používají se pro nestrannou kalibraci ROC křivek a validaci rozlišovací schopnosti ROCS scoreru.",
+      "target_range": "Poměr v benchmarku typicky 1 aktivní ku 30–50 decoyům.",
+      "lecture_ref": "Lekce 5.1"
+    },
+    {
+      "id": "mode_collapse",
+      "term": "Mode Collapse (Kolaps modelu)",
+      "en_term": "Mode Collapse Pathology",
+      "category": "Algoritmy & AI",
+      "formula": null,
+      "definition": "Patologický stav zpětnovazebního učení, kdy generátor ztratí chemickou rozmanitost a začne cyklicky produkovat jedinou nebo malou sadu struktur s vysokým skóre. V DrugExu je indikován poklesem unikátnosti (uniqueness < 30 %). Protilékem je zvýšení exploračního parametru epsilon a použití Crowding Distance.",
+      "target_range": "Cílová unikátnost v generované knihovně > 85 %.",
+      "lecture_ref": "Lekce 2.3 & 5.2"
+    },
+    {
+      "id": "reward_hacking",
+      "term": "Reward Hacking (Obcházení odměny)",
+      "en_term": "Reward Hacking / Metric Exploitation",
+      "category": "Algoritmy & AI",
+      "formula": null,
+      "definition": "Situace, kdy optimalizační algoritmus nalezne způsob, jak dosáhnout vysoké matematické odměny generováním chemických anomálií (např. extrémně dlouhých alifatických řetězců při nekontrolované odměně za LogP, nebo makrocyklů při čistém objemovém ROCS bez SA filtru). Řešením je vícekriteriální Paretovo vyvážení se striktním SAScore.",
+      "target_range": "Eliminováno správnou kompozicí DrugExEnvironment.",
+      "lecture_ref": "Lekce 2.2"
+    },
+    {
+      "id": "pains",
+      "term": "PAINS (Pan-Assay Interference Compounds)",
+      "en_term": "Pan-Assay Interference Compounds",
+      "category": "Chemoinformatika",
+      "formula": null,
+      "definition": "Substruktury vykazující falešně pozitivní aktivitu v biochemických testech (např. skrze reaktivní kovalentní modifikace, agregaci v roztoku, fluorescenci nebo produkci peroxidu vodíku, např. chinony, rhodaniny). V DrugExu jsou filtrovány přes RDKit FilterCatalog.",
+      "target_range": "Všechny finální kandidátní molekuly musí projít PAINS a Brenk filtrem s 0 alerty.",
+      "lecture_ref": "Lekce 5.3"
+    },
+    {
+      "id": "openeye_rocs",
+      "term": "OpenEye ROCS",
+      "en_term": "OpenEye Rapid Overlay of Chemical Structures",
+      "category": "3D ROCS & Konformace",
+      "formula": null,
+      "definition": "Průmyslový zlatý standard v 3D tvarovém porovnávání vyvinutý OpenEye Scientific Software. Využívá analytickou reprezentaci atomů pomocí hladkých Gaussovských funkcí a optimalizovaný Color Force Field. V DrugExu představuje vysoce výkonný backend, vyžadující však komerční licenci.",
+      "target_range": "Až 100x rychlejší než čisté Python implementace.",
+      "lecture_ref": "Lekce 4.3"
+    },
+    {
+      "id": "cdpkit",
+      "term": "CDPKit (CDPL)",
+      "en_term": "Chemical Data Processing Toolkit",
+      "category": "3D ROCS & Konformace",
+      "formula": null,
+      "definition": "Výkonný open-source C++ framework s Python bindingy pro chemoinformatiku a 3D farmakoforové modelování. V DrugExu slouží jako rychlý bezlicenční ekvivalent ROCS s plnou podporou 3D Gaussovského tvaru i barevných farmakoforů (cdpl.shape a cdpl.pharm).",
+      "target_range": "Ideální volba pro akademické klastry bez OpenEye licencí.",
+      "lecture_ref": "Lekce 4.2"
+    },
+    {
+      "id": "rdshapealign",
+      "term": "RDKit rdShapeAlign",
+      "en_term": "RDKit Shape Alignment & Distance",
+      "category": "3D ROCS & Konformace",
+      "formula": "D = \\text{ShapeTanimotoDist}(A, B) \\implies T_{\\text{shape}} = 1.0 - D",
+      "definition": "Nativní open-source modul v RDKit pro výpočet tvarové nepodobnosti pomocí Gaussovského překryvu. V DrugExu je obalen do RDKitROCSScoreru, který doplňuje farmakoforovou shodu přes FeatureMap.",
+      "target_range": "Plně přenositelné řešení bez externích knihoven.",
+      "lecture_ref": "Lekce 4.1"
+    },
+    {
+      "id": "nsga2",
+      "term": "NSGA-II Algoritmus",
+      "en_term": "Non-dominated Sorting Genetic Algorithm II",
+      "category": "Algoritmy & AI",
+      "formula": null,
+      "definition": "Klasický evoluční algoritmus pro vícekriteriální optimalizaci navržený Debem et al. Zavedl rychlé nedominované řazení (Non-dominated sorting) do vrstev F1, F2, F3 a crowding distance pro zachování diverzity. Principy tohoto algoritmu jsou jádrem vícekriteriálního učení v DrugExu.",
+      "target_range": "Zajišťuje rovnoměrné pokrytí Paretovy fronty.",
+      "lecture_ref": "Lekce 2.3"
+    },
+    {
+      "id": "selfies",
+      "term": "SELFIES",
+      "en_term": "Self-Referencing Embedded Strings",
+      "category": "Chemoinformatika",
+      "formula": null,
+      "definition": "Alternativní 1D řetězcová reprezentace chemických molekul vyvinutá Aspuru-Guzikem a kolegy. Na rozdíl od SMILES je 100 % všech vygenerovaných kombinací SELFIES tokenů syntakticky i valenčně chemicky platných, což eliminuje chybovost generátoru na syntaktické úrovni.",
+      "target_range": "Validita generování 100 % (vůči ~95 % u SMILES bez pokročilé filtrace).",
+      "lecture_ref": "Lekce 1.1"
+    },
+    {
+      "id": "pareto_front",
+      "term": "Paretova Fronta (Pareto Front)",
+      "en_term": "Pareto Optimal Front",
+      "category": "Algoritmy & AI",
+      "formula": "x^* \\in \\mathcal{P} \\iff \\nexists x : \\forall i, f_i(x) \\ge f_i(x^*) \\land \\exists j, f_j(x) > f_j(x^*)",
+      "definition": "Množina všech nedominovaných řešení v mnohorozměrném prostoru kritérií. Žádnou vlastnost molekuly na Paretově frontě nelze zlepšit, aniž by došlo ke zhoršení alespoň jedné jiné vlastnosti. Představuje optimální kompromis mezi afinitou, tvarem a syntetizovatelností.",
+      "target_range": "Počet molekul ve Frontě 1 typicky 5–20 % z generované dávky.",
+      "lecture_ref": "Lekce 2.3"
+    },
+    {
+      "id": "tanimoto_diversity",
+      "term": "Interní Diverzita Knihovny (Div)",
+      "en_term": "Internal Tanimoto Diversity",
+      "category": "Chemoinformatika",
+      "formula": "\\text{Div}(S) = 1 - \\frac{2}{|S|(|S|-1)} \\sum_{i < j} T(m_i, m_j)",
+      "definition": "Míra strukturní pestrosti vygenerované knihovny molekul S založená na průměrné Tanimoto vzdálenosti Morganových fingerprinterů (ECFP4) mezi všemi dvojicemi. Vysoká hodnota indikuje široké prozkoumání chemického prostoru, zatímco hodnota blízká 0 značí kolaps diverzity.",
+      "target_range": "Pro smysluplnou screeningovou knihovnu Div > 0.70; ideálně > 0.80.",
+      "lecture_ref": "Lekce 5.3"
+    },
+    {
+      "id": "drugex_env",
+      "term": "DrugExEnvironment",
+      "en_term": "Multi-Objective DrugEx Environment",
+      "category": "Algoritmy & AI",
+      "formula": null,
+      "definition": "Centrální výpočetní komponenta platformy DrugEx, která sdružuje jednotlivé skórovače (scorers), jejich normalizační modifikátory (modifiers), prahové hodnoty (thresholds) a vyhodnocovací schéma (ParetoCrowdingDistance). V každé epoše přebírá vygenerované SMILES a vrací matici odměn R(x).",
+      "target_range": "Modulární stavebnice integrující ROCS, SAScore, QSAR i fyz-chem filtry.",
+      "lecture_ref": "Lekce 2.2 & 5.2"
+    }
+  ]
+}

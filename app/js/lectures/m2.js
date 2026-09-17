@@ -86,7 +86,20 @@ Advantage (R - beta=0.4): [0.45, -0.28, 0.24]
 ~   Molekula #2 (R=0.64, Adv=+0.24): Kladný gradientní krok -> Mírné posílení generování (+24 %)
 💡 [POZNATEK: Význam základní linie (Baseline Beta)]
 💡   Bez parametru beta by i slabé kladné odměny (např. 0.12) vedly k posilování nežádoucích struktur.
-💡   Nastavení beta=0.40 zaručuje, že podprůměrní kandidáti jsou aktivně penalizováni!`
+💡   Nastavení beta=0.40 zaručuje, že podprůměrní kandidáti jsou aktivně penalizováni!`,
+        schematic: "policy-gradient",
+        callouts: [
+          {
+            type: "rule",
+            title: "Pravidlo z praxe: Vyvážení poměru Agent vs. Prior",
+            text: "Udržujte explorační poměr epsilon na hodnotě 0.15 až 0.25. Pokud klesne pod 0.10, agent se příliš rychle specializuje a začne cyklicky generovat tytéž struktury (Mode Collapse). Pokud je naopak vyšší než 0.35, učení nekonverguje a model ztrácí fokus na zadaný cíl."
+          },
+          {
+            type: "pitfall",
+            title: "Častá chyba v diplomce: Zanedbání KL-divergence",
+            text: "Pokud byste z trénovací ztráty odstranili regularizační člen beta * D_KL(pi_theta || pi_0), generátor by během prvních 10 epoch zcela zapomněl chemickou gramatiku získanou z Papyrus databáze a začal generovat syntetické anomálie."
+          }
+        ]
       },
       {
         title: "3. Rizika jednokriteriálního RL a fenomén 'Reward Hacking'",
@@ -415,7 +428,20 @@ print(f"  Prostředí: {len(env.scorers)} cíl ({env.scorers[0].getKey()}) | Eps
           type: "tip",
           title: "Geometrický význam",
           text: "Crowding distance d_i představuje obvod největšího hyper-kvádru v prostoru cílů, který obklopuje molekulu i a neobsahuje žádné jiné řešení z dané Paretovy vrstvy."
-        }
+        },
+        schematic: "pareto-front",
+        callouts: [
+          {
+            type: "rule",
+            title: "Pravidlo z praxe: Proč nepoužívat vážený součet (Weighted Sum)",
+            text: "Lineární vážený součet cílů R = w1*f1 + w2*f2 nedokáže prozkoumat konkávní oblasti Paretovy fronty a téměř vždy zkolabuje do jediného extrému. Paretovo nedominované řazení s Crowding Distance je jediný způsob, jak v DrugExu udržet populaci pestrou napříč celým spektrem kompromisů."
+          },
+          {
+            type: "lab",
+            title: "Laboratorní kontext: Výběr kandidátů pro syntézu na VŠCHT",
+            text: "Při výběru 10 kandidátů pro reálnou organickou syntézu nevybírejte pouze molekuly s nejvyšším ROCS skóre. Vyberte reprezentanty z různých oblastí Paretovy fronty 1 (např. 3 molekuly s extrémním tvarem, 4 s vyváženým tvarem i syntetizovatelností a 3 se špičkovým SAScore). Tím minimalizujete riziko, že celá chemická série selže na jediném nečekaném problému."
+          }
+        ]
       },
       {
         title: "6. Převod Paretových hodností a Crowding Distance na skalární odměnu R(X)",

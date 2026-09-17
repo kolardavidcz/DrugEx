@@ -30,7 +30,19 @@ export const M1_LECTURES = {
           type: "note",
           title: "Význam pro bakalářskou práci na VŠCHT / ÚOCHB",
           text: "Při návrhu ligandů pro flexibilní cíle a IDP proteiny je volba reprezentace kritická: 1D sekvenční modely (SequenceRNN) poskytují obrovskou chemickou flexibilitu a rychlost pro rozsáhlý screening, zatímco fragmentové a grafové modely (GraphTransformer) umožňují rigorózní zachování pevných scaffoldů (scaffold-constrained generation) a 100% syntaktickou validitu."
-        }
+        },
+        callouts: [
+          {
+            type: "rule",
+            title: "Pravidlo z praxe: Standardizace MolVS před tréninkem",
+            text: "Nikdy netrénujte jazykový model generátoru na surových SMILES z veřejných repozitářů. Před vytvořením slovníku VocSmiles vždy aplikujte kompletní desalting (odstranění solí a solvátů, např. Na+, Cl-, TFA), neutralizaci formálních nábojů a převod na kanonické tautomery. Přítomnost solí ve slovníku vede k plýtvání kapacitou sítě a tvorbě nerealistických iontových párů."
+          },
+          {
+            type: "pitfall",
+            title: "Častá chyba v diplomce: Ztráta chirality v 1D SMILES",
+            text: "Pokud vygenerujete molekulu jako achirální SMILES (bez označení @ nebo @@ na asymetrickém uhlíku), RDKit ani jiný konformační engine nemůže vědět, který enantiomer má postavit do 3D prostoru pro ROCS porovnání. Vždy zajistěte, aby generátor pracoval s chirálními tokeny, nebo při konformačním screeningu explicitně enumerujte všechny stereoisomery (max. 4 na molekulu)."
+          }
+        ]
       },
       {
         title: "2. Hloubková taxonomie 1D notací: SMILES vs DeepSMILES vs SELFIES",
@@ -110,7 +122,8 @@ for f in frags:
 ~   Značky [N*] představují syntetické vektory (attachment points) pro rekombinaci synthonů ve Fázi 2
 💡 [POZNATEK: Proč BRICS fragmenty v DrugEx?]
 💡   Omezení generování na pravidla BRICS garantuje, že každou nově navrženou
-💡   kandidátní molekulu lze reálně připravit v laboratoři pomocí ověřených organických reakcí.`
+💡   kandidátní molekulu lze reálně připravit v laboratoři pomocí ověřených organických reakcí.`,
+        schematic: "brics-cleavage"
       },
       {
         title: "4. Srovnávací analýza reprezentací pro generativní AI",

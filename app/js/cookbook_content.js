@@ -342,6 +342,106 @@ if __name__ == "__main__":
     print(f"  Dosažená hodnota cíle: {study.best_value:.4f}")
     print("=================================================")
 `
+    },
+    {
+      id: "recipe5",
+      title: "Recept 5: Selektivní Counter-Screening (Aktivace CCR2 vs. Penalizace Toxicity hERG)",
+      badge: "Bezpečnost & Antitargety",
+      desc: "Jak v DrugExu optimalizovat afinitu k terapeutickému cíli (CCR2) a současně aktivně trestat vazbu k hERG iontovému kanálu (prevence prodloužení QT intervalu a kardiotoxicity).",
+      code: `#!/usr/bin/env python3
+"""
+Recept 5: Dual-Target Selektivita v DrugExEnvironment
+Aktivita k cíli CCR2 (maximalizovat) vs. hERG kardiotoxicita (penalizovat)
+"""
+
+from drugex.training.environment import DrugExEnvironment
+from drugex.training.rewards import ParetoCrowdingDistance
+from drugex.training.scorers.modifiers import SmoothClippedScore
+from drugex.training.scorers.properties import Property
+from drugex.training.scorers.qsprpred import QSPRPredScorer
+
+def build_counter_screening_environment():
+    # 1. Pozitivní cíl: afinita k CCR2 (požadujeme pIC50 >= 7.0)
+    target_ccr2 = QSPRPredScorer(model_path="models/qsar_ccr2_random_forest.pkg")
+    target_ccr2.setModifier(SmoothClippedScore(
+        lower_x=6.0,   # pIC50 <= 6.0: odměna 0.0
+        upper_x=8.0,   # pIC50 >= 8.0: odměna 1.0 (maximalizace)
+        high_score=1.0, low_score=0.0
+    ))
+
+    # 2. Antitarget: hERG afinita (chceme pIC50 < 5.0, penalizujeme vyšší)
+    antitarget_herg = QSPRPredScorer(model_path="models/qsar_herg_svm.pkg")
+    antitarget_herg.setModifier(SmoothClippedScore(
+        lower_x=6.5,   # pIC50 >= 6.5: odměna 0.0 (tvrdá penalizace kardiotoxických látek)
+        upper_x=4.5,   # pIC50 <= 4.5: odměna 1.0 (bezpečné molekuly)
+        high_score=1.0, low_score=0.0
+    ))
+
+    # 3. Syntetická dostupnost jako stabilizátor
+    sa_scorer = Property('SA', modifier=SmoothClippedScore(lower_x=4.5, upper_x=2.5))
+
+    env = DrugExEnvironment(
+        scorers=[target_ccr2, antitarget_herg, sa_scorer],
+        thresholds=[0.60, 0.70, 0.50],
+        reward_scheme=ParetoCrowdingDistance()
+    )
+    return env
+`
+    },
+    {
+      id: "recipe6",
+      title: "Recept 6: Fragment Growing s Fixním Jádrem (BRICS Scaffold-Constrained RL)",
+      badge: "Fragment-Based Drug Design",
+      desc: "Konfigurace FragSequenceExploreru pro rozvíjení nového farmakoforového ramene ze zadaného bioaktivního syntonu s ověřením 3D tvarové komplementarity v kapse.",
+      code: `#!/usr/bin/env python3
+"""
+Recept 6: Fragment-based generování ze známého scaffoldového jádra
+Fixní fragment (synton [16*]c1ccc(NC(=O)...)) + optimalizace rozšiřujícího ramene
+"""
+
+from drugex.data.corpus.vocabulary import VocSmiles
+from drugex.data.datasets import SmilesFragDataSet
+from drugex.training.generators import SequenceRNN
+from drugex.training.explorers import FragSequenceExplorer
+from drugex.training.environment import DrugExEnvironment
+from drugex.training.rewards import ParetoCrowdingDistance
+from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+
+def setup_fragment_growing_rl(core_scaffold_smiles: str = "c1ccc(NC(=O)[16*])cc1"):
+    # 1. Inicializace fragmentového datasetu s fixním jádrem
+    dataset = SmilesFragDataSet("data/papyrus_fragments.tsv")
+    voc = dataset.getVoc()
+
+    # 2. Generátor specializovaný na fragmentové napojování
+    agent = SequenceRNN(voc, is_lstm=True)
+    agent.loadStatesFromFile("models/frag_generator_prior.pkg")
+
+    # 3. Prostředí hodnotící tvarový růst celé molekuly
+    conformer_engine = RDKitConformerGenerator(max_conformers=30, num_threads=1)
+    rocs_scorer = RDKitROCSScorer(
+        conformer_generator=conformer_engine,
+        references="data/CCR2_reference_ligands.sdf",
+        score_type="TanimotoCombo"
+    )
+
+    env = DrugExEnvironment(
+        scorers=[rocs_scorer],
+        thresholds=[0.85],
+        reward_scheme=ParetoCrowdingDistance()
+    )
+
+    # 4. Explorer fixující synton a rozvíjející pouze volné exit vektory
+    explorer = FragSequenceExplorer(
+        agent=agent,
+        mutate=None,
+        env=env,
+        epsilon=0.20,
+        n_samples=500,
+        batch_size=64
+    )
+    return explorer
+`
     }
   ],
 
@@ -368,6 +468,16 @@ if __name__ == "__main__":
       problem: "Generátor navrhuje synteticky nemožné molekuly (plné spiro-cyklů a můstků)",
       cause: "Chybí penalizace syntetické dostupnosti.",
       solution: "Přidejte `Property('SA', modifier=SmoothClippedScore(lower_x=4.5, upper_x=2.5))` s prahem 0.5 do prostředí, nebo přejděte na fragmentový `FragSequenceExplorer` s pravidly BRICS."
+    },
+    {
+      problem: "Zamrznutí konformačního generátoru (Conformer Embedding Bottleneck na makrocyklech)",
+      cause: "Distanční geometrie v RDKit ETKDGv3 nedokáže u rigidních či makrocyklických scaffoldů najít konvergující 3D souřadnice a zasekne CPU worker.",
+      solution: "1. Nastavte striktní timeout a `max_attempts=15` v `RDKitConformerGenerator`.\n2. Při selhání konformačního vnoření přiřaďte fallback skóre 0.0, čímž agent strukturu okamžitě opustí.\n3. Zkontrolujte strop počtu rotovatelných vazeb (`max_rotatable_bonds=15`)."
+    },
+    {
+      problem: "Reward Hacking: Falešně pozitivní molekuly & PAINS reaktivní farmakofory",
+      cause: "Optimalizace 3D tvaru odměňuje velké planární plochy (chinony, polykondenzované aromatické kruhy), které v testech vykazují nespecifickou vazbu.",
+      solution: "1. Do vyhodnocovacího workflow zapojte `FilterCatalog` s pravidly PAINS a Brenk (viz Lekce 5.3).\n2. Zaveďte horní ořezání pro počet aromatických kruhů (`Property('NumAromaticRings', modifier=SmoothClippedScore(lower_x=4, upper_x=2, high_score=1.0, low_score=0.0))`)."
     },
     {
       problem: "Pád výpočtu při n_jobs > 1 (CPU Thrashing / Freeze)",

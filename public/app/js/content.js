@@ -7,6 +7,7 @@ import { state, ensureShuffledOptions } from "./state.js";
 import { highlightPython, formatFormula, formatTerminalOutput, hasTerminalTrace } from "./format.js";
 import { LECTURE_DATA } from "./lectures_content.js";
 import { COOKBOOK_DATA } from "./cookbook_content.js";
+import { createRocsGaussianSvg, createPolicyGradientSvg, createParetoFrontSvg, createBricsCleavageSvg } from "./schematics.js";
 
 export function renderLecture(container, lectureId) {
   if (!container) return;
@@ -166,6 +167,35 @@ export function renderLecture(container, lectureId) {
       card.appendChild(alertBox);
     }
 
+    if (slide.schematic) {
+      let svgHtml = "";
+      if (slide.schematic === "rocs-gaussian") svgHtml = createRocsGaussianSvg();
+      else if (slide.schematic === "policy-gradient") svgHtml = createPolicyGradientSvg();
+      else if (slide.schematic === "pareto-front") svgHtml = createParetoFrontSvg();
+      else if (slide.schematic === "brics-cleavage") svgHtml = createBricsCleavageSvg();
+      if (svgHtml) {
+        card.appendChild(el("div", { innerHTML: svgHtml }));
+      }
+    }
+
+    if (slide.callouts && Array.isArray(slide.callouts)) {
+      slide.callouts.forEach(c => {
+        let icon = "📌";
+        let defaultHead = "Pravidlo z praxe";
+        if (c.type === "pitfall") {
+          icon = "⚠️";
+          defaultHead = "Častá chyba v diplomové práci";
+        } else if (c.type === "lab") {
+          icon = "🧪";
+          defaultHead = "Laboratorní kontext (VŠCHT / ÚOCHB)";
+        }
+        card.appendChild(el("div", { className: `callout-box callout-${c.type}` }, [
+          el("div", { className: "callout-head" }, `${icon} ${c.title || defaultHead}`),
+          el("div", { className: "callout-body", innerHTML: c.text })
+        ]));
+      });
+    }
+
     view.appendChild(card);
   });
 
@@ -312,17 +342,20 @@ export async function renderHandbookPrintView(container) {
   if (!container) return;
   clear(container);
 
-  // Fetch all 6 quiz decks
-  const quizPromises = [1, 2, 3, 4, 5, 6].map(async num => {
-    try {
-      const res = await fetch(`/data/quizzes/m${num}.json`);
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn(`Failed to fetch quiz m${num}:`, e);
-    }
-    return null;
-  });
-  const quizzes = await Promise.all(quizPromises);
+  // Fetch all 6 quiz decks, thesis guide, and glossary in parallel
+  const [quizzes, thesisGuide, glossaryData] = await Promise.all([
+    Promise.all([1, 2, 3, 4, 5, 6].map(async num => {
+      try {
+        const res = await fetch(`/data/quizzes/m${num}.json`);
+        if (res.ok) return await res.json();
+      } catch (e) {
+        console.warn(`Failed to fetch quiz m${num}:`, e);
+      }
+      return null;
+    })),
+    fetch("/data/thesis_guide.json").then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch("/data/glossary.json").then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
   const quizMap = {};
   quizzes.forEach((q, idx) => {
     if (q) quizMap[idx + 1] = q;
@@ -345,6 +378,89 @@ export async function renderHandbookPrintView(container) {
     ])
   ]);
   view.appendChild(cover);
+
+  // 1b. Table of Contents (Obsah Knihy)
+  const tocPage = el("div", { className: "handbook-toc-page" }, [
+    el("div", { className: "toc-title" }, [
+      el("span", {}, "Obsah Výukové Příručky"),
+      el("span", { className: "toc-subtitle" }, "DrugEx Hub · Verze 1.0.0 · VŠCHT / ÚOCHB")
+    ]),
+    el("div", { className: "toc-grid" }, [
+      // Levý sloupec: Moduly 1-3
+      el("div", { className: "toc-col" }, [
+        el("div", { className: "toc-module-block" }, [
+          el("div", { className: "toc-mod-head" }, "Modul 1: De Novo Generování & Molekulární Reprezentace"),
+          el("ul", { className: "toc-lec-list" }, [
+            el("li", { className: "toc-lec-item" }, "1.1 Molekulární reprezentace, tokenizace & slovník (VocSmiles)"),
+            el("li", { className: "toc-lec-item" }, "1.2 Generativní modely: Sequence RNN & Transfomery"),
+            el("li", { className: "toc-lec-item" }, "1.3 Předtrénování na Papyrus & Transfer Learning"),
+            el("li", { className: "toc-lec-item", style: { color: "#0284c7", fontWeight: "700" } }, "✓ Autoevaluační Test Modulu 1 & Klíč řešení")
+          ])
+        ]),
+        el("div", { className: "toc-module-block" }, [
+          el("div", { className: "toc-mod-head" }, "Modul 2: Vícekriteriální Zpětnovazební Učení (MORL)"),
+          el("ul", { className: "toc-lec-list" }, [
+            el("li", { className: "toc-lec-item" }, "2.1 Architektura Policy Gradientu: Agent vs. Prior"),
+            el("li", { className: "toc-lec-item" }, "2.2 Skládání prostředí DrugExEnvironment & Modifikátory"),
+            el("li", { className: "toc-lec-item" }, "2.3 Paretovo nedominované řazení & Crowding Distance"),
+            el("li", { className: "toc-lec-item", style: { color: "#0284c7", fontWeight: "700" } }, "✓ Autoevaluační Test Modulu 2 & Klíč řešení")
+          ])
+        ]),
+        el("div", { className: "toc-module-block" }, [
+          el("div", { className: "toc-mod-head" }, "Modul 3: 3D Tvarové Porovnávání (ROCS), IDP & Konformace"),
+          el("ul", { className: "toc-lec-list" }, [
+            el("li", { className: "toc-lec-item" }, "3.1 Principy 3D ROCS & Gaussovský překryv objemů"),
+            el("li", { className: "toc-lec-item" }, "3.2 Generování 3D konformerů (ETKDGv3 & RMSD prunování)"),
+            el("li", { className: "toc-lec-item" }, "3.3 Specifika flexibilních cílů & Intrinsically Disordered Proteins"),
+            el("li", { className: "toc-lec-item", style: { color: "#0284c7", fontWeight: "700" } }, "✓ Autoevaluační Test Modulu 3 & Klíč řešení")
+          ])
+        ])
+      ]),
+      // Pravý sloupec: Moduly 4-7 & Přílohy
+      el("div", { className: "toc-col" }, [
+        el("div", { className: "toc-module-block" }, [
+          el("div", { className: "toc-mod-head" }, "Modul 4: Hloubková Architektura ROCS Scorerů"),
+          el("ul", { className: "toc-lec-list" }, [
+            el("li", { className: "toc-lec-item" }, "4.1 RDKit ROCS Scorer & ShapeTanimoto"),
+            el("li", { className: "toc-lec-item" }, "4.2 CDPKit / CDPL Farmakoforový Scorer"),
+            el("li", { className: "toc-lec-item" }, "4.3 OpenEye ROCS & Srovnávací Rosetta Stone"),
+            el("li", { className: "toc-lec-item", style: { color: "#0284c7", fontWeight: "700" } }, "✓ Autoevaluační Test Modulu 4 & Klíč řešení")
+          ])
+        ]),
+        el("div", { className: "toc-module-block" }, [
+          el("div", { className: "toc-mod-head" }, "Modul 5: Experimentální Pipeline na CCR2"),
+          el("ul", { className: "toc-lec-list" }, [
+            el("li", { className: "toc-lec-item" }, "5.1 Příprava dat a modelů (config.py & prepare_models.py)"),
+            el("li", { className: "toc-lec-item" }, "5.2 Běh MORL optimalizace (SequenceExplorer)"),
+            el("li", { className: "toc-lec-item" }, "5.3 Generování kandidátů & Youdenova ROC kalibrace"),
+            el("li", { className: "toc-lec-item", style: { color: "#0284c7", fontWeight: "700" } }, "✓ Autoevaluační Test Modulu 5 & Klíč řešení")
+          ])
+        ]),
+        el("div", { className: "toc-module-block" }, [
+          el("div", { className: "toc-mod-head" }, "Modul 6: BRICS Fragmenty & HPC Škálování"),
+          el("ul", { className: "toc-lec-list" }, [
+            el("li", { className: "toc-lec-item" }, "6.1 Retrosyntetická fragmentace BRICS & VocFrag"),
+            el("li", { className: "toc-lec-item" }, "6.2 Fragment-based RL generování (FragSequenceExplorer)"),
+            el("li", { className: "toc-lec-item" }, "6.3 HPC Paralelizace, Slurm orchestrace & Multi-GPU"),
+            el("li", { className: "toc-lec-item", style: { color: "#0284c7", fontWeight: "700" } }, "✓ Autoevaluační Test Modulu 6 & Klíč řešení")
+          ])
+        ]),
+        el("div", { className: "toc-module-block" }, [
+          el("div", { className: "toc-mod-head" }, "Modul 7 & Metodologické Přílohy"),
+          el("ul", { className: "toc-lec-list" }, [
+            el("li", { className: "toc-lec-item" }, "Modul 7: Uživatelská Kuchařka & 6 Receptů Prostředí"),
+            el("li", { className: "toc-lec-item" }, "Příloha A: Standard Operating Procedure (SOP)"),
+            el("li", { className: "toc-lec-item" }, "Příloha B: Teoretický Rámec Flexibilních Cílů & IDP"),
+            el("li", { className: "toc-lec-item" }, "Příloha C: Vzorová kapitola Výpočetní Metody"),
+            el("li", { className: "toc-lec-item" }, "Příloha D: Bibliografie podle ČSN ISO 690"),
+            el("li", { className: "toc-lec-item", style: { fontWeight: "700", color: "#0284c7" } }, "Příloha E: Autoritativní Slovník Chemoinformatiky (26 hesel)"),
+            el("li", { className: "toc-lec-item", style: { fontWeight: "700", color: "#059669" } }, "Příloha F: Rychlá Referenční Karta (Cheat-Sheet pro HPC & RDKit)")
+          ])
+        ])
+      ])
+    ])
+  ]);
+  view.appendChild(tocPage);
 
   // 2. All 6 Modules & 18 Lectures
   const moduleMap = [
@@ -438,6 +554,35 @@ export async function renderHandbookPrintView(container) {
             el("div", { innerHTML: slide.alert.text })
           ]);
           card.appendChild(alertBox);
+        }
+
+        if (slide.schematic) {
+          let svgHtml = "";
+          if (slide.schematic === "rocs-gaussian") svgHtml = createRocsGaussianSvg();
+          else if (slide.schematic === "policy-gradient") svgHtml = createPolicyGradientSvg();
+          else if (slide.schematic === "pareto-front") svgHtml = createParetoFrontSvg();
+          else if (slide.schematic === "brics-cleavage") svgHtml = createBricsCleavageSvg();
+          if (svgHtml) {
+            card.appendChild(el("div", { innerHTML: svgHtml }));
+          }
+        }
+
+        if (slide.callouts && Array.isArray(slide.callouts)) {
+          slide.callouts.forEach(c => {
+            let icon = "📌";
+            let defaultHead = "Pravidlo z praxe";
+            if (c.type === "pitfall") {
+              icon = "⚠️";
+              defaultHead = "Častá chyba v diplomové práci";
+            } else if (c.type === "lab") {
+              icon = "🧪";
+              defaultHead = "Laboratorní kontext (VŠCHT / ÚOCHB)";
+            }
+            card.appendChild(el("div", { className: `callout-box callout-${c.type}` }, [
+              el("div", { className: "callout-head" }, `${icon} ${c.title || defaultHead}`),
+              el("div", { className: "callout-body", innerHTML: c.text })
+            ]));
+          });
         }
 
         lecSec.appendChild(card);
@@ -595,21 +740,163 @@ export async function renderHandbookPrintView(container) {
   ]);
   view.appendChild(troubleCard);
 
-  // 4. Append Thesis Guide and Protocol Template
+  // 4. Comprehensive Methodological Appendices (Přílohy A až F)
   const thesisSection = el("div", { className: "module-print-divider" }, [
-    el("h2", {}, "Příloha: Metodologický Protokol & Šablona Textu Práce")
+    el("h2", {}, "Metodologické Přílohy & Referenční Aparát")
   ]);
   view.appendChild(thesisSection);
 
+  // Příloha A: Standard Operating Procedure (SOP)
+  const sopSection = thesisGuide && thesisGuide.sections ? thesisGuide.sections.find(s => s.id === "workflow") : null;
+  const sopCard = el("section", { className: "slide-card" }, [
+    el("div", { className: "slide-title-bar" }, [
+      el("div", { className: "slide-title" }, "Příloha A: Standard Operating Procedure (SOP) pro Výpočetní Návrh")
+    ]),
+    el("p", { style: { fontSize: "9pt", color: "#475569", marginBottom: "10pt" } }, 
+      "Doporučený 5krokový protokol od přípravy biologických dat po finální filtraci generovaných knihoven pro bakalářskou a diplomovou práci:"
+    ),
+    el("div", { style: { display: "flex", flexDirection: "column", gap: "8pt" } },
+      (sopSection && sopSection.steps ? sopSection.steps : [
+        { step: 1, name: "Příprava datové sady & Referenčních struktur", desc: "Získání známých aktivních ligandů cíle (SDF s 3D souřadnicemi) a decoyů." },
+        { step: 2, name: "Stanovení optimálního ROCS prahu (Youdenova analýza)", desc: "Spuštění threshold_analysis.py, stanovení dělícího prahu TanimotoCombo." },
+        { step: 3, name: "Jemné doladění generátoru (Fine-Tuning)", desc: "Dotrénování obecného modelu Papyrus na sadě cílových ligandů po dobu 100 epoch." },
+        { step: 4, name: "Vícekriteriální RL optimalizace (MORL)", desc: "Spuštění SequenceExploreru s prostředím DrugExEnvironment (ROCS + SAScore)." },
+        { step: 5, name: "Vzorkování, filtrace & Validace molekul", desc: "Vygenerování 5 000–10 000 molekul, filtrace duplicit a PAINS alertů." }
+      ]).map(s => el("div", {
+        style: { background: "#f8fafc", border: "1px solid #cbd5e1", borderLeft: "4pt solid #0284c7", borderRadius: "3pt", padding: "6pt 10pt" }
+      }, [
+        el("div", { style: { fontWeight: "800", color: "#0284c7", fontSize: "9pt", marginBottom: "2pt" } }, `Krok ${s.step}: ${s.name}`),
+        el("div", { style: { fontSize: "8.5pt", color: "#334155", lineHeight: "1.4" } }, s.desc)
+      ]))
+    )
+  ]);
+  view.appendChild(sopCard);
+
+  // Příloha B: Teoretický Rámec Flexibilních Cílů & IDP
+  const idpSection = thesisGuide && thesisGuide.sections ? thesisGuide.sections.find(s => s.id === "introduction") : null;
+  const idpCard = el("section", { className: "slide-card" }, [
+    el("div", { className: "slide-title-bar" }, [
+      el("div", { className: "slide-title" }, "Příloha B: Teoretický Rámec Flexibilních Cílů & Intrinsically Disordered Proteins (IDP)")
+    ]),
+    el("div", { style: { fontSize: "8.8pt", color: "#1e293b", lineHeight: "1.55", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "4pt", padding: "10pt 14pt" } }, [
+      el("p", { style: { margin: "0 0 8pt 0" } }, idpSection ? idpSection.content : 
+        "Tradiční strukturový návrh léčiv (SBDD) se opírá o existenci rigidních vazebných kapes. U flexibilních proteinů a IDP však stabilní vazebná kapsa neexistuje. Molekulární dokování zde selhává. Ligand-based 3D tvarové porovnávání (ROCS) integrované do DrugEx MORL umožňuje modelovat komplementární tvarovou a elektrostatickou obálku známých bioaktivních konformací."
+      )
+    ])
+  ]);
+  view.appendChild(idpCard);
+
+  // Příloha C: Vzorová Kapitola Výpočetních Metod (LaTeX / Markdown)
+  const methodsSection = thesisGuide && thesisGuide.sections ? thesisGuide.sections.find(s => s.id === "methods_template") : null;
   const thesisGuideCard = el("section", { className: "slide-card" }, [
     el("div", { className: "slide-title-bar" }, [
-      el("div", { className: "slide-title" }, "Šablona Výpočetních Metod pro Text Bakalářské Práce")
+      el("div", { className: "slide-title" }, "Příloha C: Vzorová Kapitola Výpočetních Metod (LaTeX & Overleaf Ready)")
     ]),
     el("div", {
-      style: { background: "#0d1117", color: "#93c5fd", padding: "12pt 16pt", borderRadius: "4pt", fontFamily: "monospace", fontSize: "9pt", lineHeight: "1.6", whiteSpace: "pre-wrap" }
-    }, `### Výpočetní metody (Computational Methods)\n\nDe novo generování molekul bylo realizováno pomocí platformy DrugEx v3.4 s využitím vícekriteriálního zpětnovazebního učení (MORL). Jako výchozí generátor byl použit SequenceRNN předtrénovaný na databázi Papyrus v05.5 (~1,5 mil. sloučenin) a jemně dotrénovaný (fine-tuning) na známých ligandech po dobu 100 epoch.\n\nOptimalizační prostředí (DrugExEnvironment) integrovalo:\n1. 3D Tvarové porovnávání (ROCS): RDKitROCSScorer s metrikou TanimotoCombo a konformačním generátorem ETKDGv3 (max. 50 konformerů, 4 stereoisomery). Dělící práh byl stanoven na základě ROC analýzy a Youdenova indexu.\n2. Syntetická dostupnost: SAScore s modifikátorem SmoothClippedScore(lower_x=5.0, upper_x=3.0).\n\nVícekriteriální rovnováha byla řízena pomocí Pareto Crowding Distance. Trénink probíhal 50 epoch s exploračním poměrem epsilon = 0.2.`)
+      style: { background: "#0b1120", color: "#93c5fd", border: "1px solid #1e293b", padding: "10pt 14pt", borderRadius: "4pt", fontFamily: "monospace", fontSize: "8pt", lineHeight: "1.5", whiteSpace: "pre-wrap" }
+    }, methodsSection ? methodsSection.template : `### Výpočetní metody (Computational Methods)\n\nDe novo generování molekul bylo realizováno pomocí platformy DrugEx v3.4...`)
   ]);
   view.appendChild(thesisGuideCard);
+
+  // Příloha D: Bibliografie & Doporučená Literatura (ČSN ISO 690)
+  const litSection = thesisGuide && thesisGuide.sections ? thesisGuide.sections.find(s => s.id === "literature") : null;
+  const bibCard = el("section", { className: "slide-card" }, [
+    el("div", { className: "slide-title-bar" }, [
+      el("div", { className: "slide-title" }, "Příloha D: Bibliografie & Klíčová Literatura (ČSN ISO 690 s DOI)")
+    ]),
+    el("div", { style: { display: "flex", flexDirection: "column", gap: "6pt" } },
+      (litSection && litSection.papers ? litSection.papers : []).map(p => el("div", {
+        style: { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "3pt", padding: "6pt 10pt", fontSize: "8pt", lineHeight: "1.35" }
+      }, [
+        el("div", { style: { fontWeight: "800", color: "#0f172a" } }, p.title),
+        el("div", { style: { color: "#0284c7", fontWeight: "600", marginTop: "1pt" } }, `${p.cite} · DOI: ${p.doi}`),
+        el("div", { style: { color: "#64748b", fontStyle: "italic", marginTop: "2pt" } }, `💡 Význam: ${p.note}`)
+      ]))
+    )
+  ]);
+  view.appendChild(bibCard);
+
+  // Příloha E: Autoritativní Slovník Chemoinformatických Pojmů & Vzorců (Glosář)
+  if (glossaryData && glossaryData.terms) {
+    const glossarySection = el("div", { className: "cheatsheet-section" }, [
+      el("div", { className: "module-print-divider" }, [
+        el("h2", {}, "Příloha E: Autoritativní Slovník Chemoinformatiky & Zkratek"),
+        el("span", { style: { fontSize: "9pt", color: "#64748b" } }, `${glossaryData.terms.length} hesel s matematickými definicemi`)
+      ]),
+      el("div", { className: "glossary-grid-print" }, glossaryData.terms.map(t => el("div", {
+        className: "glossary-card-print"
+      }, [
+        el("div", { className: "glossary-card-head" }, [
+          el("span", { className: "glossary-term-name" }, t.term),
+          el("span", { className: "glossary-cat-badge" }, t.category)
+        ]),
+        t.formula ? el("div", { className: "glossary-formula" }, `$$${t.formula}$$`) : null,
+        el("div", { className: "glossary-def" }, t.definition),
+        el("div", { className: "glossary-range" }, `🎯 Cílový rozsah: ${t.target_range}`)
+      ])))
+    ]);
+    view.appendChild(glossarySection);
+  }
+
+  // Příloha F: Rychlá Referenční Karta (Cheat-Sheet pro DrugEx, RDKit a Slurm)
+  const cheatSheetSection = el("div", { className: "cheatsheet-section" }, [
+    el("div", { className: "module-print-divider" }, [
+      el("h2", {}, "Příloha F: Rychlá Referenční Karta (Cheat-Sheet)"),
+      el("span", { style: { fontSize: "9pt", color: "#64748b" } }, "CLI Příkazy, Chemoinformatické One-Linery & Slurm HPC Šablona")
+    ]),
+    el("div", { className: "cheatsheet-grid" }, [
+      // Karta 1: DrugEx CLI
+      el("div", { className: "cheatsheet-card" }, [
+        el("div", { className: "cheatsheet-card-title" }, "1. DrugEx CLI Příkazy"),
+        el("div", { style: { fontSize: "7.8pt", fontFamily: "monospace", color: "#0f172a", lineHeight: "1.4" } }, [
+          el("div", { style: { fontWeight: "bold", color: "#0284c7", marginTop: "3pt" } }, "# Tvorba korpusu a slovníku"),
+          el("div", {}, "python -m drugex.dataset -i raw.tsv -o data/corpus -v VocSmiles"),
+          el("div", { style: { fontWeight: "bold", color: "#0284c7", marginTop: "5pt" } }, "# Předtrénování generátoru (PT)"),
+          el("div", {}, "python -m drugex.train -i data/corpus.pkg -m SequenceRNN -e 100"),
+          el("div", { style: { fontWeight: "bold", color: "#0284c7", marginTop: "5pt" } }, "# Zpětnovazební učení (RL MORL)"),
+          el("div", {}, "python -m drugex.train -i ft_agent.pkg -env env.json -e 50 --eps 0.20"),
+          el("div", { style: { fontWeight: "bold", color: "#0284c7", marginTop: "5pt" } }, "# Generování molekul a filtrace"),
+          el("div", {}, "python -m drugex.generate -m rl_agent.pkg -n 5000 -o gen_mols.tsv")
+        ])
+      ]),
+      // Karta 2: RDKit One-Linery
+      el("div", { className: "cheatsheet-card" }, [
+        el("div", { className: "cheatsheet-card-title" }, "2. RDKit Chemoinformatické One-Linery"),
+        el("div", { style: { fontSize: "7.8pt", fontFamily: "monospace", color: "#0f172a", lineHeight: "1.4" } }, [
+          el("div", { style: { fontWeight: "bold", color: "#059669", marginTop: "3pt" } }, "# Načtení a validace"),
+          el("div", {}, "mol = Chem.MolFromSmiles(smi); Chem.SanitizeMol(mol)"),
+          el("div", { style: { fontWeight: "bold", color: "#059669", marginTop: "5pt" } }, "# Generování 50 3D konformerů (ETKDGv3)"),
+          el("div", {}, "params = AllChem.ETKDGv3(); params.numThreads = 1\nAllChem.EmbedMultipleConfs(mol, numConfs=50, params=params)"),
+          el("div", { style: { fontWeight: "bold", color: "#059669", marginTop: "5pt" } }, "# 3D Tvarový překryv (Gaussovský Shape)"),
+          el("div", {}, "dist = rdShapeAlign.ShapeTanimotoDist(ref_mol, mol)\nshape_sim = 1.0 - dist")
+        ])
+      ]),
+      // Karta 3: Slurm Template (celá šířka)
+      el("div", { className: "cheatsheet-card", style: { gridColumn: "span 2" } }, [
+        el("div", { className: "cheatsheet-card-title" }, "3. Produkční Slurm Skript pro HPC (MetaCentrum / IT4Innovations)"),
+        el("pre", { style: { margin: 0, fontSize: "7.8pt", background: "#0b1120", color: "#7ee787", padding: "8pt 10pt", borderRadius: "3pt", lineHeight: "1.35" } }, 
+`#!/bin/bash
+#SBATCH --job-name=drugex_rocs_rl
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32GB
+#SBATCH --time=24:00:00
+
+# Prevence CPU oversubscription v RDKit/CDPKit workerech
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+
+module load CUDA/12.1 Python/3.12
+source /home/user/DrugEx/.venv/bin/activate
+
+python run_rl_rocs.py --config config.py --n-samples 1000 --epochs 50`
+        )
+      ])
+    ])
+  ]);
+  view.appendChild(cheatSheetSection);
 
   container.appendChild(view);
 

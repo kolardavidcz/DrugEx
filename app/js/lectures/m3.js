@@ -100,7 +100,25 @@ export const M3_LECTURES = {
           <li><strong>Nulová diskretizační chyba</strong>: Žádné artefakty způsobené volbou velikosti mřížky voxelů.</li>
           <li><strong>Extrémní výpočetní rychlost</strong>: Vyhodnocení jedné dvojice molekul trvá méně než $1\\,\\mu\\text{s}$ na moderním CPU.</li>
           <li><strong>Diferencovatelnost</strong>: Gradient $\\nabla_{\\mathbf{r}_j} V(A, B)$ má rovněž analytické vyjádření, což umožňuje bleskovou optimalizaci prostorové orientace pomocí kvazi-Newtonových metod (BFGS).</li>
-        </ol>`
+        </ol>`,
+        schematic: "rocs-gaussian",
+        callouts: [
+          {
+            type: "rule",
+            title: "Pravidlo z praxe: Vzorkování konformerů pro ROCS",
+            text: "Počet generovaných konformerů volte podle počtu rotovatelných vazeb (N_rot): pro rigidní ligandy (N_rot < 5) plně postačí 20–30 konformerů; pro běžné lékové struktury (N_rot = 6–10) generujte 50 konformerů. Překročení 100 konformerů nepřináší měřitelný nárůst TanimotoCombo skóre, ale neúměrně zpomaluje RL trénink."
+          },
+          {
+            type: "pitfall",
+            title: "Častá chyba v diplomce: Chybějící 3D vodíky v RDKit",
+            text: "RDKit na rozdíl od OpenEye vyžaduje pro výpočet farmakoforových bodů (např. akceptorů a donorů vodíkové vazby) explicitní přítomnost polárních vodíků v molekule. Pokud do RDKitROCSScoreru pošlete molekulu bez přidaných vodíků (Chem.AddHs), barevná složka T_color zkolabuje k nule!"
+          },
+          {
+            type: "lab",
+            title: "Laboratorní kontext: Korelace ROCS s afinitou u IDP cílů",
+            text: "U intrinsicky neuspořádaných proteinů (IDP) nelze spoléhat na rigidní dokovací skóre v kcal/mol. Tvarové skóre TanimotoCombo s ansámblem bioaktivních ligandů je často jediným in silico parametrem, který spolehlivě koreluje s vazebnou afinitou naměřenou pomocí Surface Plasmon Resonance (SPR) nebo fluorescenční anizotropie na ÚOCHB."
+          }
+        ]
       },
       {
         title: "4. Metrika Shape Tanimoto a optimalizace prostorového zarovnání",

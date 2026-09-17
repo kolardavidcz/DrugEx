@@ -512,6 +512,90 @@
   .alert-box.alert-warning .alert-title { color: #f59e0b !important; }
   .alert-box.alert-caution .alert-title { color: #ef4444 !important; }
 
+  /* Academic Pedagogical Callouts in Print */
+  .callout-box {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 8pt 12pt !important;
+    margin: 9pt 0 !important;
+    border-radius: 3pt !important;
+    color: #0f172a !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    font-size: 8.5pt !important;
+    line-height: 1.45 !important;
+  }
+  .callout-box .callout-head {
+    font-size: 9pt !important;
+    font-weight: 800 !important;
+    margin-bottom: 3pt !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 4pt !important;
+    text-transform: uppercase !important;
+  }
+  .callout-box.callout-rule {
+    border-left: 3.5pt solid #0284c7 !important;
+    background: #f0f9ff !important;
+  }
+  .callout-box.callout-rule .callout-head { color: #0284c7 !important; }
+
+  .callout-box.callout-pitfall {
+    border-left: 3.5pt solid #e11d48 !important;
+    background: #fff1f2 !important;
+  }
+  .callout-box.callout-pitfall .callout-head { color: #e11d48 !important; }
+
+  .callout-box.callout-lab {
+    border-left: 3.5pt solid #059669 !important;
+    background: #ecfdf5 !important;
+  }
+  .callout-box.callout-lab .callout-head { color: #059669 !important; }
+
+  /* Vector Chemoinformatics Schematics in Print */
+  .schematic-container {
+    background: #0b1120 !important;
+    border: 1px solid #1e293b !important;
+    border-radius: 4pt !important;
+    margin: 10pt 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .schematic-header {
+    background: #0f172a !important;
+    border-bottom: 1px solid #1e293b !important;
+    padding: 5pt 10pt !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  .schematic-title {
+    font-size: 9pt !important;
+    font-weight: 700 !important;
+    color: #38bdf8 !important;
+  }
+  .schematic-badge {
+    font-size: 7.5pt !important;
+    color: #cbd5e1 !important;
+    background: #1e293b !important;
+    padding: 1pt 5pt !important;
+    border-radius: 2pt !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  .schematic-svg-wrap {
+    padding: 8pt !important;
+    background: #0b1120 !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  .schematic-svg {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
   /* Quiz Section in Print — Compact Double-Column Questions + Answer Key */
   .quiz-section-print {
     margin-top: 18pt !important;
@@ -721,6 +805,156 @@
   .quiz-key-exp-tag {
     font-weight: 700 !important;
     color: #0284c7 !important;
+  }
+
+  /* Table of Contents (Obsah Knihy) in Print */
+  .handbook-toc-page {
+    page-break-before: always !important;
+    page-break-after: always !important;
+    break-before: page !important;
+    break-after: page !important;
+    padding: 16pt 4pt !important;
+  }
+  .toc-title {
+    font-size: 20pt !important;
+    font-weight: 900 !important;
+    color: #0f172a !important;
+    border-bottom: 2.5pt solid #0284c7 !important;
+    padding-bottom: 6pt !important;
+    margin-bottom: 16pt !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: baseline !important;
+  }
+  .toc-subtitle {
+    font-size: 9.5pt !important;
+    font-weight: 400 !important;
+    color: #64748b !important;
+  }
+  .toc-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 16pt !important;
+  }
+  .toc-col {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10pt !important;
+  }
+  .toc-module-block {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 4pt !important;
+    padding: 8pt 10pt !important;
+    break-inside: avoid !important;
+  }
+  .toc-mod-head {
+    font-size: 9.5pt !important;
+    font-weight: 800 !important;
+    color: #0284c7 !important;
+    margin-bottom: 4pt !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    padding-bottom: 2pt !important;
+  }
+  .toc-lec-list {
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .toc-lec-item {
+    font-size: 8pt !important;
+    color: #334155 !important;
+    padding: 2pt 0 !important;
+    line-height: 1.35 !important;
+  }
+  .toc-lec-item strong {
+    color: #0f172a !important;
+  }
+
+  /* Glossary in Print */
+  .glossary-grid-print {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8pt !important;
+    margin-top: 10pt !important;
+  }
+  .glossary-card-print {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 3pt !important;
+    padding: 6pt 8pt !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    font-size: 8pt !important;
+    line-height: 1.35 !important;
+  }
+  .glossary-card-head {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: baseline !important;
+    margin-bottom: 3pt !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    padding-bottom: 2pt !important;
+  }
+  .glossary-term-name {
+    font-weight: 800 !important;
+    color: #0284c7 !important;
+    font-size: 8.5pt !important;
+  }
+  .glossary-cat-badge {
+    font-size: 6.5pt !important;
+    font-weight: 600 !important;
+    color: #475569 !important;
+    background: #e2e8f0 !important;
+    padding: 1pt 4pt !important;
+    border-radius: 2pt !important;
+  }
+  .glossary-formula {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 2pt !important;
+    padding: 3pt 5pt !important;
+    margin: 3pt 0 !important;
+    font-size: 7.5pt !important;
+    text-align: center !important;
+  }
+  .glossary-def {
+    color: #1e293b !important;
+    margin-bottom: 3pt !important;
+  }
+  .glossary-range {
+    color: #059669 !important;
+    font-weight: 600 !important;
+    font-size: 7.2pt !important;
+  }
+
+  /* Cheat-Sheet in Print */
+  .cheatsheet-section {
+    page-break-before: always !important;
+    break-before: always !important;
+    margin-top: 16pt !important;
+  }
+  .cheatsheet-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10pt !important;
+    margin-top: 8pt !important;
+  }
+  .cheatsheet-card {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 4pt !important;
+    padding: 8pt 10pt !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .cheatsheet-card-title {
+    font-size: 9.5pt !important;
+    font-weight: 800 !important;
+    color: #0284c7 !important;
+    margin-bottom: 6pt !important;
+    border-bottom: 1.5pt solid #cbd5e1 !important;
+    padding-bottom: 3pt !important;
   }
 
   /* Page Setup */

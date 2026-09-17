@@ -64,7 +64,20 @@ export const M6_LECTURES = {
           </div>
         </div>
         <br>
-        Kromě BRICS podporuje DrugEx také algoritmus <strong>RECAP</strong> (11 pravidel) a dekompozici na <strong>Bemis-Murcko Frameworks</strong> (nosná jádra tvořená pouze kruhy a linkery bez postranních řetězců).`
+        Kromě BRICS podporuje DrugEx také algoritmus <strong>RECAP</strong> (11 pravidel) a dekompozici na <strong>Bemis-Murcko Frameworks</strong> (nosná jádra tvořená pouze kruhy a linkery bez postranních řetězců).`,
+        schematic: "brics-cleavage",
+        callouts: [
+          {
+            type: "rule",
+            title: "Pravidlo z praxe: Omezení počtu exit-vektorů",
+            text: "Při volbě fixního scaffoldového jádra pro FragSequenceExplorer volte molekuly s maximálně 2 až 3 otevřenými exit-vektory [N*]. Pokud zadáte jádro s 4 a více attachment pointy, generátor začne exponenciálně větvit všechna ramena současně, což vede k dendrimerním strukturám s molekulovou hmotností MW > 800 Da a nulovou perorální dostupností."
+          },
+          {
+            type: "pitfall",
+            title: "Častá chyba v diplomce: Záměna BRICS a RECAP pravidel",
+            text: "Zatímco starší algoritmus RECAP (11 pravidel) štěpí pouze klasické amidy a estery, moderní BRICS (16 pravidel) přesně modeluje i přechodnými kovy katalyzované vazby C-C (Suzuki-Miyaura, Sonogashira, Heck). Pro moderní fragment-based design v DrugEx vždy preferujte BRICS."
+          }
+        ]
       },
       {
         title: "3. Architektury fragmentových modelů: FragSequence vs FragGraph",
@@ -806,7 +819,19 @@ OMP_NUM_THREADS=1
 OPENBLAS_NUM_THREADS=1
 MKL_NUM_THREADS=1
 NUMEXPR_NUM_THREADS=1
-[Benchmark] 16 workers x 1 thread: CPU utilization = 99.8%, speedup vs unconstrained = 14.2x`
+[Benchmark] 16 workers x 1 thread: CPU utilization = 99.8%, speedup vs unconstrained = 14.2x`,
+        callouts: [
+          {
+            type: "rule",
+            title: "Pravidlo z praxe: Thread Pinning na MetaCentru / IT4Innovations",
+            text: "Do každého Slurm dávkového skriptu povinně vložte 'export OMP_NUM_THREADS=1'. Jinak si každý z 16 paralelních RDKit workerů alokuje všechna dostupná jádra serveru a dojde ke zhroucení propustnosti CPU na méně než 5 % běžného výkonu."
+          },
+          {
+            type: "pitfall",
+            title: "Častá chyba v diplomce: Hladovění GPU (GPU Starvation)",
+            text: "Generování SMILES proběhne na moderním GPU (A100) za 20 milisekund. Následný 3D konformační embedding a ROCS výpočet pro 1 000 molekul na CPU však trvá 15 až 30 sekund. Pokud úloze nepřidělíte alespoň 8 až 16 CPU jader na 1 GPU, bude drahé grafické jádro z 98 % času zcela nečinné a čekat na dokončení CPU úloh."
+          }
+        ]
       },
       {
         title: "4. Kritická past 2: GPU VRAM paměťové úniky v PyTorch a OOM prevence",

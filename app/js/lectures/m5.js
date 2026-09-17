@@ -231,7 +231,24 @@ Plocha pod ROC křivkou (ROC-AUC)   : 0.9338
 Uložené vizualizace                : threshold_analysis_results/combined_figure.png
 ~ [STAV: Optimalizace Youdenova indexu: J = TPR - FPR = 0.892 - 0.140 = 0.752 při prahu 0.893]
 ~ [STAV: Srovnání kompromisu: Aktuální práh (0.871) zachytí o +2.7 % více aktivních látek (TPR 91.9 %) za cenu +5.8 % falešných pozitiv (FPR 19.8 %)]
-💡 [POZNATEK: Volba prahu 0.871 mírně preferuje senzitivitu (záchyt 91.9 % aktivních látek) před přísnou specificitou, což je v rané de novo generaci žádoucí pro zachování pestrosti objevovaných chemických sérií.]`
+💡 [POZNATEK: Volba prahu 0.871 mírně preferuje senzitivitu (záchyt 91.9 % aktivních látek) před přísnou specificitou, což je v rané de novo generaci žádoucí pro zachování pestrosti objevovaných chemických sérií.]`,
+        callouts: [
+          {
+            type: "rule",
+            title: "Pravidlo z praxe: Nastavení prahu Youdenovým indexem",
+            text: "Nikdy nevolte práh TanimotoCombo odhadem 'od stolu' (např. 0.5 nebo 1.0). Spusťte threshold_analysis.py na sadě známých aktivních látek a decoyů (DUD-E). Bod maxima Youdenova indexu J = TPR - FPR vám dá matematicky nepodjatý dělící práh s optimálním poměrem záchytu a čistoty."
+          },
+          {
+            type: "pitfall",
+            title: "Častá chyba v diplomce: Výpočet ROC bez decoyů",
+            text: "Pokud v validační sadě máte pouze aktivní ligandy a chybí vám decoys (nebo náhodně samplované látky z ChEMBL), nemůžete spočítat Specificitu ani False Positive Rate (FPR). ROC-AUC analýza bez negativní kontroly je metodicky neplatná a oponent ji u obhajoby oprávněně napadne."
+          },
+          {
+            type: "lab",
+            title: "Laboratorní kontext: Co znamená překročení prahu v bio-testech",
+            text: "Pokud de novo generovaná molekula překročí kalibrovaný Youdenův práh (např. > 0.871), znamená to, že její 3D sterická a elektrostatická obálka se z 92 % shoduje s experimentálně ověřenými inhibitory. Taková látka má v primárním enzymatickém screeningu mnohonásobně vyšší šanci na nanomolární afinitu než náhodné hity z HTS."
+          }
+        ]
       }
     ]
   },
