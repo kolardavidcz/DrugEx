@@ -105,12 +105,12 @@ for f in frags:
   Synthon: [4*]C[8*]
   Synthon: [5*]N1CCN([5*])CC1
   Synthon: [5*]N[5*]
-~ [STATE: Retrosynthetic Bond Cleavages]
-~   Matched 3 BRICS cleavage rules: L1-L5 (Amide), L4-L8 (Piperazine alkylation), L16 (Aryl-ring link)
-~   Dummy atom labels [N*] denote synthetic attachment vectors for recombining synthons in Phase 2
-💡 [INSIGHT: Why BRICS synthons in DrugEx?]
-💡   Restricting fragment generation to BRICS cleavage rules guarantees that any newly assembled
-💡   candidate molecule can be synthesized in vitro via established organic reactions.`
+~ [STAV: Retrosyntetické štěpení vazeb]
+~   Aplikována 3 BRICS pravidla: L1-L5 (Amid), L4-L8 (Alkylace piperazinu), L16 (Aryl-kruhový spoj)
+~   Značky [N*] představují syntetické vektory (attachment points) pro rekombinaci synthonů ve Fázi 2
+💡 [POZNATEK: Proč BRICS fragmenty v DrugEx?]
+💡   Omezení generování na pravidla BRICS garantuje, že každou nově navrženou
+💡   kandidátní molekulu lze reálně připravit v laboratoři pomocí ověřených organických reakcí.`
       },
       {
         title: "4. Srovnávací analýza reprezentací pro generativní AI",
@@ -312,16 +312,16 @@ Sanitovaný kanonický SMILES: NC(CNC(=O)c1ccc(C(=O)O)cc1)C(=O)O
 Rozložené chemické tokeny (34 ks): ['N', 'C', '(', 'C', 'N', 'C', '(', '=', 'O', ')', 'c', '1', 'c', 'c', 'c', '(', 'C', '(', '=', 'O', ')', 'O', ')', 'c', 'c', '1', ')', 'C', '(', '=', 'O', ')', 'O', 'EOS']
 PyTorch LongTensor shape: torch.Size([1, 100])
 Zrekonstruovaný SMILES: NC(CNC(=O)c1ccc(C(=O)O)cc1)C(=O)O
-~ [STATE: 5-Stage Chemical Sanitization Pipeline]
-~   [1/5] Desalt: Stripped counterions (Na+, Cl-) -> single organic component
-~   [2/5] Neutralize: Protonated carboxylate [O-] -> OH (neutral state for SMILES grammar)
-~   [3/5] Stereocenter: Flattened [C@@H] -> C (isomeric simplification for RNN prior)
-~   [4/5] Canonicalize: RDKit canonical atom numbering applied
-~   [5/5] Token tensor: torch.tensor([8, 14, 2, 14, ...], dtype=torch.long) | shape: (1, 34)
+~ [STAV: 5kroková chemická sanitizační pipeline]
+~   [1/5] Desalinizace: Odstraněny protiionty (Na+, Cl-) -> zachována pouze organická složka
+~   [2/5] Neutralizace: Protonace karboxylátu [O-] -> OH (neutrální stav pro SMILES gramatiku)
+~   [3/5] Stereocentra: Zploštění [C@@H] -> C (izomerní zjednodušení pro RNN prior)
+~   [4/5] Kanonikalizace: Aplikováno jednoznačné číslování atomů v RDKit
+~   [5/5] Tenzor tokenů: torch.tensor([8, 14, 2, 14, ...], dtype=torch.long) | tvar: (1, 34)
 ✓ Validace úspěšná: Reprezentace je 100% invertibilní.
-💡 [INSIGHT: Preventing Syntax Drift]
-💡   If counterions and unstandardized tautomers are not removed before tokenization, the language
-💡   model wastes capacity learning salt ratios instead of valid drug-like scaffolds.`
+💡 [POZNATEK: Prevence syntaktického driftu gramatiky]
+💡   Pokud by protiionty a nestandardizované tautomery nebyly před tokenizací odstraněny,
+💡   jazykový model by plýtval kapacitou na učení poměrů solí namísto objevování aktivních skeletů.`
       }
     ]
   },
@@ -412,13 +412,13 @@ print("Vzorkovaný index tokenu (T=1.0):", sample_with_temperature(logits, tempe
 print("Greedy deterministický index (T=0.0):", sample_with_temperature(logits, temperature=0.0))`,
         output: `Vzorkovaný index tokenu (T=1.0): 3
 Greedy deterministický index (T=0.0): 3
-~ [STATE: Shannon Entropy of Token Distribution]
-~   H(T=0.7) = 0.68 bits (Greedy mode: model picks dominant token with 77% confidence)
-~   H(T=1.0) = 0.94 bits (Baseline temperature of Papyrus pre-training)
-~   H(T=1.5) = 1.28 bits (High entropy: boosts scaffold diversity, but raises invalidity risk)
-💡 [INSIGHT: Temperature Tuning in DrugEx MORL]
-💡   During early RL exploration, T=1.0–1.2 encourages novel ring systems. In late optimization,
-💡   T=0.7–0.8 focuses sampling on the highest-reward Pareto-optimal chemotypes.`
+~ [STAV: Shannonova entropie distribuce tokenů]
+~   H(T=0.7) = 0.68 bitu (Hladový režim: model volí dominantní token s jistotou 77 %)
+~   H(T=1.0) = 0.94 bitu (Základní teplota předtrénování na Papyrus)
+~   H(T=1.5) = 1.28 bitu (Vysoká entropie: zvyšuje diverzitu skeletů, ale i riziko nevalidity)
+💡 [POZNATEK: Ladění teploty v DrugEx MORL]
+💡   V rané fázi RL explorace teplota T=1.0–1.2 podporuje objevování nových kruhových systémů.
+💡   V pozdní fázi optimalizace T=0.7–0.8 koncentruje vzorkování na vysoce odměňované Paretovské chemotypy.`
       },
       {
         title: "4. SequenceTransformer: GPT Architektura pro chemické sekvence",
@@ -561,19 +561,19 @@ for i, smi in enumerate(sampled_smiles, 1):
     print(f"  [{i}] {smi}")`,
         output: `SequenceRNN načten na zařízení: cuda:0
 Velikost slovníku: 95 tokenů
-~ [STATE: Autoregressive Hidden State Recurrence]
-~   Step t=0: token = <START> (idx=1) -> LSTM hidden h_0: zeros (2 layers, 512 units)
-~   Step t=1..L: recurrent softmax sampling loop until <END> (idx=2) token is emitted
-~   Average generated SMILES length: 42.6 tokens | Batch generation throughput: 2,450 mol/s
+~ [STAV: Autoregresivní rekurence skrytých stavů]
+~   Krok t=0: token = <START> (idx=1) -> skrytý stav LSTM h_0: nuly (2 vrstvy, 512 jednotek)
+~   Krok t=1..L: rekurentní vzorkovací smyčka se softmaxem až po vygenerování tokenu <END> (idx=2)
+~   Průměrná délka vygenerovaných SMILES: 42.6 tokenů | Průchodnost generování: 2 450 mol/s
 Vygenerované molekuly ze SequenceRNN:
   [1] CCCCCCCCCCCCCCCCCCC(=O)OC(COP(=O)(O)O)C(F)F
   [2] CCc1ccc(NC(=O)c2oc3ccccc3c2NC(=O)c2cccc(C)c2)cc1
   [3] Nc1nc(N)c2c(n1)CCC(CNc1ccnc3ccc(Cl)cc13)C2
   [4] CCC(=O)NC1CCC(C(=O)N(C)c2ccc(-c3cc(C)no3)cc2)C1
   [5] CC(=O)NC(C)Cc1ccc(C#Cc2ccc(C#N)cc2)cc1
-💡 [INSIGHT: General Prior Diversity]
-💡   Notice the vast diversity of generated chemotypes (phosphates, biaryls, heterocyclic amides).
-💡   This proves that Papyrus pre-training provides an unbiased, general chemical foundation.`
+💡 [POZNATEK: Obecná diverzita předtrénovaného prioru]
+💡   Povšimněte si široké rozmanitosti chemotypů (fosfáty, biaryly, heterocyklické amidy).
+💡   To dokazuje, že pre-training na databázi Papyrus poskytuje nezatížený a obecný chemický základ.`
       }
     ]
   },
@@ -677,13 +677,13 @@ print("✓ Fine-tuning dokončen. Model uložen do models/ccr2_finetuned_rnn.pkg
   [Epoch 10/50] Loss: 0.9850 | Perplexity: 2.68 | Val Loss: 1.0240 (Learning piperidine/amide motifs)
   [Epoch 25/50] Loss: 0.6210 | Perplexity: 1.86 | Val Loss: 0.6850 (Internal diversity: 0.812 > 0.65 threshold)
   [Epoch 50/50] Loss: 0.3840 | Perplexity: 1.47 | Val Loss: 0.4520 (Target grammar learned, no catastrophic forgetting)
-~ [STATE: Model Checkpoint Bifurcation for Phase 2]
-~   -> Policy Agent (pi_theta): Initialized with fine-tuned weights, will be updated by MORL
-~   -> Mutate Prior (pi_0): Identical copy frozen in eval() mode, serves as exploration anchor
+~ [STAV: Rozvětvení kontrolního bodu modelu pro Fázi 2]
+~   -> Policy Agent (pi_theta): Inicializován s natrénovanými vahami, bude optimalizován v MORL
+~   -> Mutate Prior (pi_0): Identická kopie zmrazená v režimu eval(), slouží jako kotva explorace
 ✓ Fine-tuning dokončen. Model uložen do models/ccr2_finetuned_rnn.pkg.
-💡 [INSIGHT: Why freeze a copy as Mutate Prior?]
-💡   Without the frozen Mutate Prior (pi_0), the agent in Phase 2 would quickly exploit the reward
-💡   function by generating the same single molecule repeatedly (mode collapse).`
+💡 [POZNATEK: Proč zmrazit kopii jako Mutační Prior?]
+💡   Bez zmrazeného prioru (pi_0) by agent ve Fázi 2 rychle zneužil skórovací funkci
+💡   opakovaným generováním jediné vysoce hodnocené molekuly (kolaps modů).`
       },
       {
         title: "4. Fenomén katastrofického zapomínání (Catastrophic Forgetting) & Induktivní bias",
@@ -795,13 +795,13 @@ Spuštění fine-tuningu s monitorem postupu...
   [Epoch 10/50] Loss: 0.9850 | LR: 1.00e-04 | Elapsed: 39.8s
   [Epoch 25/50] Loss: 0.6210 | LR: 1.00e-04 | Elapsed: 98.4s
   [Epoch 50/50] Loss: 0.3840 | LR: 1.00e-04 | Elapsed: 196.2s
-~ [STATE: Convergence & Validation Checkpoints]
-~   Validation loss: 0.4520 (stable, no loss divergence) | Best epoch: 48
-~   Model serialization: Weights written to models/ccr2_finetuned_rnn.pkg (512 hidden, 2 LSTM layers)
+~ [STAV: Kontrolní body konvergence a validace]
+~   Validační ztráta: 0.4520 (stabilní, bez divergence) | Nejlepší epocha: 48
+~   Uložení modelu: Váhy zapsány do models/ccr2_finetuned_rnn.pkg (512 skrytých jednotek, 2 LSTM vrstvy)
 ✓ Model úspěšně uložen do models/ccr2_finetuned_rnn.pkg. Připraveno pro MORL!
-💡 [INSIGHT: Convergence Criterion]
-💡   If training were continued beyond 50 epochs on this 835-ligand set, training loss would continue
-💡   dropping toward 0.1, but internal diversity would collapse below 0.50 (severe overfitting).`
+💡 [POZNATEK: Kritérium včasného ukončení (Early Stopping)]
+💡   Kdyby trénink na této sadě 835 ligandů pokračoval za hranici 50 epoch, trénovací ztráta by sice dále
+💡   klesala k 0.1, ale interní diverzita generovaných látek by se propadla pod 0.50 (závažné přetrénování).`
       }
     ]
   }

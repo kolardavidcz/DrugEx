@@ -109,14 +109,14 @@ export function formatMath(tex) {
  */
 export function hasTerminalTrace(output) {
   if (!output) return false;
-  return /(?:^[~💡]|\[(?:STATE|TRACE|INSIGHT|TELEMETRY)\])/m.test(output);
+  return /(?:^[~💡]|\[(?:STAV|STOPA|STATE|TRACE|POZNATEK|VYSVĚTLENÍ|POZNÁMKA|INSIGHT|TELEMETRIE|TELEMETRY)\])/m.test(output);
 }
 
 /**
  * Format terminal output with rich in-between runtime traces and pedagogical insights.
- * - Lines starting with '~' or '[STATE]' / '[TRACE]' are styled as in-between execution states (electric violet).
- * - Lines starting with '💡' or '[INSIGHT]' / '[NOTE]' are styled as teacher insights (warm amber).
- * - Lines starting with '[Epoch ...]' or '[Stage ...]' are highlighted as milestones (cyan).
+ * - Lines starting with '~' or '[STAV]' / '[STOPA]' are styled as in-between execution states (electric violet).
+ * - Lines starting with '💡' or '[POZNATEK]' / '[VYSVĚTLENÍ]' are styled as teacher insights (warm amber).
+ * - Lines starting with '[Epoch ...]', '[Epocha ...]', '[Stage ...]' are highlighted as milestones (cyan).
  * - Lines starting with '✓' or progress bars '100%|' are highlighted as success (emerald).
  */
 export function formatTerminalOutput(output) {
@@ -126,21 +126,25 @@ export function formatTerminalOutput(output) {
     const trimmed = line.trimStart();
     if (trimmed.startsWith("~")) {
       const content = trimmed.replace(/^~\s*/, "");
-      return `<span class="output-trace"><span class="output-trace-badge">TRACE</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`;
+      const badge = trimmed.includes("[STOPA") || trimmed.includes("[TRACE") ? "STOPA" : "STAV";
+      return `<span class="output-trace"><span class="output-trace-badge">${badge}</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`;
     }
     if (trimmed.startsWith("💡")) {
       const content = trimmed.replace(/^💡\s*/, "");
-      return `<span class="output-insight"><span class="output-insight-badge">INSIGHT</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`;
+      const badge = trimmed.includes("[VYSVĚTLENÍ") ? "VYSVĚTLENÍ" : (trimmed.includes("[POZNÁMKA") ? "POZNÁMKA" : "POZNATEK");
+      return `<span class="output-insight"><span class="output-insight-badge">${badge}</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`;
     }
-    if (trimmed.startsWith("[STATE]") || trimmed.startsWith("[TRACE]")) {
-      const content = trimmed.replace(/^\[(?:STATE|TRACE)\]\s*/, "");
-      return `<span class="output-trace"><span class="output-trace-badge">STATE</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`;
+    if (trimmed.startsWith("[STAV]") || trimmed.startsWith("[STOPA]") || trimmed.startsWith("[STATE]") || trimmed.startsWith("[TRACE]")) {
+      const content = trimmed.replace(/^\[(?:STAV|STOPA|STATE|TRACE)\]\s*/, "");
+      const badge = trimmed.startsWith("[STOPA]") || trimmed.startsWith("[TRACE]") ? "STOPA" : "STAV";
+      return `<span class="output-trace"><span class="output-trace-badge">${badge}</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`;
     }
-    if (trimmed.startsWith("[INSIGHT]") || trimmed.startsWith("[NOTE]")) {
-      const content = trimmed.replace(/^\[(?:INSIGHT|NOTE)\]\s*/, "");
-      return `<span class="output-insight"><span class="output-insight-badge">INSIGHT</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`;
+    if (trimmed.startsWith("[POZNATEK]") || trimmed.startsWith("[VYSVĚTLENÍ]") || trimmed.startsWith("[POZNÁMKA]") || trimmed.startsWith("[INSIGHT]") || trimmed.startsWith("[NOTE]")) {
+      const content = trimmed.replace(/^\[(?:POZNATEK|VYSVĚTLENÍ|POZNÁMKA|INSIGHT|NOTE)\]\s*/, "");
+      const badge = trimmed.startsWith("[VYSVĚTLENÍ]") ? "VYSVĚTLENÍ" : (trimmed.startsWith("[POZNÁMKA]") || trimmed.startsWith("[NOTE]") ? "POZNÁMKA" : "POZNATEK");
+      return `<span class="output-insight"><span class="output-insight-badge">${badge}</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`;
     }
-    if (/^\[(?:Epoch|Stage|Phase|Worker)\s+[^\]]+\]/.test(trimmed)) {
+    if (/^\[(?:Epoch|Epocha|Stage|Fáze|Phase|Worker)\s+[^\]]+\]/.test(trimmed)) {
       return `<span class="output-milestone">${escapeHtml(line)}</span>`;
     }
     if (trimmed.startsWith("✓") || trimmed.includes("100%|")) {

@@ -127,11 +127,11 @@ export function renderLecture(container, lectureId) {
           el("span", { className: "code-output-badge" }, "exit 0")
         ];
         if (withTrace) {
-          headerBadges.push(el("span", { className: "code-output-trace-badge" }, "+Telemetry"));
+          headerBadges.push(el("span", { className: "code-output-trace-badge" }, "+Telemetrie"));
         }
         codeChildren.push(
           el("div", { className: "code-output-header" }, [
-            el("span", { className: "code-output-label" }, withTrace ? "▶ STDOUT & RUNTIME TELEMETRY" : "▶ STDOUT / Výstup konzole"),
+            el("span", { className: "code-output-label" }, withTrace ? "▶ STDOUT & BĚHOVÁ TELEMETRIE" : "▶ STDOUT / Výstup konzole"),
             el("div", { style: { display: "flex", alignItems: "center" } }, headerBadges)
           ]),
           el("pre", { className: "code-output-block" }, [
@@ -401,11 +401,11 @@ export async function renderHandbookPrintView(container) {
               el("span", { className: "code-output-badge" }, "exit 0")
             ];
             if (withTrace) {
-              headerBadges.push(el("span", { className: "code-output-trace-badge" }, "+Telemetry"));
+              headerBadges.push(el("span", { className: "code-output-trace-badge" }, "+Telemetrie"));
             }
             codeChildren.push(
               el("div", { className: "code-output-header" }, [
-                el("span", { className: "code-output-label" }, withTrace ? "▶ STDOUT & RUNTIME TELEMETRY" : "▶ STDOUT / Výstup skriptu"),
+                el("span", { className: "code-output-label" }, withTrace ? "▶ STDOUT & BĚHOVÁ TELEMETRIE" : "▶ STDOUT / Výstup skriptu"),
                 el("div", { style: { display: "flex", alignItems: "center" } }, headerBadges)
               ]),
               el("pre", { className: "code-output-block" }, [

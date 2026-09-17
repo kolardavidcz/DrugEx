@@ -183,10 +183,10 @@ print(f"  TanimotoCombo:  {combo_score:.3f}")`,
         output: `Alignment Ketoprofen vs Ibuprofen:
   Shape Tanimoto: 0.697
   TanimotoCombo:  0.847
-~ [STATE: Conformer Search Space: 2 query conformers x 1 reference conformer = 2 alignments]
-~ [STATE: Conformer #0: Shape=0.582, Color=0.091 (Combo=0.673) | Conformer #1: Shape=0.697, Color=0.150 (Combo=0.847)]
-~ [STATE: Global Argmax: Conformer #1 selected as optimal overlay]
-💡 [INSIGHT: Zkoumání více konformací zabraňuje podhodnocení flexibility molekuly: konformer #1 nalezl o 25 % lepší překryv než výchozí geometrie díky optimálnímu natočení karboxylové skupiny.]`
+~ [STAV: Prohledávaný prostor konformací: 2 query konformace x 1 referenční konformace = 2 zarovnání]
+~ [STAV: Konformer #0: Tvar=0.582, Barva=0.091 (Combo=0.673) | Konformer #1: Tvar=0.697, Barva=0.150 (Combo=0.847)]
+~ [STAV: Globální maximum: Konformer #1 vybrán jako optimální prostorový překryv]
+💡 [POZNATEK: Zkoumání více konformací zabraňuje podhodnocení flexibility molekuly: konformer #1 nalezl o 25 % lepší překryv než výchozí geometrie díky optimálnímu natočení karboxylové skupiny.]`
       },
       {
         title: "3. Paralelizace a Worker Initializer (_rdkit_worker_init)",
@@ -339,9 +339,9 @@ print(f"Vstupní dávka: {len(batch)} SMILES | Unikátní: {len(uniques)} SMILES
 print(f"Mapování unikátních struktur: {orig_map}")`,
         output: `Vstupní dávka: 5 SMILES | Unikátní: 3 SMILES
 Mapování unikátních struktur: {0: [0, 2], 1: [1, 4], 2: [3]}
-~ [STATE: Deduplication Efficiency: 5 -> 3 structures (40.0% compute reduction in conformer generation)]
-~ [STATE: Score Scatter Dispatch: scores[0, 2] <- unique[0] (0.847), scores[1, 4] <- unique[1] (0.772), scores[3] <- unique[2] (0.310)]
-💡 [INSIGHT: V pokročilých fázích RL tréninku, kdy model konverguje k úzkému chemickému prostoru, dosahuje podíl duplicit v dávce 30-50 %. Deterministický slovníkový lookup ušetří polovinu celkového výpočetního času.]`
+~ [STAV: Účinnost deduplikace: 5 -> 3 struktury (40.0 % úspora výpočetního času generování konformací)]
+~ [STAV: Rozptyl skóre zpět: skóre[0, 2] <- unikátní[0] (0.847), skóre[1, 4] <- unikátní[1] (0.772), skóre[3] <- unikátní[2] (0.310)]
+💡 [POZNATEK: V pokročilých fázích RL tréninku, kdy model konverguje k úzkému chemickému prostoru, dosahuje podíl duplicit v dávce 30–50 %. Deterministický slovníkový lookup ušetří polovinu celkového výpočetního času.]`
       },
       {
         title: "5. Kompletní produkční konfigurace a výpočetní příklad",
@@ -385,12 +385,12 @@ for smi, score in zip(test_smiles, scores):
         output: `Scoring 3 molecules with ['RDKit_CCR2_orthosteric']...
 Scoring unique molecules: 100%|██████████| 3/3 [00:00<00:00, 15.16it/s]
 Scoring complete. Average score: 0.712, Max score: 0.792, Molecules with score > 0: 3/3
-~ [STATE: Multiprocessing Dispatch: 4 worker processes, task chunk_size=1]
+~ [STAV: Multiprocessing distribuce: 4 worker procesy, velikost dávky úloh=1]
 Výsledná TanimotoCombo skóre:
   SMILES: Cc1ccc(NC(=O)c2cccc(C(=O)NC3CCN(Cc4ccccc4)CC3)c2)cc1 -> Score: 0.572
   SMILES: O=C(Nc1ccc(F)cc1)c1ccc(CN2CCN(c3cccc(Cl)c3)CC2)cc1 -> Score: 0.772
   SMILES: COc1ccc2[nH]c(C(=O)N3CCC(c4cc5ccccc5[nH]4)CC3)cc2c1 -> Score: 0.792
-💡 [INSIGHT: Třetí molekula dosáhla skóre 0.792 díky indolovým a piperidinovým kruhům, které věrně vyplňují subkavitu CCR2 ortosterické kapsy definované referenčními ligandy BMS-681 a Cenicriviroc.]`
+💡 [POZNATEK: Třetí molekula dosáhla skóre 0.792 díky indolovým a piperidinovým kruhům, které věrně vyplňují subkavitu CCR2 ortosterické kapsy definované referenčními ligandy BMS-681 a Cenicriviroc.]`
       }
     ]
   },
@@ -467,12 +467,12 @@ def _align_and_score_helper(query_shape: Any, ref_shape: Any) -> float:
     except (RuntimeError, ValueError):
         return 0.0`,
         output: `[CDPL.Shape] GaussianShapeAlignment: 4 principal axes starting orientations generated.
-~ [STATE: Initial Principal Axes Orientations: Euler angles [0°, 0°, 0°], [180°, 0°, 0°], [0°, 180°, 0°], [0°, 0°, 180°]]
+~ [STAV: Výchozí orientace hlavních os setrvačnosti: Eulerovy úhly [0°, 0°, 0°], [180°, 0°, 0°], [0°, 180°, 0°], [0°, 0°, 180°]]
 [CDPL.Shape] Optimization converged in 14 iterations (gradient norm 0.88 <= 1.0).
-~ [STATE: Quasi-Newton Step Trace: iter=1 grad=4.21 -> iter=7 grad=1.92 -> iter=14 grad=0.88 (< 1.0 threshold)]
+~ [STAV: Průběh kvazi-Newtonových kroků: iter=1 grad=4.21 -> iter=7 grad=1.92 -> iter=14 grad=0.88 (< práh 1.0)]
 [CDPL.Shape] Result #1: Shape Tanimoto = 0.784, Color Tanimoto = 0.692 -> Combo = 1.476
 [CDPL.Shape] Max TanimotoCombo across orientations: 1.476
-💡 [INSIGHT: Výpočet 4 ortogonálních počátečních natočení zabraňuje uváznutí v lokálním minimu, zatímco kvazi-Newtonův řešič s limitem 20 iterací drží průměrný čas zarovnání pod 1.2 ms na konformer.]`
+💡 [POZNATEK: Výpočet 4 ortogonálních počátečních natočení zabraňuje uváznutí v lokálním minimu, zatímco kvazi-Newtonův řešič s limitem 20 iterací drží průměrný čas zarovnání pod 1.2 ms na konformer.]`
       },
       {
         title: "2. Izolace vláken a workeru: CDPKitWorkerContext & CDPKitScoringWorker",
@@ -1025,9 +1025,9 @@ def _run_rocs_subprocess(cmd: List[str]) -> subprocess.CompletedProcess:
 [Subprocess] Executing rocs CLI with OMP_NUM_THREADS="1"...
 [Subprocess] Process completed in 1.42s (returncode: 0).
 [ManagedTmpDir] Cleaned up /dev/shm/cli_rocs_x92df8 (reclaimed 8.2 MB RAM).
-~ [STATE: POSIX Shared Memory Allocation: /dev/shm mounted as tmpfs (in-memory zero disk I/O)]
-~ [STATE: Thread Control Assertion: OMP_NUM_THREADS=1, MKL_NUM_THREADS=1 -> Thread contention = 0%]
-💡 [INSIGHT: Použití /dev/shm zabraňuje opotřebení NVMe disků při 50 000 diskových I/O zápisech a OpenMP throttling eliminuje CPU context switching, což zrychlí paralelní dávku až 14násobně.]`
+~ [STAV: Alokace sdílené paměti POSIX: /dev/shm připojeno jako tmpfs (práce čistě v RAM bez zápisu na disk)]
+~ [STAV: Řízení vláken: OMP_NUM_THREADS=1, MKL_NUM_THREADS=1 -> Konkurence vláken = 0 %]
+💡 [POZNATEK: Použití /dev/shm zabraňuje opotřebení NVMe disků při 50 000 diskových I/O zápisech a OpenMP throttling eliminuje CPU context switching, což zrychlí paralelní dávku až 14násobně.]`
       },
       {
         title: "5. Parsování TSV reportu & GPU Akcelerace (fastROCS)",
@@ -1130,9 +1130,9 @@ def create_openeye_environment(
 [OpenEyeROCSScorer] Initialized: query='CCR2_pocket', score_type='TanimotoCombo', chemff='ImplicitMillsDean'
 [Environment] DrugExEnvironment assembled with 2 scorers (ROCS thr=0.871, SA thr=0.100)
 [Environment] ParetoCrowdingDistance initialized. Ready for MORL training.
-~ [STATE: OpenEye Pipeline: OMEGA rule-based torsion driving -> ROCS color force field (ImplicitMillsDean)]
-~ [STATE: Dual Objective Pareto Profile: 3D Shape & Electrostatics (Tcombo >= 0.871) + Synthetic Accessibility (SA >= 0.100)]
-💡 [INSIGHT: OpenEye komerční stack dosahuje nejvyšší přesnosti díky ImplicitMillsDean barevnému silovému poli, které přesně modeluje směrové vlastnosti vodíkových vazeb a aromatického patrového uspořádání.]`
+~ [STAV: OpenEye pipeline: Pravidlové torzní vzorkování OMEGA -> Barevné silové pole ROCS (ImplicitMillsDean)]
+~ [STAV: Vícekriteriální Paretův profil: 3D tvar a elektrostatika (Tcombo >= 0.871) + Syntetická dostupnost (SA >= 0.100)]
+💡 [POZNATEK: OpenEye komerční stack dosahuje nejvyšší přesnosti díky ImplicitMillsDean barevnému silovému poli, které přesně modeluje směrové vlastnosti vodíkových vazeb a aromatického patrového uspořádání.]`
       }
     ]
   }

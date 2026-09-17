@@ -229,9 +229,9 @@ Aktuální práh v config.py          : 0.871
 Optimální Youdenův dělící práh     : 0.893
 Plocha pod ROC křivkou (ROC-AUC)   : 0.9338
 Uložené vizualizace                : threshold_analysis_results/combined_figure.png
-~ [STATE: Youden Index Optimization: J = TPR - FPR = 0.892 - 0.140 = 0.752 at threshold 0.893]
-~ [STATE: Trade-off Comparison: Current (0.871) catches +2.7% more actives (TPR 91.9%) at cost of +5.8% decoys (FPR 19.8%)]
-💡 [INSIGHT: Volba prahu 0.871 mírně preferuje senzitivitu (záchyt 91.9 % aktivních látek) před přísnou specificitou, což je v rané de novo generaci žádoucí pro zachování pestrosti objevovaných chemických sérií.]`
+~ [STAV: Optimalizace Youdenova indexu: J = TPR - FPR = 0.892 - 0.140 = 0.752 při prahu 0.893]
+~ [STAV: Srovnání kompromisu: Aktuální práh (0.871) zachytí o +2.7 % více aktivních látek (TPR 91.9 %) za cenu +5.8 % falešných pozitiv (FPR 19.8 %)]
+💡 [POZNATEK: Volba prahu 0.871 mírně preferuje senzitivitu (záchyt 91.9 % aktivních látek) před přísnou specificitou, což je v rané de novo generaci žádoucí pro zachování pestrosti objevovaných chemických sérií.]`
       }
     ]
   },
@@ -428,9 +428,9 @@ print(f"RL Config: {RL_EPOCHS} epochs, epsilon={RL_EPSILON}, samples={RL_N_SAMPL
   - Anchor prior (mutate): CCR2_finetuned (frozen, epsilon=0.20)
   - Environment: DrugExEnvironment (RDKitROCS + SAScore, ParetoCrowdingDistance)
 RL Config: 50 epochs, epsilon=0.2, samples=1000
-~ [STATE: Dual Policy Tensor Dispatch: p_t = 0.80 * softmax(z_agent) + 0.20 * softmax(z_prior)]
-~ [STATE: Batch Sampling Allocation: 1000 molecules = 800 exploit actions + 200 prior exploratory mutates]
-💡 [INSIGHT: Mutační síť pi_0 (CCR2_finetuned) neustále injektuje validní chemické motivy známých ligandů, čímž efektivně brání zapomenutí chemické gramatiky při agresivním gradientním posunu agenta.]`
+~ [STAV: Tenzorové míchání duální politiky: p_t = 0.80 * softmax(z_agent) + 0.20 * softmax(z_prior)]
+~ [STAV: Alokace vzorkování v dávce: 1000 molekul = 800 exploatačních kroků + 200 náhodných mutací z prioru]
+💡 [POZNATEK: Mutační síť pi_0 (CCR2_finetuned) neustále injektuje validní chemické motivy známých ligandů, čímž efektivně brání zapomenutí chemické gramatiky při agresivním gradientním posunu agenta.]`
       },
       {
         title: "4. Krok 4: Matematika gradientu REINFORCE v MORL smyčce",
@@ -587,13 +587,13 @@ Epoch 10/50: Loss = 0.082, Valid = 0.960, Desirable = 0.340, Avg Score = 0.852
 Epoch 25/50: Loss = 0.068, Valid = 0.950, Desirable = 0.420, Avg Score = 0.894
 Epoch 40/50: Loss = 0.061, Valid = 0.940, Desirable = 0.480, Avg Score = 0.910
 Epoch 50/50: Loss = 0.056, Valid = 0.940, Desirable = 0.520, Avg Score = 0.920
-~ [STATE: fit.tsv Stream Log: epoch=50 | valid_ratio=0.940 | unique_ratio=0.940 | desired_ratio=0.520 | avg_amean=0.920 | loss_train=0.056]
-~ [STATE: Pareto Frontier Growth: Rank 1 count = 142 molecules | Best TanimotoCombo = 1.611]
+~ [STAV: Telemetrie fit.tsv: epocha=50 | poměr_validních=0.940 | poměr_unikátních=0.940 | poměr_žádoucích=0.520 | avg_amean=0.920 | trénovací_ztráta=0.056]
+~ [STAV: Růst Paretovy fronty: Počet molekul v Rank 1 = 142 | Nejlepší TanimotoCombo = 1.611]
 
 Trénink úspěšně dokončen za 59.0 minut!
 Model uložen v: rl_runs_demo/rdkit_rl/CCR2_rdkit_reinforced.pkg
 Křivky konvergence uloženy do rl_convergence_plot.png
-💡 [INSIGHT: Růst desired_ratio z 28 % na 52 % při zachování 94 % unikátnosti demonstruje stabilní konvergenci. Model se nenaučil generovat jedinou triviální molekulu, ale široké spektrum struktur splňujících přísný tvarový i syntetický práh.]`
+💡 [POZNATEK: Růst poměru žádoucích molekul z 28 % na 52 % při zachování 94 % unikátnosti demonstruje stabilní konvergenci. Model se nenaučil generovat jedinou triviální molekulu, ale široké spektrum struktur splňujících přísný tvarový i syntetický práh.]`
       }
     ]
   },
@@ -874,11 +874,11 @@ img.save("top5_ccr2_candidates.png")
 print("Top-5 kandidáti uloženi do top5_ccr2_candidates.png")`,
         output: `Celkem načteno molekul: 1000
 Počet žádoucích struktur (ROCS >= 0.871 & SA >= 0.1): 484 (48.4%)
-~ [STATE: Multi-Stage Screening Triage: 1,000 raw -> 982 valid -> 941 unique -> 484 desired -> 5 lead candidates]
+~ [STAV: Vícestupňový screeningový trychtýř: 1 000 surových -> 982 validních -> 941 unikátních -> 484 žádoucích -> 5 olověných kandidátů]
 Top-5 kandidáti vybráni (ROCS range: 1.482 - 1.341, SAScore range: 2.15 - 2.74)
 Top-5 kandidáti uloženi do top5_ccr2_candidates.png
-~ [STATE: Lead Profile Check: all MW in [300, 375] Da, all SAScore <= 2.74, all Tcombo >= 1.341]
-💡 [INSIGHT: Všech 5 vedoucích struktur leží na Paretově frontě kompromisu mezi tvarem kavit CCR2 a dostupností pro organickou syntézu na ÚOCHB, přičemž splňují přísná Lipinského kritéria drug-likeness.]`
+~ [STAV: Kontrola profilu olova: všechna MW v [300, 375] Da, všechna SAScore <= 2.74, všechna Tcombo >= 1.341]
+💡 [POZNATEK: Všech 5 vedoucích struktur leží na Paretově frontě kompromisu mezi tvarem kavit CCR2 a dostupností pro organickou syntézu na ÚOCHB, přičemž splňují přísná Lipinského kritéria drug-likeness.]`
       }
     ]
   }

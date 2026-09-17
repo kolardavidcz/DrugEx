@@ -80,13 +80,13 @@ print("Skalární odměny R(X):", [round(r, 2) for r in rewards.squeeze().tolist
 print(f"Advantage (R - beta={beta}):", [round(a, 2) for a in advantage.squeeze().tolist()])`,
         output: `Skalární odměny R(X): [0.85, 0.12, 0.64]
 Advantage (R - beta=0.4): [0.45, -0.28, 0.24]
-~ [STATE: Gradient Direction & Policy Update Sign]
-~   Molecule #0 (R=0.85, Adv=+0.45): Positive gradient step -> Boost log-prob of these tokens by +45%
-~   Molecule #1 (R=0.12, Adv=-0.28): Negative gradient step -> Suppress these tokens by -28%
-~   Molecule #2 (R=0.64, Adv=+0.24): Positive gradient step -> Moderate reinforcement (+24%)
-💡 [INSIGHT: The Power of Baseline Beta]
-💡   Without baseline beta, all positive rewards (even poor ones like 0.12) would push the model
-💡   to reinforce bad molecules. Setting beta=0.40 ensures below-average candidates are actively penalized!`
+~ [STAV: Směr gradientu a znaménko aktualizace politiky]
+~   Molekula #0 (R=0.85, Adv=+0.45): Kladný gradientní krok -> Zvýšení log-pravděpodobnosti tokenů o +45 %
+~   Molekula #1 (R=0.12, Adv=-0.28): Záporný gradientní krok -> Potlačení těchto tokenů o -28 %
+~   Molekula #2 (R=0.64, Adv=+0.24): Kladný gradientní krok -> Mírné posílení generování (+24 %)
+💡 [POZNATEK: Význam základní linie (Baseline Beta)]
+💡   Bez parametru beta by i slabé kladné odměny (např. 0.12) vedly k posilování nežádoucích struktur.
+💡   Nastavení beta=0.40 zaručuje, že podprůměrní kandidáti jsou aktivně penalizováni!`
       },
       {
         title: "3. Rizika jednokriteriálního RL a fenomén 'Reward Hacking'",
@@ -187,15 +187,15 @@ print("Aktivace mutační sítě pro batch 5 vzorků:", batch_mutate.tolist())
 print(f"Podíl mutovaných kroků: {batch_mutate.sum().item()} / 5 ({batch_mutate.float().mean()*100:.0f}%)")`,
         output: `Aktivace mutační sítě pro batch 5 vzorků: [False, True, False, True, False]
 Podíl mutovaných kroků: 2 / 5 (40%)
-~ [STATE: Dual-Policy Softmax Blending Tensor]
-~   Sample #0: Generated via Agent (pi_theta) -> Exploiting 3D shape/color gradient
-~   Sample #1: MUTATED via Prior (pi_0) -> Injected random chemical bioisostere from Papyrus
-~   Sample #2: Generated via Agent (pi_theta) -> Continuing lead optimization
-~   Sample #3: MUTATED via Prior (pi_0) -> Ring expansion exploration
-~   Sample #4: Generated via Agent (pi_theta) -> Preserving core affinity
-💡 [INSIGHT: The Exploration-Exploitation Balance]
-💡   If epsilon=0, the agent collapses into repetitive local optima within 15 epochs.
-💡   Setting epsilon=0.20 maintains ~95% chemical uniqueness while steadily driving affinity upwards.`
+~ [STAV: Tenzor míchání distribucí politik přes softmax]
+~   Vzorek #0: Generován agentem (pi_theta) -> Využití gradientu 3D tvaru a farmakoforu
+~   Vzorek #1: MUTOVÁN priorem (pi_0) -> Vložení náhodného bioisosteru z databáze Papyrus
+~   Vzorek #2: Generován agentem (pi_theta) -> Pokračování v optimalizaci olova
+~   Vzorek #3: MUTOVÁN priorem (pi_0) -> Průzkum expanze kruhových systémů
+~   Vzorek #4: Generován agentem (pi_theta) -> Zachování vazebné afinity
+💡 [POZNATEK: Rovnováha mezi explorací a exploatací]
+💡   Při epsilon=0 agent zkolabuje do úzkého lokálního optima během 15 epoch.
+💡   Nastavení epsilon=0.20 udržuje ~95% unikátnost struktur při stálém růstu afinity.`
       },
       {
         title: "6. Podpora Crover Network pro genetické křížení sekvencí v DrugEx",
@@ -291,13 +291,13 @@ print(f"  Prostředí: {len(env.scorers)} cíl ({env.scorers[0].getKey()}) | Eps
   Agent: SequenceRNN (device: cuda:0)
   Mutate (Prior): SequenceRNN (frozen, eval mode)
   Prostředí: 1 cíl (QED) | Epsilon: 0.2
-~ [STATE: Initial Policy Distribution | vocab_size=84, hidden_size=512]
+~ [STAV: Počáteční distribuce politiky | velikost_slovníku=84, skrytá_vrstva=512]
 [Epoch 001/100] loss_train: 3.842 | valid_ratio: 0.984 | unique_ratio: 0.991 | desired_ratio: 0.042
 [Epoch 025/100] loss_train: 2.150 | valid_ratio: 0.978 | unique_ratio: 0.965 | desired_ratio: 0.218
 [Epoch 050/100] loss_train: 1.432 | valid_ratio: 0.975 | unique_ratio: 0.942 | desired_ratio: 0.410
 [Epoch 100/100] loss_train: 0.891 | valid_ratio: 0.971 | unique_ratio: 0.912 | desired_ratio: 0.594
-~ [STATE: RL Convergence Checkpoint | Δdesired=+55.2%, unique_ratio=91.2% > 80% threshold]
-💡 [INSIGHT: Zachování diverzity (unique_ratio > 90%) potvrzuje, že epsilon-greedy mutační kotva (ε = 0.2) úspěšně zabránila kolapsu modů (mode collapse) při současném 14násobném nárůstu podílu žádoucích molekul.]`
+~ [STAV: Kontrolní bod konvergence RL | Δžádoucí=+55.2 %, poměr_unikátních=91.2 % > 80 % práh]
+💡 [POZNATEK: Zachování diverzity (poměr unikátních > 90 %) potvrzuje, že epsilon-greedy mutační kotva (ε = 0.2) úspěšně zabránila kolapsu modů při současném 14násobném nárůstu podílu žádoucích molekul.]`
       }
     ]
   },
@@ -479,10 +479,10 @@ toy_scores = np.array([[0.9, 0.2], [0.5, 0.8], [0.7, 0.7], [0.3, 0.3]])
 toy_rewards = compute_pareto_rewards([np.array([0, 1, 2]), np.array([3])], toy_scores)
 print("Normalizované odměny R(X):", [round(r[0], 2) for r in toy_rewards])`,
         output: `Normalizované odměny R(X): [0.75, 0.5, 0.25, 0.0]
-~ [STATE: Front Decomposition: F1=[Mol 0, Mol 1, Mol 2], F2=[Mol 3]]
-~ [STATE: Crowding Distances: Mol 0 (d=inf), Mol 1 (d=inf), Mol 2 (d=1.000, interior), Mol 3 (d=inf, Front 2)]
-~ [STATE: Global Rank Sorting (Worst to Best): Mol 3 (rank 0) < Mol 2 (rank 1) < Mol 1 (rank 2) < Mol 0 (rank 3)]
-💡 [INSIGHT: Každé molekule je přiřazena spojitá odměna přesně podle jejího pořadí: rank / N. Tím vzniká rovnoměrně rozprostřená odměna v [0, 1), která stabilizuje gradientní učení lépe než surová skóre.]`
+~ [STAV: Rozklad do front: F1=[Mol 0, Mol 1, Mol 2], F2=[Mol 3]]
+~ [STAV: Vzdálenosti shlukování: Mol 0 (d=inf), Mol 1 (d=inf), Mol 2 (d=1.000, vnitřní), Mol 3 (d=inf, Front 2)]
+~ [STAV: Globální seřazení pořadí (od nejhoršího): Mol 3 (pořadí 0) < Mol 2 (pořadí 1) < Mol 1 (pořadí 2) < Mol 0 (pořadí 3)]
+💡 [POZNATEK: Každé molekule je přiřazena spojitá odměna přesně podle jejího pořadí: rank / N. Tím vzniká rovnoměrně rozprostřená odměna v [0, 1), která stabilizuje gradientní učení lépe než surová skóre.]`
       },
       {
         title: "7. Alternativní Paretovská schémata: ParetoTanimotoDistance & Hypervolume",
@@ -551,8 +551,8 @@ for i, name in enumerate(["Mol A", "Mol B", "Mol C", "Mol D", "Mol E"]):
   Front 1 (Rank 1): indexy molekul [0 1 2]
   Front 2 (Rank 2): indexy molekul [4]
   Front 3 (Rank 3): indexy molekul [3]
-~ [STATE: Front 1 Crowding Distances: Mol A (d=inf, boundary), Mol B (d=inf, boundary), Mol C (d=2.000, interior)]
-~ [STATE: Front Rank Sorting -> Order: [Mol A, Mol B, Mol C] >> [Mol E] >> [Mol D]]
+~ [STAV: Vzdálenosti shlukování ve Front 1: Mol A (d=inf, hraniční), Mol B (d=inf, hraniční), Mol C (d=2.000, vnitřní)]
+~ [STAV: Seřazení podle pořadí front -> Pořadí: [Mol A, Mol B, Mol C] >> [Mol E] >> [Mol D]]
 
 Přiřazené normalizované odměny R(X):
   Mol A | Skóre: [0.9 0.3] | Odměna: 0.800
@@ -560,7 +560,7 @@ Přiřazené normalizované odměny R(X):
   Mol C | Skóre: [0.85 0.8 ] | Odměna: 0.400
   Mol D | Skóre: [0.4 0.4] | Odměna: 0.000
   Mol E | Skóre: [0.82 0.78] | Odměna: 0.200
-💡 [INSIGHT: Hraniční řešení (Mol A s extrémním tvarem a Mol B s extrémní syntetizovatelností) získávají d=inf, což jim zajišťuje nejvyšší odměnu v rámci Front 1 a motivuje generátor k expanzi po celé šířce Paretovy fronty.]`
+💡 [POZNATEK: Hraniční řešení (Mol A s extrémním tvarem a Mol B s extrémní syntetizovatelností) získávají d=inf, což jim zajišťuje nejvyšší odměnu v rámci Front 1 a motivuje generátor k expanzi po celé šířce Paretovy fronty.]`
       }
     ]
   },
@@ -794,12 +794,12 @@ print("Transformovaná skóre:")
 for val in [0.4, 0.9, 1.4]:
     print(f"  Vstup x={val:.1f} -> S(x)={mod(val):.3f}")`,
         output: `Transformovaná skóre:
-~ [STATE: SmoothClippedScore parameters: k=6.667, x_mid=0.900, L=1.000]
+~ [STAV: Parametry SmoothClippedScore: k=6.667, x_mid=0.900, L=1.000]
   Vstup x=0.4 -> S(x)=0.034
   Vstup x=0.9 -> S(x)=0.500
   Vstup x=1.4 -> S(x)=0.966
-~ [STATE: Inflexní bod x_mid=0.900: derivace dS/dx = k*L/4 = 1.667 (maximální gradient)]
-💡 [INSIGHT: Spojitá logistická křivka poskytuje nenulový gradient i v suboptimálních oblastech (x=0.4 -> dS/dx > 0), což zabraňuje uvíznutí agenta, které nastává u nespojitého ořezání ClippedScore.]`
+~ [STAV: Inflexní bod x_mid=0.900: derivace dS/dx = k*L/4 = 1.667 (maximální gradient)]
+💡 [POZNATEK: Spojitá logistická křivka poskytuje nenulový gradient i v suboptimálních oblastech (x=0.4 -> dS/dx > 0), což zabraňuje uvíznutí agenta, které nastává u nespojitého ořezání ClippedScore.]`
       },
       {
         title: "7. Kalibrace profilu odměn pro flexibilní cíle & IDP ligandy",
@@ -876,10 +876,10 @@ print(f"✓ DrugExEnvironment úspěšně inicializován s {len(scorers)} cíli.
 print(f"  Registrované skórovače: {[s.getKey() for s in scorers]}")`,
         output: `✓ DrugExEnvironment úspěšně inicializován s 4 cíli.
   Registrované skórovače: ['SA', 'MW', 'logP', 'QED']
-~ [STATE: Raw Property Vector -> SA: 2.80, MW: 420.5 Da, logP: 3.10, QED: 0.78]
-~ [STATE: Desirability Mapped Vector -> SA: 0.852, MW: 0.998, logP: 0.965, QED: 0.952]
-~ [STATE: Multi-Threshold Evaluation (all >= 0.5) -> [True, True, True, True] -> Desired = 1]
-💡 [INSIGHT: Všechny fyzikální veličiny s různými jednotkami jsou nelineárními modifikátory transformovány do bezrozměrného intervalu [0, 1]. Prahový vektor [0.5, 0.5, 0.5, 0.5] tak definuje vyvážený profil kandidáta bez nutnosti manuálního škálování vah.]`
+~ [STAV: Vektor surových vlastností -> SA: 2.80, MW: 420.5 Da, logP: 3.10, QED: 0.78]
+~ [STAV: Vektor transformované žádoucnosti -> SA: 0.852, MW: 0.998, logP: 0.965, QED: 0.952]
+~ [STAV: Vyhodnocení prahových hodnot (vše >= 0.5) -> [Pravda, Pravda, Pravda, Pravda] -> Žádoucí = 1]
+💡 [POZNATEK: Všechny fyzikální veličiny s různými jednotkami jsou nelineárními modifikátory transformovány do bezrozměrného intervalu [0, 1]. Prahový vektor [0.5, 0.5, 0.5, 0.5] tak definuje vyvážený profil kandidáta bez nutnosti manuálního škálování vah.]`
       }
     ]
   }
