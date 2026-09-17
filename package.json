@@ -11,6 +11,7 @@
     "check:quiz": "node tools/quiz_stat.mjs",
     "build": "node tools/prepare_build.mjs",
     "pdf": "node tools/generate_pdf.mjs",
+    "book": "node tools/generate_pdf.mjs",
     "test": "pnpm check:syntax && pnpm check:highlight && pnpm check:contrast && pnpm check:quiz && pnpm build"
   },
   "keywords": [

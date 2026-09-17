@@ -12,6 +12,7 @@ import http from 'http';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const outputPath = path.join(projectRoot, 'DrugEx_Full_Handbook.pdf');
+const bookOutputPath = path.join(projectRoot, 'DrugEx_Book.pdf');
 
 // Potential Chrome executable paths on Windows / WSL
 const CHROME_PATHS = [
@@ -102,38 +103,51 @@ async function main() {
   });
   console.log(`✓ Detected ${slideCount} rendered handbook slide cards and ${quizCount} compact quiz questions across all 6 modules.`);
 
-  console.log('📄 Exporting continuous publication A4 PDF with academic headers & footers...');
+  const isAcademic = process.argv.includes('--academic');
+  console.log(isAcademic
+    ? '📄 Exporting continuous publication A4 PDF with academic headers & footers...'
+    : '📄 Exporting clean A4 book edition (no running headers/footers, page numbers, or institutional banners)...');
+
   await page.pdf({
     path: outputPath,
     format: 'A4',
     printBackground: true,
-    displayHeaderFooter: true,
-    headerTemplate: `
+    displayHeaderFooter: isAcademic,
+    headerTemplate: isAcademic ? `
       <div style="font-size: 7.5pt; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #64748b; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 0 12mm; border-bottom: 0.5pt solid #e2e8f0;">
         <span style="font-weight: 600; color: #0284c7;">DrugEx Hub · De Novo Drug Design & ROCS Shape-Matching</span>
         <span>VŠCHT Praha / ÚOCHB AV ČR</span>
       </div>
-    `,
-    footerTemplate: `
+    ` : '<div></div>',
+    footerTemplate: isAcademic ? `
       <div style="font-size: 7.5pt; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #64748b; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 0 12mm; border-top: 0.5pt solid #e2e8f0;">
         <span>Bakalářská Práce: David Kolář · Učební Příručka</span>
         <span style="font-weight: 700; color: #0f172a;">Strana <span class="pageNumber"></span> z <span class="totalPages"></span></span>
       </div>
-    `,
-    margin: {
+    ` : '<div></div>',
+    margin: isAcademic ? {
       top: '16mm',
       bottom: '16mm',
+      left: '12mm',
+      right: '12mm'
+    } : {
+      top: '12mm',
+      bottom: '12mm',
       left: '12mm',
       right: '12mm'
     }
   });
 
-    await browser.close();
+  await browser.close();
 
-    const stats = fs.statSync(outputPath);
-    const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
-    console.log(`✨ Successfully generated: ${outputPath} (${sizeMb} MB)`);
-    console.log('=================================================');
+  // Also duplicate to DrugEx_Book.pdf
+  fs.copyFileSync(outputPath, bookOutputPath);
+
+  const stats = fs.statSync(outputPath);
+  const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
+  console.log(`✨ Successfully generated: ${outputPath} (${sizeMb} MB)`);
+  console.log(`✨ Book edition duplicated to: ${bookOutputPath} (${sizeMb} MB)`);
+  console.log('=================================================');
   } finally {
     if (serverProc) {
       console.log('🛑 Stopping temporary dev server...');
