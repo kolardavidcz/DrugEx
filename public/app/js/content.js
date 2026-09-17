@@ -4,7 +4,7 @@
 
 import { el, clear, copyText } from "./ui.js";
 import { state, ensureShuffledOptions } from "./state.js";
-import { highlightPython, formatFormula } from "./format.js";
+import { highlightPython, formatFormula, formatTerminalOutput, hasTerminalTrace } from "./format.js";
 import { LECTURE_DATA } from "./lectures_content.js";
 import { COOKBOOK_DATA } from "./cookbook_content.js";
 
@@ -122,13 +122,20 @@ export function renderLecture(container, lectureId) {
       ];
 
       if (slide.output) {
+        const withTrace = hasTerminalTrace(slide.output);
+        const headerBadges = [
+          el("span", { className: "code-output-badge" }, "exit 0")
+        ];
+        if (withTrace) {
+          headerBadges.push(el("span", { className: "code-output-trace-badge" }, "+Telemetry"));
+        }
         codeChildren.push(
           el("div", { className: "code-output-header" }, [
-            el("span", { className: "code-output-label" }, "▶ STDOUT / Výstup konzole"),
-            el("span", { className: "code-output-badge" }, "exit 0")
+            el("span", { className: "code-output-label" }, withTrace ? "▶ STDOUT & RUNTIME TELEMETRY" : "▶ STDOUT / Výstup konzole"),
+            el("div", { style: { display: "flex", alignItems: "center" } }, headerBadges)
           ]),
           el("pre", { className: "code-output-block" }, [
-            el("code", {}, slide.output)
+            el("code", { innerHTML: formatTerminalOutput(slide.output) })
           ])
         );
       }
@@ -389,13 +396,20 @@ export async function renderHandbookPrintView(container) {
           ];
 
           if (slide.output) {
+            const withTrace = hasTerminalTrace(slide.output);
+            const headerBadges = [
+              el("span", { className: "code-output-badge" }, "exit 0")
+            ];
+            if (withTrace) {
+              headerBadges.push(el("span", { className: "code-output-trace-badge" }, "+Telemetry"));
+            }
             codeChildren.push(
               el("div", { className: "code-output-header" }, [
-                el("span", { className: "code-output-label" }, "▶ STDOUT / Výstup skriptu"),
-                el("span", { className: "code-output-badge" }, "exit 0")
+                el("span", { className: "code-output-label" }, withTrace ? "▶ STDOUT & RUNTIME TELEMETRY" : "▶ STDOUT / Výstup skriptu"),
+                el("div", { style: { display: "flex", alignItems: "center" } }, headerBadges)
               ]),
               el("pre", { className: "code-output-block" }, [
-                el("code", {}, slide.output)
+                el("code", { innerHTML: formatTerminalOutput(slide.output) })
               ])
             );
           }

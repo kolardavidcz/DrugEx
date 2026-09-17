@@ -103,3 +103,50 @@ export function formatMath(tex) {
   if (!tex) return "";
   return `<span class="math-tex">${escapeHtml(tex)}</span>`;
 }
+
+/**
+ * Check if a terminal output block contains in-between runtime states or pedagogical insights.
+ */
+export function hasTerminalTrace(output) {
+  if (!output) return false;
+  return /(?:^[~💡]|\[(?:STATE|TRACE|INSIGHT|TELEMETRY)\])/m.test(output);
+}
+
+/**
+ * Format terminal output with rich in-between runtime traces and pedagogical insights.
+ * - Lines starting with '~' or '[STATE]' / '[TRACE]' are styled as in-between execution states (electric violet).
+ * - Lines starting with '💡' or '[INSIGHT]' / '[NOTE]' are styled as teacher insights (warm amber).
+ * - Lines starting with '[Epoch ...]' or '[Stage ...]' are highlighted as milestones (cyan).
+ * - Lines starting with '✓' or progress bars '100%|' are highlighted as success (emerald).
+ */
+export function formatTerminalOutput(output) {
+  if (!output) return "";
+  const lines = output.split("\n");
+  const out = lines.map(line => {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith("~")) {
+      const content = trimmed.replace(/^~\s*/, "");
+      return `<span class="output-trace"><span class="output-trace-badge">TRACE</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`;
+    }
+    if (trimmed.startsWith("💡")) {
+      const content = trimmed.replace(/^💡\s*/, "");
+      return `<span class="output-insight"><span class="output-insight-badge">INSIGHT</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`;
+    }
+    if (trimmed.startsWith("[STATE]") || trimmed.startsWith("[TRACE]")) {
+      const content = trimmed.replace(/^\[(?:STATE|TRACE)\]\s*/, "");
+      return `<span class="output-trace"><span class="output-trace-badge">STATE</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`;
+    }
+    if (trimmed.startsWith("[INSIGHT]") || trimmed.startsWith("[NOTE]")) {
+      const content = trimmed.replace(/^\[(?:INSIGHT|NOTE)\]\s*/, "");
+      return `<span class="output-insight"><span class="output-insight-badge">INSIGHT</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`;
+    }
+    if (/^\[(?:Epoch|Stage|Phase|Worker)\s+[^\]]+\]/.test(trimmed)) {
+      return `<span class="output-milestone">${escapeHtml(line)}</span>`;
+    }
+    if (trimmed.startsWith("✓") || trimmed.includes("100%|")) {
+      return `<span class="output-success">${escapeHtml(line)}</span>`;
+    }
+    return escapeHtml(line);
+  });
+  return out.join("\n");
+}

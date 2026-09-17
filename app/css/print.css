@@ -304,6 +304,86 @@
     print-color-adjust: exact !important;
   }
 
+  /* In-Between Runtime Trace & Telemetry in Print */
+  .output-trace {
+    display: block !important;
+    color: #c084fc !important;
+    background: rgba(192, 132, 252, 0.09) !important;
+    border-left: 2pt solid #a855f7 !important;
+    padding: 2pt 6pt !important;
+    margin: 2pt 0 !important;
+    border-radius: 0 2pt 2pt 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .output-trace-badge {
+    color: #f3e8ff !important;
+    background: rgba(168, 85, 247, 0.5) !important;
+    border: 1px solid rgba(192, 132, 252, 0.6) !important;
+    padding: 0 3pt !important;
+    font-size: 6.5pt !important;
+    font-weight: 700 !important;
+    border-radius: 2pt !important;
+    margin-right: 4pt !important;
+    vertical-align: middle !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .output-trace-text {
+    color: #e9d5ff !important;
+  }
+
+  /* Pedagogical Insight in Print */
+  .output-insight {
+    display: block !important;
+    color: #fbbf24 !important;
+    background: rgba(251, 191, 36, 0.09) !important;
+    border-left: 2pt solid #f59e0b !important;
+    padding: 2pt 6pt !important;
+    margin: 2pt 0 !important;
+    border-radius: 0 2pt 2pt 0 !important;
+    font-style: italic !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .output-insight-badge {
+    color: #fef3c7 !important;
+    background: rgba(245, 158, 11, 0.45) !important;
+    border: 1px solid rgba(251, 191, 36, 0.6) !important;
+    padding: 0 3pt !important;
+    font-size: 6.5pt !important;
+    font-weight: 700 !important;
+    font-style: normal !important;
+    border-radius: 2pt !important;
+    margin-right: 4pt !important;
+    vertical-align: middle !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .output-insight-text {
+    color: #fde68a !important;
+  }
+
+  .output-milestone {
+    color: #38bdf8 !important;
+    font-weight: 600 !important;
+  }
+  .output-success {
+    color: #4ade80 !important;
+  }
+  .code-output-trace-badge {
+    color: #c084fc !important;
+    background: rgba(192, 132, 252, 0.15) !important;
+    border: 1px solid rgba(192, 132, 252, 0.4) !important;
+    padding: 1pt 4pt !important;
+    border-radius: 2pt !important;
+    font-size: 7pt !important;
+    font-weight: 600 !important;
+    margin-left: 4pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   /* High-Contrast Syntax Colors for Dark Print Code */
   .syn-kw { color: #ff7b72 !important; font-weight: 600 !important; }
   .syn-fn { color: #d2a8ff !important; font-weight: 600 !important; }

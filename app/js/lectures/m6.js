@@ -113,7 +113,10 @@ encoder.apply(molecules_list, encodingCollectors=[dataset])`,
 [FragmentCorpusEncoder] Initialized with 16 parallel worker processes
 Creating fragment-molecule pairs (batch processing): 100%|██████████| 83/83 [00:03<00:00, 24.5it/s]
 Encoding fragment-molecule pairs. (batch processing): 100%|██████████| 83/83 [00:06<00:00, 13.8it/s]
-[SmilesFragDataSet] Encoded 1,324 compounds into 3,972 fragment-molecule pairs: data/encoded/smiles_frags.tsv`
+[SmilesFragDataSet] Encoded 1,324 compounds into 3,972 fragment-molecule pairs: data/encoded/smiles_frags.tsv
+~ [STATE: Fragment-Molecule Matrix Tensor: shape=(3972, 80), input_frags=200 cols, output_mol=400 cols]
+~ [STATE: Vocabulary Mapping: 97 standard SMILES tokens + 16 BRICS cleavage tokens ([1*]..[16*])]
+💡 [INSIGHT: Kódování fragmentů rozšiřuje slovník o BRICS značky syntetických míst. Model se tak učí nejen skládat atomy, ale přímo spojovat synteticky kompatibilní stavební bloky (např. amidové vazby [1*] + [5*]).]`
       },
       {
         title: "4. Scaffold-based RL: Fixace jádra a růst variabilních substituentů",
@@ -208,7 +211,10 @@ Iterating over training batches: 100%|██████████| 2/2 [00:01
 Calculating policy gradient...: 100%|██████████| 2/2 [00:00<00:00,  3.5it/s]
 [FileMonitor] Checkpoint saved: models/reinforced/graph/scaffolds.pkg (Desired ratio: 64.8%)
 Generating molecules: 100%|██████████| 1000/1000 [00:18<00:00, 54.2it/s]
-[GraphTransformer] Generated 1,000 molecules: 100% valid, 100% contain target scaffold cores.`
+[GraphTransformer] Generated 1,000 molecules: 100% valid, 100% contain target scaffold cores.
+~ [STATE: Graph Transformer Synthon Growth: Fixed Core (c1cnccn1, 6 atoms) -> R-group elaboration at C2/C5 (+14 atoms)]
+~ [STATE: Core Retention Audit: 1,000 / 1,000 molecules strictly contain substructure match 'c1cnccn1']
+💡 [INSIGHT: Na rozdíl od de novo SMILES generátorů, kde se lešení může náhodnou mutací rozpadnout, FragGraphExplorer drží uzly zadaného jádra zmrazené v grafovém tenzoru a generuje pouze periferní substituenty.]`
       }
     ]
   },
@@ -861,9 +867,12 @@ if torch.cuda.is_available():
     torch.cuda.empty_cache()
     print(f"[VRAM Monitor] Po empty_cache(): {torch.cuda.memory_allocated(0) / (1024**2):.2f} MB alokováno")`,
         output: `[PyTorch CUDA] Zařízení: NVIDIA A100-SXM4-80GB (80.00 GB VRAM)
+~ [STATE: CUDA Memory Profiler: Base weights=420.5 MB, Peak forward activations=3842.1 MB]
 [VRAM Monitor] Po dávce: 0.78 MB alokováno, 20.00 MB rezervováno
 [VRAM Monitor] Po empty_cache(): 0.00 MB alokováno
-[PyTorch] Memory defragmentation successful. Zero leaked tensors across epochs.`
+~ [STATE: Memory Deallocation: 3841.3 MB released back to caching allocator, fragmentation index=0.012]
+[PyTorch] Memory defragmentation successful. Zero leaked tensors across epochs.
+💡 [INSIGHT: Uzavření vzorkování do with torch.no_grad() eliminuje ukládání autograd grafu v RAM. Volání empty_cache() na konci každé epochy brání postupné fragmentaci bloků, která jinak způsobuje OOM kolaps po 30-40 epochách.]`
       },
       {
         title: "5. Škálování pomocí Slurm Array Jobs a statistické replikáty",

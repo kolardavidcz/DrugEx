@@ -2,31 +2,44 @@
  * Test suite for Python syntax highlighter across all 18 lectures
  */
 
-import { highlightPython } from "../app/js/format.js";
+import { highlightPython, formatTerminalOutput } from "../app/js/format.js";
 import { LECTURE_DATA } from "../app/js/lectures_content.js";
 
 let totalSnippets = 0;
+let totalOutputs = 0;
 let errors = 0;
 
 Object.entries(LECTURE_DATA).forEach(([lecId, lec]) => {
   lec.slides.forEach((slide, sIdx) => {
-    if (!slide.code) return;
-    totalSnippets++;
+    if (slide.code) {
+      totalSnippets++;
 
-    const highlighted = highlightPython(slide.code);
+      const highlighted = highlightPython(slide.code);
 
-    // Check for malformed tags like <span <span or unclosed/leaked attributes
-    if (highlighted.includes("<span <span") || highlighted.includes("&lt;span") || /class="syn-[^"]*">[^<]*class="syn-/.test(highlighted)) {
-      console.error(`❌ Syntax corruption detected in ${lecId} slide ${sIdx + 1} (${slide.title})`);
-      errors++;
+      // Check for malformed tags like <span <span or unclosed/leaked attributes
+      if (highlighted.includes("<span <span") || highlighted.includes("&lt;span") || /class="syn-[^"]*">[^<]*class="syn-/.test(highlighted)) {
+        console.error(`❌ Syntax corruption detected in ${lecId} slide ${sIdx + 1} (${slide.title})`);
+        errors++;
+      }
+
+      // Check for raw html entity leaks or mismatched spans
+      const openSpans = (highlighted.match(/<span/g) || []).length;
+      const closeSpans = (highlighted.match(/<\/span>/g) || []).length;
+      if (openSpans !== closeSpans) {
+        console.error(`❌ Mismatched span tags in ${lecId} slide ${sIdx + 1}: ${openSpans} opens vs ${closeSpans} closes`);
+        errors++;
+      }
     }
 
-    // Check for raw html entity leaks or mismatched spans
-    const openSpans = (highlighted.match(/<span/g) || []).length;
-    const closeSpans = (highlighted.match(/<\/span>/g) || []).length;
-    if (openSpans !== closeSpans) {
-      console.error(`❌ Mismatched span tags in ${lecId} slide ${sIdx + 1}: ${openSpans} opens vs ${closeSpans} closes`);
-      errors++;
+    if (slide.output) {
+      totalOutputs++;
+      const formattedOutput = formatTerminalOutput(slide.output);
+      const openSpans = (formattedOutput.match(/<span/g) || []).length;
+      const closeSpans = (formattedOutput.match(/<\/span>/g) || []).length;
+      if (openSpans !== closeSpans) {
+        console.error(`❌ Mismatched span tags in terminal output ${lecId} slide ${sIdx + 1}: ${openSpans} opens vs ${closeSpans} closes`);
+        errors++;
+      }
     }
   });
 });
