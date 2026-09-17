@@ -487,11 +487,17 @@ export async function renderHandbookPrintView(container) {
       });
       quizSection.appendChild(qGrid);
 
-      // Answer Key & Explanations at the end of the module's quiz
+      // Subtle hint before the page break to solution sheet
+      const hint = el("div", { className: "quiz-page-hint" }, [
+        el("span", {}, "📄 Pokračujte na další stranu pro Klíč správných odpovědí a odborná zdůvodnění.")
+      ]);
+      quizSection.appendChild(hint);
+
+      // Answer Key & Explanations strictly on the next page
       const keySection = el("div", { className: "quiz-key-container" }, [
         el("div", { className: "quiz-key-title-bar" }, [
           el("h3", {}, `Klíč Správných Odpovědí & Odborná Zdůvodnění — Modul ${mod.num}`),
-          el("span", { className: "quiz-key-subtitle" }, "Správná řešení a vysvětlení principů")
+          el("span", { className: "quiz-key-subtitle" }, "Samostatný list řešení — ověřte si své odpovědi")
         ]),
         el("div", { className: "quiz-key-grid" }, solutions.map(sol => el("div", {
           className: "quiz-key-item"

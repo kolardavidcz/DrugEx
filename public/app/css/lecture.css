@@ -233,10 +233,11 @@
   color: #c084fc;
   background: rgba(192, 132, 252, 0.08);
   border-left: 3px solid #a855f7;
-  padding: 2px 8px;
-  margin: 3px 0;
+  padding: 0 8px;
+  margin: 1px 0;
   border-radius: 0 4px 4px 0;
   font-family: inherit;
+  line-height: 1.35;
 }
 .output-trace-badge {
   display: inline-block;
@@ -250,7 +251,8 @@
   padding: 0 4px;
   border-radius: 3px;
   margin-right: 6px;
-  vertical-align: middle;
+  vertical-align: 1px;
+  line-height: 1.1;
 }
 .output-trace-text {
   color: #e9d5ff;
@@ -262,11 +264,12 @@
   color: #fbbf24;
   background: rgba(251, 191, 36, 0.08);
   border-left: 3px solid #f59e0b;
-  padding: 2px 8px;
-  margin: 3px 0;
+  padding: 0 8px;
+  margin: 1px 0;
   border-radius: 0 4px 4px 0;
   font-family: inherit;
   font-style: italic;
+  line-height: 1.35;
 }
 .output-insight-badge {
   display: inline-block;
@@ -275,12 +278,13 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #fef3c7;
-  background: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.4);
   border: 1px solid rgba(251, 191, 36, 0.5);
   padding: 0 4px;
   border-radius: 3px;
   margin-right: 6px;
-  vertical-align: middle;
+  vertical-align: 1px;
+  line-height: 1.1;
   font-style: normal;
 }
 .output-insight-text {

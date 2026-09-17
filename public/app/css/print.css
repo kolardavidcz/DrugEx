@@ -310,9 +310,10 @@
     color: #c084fc !important;
     background: rgba(192, 132, 252, 0.09) !important;
     border-left: 2pt solid #a855f7 !important;
-    padding: 2pt 6pt !important;
-    margin: 2pt 0 !important;
+    padding: 0 5pt !important;
+    margin: 1pt 0 !important;
     border-radius: 0 2pt 2pt 0 !important;
+    line-height: 1.35 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -325,7 +326,9 @@
     font-weight: 700 !important;
     border-radius: 2pt !important;
     margin-right: 4pt !important;
-    vertical-align: middle !important;
+    vertical-align: 0.5pt !important;
+    line-height: 1.1 !important;
+    display: inline-block !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -339,10 +342,11 @@
     color: #fbbf24 !important;
     background: rgba(251, 191, 36, 0.09) !important;
     border-left: 2pt solid #f59e0b !important;
-    padding: 2pt 6pt !important;
-    margin: 2pt 0 !important;
+    padding: 0 5pt !important;
+    margin: 1pt 0 !important;
     border-radius: 0 2pt 2pt 0 !important;
     font-style: italic !important;
+    line-height: 1.35 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -356,7 +360,9 @@
     font-style: normal !important;
     border-radius: 2pt !important;
     margin-right: 4pt !important;
-    vertical-align: middle !important;
+    vertical-align: 0.5pt !important;
+    line-height: 1.1 !important;
+    display: inline-block !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -592,13 +598,26 @@
     color: #334155 !important;
   }
 
-  /* Answer Key & Scientific Explanations Container */
+  /* Hint at the bottom of questions before solution sheet */
+  .quiz-page-hint {
+    margin-top: 10pt !important;
+    text-align: right !important;
+    font-size: 8pt !important;
+    color: #64748b !important;
+    font-style: italic !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  /* Answer Key & Scientific Explanations Container (strictly on the next page) */
   .quiz-key-container {
+    page-break-before: always !important;
+    break-before: page !important;
     background: #f8fafc !important;
     border: 1px solid #cbd5e1 !important;
     border-radius: 3pt !important;
-    padding: 8pt 10pt !important;
-    margin-top: 8pt !important;
+    padding: 10pt 12pt !important;
+    margin-top: 0 !important;
     page-break-inside: auto !important;
     break-inside: auto !important;
   }
