@@ -20,7 +20,7 @@ export const M3_LECTURES = {
         title: "1. Selhání 2D topologických deskriptorů při 'Scaffold Hoppingu'",
         content: `Klasická chemoinformatika se po desetiletí opírala o 2D topologické otisky (např. Morgan / ECFP4 fingerprinty, Daylight cesty, MACCS klíče). Tyto metody kódují molekulu jako binární vektor přítomnosti podstruktur v topologickém okolí atomů do poloměru $r \\le 2$ vazeb.
         <br><br>
-        Tento přístup má fundamentální teoretický limit: <strong>dvě molekuly se zcela odlišnými chemickými jádry (scaffoldy) mají 2D Tanimoto podobnost blízkou nule ($T_{2D} < 0.20$)</strong>, i když v trojrozměrném prostoru zaujímají <strong>identický objem a stejné prostorové uspořádání klíčových funkčních skupin</strong>.
+        Tento přístup má fundamentální teoretický limit: <strong>dvě molekuly se zcela odlišnými chemickými scaffoldy (kostrami) mají 2D Tanimoto podobnost blízkou nule ($T_{2D} < 0.20$)</strong>, i když v trojrozměrném prostoru zaujímají <strong>identický objem a stejné prostorové uspořádání klíčových funkčních skupin</strong>.
         <br><br>
         Biologický cíl (receptor, enzym či proteinové rozhraní) nečte 2D graf ani SMILES řetězec. Vazebné rozhraní proteinu interaguje výhradně s:
         <ul>
@@ -428,7 +428,7 @@ for grp, mols in scorer.group_definitions:
         <ol>
           <li><strong>Matice distančních mezí (Distance Bounds Matrix)</strong>: Z 2D topologie a délek vazeb se sestaví matice minimálních a maximálních povolených vzdáleností mezi všemi dvojicemi atomů.</li>
           <li><strong>Znalostní torzní potenciály z databáze CSD</strong>: Na rotovatelné vazby jsou aplikovány statistické torzní úhlové preference odvozené z desetitisíců experimentálních krystalografických struktur malých molekul v Cambridge Structural Database (CSD).</li>
-          <li><strong>Vnoření ze 4D do 3D prostoru (Embedding)</strong>: Metodou Distance Geometry s náhodným inicializačním seedem (<code>params.randomSeed = 0xc0ffee</code>) se naleznou 3D souřadnice.</li>
+          <li><strong>3D konformační embedding (Distance Geometry)</strong>: Metodou Distance Geometry z dimenze $4$ do $3$ s náhodným inicializačním seedem (<code>params.randomSeed = 0xc0ffee</code>) se naleznou 3D souřadnice.</li>
           <li><strong>Silová optimalizace</strong>: Geometrie je dočištěna silovým polem MMFF94 nebo UFF pro odstranění sterických srážek.</li>
           <li><strong>RMSD prořezávání (Pruning)</strong>: Konformace s geometrickou odchylkou $\\text{RMSD} < 0.5\\,\\text{Å}$ jsou zahozeny (<code>params.pruneRmsThresh = 0.5</code>), což brání redundanci.</li>
         </ol>`,
@@ -447,7 +447,7 @@ print(f"  Random seed: {hex(params.randomSeed)}")`,
   Počet vláken: 1 (Worker-safe)
   Random seed: 0xc0ffee
 ~ [STAV: Matice distančních mezí ETKDGv3: tvar=(24, 24), meze=[0.95, 12.4] Å]
-~ [STAV: 4D->3D Distance Geometry vnoření + MMFF94 optimalizace silovým polem -> 50 konformací]
+~ [STAV: 4D->3D Distance Geometry embedding + MMFF94 optimalizace silovým polem -> 50 konformací]
 ~ [STAV: RMSD prořezávání (práh=0.5 Å): 50 původních konformací -> 18 strukturně odlišných konformací]
 💡 [POZNATEK: RMSD prořezávání (0.5 Å) redukuje velikost ansámblu o ~60 %, čímž dramaticky urychluje následný výpočet Gaussovského překryvu v ROCS bez ztráty geometrické rozmanitosti.]`
       },

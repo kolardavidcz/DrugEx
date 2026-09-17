@@ -367,7 +367,7 @@ Zrekonstruovaný SMILES: NC(CNC(=O)c1ccc(C(=O)O)cc1)C(=O)O
         title: "2. SequenceRNN: Tenzorová algebra LSTM a GRU buněk",
         content: `V základní konfiguraci DrugEx (soubor <code>drugex/training/generators/sequence_rnn.py</code>) využívá generátor <code>SequenceRNN</code> třívrstvou architekturu:
         <ol>
-          <li><strong>Vkládací vrstva (Embedding Layer)</strong>: $\\mathbf{E} \\in \\mathbb{R}^{|\\mathcal{V}| \\times d_{\\text{emb}}}$ mapuje diskrétní token $x_t$ na spojitý vektor $\\mathbf{e}_t \\in \\mathbb{R}^{128}$.</li>
+          <li><strong>Embeddingová vrstva (Embedding Layer)</strong>: $\\mathbf{E} \\in \\mathbb{R}^{|\\mathcal{V}| \\times d_{\\text{emb}}}$ mapuje diskrétní token $x_t$ na spojitý vektor $\\mathbf{e}_t \\in \\mathbb{R}^{128}$.</li>
           <li><strong>3-vrstvá rekurentní páteř (Stacked LSTM / GRU)</strong>: $d_{\\text{hidden}} = 512$. Udržuje skrytý stav $\\mathbf{h}_t^{(l)}$ pro každou vrstvu $l \\in \\{1, 2, 3\\}$.</li>
           <li><strong>Lineární projekční hlava</strong>: $\\mathbf{W}_{\\text{out}} \\in \\mathbb{R}^{512 \\times |\\mathcal{V}|}$ mapuje výstupní stav $\\mathbf{h}_t^{(3)}$ na vektor logitů $\\mathbf{z}_t \\in \\mathbb{R}^{|\\mathcal{V}|}$.</li>
         </ol>
@@ -435,12 +435,12 @@ Greedy deterministický index (T=0.0): 3
       },
       {
         title: "4. SequenceTransformer: GPT Architektura pro chemické sekvence",
-        content: `Zatímco rekurentní sítě zpracovávají sekvenci krok za krokem, <code>SequenceTransformer</code> (třída <code>SequenceTransformer</code> / <code>GPT2Layer</code> v <code>drugex/training/generators/sequence_transformer.py</code>) využívá paralelní architekturu založenou na čisté pozornosti (Self-Attention):
+        content: `Zatímco rekurentní sítě zpracovávají sekvenci krok za krokem, <code>SequenceTransformer</code> (třída <code>SequenceTransformer</code> / <code>GPT2Layer</code> v <code>drugex/training/generators/sequence_transformer.py</code>) využívá paralelní architekturu založenou na mechanismu Self-Attention (vlastní pozornosti):
         <br><br>
         <h4>Strukturní parametry SequenceTransformeru v DrugEx:</h4>
         <ul>
           <li>Počet vrstev transformeru: $N_{\\text{layer}} = 12$</li>
-          <li>Dimenze vnoření a modelu: $d_{\\text{model}} = d_{\\text{emb}} = 512$</li>
+          <li>Dimenze embeddingu a modelu: $d_{\\text{model}} = d_{\\text{emb}} = 512$</li>
           <li>Počet pozornostních hlav: $N_{\\text{head}} = 8$ (dimenze každé hlavy $d_k = d_v = 512 / 8 = 64$)</li>
           <li>Vnitřní dimenze feed-forward sítě: $d_{\\text{inner}} = 1024$</li>
           <li>Aktivace: GELU (Gaussian Error Linear Unit) s Layer Normalization před každým podblokem.</li>
@@ -535,7 +535,7 @@ tensor([[0., -inf, -inf, -inf],
             <li>Hromadné de novo generování nepředpojatých knihoven (Unconstrained De Novo Design).</li>
             <li>Rychlý screening obrovského chemického prostoru v rané fázi projektu.</li>
             <li>Výpočetně efektivní trénink na běžných GPU (SequenceRNN vystačí s 4–8 GB VRAM).</li>
-            <li>Nejjednodušší integrace s MORL zpětnovazebním učením.</li>
+            <li>Nejjednodušší integrace s Multi-Objective Reinforcement Learning (MORL).</li>
           </ul>`,
           rightTitle: "GraphTransformer (2D Fragment-Based)",
           rightContent: `<strong>Doporučené použití:</strong>
@@ -611,7 +611,7 @@ Vygenerované molekuly ze SequenceRNN:
           <li>Trénovat hlubokou neuronovou síť (s miliony parametrů) od nuly na pouhých 100 molekulách vede k okamžitému a fatálnímu přeučení (overfitting) a neschopnosti generovat smysluplnou chemii.</li>
         </ul>
         <br>
-        Řešením je <strong>Transfer Learning (přenosem induktivního učení)</strong>:
+        Řešením je <strong>Transfer Learning (přenos znalostí z obecného modelu)</strong>:
         <ol>
           <li><strong>Fáze 1 (Pre-training / Obecný chemický jazyk)</strong>: Model se na obrovském korpusu (~1,5 mil. sloučenin) naučí univerzální pravidla chemické valence, aromatity, stability a stability kruhů.</li>
           <li><strong>Fáze 2 (Target Fine-Tuning / Cílová adaptace)</strong>: Předtrénovaný model je jemně dotrénován na malé sadě bioaktivních ligandů daného cíle s nízkou rychlostí učení, čímž se jeho distribuce posune do požadovaného farmakoforového podprostoru.</li>
@@ -648,8 +648,8 @@ Vygenerované molekuly ze SequenceRNN:
         <br><br>
         <h4>Kritické zásady správného Fine-Tuningu:</h4>
         <ol>
-          <li><strong>Snížení rychlosti učení (Learning Rate)</strong>: Rychlost učení se snižuje o řád, typicky na $lr = 10^{-4}$ nebo $5 \\times 10^{-5}$. Vysoký learning rate by v několika krocích zničil obecné chemické znalosti získané z 1,5 milionu molekul.</li>
-          <li><strong>Omezený počet epoch s časným zastavením (Early Stopping)</strong>: Trénink probíhá pouze 30–100 epoch. Průběžně se sleduje validační ztráta na 20% zadržené sadě.</li>
+          <li><strong>Snížení Learning Rate (rychlosti učení)</strong>: Rychlost učení se snižuje o řád, typicky na $lr = 10^{-4}$ nebo $5 \\times 10^{-5}$. Vysoký learning rate by v několika krocích zničil obecné chemické znalosti získané z 1,5 milionu molekul.</li>
+          <li><strong>Omezený počet epoch s včasným ukončením (Early Stopping)</strong>: Trénink probíhá pouze 30–100 epoch. Průběžně se sleduje validační ztráta na 20% zadržené sadě.</li>
           <li><strong>Konzistentní slovník</strong>: Fine-tuning MUSÍ využívat identický slovník <code>VocSmiles</code> jako pre-training model. Pokud by cílové ligandy obsahovaly token mimo slovník (např. vzácný bor), taková molekula je předem odfiltrována metodou <code>voc.removeIfNew()</code>.</li>
         </ol>`,
         code: `import os
@@ -732,20 +732,20 @@ print("✓ Fine-tuning dokončen. Model uložen do models/ccr2_finetuned_rnn.pkg
         }
       },
       {
-        title: "5. Vznik sítě Mutate / Prior (pi_0) pro budoucí fázi zpětnovazebního učení",
+        title: "5. Vznik sítě Mutate / Prior (pi_0) pro budoucí fázi Reinforcement Learningu",
         content: `Po dokončení fine-tuningu máme k dispozici model, který dokonale kombinuje obecnou chemickou syntaktiku s afinitou k cílové rodině molekul.
         <br><br>
         Tento checkpoint hraje v DrugEx klíčovou dvojroli:
         <ol>
-          <li><strong>Inicializace Agenta ($\pi_\\theta$)</strong>: Vzniká učící se agent, jehož váhy $\\theta$ budou v následujícím modulu (MORL) optimalizovány směrem k maximálnímu 3D tvarovému překryvu ROCS a požadovaným vlastnostem.</li>
+          <li><strong>Inicializace Agenta ($\pi_\theta$)</strong>: Vzniká učící se agent, jehož váhy $\theta$ budou v následujícím modulu (MORL) optimalizovány směrem k maximálnímu 3D tvarovému překryvu ROCS a požadovaným vlastnostem.</li>
           <li><strong>Zrození fixní sítě Mutate / Prior ($\pi_0$)</strong>: Vytvoří se identická kopie modelu, jejíž parametry jsou <strong>trvale zmrazeny</strong> (režim <code>eval()</code>, vypnuté gradienty).</li>
         </ol>
         <br>
         <div class="math-card">
-          $$\\text{RL Inicializace}: \\quad \\pi_\\theta \\leftarrow \\text{FineTunedCheckpoint}, \\qquad \\pi_0 \\leftarrow \\text{FineTunedCheckpoint (Frozen)}$$
+          $$\text{RL Inicializace}: \quad \pi_\theta \leftarrow \text{FineTunedCheckpoint}, \qquad \pi_0 \leftarrow \text{FineTunedCheckpoint (Frozen)}$$
         </div>
         <br>
-        Síť $\\pi_0$ bude v Module 2 sloužit jako stabilizační kotva (exploration anchor), která zabrání rozpadu generátoru při vícekriteriální optimalizaci.`
+        Síť $\pi_0$ bude v Module 2 sloužit jako stabilizační kotva (exploration anchor), která zabrání rozpadu generátoru při vícekriteriální optimalizaci.`
       },
       {
         title: "6. Analýza chemického prostoru: t-SNE / UMAP a Scaffold distribuce",
@@ -759,7 +759,7 @@ print("✓ Fine-tuning dokončen. Model uložen do models/ccr2_finetuned_rnn.pkg
         </ul>
         <br>
         <h4>Bemis-Murcko Scaffold Analýza</h4>
-        Kvantitativní analýza chemických jader (Murcko scaffolds) potvrzuje, že fine-tuning zachovává variabilitu jader a generuje průměrně 60–80 unikátních scaffoldů na každých 1 000 vygenerovaných molekul.`,
+        Kvantitativní analýza molekulárních koster (Murcko scaffolds) potvrzuje, že fine-tuning zachovává variabilitu jader a generuje průměrně 60–80 unikátních scaffoldů na každých 1 000 vygenerovaných molekul.`,
         alert: {
           type: "tip",
           title: "Doporučení pro vizualizaci v bakalářské práci",

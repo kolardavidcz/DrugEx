@@ -27,7 +27,7 @@ export const M6_LECTURES = {
         <br>
         <strong>Fragment-Based Drug Design (FBDD)</strong> tento problém elegantně řeší: molekuly nejsou skládány z jednotlivých atomů, nýbrž z <strong>předpřipravených synteticky validních stavebních bloků (synthonů)</strong> odvozených z komerčně dostupných chemikálií.
         <br><br>
-        Druhým klíčovým konceptem je <strong>Scaffold Hopping (přeskakování mezi scaffoldy)</strong>: schopnost zachovat klíčové farmakoforové skupiny na periferii molekuly a radikálně obměnit centrální nosné jádro (scaffold) pro zlepšení rozpustnosti, permeability nebo obejití patentové ochrany konkurence.`
+        Druhým klíčovým konceptem je <strong>Scaffold Hopping</strong>: schopnost zachovat klíčové farmakoforové skupiny na periferii molekuly a radikálně obměnit centrální scaffold (molekulární jádro) pro zlepšení rozpustnosti, permeability nebo obejití patentové ochrany konkurence.`
       },
       {
         title: "2. 16 BRICS retrosyntetických štěpných pravidel (L1 - L16)",
@@ -151,7 +151,7 @@ Encoding fragment-molecule pairs. (batch processing): 100%|███████
       },
       {
         title: "5. Kompletní kód Scaffold-Based RL v Pythonu",
-        content: `Následující kód demonstruje kompletní inicializaci fragmentového modelu pro fixní lešení:`,
+        content: `Následující kód demonstruje kompletní inicializaci fragmentového modelu pro fixní scaffold:`,
         code: `import os
 from drugex.data.datasets import GraphFragDataSet
 from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
@@ -227,7 +227,7 @@ Generating molecules: 100%|██████████| 1000/1000 [00:18<00:0
 [GraphTransformer] Generated 1,000 molecules: 100% valid, 100% contain target scaffold cores.
 ~ [STAV: Růst synthonů v grafovém transforméru: Fixní jádro (c1cnccn1, 6 atomů) -> R-skupiny na C2/C5 (+14 atomů)]
 ~ [STAV: Audit zachování jádra: 1 000 / 1 000 molekul striktně obsahuje substrukturu 'c1cnccn1']
-💡 [POZNATEK: Na rozdíl od de novo SMILES generátorů, kde se lešení může náhodnou mutací rozpadnout, FragGraphExplorer drží uzly zadaného jádra zmrazené v grafovém tenzoru a generuje pouze periferní substituenty.]`
+💡 [POZNATEK: Na rozdíl od de novo SMILES generátorů, kde se scaffold může náhodnou mutací rozpadnout, FragGraphExplorer drží uzly zadaného jádra zmrazené v grafovém tenzoru a generuje pouze periferní substituenty.]`
       }
     ]
   },
@@ -249,7 +249,7 @@ Generating molecules: 100%|██████████| 1000/1000 [00:18<00:0
         CLI řeší klíčové nevýhody interaktivních Jupyter notebooků:
         <ul>
           <li><strong>100% Reprodukovatelnost</strong>: Každé spuštění automaticky ukládá kompletní JSON konfiguraci parametrů (např. <code>dataset.json</code>, <code>train.json</code>) a podrobný logovací soubor.</li>
-          <li><strong>Nulová režie grafického serveru</strong>: Běží v čistě bezhlavém (headless) režimu bez nutnosti GUI nebo webových serverů.</li>
+          <li><strong>Nulová režie grafického serveru</strong>: Běží v bezhlavém (headless) režimu bez nutnosti GUI či webových serverů.</li>
           <li><strong>Paralelizace a dávkové zpracování</strong>: Umožňuje snadné spouštění desítek úloh paralelně přes plánovače úloh (Slurm, PBS Pro).</li>
         </ul>
         <br>
@@ -451,7 +451,7 @@ Generating molecules: 100%|██████████| 1000/1000 [00:18<00:0
               <td><code>-qed, --qed</code></td>
               <td><code>flag</code></td>
               <td>RL</td>
-              <td>Aktivuje optimalizaci na lékovou podobnost (QED).</td>
+              <td>Aktivuje optimalizaci na drug-likeness (QED).</td>
             </tr>
             <tr>
               <td><code>-gpu, --use_gpus</code></td>
@@ -587,7 +587,7 @@ Generating molecules: 100%|██████████| 10000/10000 [00:24<00
         content: `Kromě standardního de novo RNN designu umožňuje DrugEx CLI kompletní automatizaci <strong>fragmentového a scaffold-based reinforcement learningu</strong> pomocí grafového transforméru (Graph Transformer):
         <br><br>
         <ol>
-          <li><code>drugex.dataset -s -mt graph</code>: Přepínač <code>-s</code> (scaffolds) zajistí, že vstupní SMILES lešení jsou přímo převedeny na fragmentové grafy bez náhodného štěpení.</li>
+          <li><code>drugex.dataset -s -mt graph</code>: Přepínač <code>-s</code> (scaffolds) zajistí, že vstupní SMILES scaffoldů jsou přímo převedeny na fragmentové grafy bez náhodného štěpení.</li>
           <li><code>drugex.train -tm RL -mt graph -a trans</code>: Spouští <code>FragGraphExplorer</code> s fixací vazebných jader a vzorkováním z Prior kotvy.</li>
           <li><code>drugex.generate -i scaffolds</code>: Generuje molekuly s garancí 100% zachování požadovaného scaffold jádra.</li>
         </ol>`,

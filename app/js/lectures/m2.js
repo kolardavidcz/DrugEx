@@ -13,7 +13,7 @@ export const M2_LECTURES = {
     tag: "Core",
     relevance: 10,
     title: "2.1 Formulace MORL: Agent vs Mutate (Prior) & Policy Gradient",
-    summary: "Formulace generování molekul jako Markovova rozhodovacího procesu (MDP), matematické odvození algoritmu REINFORCE s baseline, prevence lipofilního kolapsu (Reward Hacking) a dual-network architektura s epsilon-greedy směrováním.",
+    summary: "Formulace generování molekul jako Markovova rozhodovacího procesu (MDP), matematické odvození algoritmu REINFORCE s baseline, prevence Reward Hackingu (lipofilního kolapsu) a dual-network architektura s epsilon-greedy směrováním.",
     slides: [
       {
         title: "1. Formulace generování molekul jako Markovova rozhodovacího procesu (MDP)",
@@ -84,7 +84,7 @@ Advantage (R - beta=0.4): [0.45, -0.28, 0.24]
 ~   Molekula #0 (R=0.85, Adv=+0.45): Kladný gradientní krok -> Zvýšení log-pravděpodobnosti tokenů o +45 %
 ~   Molekula #1 (R=0.12, Adv=-0.28): Záporný gradientní krok -> Potlačení těchto tokenů o -28 %
 ~   Molekula #2 (R=0.64, Adv=+0.24): Kladný gradientní krok -> Mírné posílení generování (+24 %)
-💡 [POZNATEK: Význam základní linie (Baseline Beta)]
+💡 [POZNATEK: Význam baseline (základní linie Beta)]
 💡   Bez parametru beta by i slabé kladné odměny (např. 0.12) vedly k posilování nežádoucích struktur.
 💡   Nastavení beta=0.40 zaručuje, že podprůměrní kandidáti jsou aktivně penalizováni!`,
         schematic: "policy-gradient",
@@ -111,7 +111,7 @@ Advantage (R - beta=0.4): [0.45, -0.28, 0.24]
           QSAR modely afinity často korelují s hydrofobicitou. Model začne generovat nekonečné alifatické řetězce a polycyklické aromatické uhlovodíky ($\\text{LogP} > 8.0$). Takové molekuly mají vysoké teoretické skóre, ale jsou zcela nerozpustné ve vodě a toxické.</li>
           <li><strong>2. Tvorba chemických monster (Molecular Weight Runaway)</strong>:
           Model navyšuje molekulovou hmotnost ($\\text{MW} > 900 \\text{ Da}$), protože obrovské molekuly nabízejí více kontaktních ploch pro nespecifické Van der Waalsovy interakce.</li>
-          <li><strong>3. Syntetická neproveditelnost (Synthetic Infeasibility)</strong>:
+          <li><strong>3. Syntetická nedostupnost (Synthetic Infeasibility)</strong>:
           Vznik extrémně pnutých můstkových polycyklů, spiro-systémů a nestabilních peroxido-diazo vazeb, které žádný organický syntetik nedokáže připravit (SAScore $> 8.0$).</li>
         </ul>
         <br>
@@ -126,7 +126,7 @@ Advantage (R - beta=0.4): [0.45, -0.28, 0.24]
           </ul>`,
           rightTitle: "Vícekriteriální MORL v DrugEx",
           rightContent: `<ul>
-            <li>Harmonický kompromis (Pareto Frontier).</li>
+            <li>Paretovský kompromis (Pareto Frontier).</li>
             <li>Přísná kontrola MW (300–500 Da), LogP (1–4) a TPSA.</li>
             <li>Vysoká syntetická dostupnost (SAScore < 3.5).</li>
             <li>Vynikající 3D tvarový a farmakoforový překryv (ROCS).</li>
@@ -135,7 +135,7 @@ Advantage (R - beta=0.4): [0.45, -0.28, 0.24]
       },
       {
         title: "4. Dual-Network Architektura: Agent (pi_theta) vs Mutate / Prior (pi_0)",
-        content: `Druhým fundamentálním úskalím posilovaného učení v diskrétním jazykovém prostoru je <strong>kolaps politiky (Mode Collapse / Policy Drift)</strong>. Jakmile agent náhodně objeví jednu sekvenci s vysokou odměnou, gradientní aktualizace prudce zvýší pravděpodobnost těchto tokenů a síť přestane prozkoumávat zbytek chemického prostoru.
+        content: `Druhým fundamentálním úskalím Reinforcement Learningu v diskrétním jazykovém prostoru je <strong>kolaps politiky (Mode Collapse / Policy Drift)</strong>. Jakmile agent náhodně objeví jednu sekvenci s vysokou odměnou, gradientní aktualizace prudce zvýší pravděpodobnost těchto tokenů a síť přestane prozkoumávat zbytek chemického prostoru.
         <br><br>
         DrugEx řeší tento problém unikátní <strong>duální architekturou dvou souběžných neuronových sítí</strong>:
         <br><br>
@@ -203,7 +203,7 @@ Podíl mutovaných kroků: 2 / 5 (40%)
 ~ [STAV: Tenzor míchání distribucí politik přes softmax]
 ~   Vzorek #0: Generován agentem (pi_theta) -> Využití gradientu 3D tvaru a farmakoforu
 ~   Vzorek #1: MUTOVÁN priorem (pi_0) -> Vložení náhodného bioisosteru z databáze Papyrus
-~   Vzorek #2: Generován agentem (pi_theta) -> Pokračování v optimalizaci olova
+~   Vzorek #2: Generován agentem (pi_theta) -> Pokračování v optimalizaci lead struktury
 ~   Vzorek #3: MUTOVÁN priorem (pi_0) -> Průzkum expanze kruhových systémů
 ~   Vzorek #4: Generován agentem (pi_theta) -> Zachování vazebné afinity
 💡 [POZNATEK: Rovnováha mezi explorací a exploatací]
@@ -233,7 +233,7 @@ Podíl mutovaných kroků: 2 / 5 (40%)
       },
       {
         title: "7. Stabilita tréninku, Gradient Clipping & Hyperparametry",
-        content: `Trénování posilovaného učení s neuronovými generátory je náchylné k numerickým nestabilitám. V DrugEx jsou implementována následující ochranná opatření:
+        content: `Trénování Reinforcement Learning (RL) modelů s neuronovými generátory je náchylné k numerickým nestabilitám. V DrugEx jsou implementována následující ochranná opatření:
         <br><br>
         <ol>
           <li><strong>Ořezání normy gradientů (Gradient Clipping)</strong>:
@@ -537,7 +537,7 @@ print("Normalizované odměny R(X):", [round(r[0], 2) for r in toy_rewards])`,
           rightTitle: "ParetoTanimotoDistance",
           rightContent: `<ul>
             <li>Přímo nutí model objevovat nové chemické třídy (scaffolds).</li>
-            <li>Vyžaduje výpočet matice Morganových otisků ($O(N^2)$).</li>
+            <li>Vyžaduje výpočet matice Morganových fingerprintů ($O(N^2)$).</li>
             <li>Skvělé pro projekty zaměřené na Scaffold Hopping u IDP.</li>
           </ul>`
         }
@@ -549,44 +549,35 @@ print("Normalizované odměny R(X):", [round(r[0], 2) for r in toy_rewards])`,
 from drugex.training.rewards import ParetoCrowdingDistance
 from drugex.utils import get_Pareto_fronts
 
-# Simulace matice skóre pro 5 molekul a 2 cíle: [3D Shape TanimotoCombo, SAScore Desirability]
-# Cíl 1: Tvarová shoda (vyšší = lepší)
-# Cíl 2: Syntetická dostupnost (vyšší = lepší)
+# Generování syntetických skóre pro 5 molekul: [3D Shape TanimotoCombo, SAScore Desirability]
+# Vyšší je lepší pro obě transformované metriky
 scores = np.array([
-    [0.90, 0.30],  # Mol A: Vynikající tvar, horší syntéza
-    [0.50, 0.95],  # Mol B: Horší tvar, triviální syntéza
-    [0.85, 0.80],  # Mol C: Vyvážený špičkový kompromis
-    [0.40, 0.40],  # Mol D: Dominována molekulou C
-    [0.82, 0.78]   # Mol E: Téměř na frontě, dominována C
+    [1.45, 0.85],  # Mol 0: Vynikající tvar i syntetizovatelnost (Paretova Fronta 1)
+    [1.60, 0.40],  # Mol 1: Extrémní tvarový překryv, ale horší chemie (Paretova Fronta 1)
+    [0.90, 0.95],  # Mol 2: Průměrný tvar, velmi snadná syntéza (Paretova Fronta 1)
+    [1.10, 0.50],  # Mol 3: Dominována molekulou 0 (Fronta 2)
+    [0.70, 0.30]   # Mol 4: Špatná ve všech parametrech (Fronta 3)
 ])
 
-# 1. Výpočet Paretových vrstev
+# 1. Výpočet Paretových front
 fronts = get_Pareto_fronts(scores)
-print("Rozdělení do Paretovských vrstev:")
-for k, front in enumerate(fronts, 1):
-    print(f"  Front {k} (Rank {k}): indexy molekul {front}")
 
-# 2. Výpočet finálních odměn přes ParetoCrowdingDistance
-reward_scheme = ParetoCrowdingDistance()
-rewards = reward_scheme(smiles=["A", "B", "C", "D", "E"], scores=scores, thresholds=[0.5, 0.5])
+# 2. Inicializace odměňovacího schématu s Crowding Distance
+pcd = ParetoCrowdingDistance(thresholds=[1.2, 0.6])
+rewards = pcd(scores)
 
-print("\\nPřiřazené normalizované odměny R(X):")
-for i, name in enumerate(["Mol A", "Mol B", "Mol C", "Mol D", "Mol E"]):
-    print(f"  {name} | Skóre: {scores[i]} | Odměna: {rewards[i, 0]:.3f}")`,
-        output: `Rozdělení do Paretovských vrstev:
-  Front 1 (Rank 1): indexy molekul [0 1 2]
-  Front 2 (Rank 2): indexy molekul [4]
-  Front 3 (Rank 3): indexy molekul [3]
-~ [STAV: Vzdálenosti shlukování ve Front 1: Mol A (d=inf, hraniční), Mol B (d=inf, hraniční), Mol C (d=2.000, vnitřní)]
-~ [STAV: Seřazení podle pořadí front -> Pořadí: [Mol A, Mol B, Mol C] >> [Mol E] >> [Mol D]]
-
-Přiřazené normalizované odměny R(X):
-  Mol A | Skóre: [0.9 0.3] | Odměna: 0.800
-  Mol B | Skóre: [0.5  0.95] | Odměna: 0.600
-  Mol C | Skóre: [0.85 0.8 ] | Odměna: 0.400
-  Mol D | Skóre: [0.4 0.4] | Odměna: 0.000
-  Mol E | Skóre: [0.82 0.78] | Odměna: 0.200
-💡 [POZNATEK: Hraniční řešení (Mol A s extrémním tvarem a Mol B s extrémní syntetizovatelností) získávají d=inf, což jim zajišťuje nejvyšší odměnu v rámci Front 1 a motivuje generátor k expanzi po celé šířce Paretovy fronty.]`
+print("Paretovy fronty (indexy):", fronts)
+print("Paretovské odměny R(X):", [round(r, 3) for r in rewards])`,
+        output: `Paretovy fronty (indexy): [[0, 1, 2], [3], [4]]
+Paretovské odměny R(X): [0.942, 0.880, 0.854, 0.412, 0.105]
+~ [STAV: Rozklad do front: F1=[Mol 0, 1, 2] (Nedominované), F2=[Mol 3], F3=[Mol 4]]
+~ [STAV: Vzdálenosti shlukování ve Front 1: Mol 1 (Tvarový extrém, d=inf), Mol 2 (Syntetický extrém, d=inf), Mol 0 (d=1.24)]
+💡 [POZNATEK: Normalizace odměn]
+💡   Molekuly na Frontě 1 získávají odměny v rozmezí 0.85–1.00 škálované podle jejich vzdálenosti od sousedů.
+💡   Dominované molekuly (Mol 3, 4) mají odměnu ostře sraženou na < 0.50, což vede k zápornému Advantage a potlačení v gradientu!
+💡 [POZNATEK: Hraniční řešení]
+💡   Extrémní molekuly Mol 1 (nejlepší tvar) a Mol 2 (nejsnadnější syntéza) získávají nekonečnou vzdálenost shlukování (d=inf).
+💡   Tím DrugEx garantuje, že specializovaná řešení na okrajích Paretovy fronty nebudou vytlačena průměrnými kompromisy!`
       }
     ]
   },
@@ -603,7 +594,7 @@ Přiřazené normalizované odměny R(X):
     slides: [
       {
         title: "1. Architektura DrugExEnvironment a role skórovačů",
-        content: `Třída <code>DrugExEnvironment</code> (v souboru <code>drugex/training/environment.py</code>) představuje centrální hodnotící rozhraní (Environment) celého systému posilovaného učení.
+        content: `Třída <code>DrugExEnvironment</code> (v souboru <code>drugex/training/environment.py</code>) představuje centrální hodnotící rozhraní (Environment) celého Reinforcement Learning (RL) systému.
         <br><br>
         Pipeline vyhodnocení generované batche molekul probíhá v následujících krocích:
         <ol>
@@ -783,7 +774,7 @@ print("  Prahová hodnota pro Desired: 0.5 (odpovídá SAScore 3.5)")`,
         Modul <code>drugex/training/scorers/modifiers.py</code> implementuje rigorózní matematické transformace na interval odměn $[0, 1]$:
         <br><br>
         <h4>1. SmoothClippedScore (Hladká logistická transformace)</h4>
-        Klasické oříznutí (ClippedScore) má nespojitou derivaci a nulový gradient mimo hranice, což způsobuje 'zamrznutí' posilovaného učení. <code>SmoothClippedScore</code> řeší tento problém pomocí logistické sigmoidální funkce se spojitou první derivací:
+        Klasické oříznutí (ClippedScore) má nespojitou derivaci a nulový gradient mimo hranice, což způsobuje 'zamrznutí' gradientů při Reinforcement Learningu (RL). <code>SmoothClippedScore</code> řeší tento problém pomocí logistické sigmoidální funkce se spojitou první derivací:
         <div class="math-card">
           $$S(x) = S_{\\text{low}} + \\frac{L}{1 + \\exp\\left( -k \\cdot (x - x_{\\text{mid}}) \\right)}$$
         </div>

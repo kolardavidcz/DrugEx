@@ -35,7 +35,7 @@ export const M4_LECTURES = {
           <li><strong>RDKit molekulární objekty</strong> (<code>Chem.Mol</code>) s předpočítanými 3D konformacemi.</li>
         </ul>
         <br>
-        <h4>Automatické vnoření 2D referencí (Auto-Embedding)</h4>
+        <h4>Automatický 3D embedding 2D referencí (Auto-Embedding)</h4>
         Pokud uživatel předá referenční molekulu, která postrádá 3D souřadnice, metoda <code>_ensure_reference_conformers(mol)</code> automaticky vygeneruje nízkoenergetickou 3D konformaci pomocí algoritmu ETKDGv3 s fixním náhodným seedem (<code>params.randomSeed = 0xC0FFEE</code>) a přidáním explicitních vodíků.`,
         code: `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
@@ -1089,7 +1089,7 @@ def create_openeye_environment(
     Returns
     -------
     DrugExEnvironment
-        Zkonfigurované tréninkové prostředí pro vícecílové posilované učení.
+        Zkonfigurované tréninkové prostředí pro Multi-Objective Reinforcement Learning (MORL).
     """
     # 2. OpenEye OMEGA generátor konformací s volitelnou GPU akcelerací
     omega_gen = OmegaConformerGenerator(
@@ -1215,7 +1215,7 @@ print("=================================================")`,
 ~ [STAV: Kalibrační posun mezi enginy]
 ~   RDKit (0.847) vs. CDPKit (0.880) vs. OpenEye (0.907) pro identickou geometrii
 ~   Důvod: Mírné rozdíly v atomových poloměrech Gaussovských sfér a tolerančních rádiích akceptorů
-💡 [POZNATEK: Nikdy nepřenosujte práh mezi backendy naslepo!]
+💡 [POZNATEK: Nikdy nepřenášejte prahové hodnoty mezi backendy naslepo!]
 💡   Práh 0.871 kalibrovaný pro OpenEye odpovídá zhruba 0.820 v RDKit a 0.855 v CDPKit.
 💡   Vždy spusťte threshold_analysis.py na aktivních látkách a decoyích pro daný backend!`,
         callouts: [

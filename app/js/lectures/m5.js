@@ -16,7 +16,7 @@ export const M5_LECTURES = {
     slides: [
       {
         title: "1. Vědecké zdůvodnění kalibrace prahů v 3D ligandovém designu",
-        content: `Ve zpětnovazebním učení (Reinforcement Learning - RL) pro de novo návrh léčiv hraje definice cílových prahů v prostředí <code>DrugExEnvironment</code> kritickou roli. Práh určuje, které vygenerované molekuly jsou klasifikovány jako <strong>žádoucí (Desired, $D=1$)</strong> a získávají pozitivní odměnu, a které jsou klasifikovány jako <strong>nežádoucí (Undesired, $D=0$)</strong> a jsou penalizovány.
+        content: `V Reinforcement Learningu (RL) pro de novo návrh léčiv hraje definice cílových prahů v prostředí <code>DrugExEnvironment</code> kritickou roli. Práh určuje, které vygenerované molekuly jsou klasifikovány jako <strong>žádoucí (Desired, $D=1$)</strong> a získávají pozitivní odměnu, a které jsou klasifikovány jako <strong>nežádoucí (Undesired, $D=0$)</strong> a jsou penalizovány.
         <br><br>
         Zatímco u standardních fyzikálně-chemických vlastností (jako je molekulová hmotnost $MW < 500\\text{ Da}$ nebo $\\log P < 5$) vycházíme z obecných Lipinského pravidel, pro <strong>3D tvarovou a farmakoforovou shodu (ROCS TanimotoCombo $\\in [0, 2]$)</strong> žádné univerzální pravidlo neexistuje.
         <br><br>
@@ -265,7 +265,7 @@ Uložené vizualizace                : threshold_analysis_results/combined_figur
     slides: [
       {
         title: "1. Krok 1: Dvoustupňový transfer znalostí (prepare_models.py)",
-        content: `Trénování generativní sítě začíná dvoustupňovým transferem znalostí (Transfer Learning), který řeší problém omezeného počtu experimentálních dat pro specifický cíl:
+        content: `Trénování generativní sítě začíná dvoustupňovým Transfer Learningem (přenosem znalostí), který řeší problém omezeného počtu experimentálních dat pro specifický cíl:
         <br><br>
         <ol>
           <li><strong>Pre-training (PT) na databázi Papyrus v05.5</strong>:
@@ -278,7 +278,7 @@ Uložené vizualizace                : threshold_analysis_results/combined_figur
             <div class="math-card">
               $$\\mathcal{L}_{FT}(\\theta) = -\\frac{1}{|D_{train}|} \\sum_{X \\in D_{train}} \\sum_{t=1}^{T} \\log P(x_t \\mid x_{\\lt t}; \\theta)$$
             </div>
-            Model je dotrénován po dobu 100 epoch s learning rate $\\eta = 10^{-4}$ a early stoppingem s trpělivostí (patience) 30 epoch.
+            Model je dotrénován po dobu 100 epoch s learning rate $\\eta = 10^{-4}$ a Early Stoppingem (patience = 30 epoch).
           </li>
         </ol>`,
         code: `# Zobrazení nápovědy a přepínačů skriptu
@@ -355,7 +355,7 @@ Vocabulary saved: demo_out/models/CCR2_finetuned.vocab`
         Molekuly s $\\text{SAScore} \\le 3.0$ mají maximální odměnu $1.0$, molekuly s $\\text{SAScore} \\ge 5.0$ mají odměnu $0.0$.
         <br><br>
         <h4>3. Vícekriteriální vyvažování (<code>ParetoCrowdingDistance</code>)</h4>
-        Místo fixních vah provádí nedominované třídění do Paretových front s penalizací shlukování (Crowding Distance).`,
+        Místo fixních vah provádí nedominované řazení do Paretových front s metrikou Crowding Distance pro zachování diverzity.`,
         code: `from pathlib import Path
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.rewards import ParetoCrowdingDistance
@@ -623,7 +623,7 @@ Křivky konvergence uloženy do rl_convergence_plot.png
     tag: "Core",
     relevance: 10,
     title: "5.3 Generování kandidátů, filtrace novosti & chemické ověření (generate_molecules.py)",
-    summary: "Masivní vzorkování 10 000+ molekul, čtyřstupňový validační audit (validita, unikátnost, novost, interní diverzita) a 3D zarovnání olověných struktur.",
+    summary: "Masivní vzorkování 10 000+ molekul, čtyřstupňový validační audit (validita, unikátnost, novost, interní diverzita) a 3D zarovnání vybraných lead struktur.",
     slides: [
       {
         title: "1. Masivní vzorkování z finálního modelu CCR2_rdkit_reinforced.pkg",
@@ -775,8 +775,8 @@ Generation complete`
         }
       },
       {
-        title: "5. Výběr finálních Top-5 olověných struktur (Lead Candidates)",
-        content: `Z 10 000 vygenerovaných molekul bylo vyfiltrováno 5 nejlepších olověných kandidátů pro experimentální syntézu a biologické testování na ÚOCHB AV ČR:
+        title: "5. Výběr finálních Top-5 lead struktur (Lead Candidates)",
+        content: `Z 10 000 vygenerovaných molekul bylo vyfiltrováno 5 nejlepších lead kandidátů pro experimentální syntézu a biologické testování na ÚOCHB AV ČR:
         <br><br>
         <table class="data-table">
           <thead>
@@ -891,10 +891,10 @@ img.save("top5_ccr2_candidates.png")
 print("Top-5 kandidáti uloženi do top5_ccr2_candidates.png")`,
         output: `Celkem načteno molekul: 1000
 Počet žádoucích struktur (ROCS >= 0.871 & SA >= 0.1): 484 (48.4%)
-~ [STAV: Vícestupňový screeningový trychtýř: 1 000 surových -> 982 validních -> 941 unikátních -> 484 žádoucích -> 5 olověných kandidátů]
+~ [STAV: Vícestupňový screeningový trychtýř: 1 000 surových -> 982 validních -> 941 unikátních -> 484 žádoucích -> 5 lead kandidátů]
 Top-5 kandidáti vybráni (ROCS range: 1.482 - 1.341, SAScore range: 2.15 - 2.74)
 Top-5 kandidáti uloženi do top5_ccr2_candidates.png
-~ [STAV: Kontrola profilu olova: všechna MW v [300, 375] Da, všechna SAScore <= 2.74, všechna Tcombo >= 1.341]
+~ [STAV: Kontrola lead-like profilu: všechna MW v [300, 375] Da, všechna SAScore <= 2.74, všechna Tcombo >= 1.341]
 💡 [POZNATEK: Všech 5 vedoucích struktur leží na Paretově frontě kompromisu mezi tvarem kavit CCR2 a dostupností pro organickou syntézu na ÚOCHB, přičemž splňují přísná Lipinského kritéria drug-likeness.]`
       }
     ]

@@ -68,7 +68,7 @@
       "id": "m2",
       "number": 2,
       "slug": "m2-morl-pareto",
-      "title": "Vícekriteriální Zpětnovazební Učení (MORL) & Paretova Optimalita",
+      "title": "Multi-Objective Reinforcement Learning (MORL) & Paretova Optimalita",
       "tag": "Core",
       "badge": "MORL & Pareto",
       "summary": "Policy Gradient (REINFORCE), rovnováha explorace/exploatace (Agent vs Mutate), Paretova fronta, Crowding Distance a modifikátory skóre.",

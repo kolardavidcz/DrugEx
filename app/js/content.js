@@ -289,7 +289,7 @@ export function renderThesisGuide(container, thesisData) {
       el("div", {
         id: "methodsText",
         style: { background: "var(--editor)", padding: "16px", borderRadius: "var(--radius)", fontSize: "var(--fs-xs)", fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", lineHeight: "1.6", color: "#93c5fd" }
-      }, `### Výpočetní metody (Computational Methods)\n\nDe novo generování molekul bylo realizováno pomocí platformy DrugEx v3.4 s využitím vícekriteriálního zpětnovazebního učení (MORL). Jako výchozí generátor byl použit SequenceRNN předtrénovaný na databázi Papyrus v05.5 (~1,5 mil. sloučenin) a jemně dotrénovaný (fine-tuning) na známých ligandech po dobu 100 epoch.\n\nOptimalizační prostředí (DrugExEnvironment) integrovalo:\n1. 3D Tvarové porovnávání (ROCS): RDKitROCSScorer s metrikou TanimotoCombo a konformačním generátorem ETKDGv3 (max. 50 konformerů, 4 stereoisomery). Dělící práh byl stanoven na základě ROC analýzy a Youdenova indexu.\n2. Syntetická dostupnost: SAScore s modifikátorem SmoothClippedScore(lower_x=5.0, upper_x=3.0).\n\nVícekriteriální rovnováha byla řízena pomocí Pareto Crowding Distance. Trénink probíhal 50 epoch s exploračním poměrem epsilon = 0.2.`)
+      }, `### Výpočetní metody (Computational Methods)\n\nDe novo generování molekul bylo realizováno pomocí platformy DrugEx v3.4 s využitím Multi-Objective Reinforcement Learning (MORL). Jako výchozí generátor byl použit SequenceRNN předtrénovaný na databázi Papyrus v05.5 (~1,5 mil. sloučenin) a dotrénovaný (fine-tuning) na známých ligandech po dobu 100 epoch.\n\nOptimalizační prostředí (DrugExEnvironment) integrovalo:\n1. 3D Tvarové porovnávání (ROCS): RDKitROCSScorer s metrikou TanimotoCombo a konformačním generátorem ETKDGv3 (max. 50 konformerů, 4 stereoisomery). Dělící práh byl stanoven na základě ROC analýzy a Youdenova indexu.\n2. Syntetická dostupnost: SAScore s modifikátorem SmoothClippedScore(lower_x=5.0, upper_x=3.0).\n\nVícekriteriální rovnováha byla řízena pomocí Pareto Crowding Distance. Trénink probíhal 50 epoch s exploračním poměrem epsilon = 0.2.`)
     ])
   ]);
 
@@ -398,7 +398,7 @@ export async function renderHandbookPrintView(container) {
           ])
         ]),
         el("div", { className: "toc-module-block" }, [
-          el("div", { className: "toc-mod-head" }, "Modul 2: Vícekriteriální Zpětnovazební Učení (MORL)"),
+          el("div", { className: "toc-mod-head" }, "Modul 2: Multi-Objective Reinforcement Learning (MORL)"),
           el("ul", { className: "toc-lec-list" }, [
             el("li", { className: "toc-lec-item" }, "2.1 Architektura Policy Gradientu: Agent vs. Prior"),
             el("li", { className: "toc-lec-item" }, "2.2 Skládání prostředí DrugExEnvironment & Modifikátory"),
@@ -465,7 +465,7 @@ export async function renderHandbookPrintView(container) {
   // 2. All 6 Modules & 18 Lectures
   const moduleMap = [
     { num: 1, title: "Modul 1: De Novo Generování & Molekulární Reprezentace", lectures: ["l1_1", "l1_2", "l1_3"] },
-    { num: 2, title: "Modul 2: Vícekriteriální Zpětnovazební Učení (MORL) & Paretova Optimalita", lectures: ["l2_1", "l2_2", "l2_3"] },
+    { num: 2, title: "Modul 2: Multi-Objective Reinforcement Learning (MORL) & Paretova Optimalita", lectures: ["l2_1", "l2_2", "l2_3"] },
     { num: 3, title: "Modul 3: 3D Tvarové Porovnávání (ROCS), IDP & Konformační Enginy", lectures: ["l3_1", "l3_2", "l3_3"] },
     { num: 4, title: "Modul 4: Hloubková Architektura ROCS Scorerů (RDKit, CDPKit, OpenEye)", lectures: ["l4_1", "l4_2", "l4_3"] },
     { num: 5, title: "Modul 5: Experimentální Pipeline & Validace na CCR2 Benchmarku", lectures: ["l5_1", "l5_2", "l5_3"] },
@@ -759,7 +759,7 @@ export async function renderHandbookPrintView(container) {
       (sopSection && sopSection.steps ? sopSection.steps : [
         { step: 1, name: "Příprava datové sady & Referenčních struktur", desc: "Získání známých aktivních ligandů cíle (SDF s 3D souřadnicemi) a decoyů." },
         { step: 2, name: "Stanovení optimálního ROCS prahu (Youdenova analýza)", desc: "Spuštění threshold_analysis.py, stanovení dělícího prahu TanimotoCombo." },
-        { step: 3, name: "Jemné doladění generátoru (Fine-Tuning)", desc: "Dotrénování obecného modelu Papyrus na sadě cílových ligandů po dobu 100 epoch." },
+        { step: 3, name: "Fine-Tuning generátoru (cílová adaptace)", desc: "Dotrénování obecného modelu Papyrus na sadě cílových ligandů po dobu 100 epoch." },
         { step: 4, name: "Vícekriteriální RL optimalizace (MORL)", desc: "Spuštění SequenceExploreru s prostředím DrugExEnvironment (ROCS + SAScore)." },
         { step: 5, name: "Vzorkování, filtrace & Validace molekul", desc: "Vygenerování 5 000–10 000 molekul, filtrace duplicit a PAINS alertů." }
       ]).map(s => el("div", {
@@ -853,7 +853,7 @@ export async function renderHandbookPrintView(container) {
           el("div", {}, "python -m drugex.dataset -i raw.tsv -o data/corpus -v VocSmiles"),
           el("div", { style: { fontWeight: "bold", color: "#0284c7", marginTop: "5pt" } }, "# Předtrénování generátoru (PT)"),
           el("div", {}, "python -m drugex.train -i data/corpus.pkg -m SequenceRNN -e 100"),
-          el("div", { style: { fontWeight: "bold", color: "#0284c7", marginTop: "5pt" } }, "# Zpětnovazební učení (RL MORL)"),
+          el("div", { style: { fontWeight: "bold", color: "#0284c7", marginTop: "5pt" } }, "# Reinforcement Learning (MORL)"),
           el("div", {}, "python -m drugex.train -i ft_agent.pkg -env env.json -e 50 --eps 0.20"),
           el("div", { style: { fontWeight: "bold", color: "#0284c7", marginTop: "5pt" } }, "# Generování molekul a filtrace"),
           el("div", {}, "python -m drugex.generate -m rl_agent.pkg -n 5000 -o gen_mols.tsv")

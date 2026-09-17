@@ -1,6 +1,6 @@
 {
   "moduleId": "m2",
-  "title": "Modul 2: Vícekriteriální Zpětnovazební Učení (MORL) & Paretova Optimalita",
+  "title": "Modul 2: Multi-Objective Reinforcement Learning (MORL) & Paretova Optimalita",
   "questions": [
     {
       "id": "m2_q1",

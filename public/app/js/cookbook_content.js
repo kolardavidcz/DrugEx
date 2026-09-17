@@ -39,7 +39,7 @@ export const COOKBOOK_DATA = {
       param: "epochs",
       defaultVal: "50",
       searchRange: "30 až 100",
-      role: "Celkový počet cyklů zpětnovazebního učení s brzkým zastavením (Early Stopping).",
+      role: "Celkový počet cyklů Reinforcement Learningu (RL) s včasným ukončením (Early Stopping).",
       tuningGuide: "Pro SequenceRNN stačí 50 epoch (cca 50 000 vyhodnocených molekul). Pokud se 'desired_ratio' nezlepší po dobu 20 epoch (patience=20), trénink se automaticky zastaví.",
       risk: "Přetrénování (overfitting) a ztráta diverzity"
     },
@@ -472,7 +472,7 @@ def setup_fragment_growing_rl(core_scaffold_smiles: str = "c1ccc(NC(=O)[16*])cc1
     {
       problem: "Zamrznutí konformačního generátoru (Conformer Embedding Bottleneck na makrocyklech)",
       cause: "Distanční geometrie v RDKit ETKDGv3 nedokáže u rigidních či makrocyklických scaffoldů najít konvergující 3D souřadnice a zasekne CPU worker.",
-      solution: "1. Nastavte striktní timeout a `max_attempts=15` v `RDKitConformerGenerator`.\n2. Při selhání konformačního vnoření přiřaďte fallback skóre 0.0, čímž agent strukturu okamžitě opustí.\n3. Zkontrolujte strop počtu rotovatelných vazeb (`max_rotatable_bonds=15`)."
+      solution: "1. Nastavte striktní timeout a `max_attempts=15` v `RDKitConformerGenerator`.\n2. Při selhání konformačního embeddingu přiřaďte fallback skóre 0.0, čímž agent strukturu okamžitě opustí.\n3. Zkontrolujte strop počtu rotovatelných vazeb (`max_rotatable_bonds=15`)."
     },
     {
       problem: "Reward Hacking: Falešně pozitivní molekuly & PAINS reaktivní farmakofory",

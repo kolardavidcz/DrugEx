@@ -38,7 +38,7 @@
       "en_term": "Policy Gradient Reinforcement Learning",
       "category": "Algoritmy & AI",
       "formula": "\\nabla_\\theta J(\\theta) = \\mathbb{E}_{\\pi_\\theta} \\left[ \\sum_{t=1}^T R(m) \\cdot \\nabla_\\theta \\log \\pi_\\theta(a_t \\mid s_t) \\right]",
-      "definition": "Základní algoritmus zpětnovazebního učení v DrugExu. Aktualizuje parametry θ neuronového generátoru ve směru, který zvyšuje pravděpodobnost generování tokenů vedoucích k molekulám s vysokou vícekriteriální odměnou R(m).",
+      "definition": "Základní algoritmus Reinforcement Learning (RL) v DrugExu. Aktualizuje parametry θ neuronového generátoru ve směru, který zvyšuje pravděpodobnost generování tokenů vedoucích k molekulám s vysokou vícekriteriální odměnou R(m).",
       "target_range": "Typický learning rate v DrugEx: 1e-4 až 2e-4.",
       "lecture_ref": "Lekce 2.1"
     },
@@ -154,11 +154,11 @@
     },
     {
       "id": "mode_collapse",
-      "term": "Mode Collapse (Kolaps modelu)",
+      "term": "Mode Collapse (Kolaps diverzity generátoru)",
       "en_term": "Mode Collapse Pathology",
       "category": "Algoritmy & AI",
       "formula": null,
-      "definition": "Patologický stav zpětnovazebního učení, kdy generátor ztratí chemickou rozmanitost a začne cyklicky produkovat jedinou nebo malou sadu struktur s vysokým skóre. V DrugExu je indikován poklesem unikátnosti (uniqueness < 30 %). Protilékem je zvýšení exploračního parametru epsilon a použití Crowding Distance.",
+      "definition": "Patologický stav při Reinforcement Learning (RL), kdy generátor ztratí chemickou rozmanitost a začne cyklicky produkovat jedinou nebo malou sadu struktur s vysokým skóre. V DrugExu je indikován poklesem unikátnosti (uniqueness < 30 %). Protilékem je zvýšení exploračního parametru epsilon a použití Crowding Distance.",
       "target_range": "Cílová unikátnost v generované knihovně > 85 %.",
       "lecture_ref": "Lekce 2.3 & 5.2"
     },
@@ -248,7 +248,7 @@
       "en_term": "Internal Tanimoto Diversity",
       "category": "Chemoinformatika",
       "formula": "\\text{Div}(S) = 1 - \\frac{2}{|S|(|S|-1)} \\sum_{i < j} T(m_i, m_j)",
-      "definition": "Míra strukturní pestrosti vygenerované knihovny molekul S založená na průměrné Tanimoto vzdálenosti Morganových fingerprinterů (ECFP4) mezi všemi dvojicemi. Vysoká hodnota indikuje široké prozkoumání chemického prostoru, zatímco hodnota blízká 0 značí kolaps diverzity.",
+      "definition": "Míra strukturní pestrosti vygenerované knihovny molekul S založená na průměrné Tanimoto vzdálenosti Morganových fingerprintů (ECFP4) mezi všemi dvojicemi. Vysoká hodnota indikuje široké prozkoumání chemického prostoru, zatímco hodnota blízká 0 značí kolaps diverzity.",
       "target_range": "Pro smysluplnou screeningovou knihovnu Div > 0.70; ideálně > 0.80.",
       "lecture_ref": "Lekce 5.3"
     },

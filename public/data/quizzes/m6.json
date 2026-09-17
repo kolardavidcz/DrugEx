@@ -39,7 +39,7 @@
         "-engine docker"
       ],
       "correct": 0,
-      "explanation": "Přepínač `-tm RL` (training mode) aktivuje vícekriteriální zpětnovazební učení s explorátorem a prostředím skórovačů."
+      "explanation": "Přepínač `-tm RL` (training mode) aktivuje Multi-Objective Reinforcement Learning (MORL) s explorátorem a prostředím skórovačů."
     },
     {
       "id": "m6_q4",
