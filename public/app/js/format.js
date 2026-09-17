@@ -122,35 +122,62 @@ export function hasTerminalTrace(output) {
 export function formatTerminalOutput(output) {
   if (!output) return "";
   const lines = output.split("\n");
-  const out = lines.map(line => {
+  const items = lines.map(line => {
     const trimmed = line.trimStart();
     if (trimmed.startsWith("~")) {
-      const content = trimmed.replace(/^~\s*/, "");
+      let content = trimmed.replace(/^~\s*/, "");
       const badge = trimmed.includes("[STOPA") || trimmed.includes("[TRACE") ? "STOPA" : "STAV";
-      return `<span class="output-trace"><span class="output-trace-badge">${badge}</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`;
+      content = content.replace(/^\[(?:STAV|STOPA|STATE|TRACE):\s*(.*?)(?:\])?$/, "$1");
+      return {
+        isBlock: true,
+        html: `<span class="output-trace"><span class="output-trace-badge">${badge}</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`
+      };
     }
     if (trimmed.startsWith("💡")) {
-      const content = trimmed.replace(/^💡\s*/, "");
+      let content = trimmed.replace(/^💡\s*/, "");
       const badge = trimmed.includes("[VYSVĚTLENÍ") ? "VYSVĚTLENÍ" : (trimmed.includes("[POZNÁMKA") ? "POZNÁMKA" : "POZNATEK");
-      return `<span class="output-insight"><span class="output-insight-badge">${badge}</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`;
+      content = content.replace(/^\[(?:POZNATEK|VYSVĚTLENÍ|POZNÁMKA|INSIGHT|NOTE):\s*(.*?)(?:\])?$/, "$1");
+      return {
+        isBlock: true,
+        html: `<span class="output-insight"><span class="output-insight-badge">${badge}</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`
+      };
     }
     if (trimmed.startsWith("[STAV]") || trimmed.startsWith("[STOPA]") || trimmed.startsWith("[STATE]") || trimmed.startsWith("[TRACE]")) {
       const content = trimmed.replace(/^\[(?:STAV|STOPA|STATE|TRACE)\]\s*/, "");
       const badge = trimmed.startsWith("[STOPA]") || trimmed.startsWith("[TRACE]") ? "STOPA" : "STAV";
-      return `<span class="output-trace"><span class="output-trace-badge">${badge}</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`;
+      return {
+        isBlock: true,
+        html: `<span class="output-trace"><span class="output-trace-badge">${badge}</span><span class="output-trace-text">${escapeHtml(content)}</span></span>`
+      };
     }
     if (trimmed.startsWith("[POZNATEK]") || trimmed.startsWith("[VYSVĚTLENÍ]") || trimmed.startsWith("[POZNÁMKA]") || trimmed.startsWith("[INSIGHT]") || trimmed.startsWith("[NOTE]")) {
       const content = trimmed.replace(/^\[(?:POZNATEK|VYSVĚTLENÍ|POZNÁMKA|INSIGHT|NOTE)\]\s*/, "");
       const badge = trimmed.startsWith("[VYSVĚTLENÍ]") ? "VYSVĚTLENÍ" : (trimmed.startsWith("[POZNÁMKA]") || trimmed.startsWith("[NOTE]") ? "POZNÁMKA" : "POZNATEK");
-      return `<span class="output-insight"><span class="output-insight-badge">${badge}</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`;
+      return {
+        isBlock: true,
+        html: `<span class="output-insight"><span class="output-insight-badge">${badge}</span><span class="output-insight-text">${escapeHtml(content)}</span></span>`
+      };
     }
     if (/^\[(?:Epoch|Epocha|Stage|Fáze|Phase|Worker)\s+[^\]]+\]/.test(trimmed)) {
-      return `<span class="output-milestone">${escapeHtml(line)}</span>`;
+      return { isBlock: false, html: `<span class="output-milestone">${escapeHtml(line)}</span>` };
     }
     if (trimmed.startsWith("✓") || trimmed.includes("100%|")) {
-      return `<span class="output-success">${escapeHtml(line)}</span>`;
+      return { isBlock: false, html: `<span class="output-success">${escapeHtml(line)}</span>` };
     }
-    return escapeHtml(line);
+    return { isBlock: false, html: escapeHtml(line) };
   });
-  return out.join("\n");
+
+  // Block elements already break before and after themselves inside <pre>.
+  // Emitting \n immediately adjacent to a block element causes an unwanted blank line in pre-wrap.
+  // Therefore, only emit \n when BOTH adjacent items are inline!
+  let result = "";
+  for (let i = 0; i < items.length; i++) {
+    result += items[i].html;
+    if (i < items.length - 1) {
+      if (!items[i].isBlock && !items[i + 1].isBlock) {
+        result += "\n";
+      }
+    }
+  }
+  return result;
 }

@@ -311,8 +311,8 @@
     background: rgba(192, 132, 252, 0.09) !important;
     border-left: 2pt solid #a855f7 !important;
     padding: 0 5pt !important;
-    margin: 1pt 0 !important;
-    border-radius: 0 2pt 2pt 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
     line-height: 1.35 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -343,8 +343,8 @@
     background: rgba(251, 191, 36, 0.09) !important;
     border-left: 2pt solid #f59e0b !important;
     padding: 0 5pt !important;
-    margin: 1pt 0 !important;
-    border-radius: 0 2pt 2pt 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
     font-style: italic !important;
     line-height: 1.35 !important;
     -webkit-print-color-adjust: exact !important;
