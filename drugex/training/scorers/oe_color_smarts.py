@@ -38,7 +38,7 @@ references them. Everything that a live PATTERN transitively needs IS expanded.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from rdkit import Chem
 
@@ -46,7 +46,7 @@ from rdkit import Chem
 # DEFINE block (.cff lines 40-131), verbatim bodies keyed by macro name.
 # A leading "$name" inside a value is an OE macro reference, expanded below.
 # ---------------------------------------------------------------------------
-_DEFINE: Dict[str, str] = {
+_DEFINE: dict[str, str] = {
     # degree, independent of explicit/implicit H (.cff L40-43)
     "hd1": "[X1H0,X2H1,X3H2,X4H3,X5H4,X6H5]",
     "hd2": "[X2H0,X3H1,X4H2,X5H3,X6H4]",
@@ -120,7 +120,7 @@ _DEFINE: Dict[str, str] = {
 }
 
 # PATTERN lines per type (.cff L147-183), bodies verbatim (still containing $macros).
-_RAW_PATTERNS: Dict[str, List[str]] = {
+_RAW_PATTERNS: dict[str, list[str]] = {
     # rings (.cff L147-150): any ring of size 3..6 (NOT aromatic-only).
     "rings": [
         "[R]~1~[R]~[R]~[R]1",
@@ -168,7 +168,7 @@ _SIX_TYPES = ("donor", "acceptor", "cation", "anion", "rings", "hydrophobe")
 _MACRO_REF = re.compile(r"\$([A-Za-z][A-Za-z0-9]*)")
 
 
-def _expand(smarts: str, _stack: Tuple[str, ...] = ()) -> str:
+def _expand(smarts: str, _stack: tuple[str, ...] = ()) -> str:
     """Recursively replace every ``$macro`` in ``smarts`` with its inline recursive SMARTS.
 
     OE writes ``$name`` for "an atom/group matching macro ``name``"; the RDKit/CDPKit spelling
@@ -177,7 +177,7 @@ def _expand(smarts: str, _stack: Tuple[str, ...] = ()) -> str:
     ``[X1H0,...]`` becomes ``$([X1H0,...])``; a multi-atom body like ``php`` becomes
     ``$([...])`` too -- RDKit accepts both. Cycles raise (the .cff DEFINE order is acyclic).
     """
-    def _sub(match: "re.Match[str]") -> str:
+    def _sub(match: re.Match[str]) -> str:
         name = match.group(1)
         if name not in _DEFINE:
             raise KeyError(f"undefined OE macro ${name} (not in ImplicitMillsDean DEFINE block)")
@@ -188,11 +188,11 @@ def _expand(smarts: str, _stack: Tuple[str, ...] = ()) -> str:
     return _MACRO_REF.sub(_sub, smarts)
 
 
-def _build_expanded() -> Dict[str, List[str]]:
+def _build_expanded() -> dict[str, list[str]]:
     """Expand every PATTERN body and verify it compiles under RDKit. Raise on any failure."""
-    out: Dict[str, List[str]] = {}
+    out: dict[str, list[str]] = {}
     for color_name, raw_list in _RAW_PATTERNS.items():
-        expanded: List[str] = []
+        expanded: list[str] = []
         for raw in raw_list:
             smt = _expand(raw)
             if Chem.MolFromSmarts(smt) is None:
@@ -209,17 +209,17 @@ def _build_expanded() -> Dict[str, List[str]]:
 
 # Public: {color_name: [self-contained SMARTS, ...]} for the 6 OE color types.
 # Precompiled-validated at import (every pattern is guaranteed MolFromSmarts-non-None).
-OE_MILLS_DEAN_IMPLICIT: Dict[str, List[str]] = _build_expanded()
+OE_MILLS_DEAN_IMPLICIT: dict[str, list[str]] = _build_expanded()
 
 # Precompiled RDKit query mols, in the SAME order as OE_MILLS_DEAN_IMPLICIT, so the RDKit
 # annotation path can substructure-match without recompiling per call.
-OE_MILLS_DEAN_PATTERNS: Dict[str, List[Chem.Mol]] = {
+OE_MILLS_DEAN_PATTERNS: dict[str, list[Chem.Mol]] = {
     name: [Chem.MolFromSmarts(s) for s in smarts]
     for name, smarts in OE_MILLS_DEAN_IMPLICIT.items()
 }
 
 
-def _cdpkit_type_map() -> Dict[str, Tuple[int, int]]:
+def _cdpkit_type_map() -> dict[str, tuple[int, int]]:
     """Map each OE color name -> (CDPKit FeatureType, FeatureGeometry).
 
     Color features are positional spheres in ROCS-style overlay, so geometry is SPHERE for
@@ -255,7 +255,7 @@ def _cdpkit_type_map() -> Dict[str, Tuple[int, int]]:
 
 # Public: {color_name: (CDPKit FeatureType int, FeatureGeometry int)} -- 1:1 with the RDKit
 # color names emitted into PUBCHEM_PHARMACOPHORE_FEATURES, so the two backends agree on types.
-OE_TO_CDPKIT_TYPE: Dict[str, Tuple[int, int]] = _cdpkit_type_map()
+OE_TO_CDPKIT_TYPE: dict[str, tuple[int, int]] = _cdpkit_type_map()
 
 # CDPKit atom label that marks a pattern atom as a feature POSITION reference. When every
 # matched atom carries it, the CDPKit feature is placed at the centroid of the match (the OE

@@ -22,10 +22,9 @@ import multiprocessing as mp
 import os
 import signal
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 
-
-from typing import Iterator
 
 class ScoreTimeout(Exception):
     """Raised when a single molecule exceeds the per-molecule scoring time limit."""

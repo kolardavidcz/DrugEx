@@ -13,7 +13,6 @@ Dimorphite-DL (protonation only) — NOT Gypsum-DL, whose 3D/tautomer/stereo enu
 would duplicate the scorers' own conformer generators (Gypsum-DL calls Dimorphite-DL for
 its protonation anyway).
 """
-from typing import List, Union
 
 try:
     import dimorphite_dl
@@ -39,8 +38,8 @@ def _protonate_one(smi: str, ph: float) -> str:
 
 
 def protonate_smiles(
-    smiles: Union[str, List[str]], ph: float = DEFAULT_PH
-) -> Union[str, List[str]]:
+    smiles: str | list[str], ph: float = DEFAULT_PH
+) -> str | list[str]:
     """Return the dominant protomer at ``ph`` (default 7.4) via Dimorphite-DL.
 
     Parameters
