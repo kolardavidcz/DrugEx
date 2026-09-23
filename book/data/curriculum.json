@@ -1,0 +1,318 @@
+{
+  "title": "DrugEx Hub · De Novo Drug Design & ROCS Shape-Matching Workbench",
+  "subtitle": "Interactive Onboarding & Computational Platform for Bachelor Thesis",
+  "version": "1.0.0",
+  "thesis": {
+    "title": "Kombinace de novo návrhu léčiv a metody tvarového porovnávání (shape matchingu)",
+    "institution": "VŠCHT Praha / ÚOCHB AV ČR (UCT Prague / IOCB Prague)",
+    "description": "Tato bakalářská práce zkoumá možnost kombinace de novo návrhu léčiv a metody tvarového porovnávání (shape matchingu). De novo návrh léčiv algoritmicky generuje nové molekuly a řídí se při tom informacemi o cíli nebo ligandu, často s využitím hlubokého učení k efektivnímu prozkoumání rozsáhlého chemického prostoru. Vedle toho metoda tvarového porovnávání vyhodnocuje 3D molekulární podobnost za účelem identifikace kandidátů kompatibilních s vazebnými místy cíle, které však nemusí být známé, když jsou cílové struktury flexibilní nebo je jejich 3D uspořádání stanoveno s nízkým rozlišením (tj. např. intrinsicky neuspořádané proteiny (IDP), které postrádají rigidní struktury vazebných míst). Integrace těchto metod proto umožňuje generování a hodnocení nových, tvarově komplementárních sloučenin pro takové cíle.",
+    "milestones": [
+      { "id": "m_lit", "title": "1. Hloubková rešerše literatury", "desc": "De novo molekulární generátory, 3D shape matching (ROCS, Gaussian overlap), a specifika flexibilních proteinů / IDP." },
+      { "id": "m_pipe", "title": "2. Vývoj a implementace výpočetního postupu", "desc": "Integrace DrugEx MORL s RDKit/CDPKit/OpenEye ROCS skórovači, stanovení prahů (Youden's Index), conformer generatorů a SA filtrů." },
+      { "id": "m_exp", "title": "3. Výpočetní experimenty na modelovém i reálném cíli", "desc": "Validace na CCR2 benchmarku a následná aplikace workflow na vybraný flexibilní cíl spolupracovníka." },
+      { "id": "m_eval", "title": "4. Vyhodnocení kandidátních molekul", "desc": "Analýza chemické rozmanitosti, novosti, syntetické dostupnosti (SAScore) a 3D geometrické shody generovaných ligandů." }
+    ]
+  },
+  "modules": [
+    {
+      "id": "m1",
+      "number": 1,
+      "slug": "m1-de-novo-foundations",
+      "title": "De Novo Generování & Molekulární Reprezentace v DrugEx",
+      "tag": "Core",
+      "badge": "Základy & Modely",
+      "summary": "Molekulární reprezentace (SMILES, tokenizace, fragmenty, grafy), generativní architektury (Sequence RNN, Sequence & Graph Transformers) a transfer learning v DrugEx.",
+      "lectures": [
+        {
+          "id": "l1_1",
+          "slug": "molecular-representations",
+          "title": "1.1 Molekulární reprezentace, tokenizace & slovník (VocSmiles)",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "1D SMILES vs 2D grafy vs fragmentové vaky, tokenizační smlouva VocSmiles a SmilesStandardizer.",
+          "slidesCount": 8
+        },
+        {
+          "id": "l1_2",
+          "slug": "generative-architectures",
+          "title": "1.2 Generativní modely: Sequence RNN, Sequence & Graph Transformer",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "Architektury generátorů v DrugEx: Autoregresní GRU/LSTM sytém, causally masked Transformer a grafový maticový generátor.",
+          "slidesCount": 9
+        },
+        {
+          "id": "l1_3",
+          "slug": "transfer-learning-workflow",
+          "title": "1.3 Transfer Learning: Pre-training na Papyrus & Target Fine-Tuning",
+          "tag": "Core",
+          "relevance": 9,
+          "summary": "Dvoustupňový tréninkový proces: zkoumání obecného chemického prostoru vs adaptace na cílové bioaktivní ligandy.",
+          "slidesCount": 7
+        }
+      ],
+      "dojo": {
+        "id": "dojo_1",
+        "slug": "tokenizer-and-sampling-dojo",
+        "title": "Dojo 1: Interaktivní SMILES Tokenizer & Vzorkovací Simulátor",
+        "desc": "Vyzkoušejte tokenizaci libovolné molekuly, maticové mapování tokenů ve VocSmiles a simulaci teplotního softmax vzorkování."
+      },
+      "quiz": {
+        "id": "quiz_m1",
+        "slug": "quiz-m1",
+        "title": "Test 1: Reprezentace & Generátory v DrugEx",
+        "questionsCount": 40
+      }
+    },
+    {
+      "id": "m2",
+      "number": 2,
+      "slug": "m2-morl-pareto",
+      "title": "Multi-Objective Reinforcement Learning (MORL) & Paretova Optimalita",
+      "tag": "Core",
+      "badge": "MORL & Pareto",
+      "summary": "Policy Gradient (REINFORCE), rovnováha explorace/exploatace (Agent vs Mutate), Paretova fronta, Crowding Distance a modifikátory skóre.",
+      "lectures": [
+        {
+          "id": "l2_1",
+          "slug": "morl-policy-gradients",
+          "title": "2.1 Formulace MORL: Agent vs Mutate (Prior) & Policy Gradient",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "Proč jednokriteriální RL vede k degradaci molekul, dual-network setup a epsilon-greedy směrování akcí.",
+          "slidesCount": 8
+        },
+        {
+          "id": "l2_2",
+          "slug": "pareto-crowding-distance",
+          "title": "2.2 Paretova optimalita & Pareto Crowding Distance",
+          "tag": "WOW",
+          "relevance": 10,
+          "summary": "Nedominované třídění řešení v multidimenzionálním prostoru cílů a algoritmus výpočtu Crowding Distance pro zachování diverzity.",
+          "slidesCount": 8
+        },
+        {
+          "id": "l2_3",
+          "slug": "scorers-and-modifiers",
+          "title": "2.3 Skórovací funkce & Desirability Modifiers (SmoothClippedScore)",
+          "tag": "Core",
+          "relevance": 9,
+          "summary": "Transformace fyzikálních parametrů na normalizované odměny [0, 1], syntetická dostupnost (SAScore, RAScore) a QSAR prediktory.",
+          "slidesCount": 8
+        }
+      ],
+      "dojo": {
+        "id": "dojo_2",
+        "slug": "pareto-and-modifiers-dojo",
+        "title": "Dojo 2: 2D/3D Paretova Fronta & Návrhář Desirability Křivek",
+        "desc": "Interaktivní simulace nedominovaného třídění molekul a kalibrace parametrů SmoothClippedScore v reálném čase."
+      },
+      "quiz": {
+        "id": "quiz_m2",
+        "slug": "quiz-m2",
+        "title": "Test 2: MORL, Pareto & Modifikátory",
+        "questionsCount": 40
+      }
+    },
+    {
+      "id": "m3",
+      "number": 3,
+      "slug": "m3-shape-matching-idp",
+      "title": "3D Tvarové Porovnávání (ROCS), Flexibilní Cíle & IDP",
+      "tag": "WOW",
+      "badge": "3D Tvar & IDP",
+      "summary": "Fyzikální principy ROCS, Gaussovské objemové překryvy, TanimotoCombo, specifika flexibilních proteinů (IDP) a konformační generátory.",
+      "lectures": [
+        {
+          "id": "l3_1",
+          "slug": "rocs-theory-and-metrics",
+          "title": "3.1 Fyzikální podstata ROCS: Shape Tanimoto & Color TanimotoCombo",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "Gaussovská reprezentace atomů, objemové překryvové integrály a farmakoforové barevné shody (ImplicitMillsDean).",
+          "slidesCount": 9
+        },
+        {
+          "id": "l3_2",
+          "slug": "flexible-targets-and-idps",
+          "title": "3.2 Výzva flexibilních cílů & Intrinsically Disordered Proteins (IDP)",
+          "tag": "Legendary",
+          "relevance": 10,
+          "summary": "Když krystalové struktury chybí: Ligand-based 3D strategie, ansámbly vazebných konformací a konsensuální supermolekuly.",
+          "slidesCount": 8
+        },
+        {
+          "id": "l3_3",
+          "slug": "conformer-generators-deepdive",
+          "title": "3.3 Hloubková analýza conformer_generators.py (RDKit, OMEGA, CDPKit)",
+          "tag": "Tricky",
+          "relevance": 10,
+          "summary": "Architektura generátorů konformací, stereoisomerní enumerace, rotační vazby, heavy atom limity a vláknová bezpečnost.",
+          "slidesCount": 9
+        }
+      ],
+      "dojo": {
+        "id": "dojo_3",
+        "slug": "conformer-and-alignment-dojo",
+        "title": "Dojo 3: 3D Konformační Prohlížeč & Zarovnání Tvaru",
+        "desc": "Interaktivní 3D WebGL vizualizace překryvu konformerů, farmakoforových bodů a Gaussovských tvarových slupek."
+      },
+      "quiz": {
+        "id": "quiz_m3",
+        "slug": "quiz-m3",
+        "title": "Test 3: ROCS Teorie, IDP & Konformace",
+        "questionsCount": 40
+      }
+    },
+    {
+      "id": "m4",
+      "number": 4,
+      "slug": "m4-rocs-backends",
+      "title": "Kompletní Architektura ROCS Backendů (feature/rocs-scoring)",
+      "tag": "Core",
+      "badge": "ROCS Backendy",
+      "summary": "Detailní rozbor větví v repozitáři fulopjoz/DrugEx: RDKitROCSScorer, CDPKitROCSScorer a OpenEyeROCSScorer, deduplikace a paralelismus.",
+      "lectures": [
+        {
+          "id": "l4_1",
+          "slug": "rdkit-rocs-scorer",
+          "title": "4.1 RDKit ROCS Scorer: rdShapeAlign, Worker Init & Pose Invariance",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "Implementace rocs_rdkit.py: paralelní multiprocessing bez memory leaků, deduplikace SMILES a skupinové skórování.",
+          "slidesCount": 9
+        },
+        {
+          "id": "l4_2",
+          "slug": "cdpkit-rocs-scorer",
+          "title": "4.2 CDPKit ROCS Scorer: CDPL.Shape, WorkerContext & Open-Source Pipeline",
+          "tag": "WOW",
+          "relevance": 10,
+          "summary": "Implementace rocs_cdpkit.py: čistě open-source Gaussovské zarovnání přes PrincipalAxesAlignment a bezlicenční workflow.",
+          "slidesCount": 8
+        },
+        {
+          "id": "l4_3",
+          "slug": "openeye-rocs-scorer",
+          "title": "4.3 OpenEye ROCS Scorer: CLI Subprocess, .sq Queries & GPU Akcelerace",
+          "tag": "Core",
+          "relevance": 9,
+          "summary": "Implementace rocs_openeye.py: řízení binárky rocs, načítání VROCS Shape Queries (.sq) a licence OpenEye.",
+          "slidesCount": 8
+        }
+      ],
+      "dojo": {
+        "id": "dojo_4",
+        "slug": "rocs-backend-comparator-dojo",
+        "title": "Dojo 4: ROCS Konfigurátor Kódu & Porovnávač Backendů",
+        "desc": "Interaktivní generátor inicializace skórovačů pro různé referenční soubory a srovnávací matice rychlosti/přesnosti."
+      },
+      "quiz": {
+        "id": "quiz_m4",
+        "slug": "quiz-m4",
+        "title": "Test 4: ROCS Backendy v DrugEx",
+        "questionsCount": 40
+      }
+    },
+    {
+      "id": "m5",
+      "number": 5,
+      "slug": "m5-experimental-pipeline",
+      "title": "Experimentální Pipeline pro Bakalářskou Práci (CCR2 & IDP)",
+      "tag": "Legendary",
+      "badge": "Experimenty & Validace",
+      "summary": "Stanovení prahů ROC analýzou (Youden's Index), trénovací smyčka RL, generování a rigorózní filtrování nových molekul.",
+      "lectures": [
+        {
+          "id": "l5_1",
+          "slug": "threshold-analysis-roc",
+          "title": "5.1 Stanovení ROCS prahu & ROC analýza (threshold_analysis.py)",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "Metodika oddělení aktivních látek od decoyů (CCR2 aktivní vs DUD-E), Youdenův index J = TPR - FPR a self-similarity.",
+          "slidesCount": 9
+        },
+        {
+          "id": "l5_2",
+          "slug": "end-to-end-rl-training",
+          "title": "5.2 End-to-End RL tréninkový cyklus (config.py, rocs_rl_tutorial.ipynb)",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "Příprava modelů, spuštění RL explorátoru, monitorování poměru validních žádaných molekul (desired_ratio) a konvergence.",
+          "slidesCount": 9
+        },
+        {
+          "id": "l5_3",
+          "slug": "molecule-generation-and-filtering",
+          "title": "5.3 Generování kandidátů, filtrace novosti & chemické ověření",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "Vzorkování molekul (generate_molecules.py), výpočet interní diverzity, novelty vůči ChEMBL a příprava pro bio-testy.",
+          "slidesCount": 8
+        }
+      ],
+      "dojo": {
+        "id": "dojo_5",
+        "slug": "roc-sandbox-and-rl-player-dojo",
+        "title": "Dojo 5: Interaktivní ROC Křivka, Youdenův Index & Simulátor RL Tréninku",
+        "desc": "Posouvejte prahy na reálných CCR2 datech, sledujte matici záměn a animaci vývoje vlastností generovaných molekul v čase."
+      },
+      "quiz": {
+        "id": "quiz_m5",
+        "slug": "quiz-m5",
+        "title": "Test 5: Experimentální Postup & Validace",
+        "questionsCount": 45
+      }
+    },
+    {
+      "id": "m6",
+      "number": 6,
+      "slug": "m6-scaffolds-and-cli",
+      "title": "Fragmentový Návrh, Scaffolding & Produkční CLI / Slurm",
+      "tag": "Core",
+      "badge": "CLI & HPC",
+      "summary": "Fragmentace BRICS a Murcko, scaffold-based generování, automatizace CLI příkazů a skripty pro výpočetní klastry (Slurm HPC).",
+      "lectures": [
+        {
+          "id": "l6_1",
+          "slug": "fragment-based-generation",
+          "title": "6.1 Fragmentový návrh, BRICS štěpení & FragSequenceExplorer",
+          "tag": "Core",
+          "relevance": 9,
+          "summary": "Cílený růst z fragmentů, design linkerů pro vícedoménové proteiny a fragmentační konvertory.",
+          "slidesCount": 8
+        },
+        {
+          "id": "l6_2",
+          "slug": "cli-workflow-mastery",
+          "title": "6.2 Příkazová řádka DrugEx: drugex dataset, train & generate",
+          "tag": "Core",
+          "relevance": 10,
+          "summary": "Kompletní matice parametrů CLI pro automatizované skriptování a batch zpracování velkých sad dat.",
+          "slidesCount": 8
+        },
+        {
+          "id": "l6_3",
+          "slug": "hpc-cluster-and-slurm",
+          "title": "6.3 Škálování na GPU klastru: Slurm skripty & správa paměti",
+          "tag": "WOW",
+          "relevance": 9,
+          "summary": "Šablony Slurm úloh s alokací GPU, proměnnými prostředí (OE_LICENSE) a ochranou proti přetečení RAM/VRAM.",
+          "slidesCount": 8
+        }
+      ],
+      "dojo": {
+        "id": "dojo_6",
+        "slug": "cli-command-and-slurm-builder-dojo",
+        "title": "Dojo 6: Generátor CLI Příkazů, BRICS Štěpovač & Slurm Skriptovač",
+        "desc": "Vizuální formulář pro okamžité vygenerování bezchybných příkazů drugex a skriptů pro spuštění na superpočítači."
+      },
+      "quiz": {
+        "id": "quiz_m6",
+        "slug": "quiz-m6",
+        "title": "Test 6: Fragmenty, CLI & HPC Automatizace",
+        "questionsCount": 45
+      }
+    }
+  ]
+}

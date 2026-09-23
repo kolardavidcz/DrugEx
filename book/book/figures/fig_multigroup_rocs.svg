@@ -1,0 +1,71 @@
+<svg viewBox="0 0 760 235" class="schematic-svg" xmlns="http://www.w3.org/2000/svg">
+      <!-- Background card -->
+      <rect x="2" y="2" width="756" height="231" rx="8" fill="#0b1120" stroke="#1e293b" stroke-width="1.5"/>
+
+      <!-- Marker defs for arrows -->
+      <defs>
+        <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#38bdf8" />
+        </marker>
+        <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#34d399" />
+        </marker>
+        <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#fbbf24" />
+        </marker>
+        <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#c084fc" />
+        </marker>
+      </defs>
+
+      <!-- 1. Prior Network pi_0 -->
+      <rect x="30" y="30" width="130" height="70" rx="6" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+      <text x="95" y="55" text-anchor="middle" font-size="11" font-weight="bold" fill="#e2e8f0">Prior Síť (π₀)</text>
+      <text x="95" y="72" text-anchor="middle" font-size="9" fill="#94a3b8">Zmrazený model</text>
+      <text x="95" y="86" text-anchor="middle" font-size="8.5" fill="#38bdf8">Papyrus v05.5</text>
+
+      <!-- 2. Agent Network pi_theta -->
+      <rect x="30" y="130" width="130" height="75" rx="6" fill="#0c4a6e" stroke="#0284c7" stroke-width="2"/>
+      <text x="95" y="155" text-anchor="middle" font-size="11" font-weight="bold" fill="#e0f2fe">Agent Síť (π_θ)</text>
+      <text x="95" y="172" text-anchor="middle" font-size="9" fill="#bae6fd">Trénovatelný LSTM</text>
+      <text x="95" y="188" text-anchor="middle" font-size="8.5" fill="#38bdf8">θ ← θ + α ∇J(θ)</text>
+
+      <!-- Arrow from Agent to Generator Output -->
+      <line x1="160" y1="167" x2="220" y2="167" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+      <!-- 3. Sampling & Generated Batch x -->
+      <rect x="225" y="135" width="120" height="65" rx="6" fill="#1e1b4b" stroke="#6366f1" stroke-width="1.5"/>
+      <text x="285" y="157" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#e0e7ff">Vzorkování (x)</text>
+      <text x="285" y="173" text-anchor="middle" font-size="9" fill="#c7d2fe">SMILES dávka</text>
+      <text x="285" y="188" text-anchor="middle" font-size="8.5" fill="#818cf8">N = 1000 molekul</text>
+
+      <!-- Arrow to Environment -->
+      <line x1="345" y1="167" x2="400" y2="167" stroke="#34d399" stroke-width="2" marker-end="url(#arrowGreen)"/>
+
+      <!-- 4. DrugExEnvironment -->
+      <rect x="405" y="115" width="145" height="95" rx="6" fill="#064e3b" stroke="#059669" stroke-width="2"/>
+      <text x="477" y="136" text-anchor="middle" font-size="11" font-weight="bold" fill="#ecfdf5">DrugExEnvironment</text>
+      <text x="477" y="153" text-anchor="middle" font-size="9" fill="#a7f3d0">• 3D ROCS Scorer</text>
+      <text x="477" y="168" text-anchor="middle" font-size="9" fill="#a7f3d0">• SAScore Modifier</text>
+      <text x="477" y="183" text-anchor="middle" font-size="9" fill="#a7f3d0">• QSAR / Affinity</text>
+      <text x="477" y="198" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#34d399">Paretovo řazení (PCD)</text>
+
+      <!-- Arrow to Reward R(x) -->
+      <line x1="550" y1="167" x2="595" y2="167" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrowAmber)"/>
+
+      <!-- 5. Reward Calculation Node -->
+      <rect x="600" y="135" width="130" height="65" rx="6" fill="#451a03" stroke="#d97706" stroke-width="1.5"/>
+      <text x="665" y="157" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#fef3c7">Odměna R(x)</text>
+      <text x="665" y="173" text-anchor="middle" font-size="9" fill="#fde68a">Crowding Distance</text>
+      <text x="665" y="188" text-anchor="middle" font-size="8.5" fill="#f59e0b">Skalární váha ∈ [0, 1]</text>
+
+      <!-- KL Divergence Regularization Spring (Prior to Agent) -->
+      <path d="M 95,100 C 70,115 120,115 95,130" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="4 2"/>
+      <rect x="125" y="98" width="115" height="22" rx="3" fill="#881337" stroke="#f43f5e" stroke-width="1"/>
+      <text x="182" y="113" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#ffe4e6">β · D_KL(π_θ ∥ π₀)</text>
+
+      <!-- Policy Gradient Backpropagation Path -->
+      <path d="M 665,135 L 665,45 L 205,45" fill="none" stroke="#c084fc" stroke-width="2" stroke-dasharray="6 3" marker-end="url(#arrowPurple)"/>
+      <rect x="350" y="32" width="220" height="26" rx="4" fill="#2e1065" stroke="#a855f7" stroke-width="1"/>
+      <text x="460" y="49" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#f3e8ff">Ztráta: L(θ) = -R(x) · log π_θ(x) + β · D_KL</text>
+    </svg>

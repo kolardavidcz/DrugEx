@@ -1,0 +1,93 @@
+<svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" font-family="'IBM Plex Sans', sans-serif">
+  <defs>
+    <linearGradient id="smoothGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="clipGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#e11d48"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="800" height="340" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1.5"/>
+  
+  <!-- Title -->
+  <text x="400" y="32" text-anchor="middle" font-size="15" font-weight="bold" fill="#f8fafc">
+    Srovnání Modifikátorů: SmoothClippedScore (Hladký) vs. ClippedScore (Ostrý)
+  </text>
+  
+  <!-- Left Panel: Desirability Score S(x) -->
+  <g transform="translate(60, 60)">
+    <!-- Panel Header -->
+    <text x="140" y="0" text-anchor="middle" font-size="12" font-weight="bold" fill="#38bdf8">Hodnota Odměny S(x) ∈ [0, 1]</text>
+    
+    <!-- Axes -->
+    <line x1="40" y1="20" x2="40" y2="200" stroke="#475569" stroke-width="1.5"/>
+    <line x1="40" y1="200" x2="300" y2="200" stroke="#475569" stroke-width="1.5"/>
+    
+    <!-- Y-axis labels -->
+    <text x="32" y="25" text-anchor="end" font-size="10" fill="#94a3b8">1.0</text>
+    <line x1="36" y1="25" x2="40" y2="25" stroke="#475569"/>
+    <text x="32" y="112" text-anchor="end" font-size="10" fill="#94a3b8">0.5</text>
+    <line x1="36" y1="112" x2="40" y2="112" stroke="#475569"/>
+    <text x="32" y="200" text-anchor="end" font-size="10" fill="#94a3b8">0.0</text>
+    
+    <!-- X-axis thresholds -->
+    <line x1="100" y1="20" x2="100" y2="200" stroke="#334155" stroke-dasharray="3 3"/>
+    <text x="100" y="218" text-anchor="middle" font-size="10" fill="#94a3b8">lower_x</text>
+    
+    <line x1="240" y1="20" x2="240" y2="200" stroke="#334155" stroke-dasharray="3 3"/>
+    <text x="240" y="218" text-anchor="middle" font-size="10" fill="#94a3b8">upper_x</text>
+    <text x="300" y="218" text-anchor="start" font-size="11" fill="#cbd5e1">Fyzikální hodnota x →</text>
+    
+    <!-- ClippedScore Line (Red sharp step) -->
+    <polyline points="40,200 100,200 240,25 290,25" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="4 2"/>
+    
+    <!-- SmoothClippedScore Sigmoid Curve (Cyan smooth) -->
+    <path d="M 40,199 Q 80,199 120,180 T 170,112 T 220,35 Q 260,25 290,25" fill="none" stroke="#38bdf8" stroke-width="3"/>
+  </g>
+  
+  <!-- Right Panel: Gradient dS/dx (Learning Signal) -->
+  <g transform="translate(460, 60)">
+    <!-- Panel Header -->
+    <text x="140" y="0" text-anchor="middle" font-size="12" font-weight="bold" fill="#34d399">Gradient Odměny dS/dx (Signál pro REINFORCE)</text>
+    
+    <!-- Axes -->
+    <line x1="40" y1="20" x2="40" y2="200" stroke="#475569" stroke-width="1.5"/>
+    <line x1="40" y1="200" x2="300" y2="200" stroke="#475569" stroke-width="1.5"/>
+    
+    <!-- Y-axis labels -->
+    <text x="32" y="30" text-anchor="end" font-size="10" fill="#94a3b8">max</text>
+    <text x="32" y="200" text-anchor="end" font-size="10" fill="#94a3b8">0</text>
+    
+    <!-- X-axis thresholds -->
+    <line x1="100" y1="20" x2="100" y2="200" stroke="#334155" stroke-dasharray="3 3"/>
+    <text x="100" y="218" text-anchor="middle" font-size="10" fill="#94a3b8">lower_x</text>
+    
+    <line x1="240" y1="20" x2="240" y2="200" stroke="#334155" stroke-dasharray="3 3"/>
+    <text x="240" y="218" text-anchor="middle" font-size="10" fill="#94a3b8">upper_x</text>
+    <text x="300" y="218" text-anchor="start" font-size="11" fill="#cbd5e1">x →</text>
+    
+    <!-- ClippedScore Gradient: Step function with 0 gradient outside (Dead Zones) -->
+    <polyline points="40,200 100,200 100,110 240,110 240,200 290,200" fill="none" stroke="#f43f5e" stroke-width="2" stroke-dasharray="4 2"/>
+    <text x="70" y="180" font-size="9" fill="#fb7185" text-anchor="middle">dS/dx = 0</text>
+    <text x="265" y="180" font-size="9" fill="#fb7185" text-anchor="middle">dS/dx = 0</text>
+    
+    <!-- SmoothClippedScore Gradient: Bell curve (Continuous non-zero gradient) -->
+    <path d="M 40,198 C 90,198 120,40 170,40 C 220,40 250,198 290,198" fill="none" stroke="#34d399" stroke-width="3"/>
+    <text x="170" y="28" font-size="10" font-weight="bold" fill="#34d399" text-anchor="middle">Spojitý gradient v celém rozsahu</text>
+  </g>
+  
+  <!-- Bottom Legend and Educational Callout -->
+  <rect x="60" y="280" width="680" height="42" rx="6" fill="#1e293b" stroke="#334155"/>
+  <circle cx="90" cy="301" r="5" fill="#38bdf8"/>
+  <text x="105" y="305" font-size="11" font-weight="bold" fill="#38bdf8">SmoothClippedScore:</text>
+  <text x="235" y="305" font-size="11" fill="#e2e8f0">Zaručuje hladké učení; agent cítí směr optimalizace i mimo hlavní pásmo.</text>
+  
+  <line x1="520" y1="285" x2="520" y2="317" stroke="#475569"/>
+  <circle cx="535" cy="301" r="5" fill="#f43f5e"/>
+  <text x="550" y="305" font-size="11" font-weight="bold" fill="#f43f5e">ClippedScore:</text>
+  <text x="635" y="305" font-size="11" fill="#fca5a5">Mrtvé zóny nulového gradientu!</text>
+</svg>

@@ -1,0 +1,110 @@
+{
+  "moduleId": "m2",
+  "title": "Modul 2: Multi-Objective Reinforcement Learning (MORL) & Paretova Optimalita",
+  "questions": [
+    {
+      "id": "m2_q1",
+      "type": "choice",
+      "question": "Proč je jednokriteriální optimalizace (např. pouhé maximalizování QSAR bioaktivity) při de novo návrhu léčiv nevhodná?",
+      "options": [
+        "Protože model začne generovat vysoce lipofilní, velké nebo synteticky nerealizovatelné molekuly (tzv. 'exploatace odměny'), které sice mají vysoké predikované skóre, ale selhávají jako skutečná léčiva.",
+        "Protože jednokriteriální optimalizace vyžaduje příliš mnoho GPU jader.",
+        "Protože PyTorch nepodporuje jednokriteriální gradientní sestup.",
+        "Jednokriteriální optimalizace funguje dokonale a vícekriteriální není potřeba."
+      ],
+      "correct": 0,
+      "explanation": "Při optimalizaci jediné metriky model snadno najde 'zkratku' v aproximačním QSAR modelu (např. extrémní nárůst MW a LogP), čímž vytvoří synteticky nedostupné monstr-struktury. Vícekriteriální optimalizace (MORL) vyvažuje bioaktivitu, 3D tvar a syntetickou přístupnost."
+    },
+    {
+      "id": "m2_q2",
+      "type": "choice",
+      "question": "Jakou roli hraje mutační síť (mutate / prior network) a parametr $\\epsilon$ (epsilon) v DrugEx RL explorátoru?",
+      "options": [
+        "Mutační síť generuje 3D konformace a epsilon určuje počet atomů vodíku.",
+        "Slouží jako pevná referenční politika: s pravděpodobností $1 - \\epsilon$ se vzorkuje z trénovaného agenta (exploatace) a s pravděpodobností $\\epsilon$ z mutační sítě (explorace), což zabraňuje katastrofickému zapomínání chemického prostoru.",
+        "Mutační síť slouží výhradně k výpočtu ztrátové funkce MSE.",
+        "Epsilon určuje počet epoch v tréninku."
+      ],
+      "correct": 1,
+      "explanation": "Duální systém (Agent policy pi_theta + Mutate/Prior policy pi_0) řízený parametrem epsilon zajišťuje, že model nezkolabuje do jediné triviální struktury, ale trvale prozkoumává rozmanitý chemický prostor."
+    },
+    {
+      "id": "m2_q3",
+      "type": "choice",
+      "question": "Co definuje Paretovu dominanci mezi dvěma molekulami $A$ a $B$ v prostoru $K$ optimalizovaných cílů?",
+      "options": [
+        "Molekula A dominuje B, pokud má vyšší molekulovou hmotnost.",
+        "Molekula A dominuje B, pokud je ve všech $K$ kritériích alespoň stejně dobrá jako B ($f_k(A) \\ge f_k(B)$ pro všechna $k$) a v alespoň jednom kritériu je striktně lepší ($f_j(A) > f_j(B)$).",
+        "Molekula A dominuje B, pokud má jednodušší SMILES řetězec.",
+        "Dominance nastává pouze tehdy, když obě molekuly mají identické skóre."
+      ],
+      "correct": 1,
+      "explanation": "Paretova dominance je fundamentální koncept vícekriteriální optimalizace: řešení A je preferováno před B tehdy a jen tehdy, pokud v žádném kritériu nezaostává a alespoň v jednom je lepší."
+    },
+    {
+      "id": "m2_q4",
+      "type": "choice",
+      "question": "K čemu slouží výpočet 'Crowding Distance' v Paretově schématu v DrugEx (`ParetoCrowdingDistance`)?",
+      "options": [
+        "K odhadu hustoty okolních řešení na Paretově frontě, čímž jsou vyšší odměnou odměňována izolovanější (rozmanitější) řešení, aby se zabránilo shlukování do jednoho úzkého subprostoru.",
+        "K výpočtu sterického překryvu molekul s vazebným místem receptoru.",
+        "K měření vzdálenosti mezi trénovacími a validačními daty.",
+        "K výpočtu euklidovské vzdálenosti v latentním prostoru autoencoderu."
+      ],
+      "correct": 0,
+      "explanation": "Crowding distance měří hustotu sousedů podél Paretovy fronty. Řešení s velkým crowding distance leží v málo prozkoumaných oblastech kompromisu mezi vlastnostmi a dostávají vyšší odměnu."
+    },
+    {
+      "id": "m2_q5",
+      "type": "choice",
+      "question": "Jak funguje modifikátor `SmoothClippedScore(lower_x=5.0, upper_x=3.0)` aplikovaný na `Property('SA')` (SAScore)?",
+      "options": [
+        "Převede jakoukoliv hodnotu na pevnou konstantu 1.0.",
+        "Vzhledem k tomu, že nižší SAScore znamená snazší syntézu, transformuje surové skóre hladkou sigmoidální křivkou: molekuly s $\\text{SA} \\le 3.0$ mají odměnu $\\approx 1.0$, molekuly s $\\text{SA} \\ge 5.0$ mají odměnu $\\approx 0.0$ a mezi 3 a 5 je plynulý přechod.",
+        "Vynásobí hodnotu SAScore číslem -1 bez normalizace.",
+        "Funguje jako binární skokový filtr (vše pod 3 je 0, vše nad 5 je 1)."
+      ],
+      "correct": 1,
+      "explanation": "SmoothClippedScore s lower_x > upper_x reprezentuje penalizaci (klesající funkci žádoucnosti). Pro SAScore (kde 1 = snadné, 10 = extrémně obtížné) odměňuje struktury pod 3.0 a penalizuje struktury nad 5.0."
+    },
+    {
+      "id": "m2_q6",
+      "type": "choice",
+      "question": "Jaký je rozsah výstupních hodnot odměny z jakéhokoliv modifikátoru skóre v DrugEx (např. `ClippedScore`, `MinMaxScore`)?",
+      "options": [
+        "Libovolná reálná čísla v intervalu $(-\\infty, +\\infty)$",
+        "Normalizovaný interval $[0.0, 1.0]$, kde 0.0 představuje zcela nežádoucí a 1.0 ideální stav.",
+        "Celočíselné hodnoty $\\{-1, 0, 1\\}$",
+        "Procentuální hodnoty od $0\\%$ do $1000\\%$"
+      ],
+      "correct": 1,
+      "explanation": "Všechny DrugEx modifikátory transformují surové fyzikální, chemické či biologické metriky do unifikovaného intervalu žádoucnosti [0, 1], což umožňuje jejich korektní kombinaci v MORL."
+    },
+    {
+      "id": "m2_q7",
+      "type": "choice",
+      "question": "Co se stane, pokud generovaná molekula není chemicky validní (např. má neplatnou valenci atomu)?",
+      "options": [
+        "Python vyvolá kritickou výjimku a celý trénink okamžitě spadne.",
+        "Prostředí `DrugExEnvironment` jí automaticky přiřadí nulové skóre (odměnu 0.0) ve všech cílech, čímž je v gradientním updatu penalizována.",
+        "Validátor se pokusí nahradit všechny atomy uhlíkem.",
+        "Molekula je ignorována a v epoše se místo 1000 molekul použije jen 999 bez penalizace."
+      ],
+      "correct": 1,
+      "explanation": "Nevalidní molekuly dostávají nulovou odměnu, což učí model generovat syntakticky a valenčně správné chemické struktury."
+    },
+    {
+      "id": "m2_q8",
+      "type": "choice",
+      "question": "Který z následujících nástrojů integrovaných v DrugEx slouží k predikci biologické aktivity pomocí QSAR modelů?",
+      "options": [
+        "QSPRpred (podporující Random Forest, SVM, XGBoost i neuronové sítě)",
+        "OpenFOAM",
+        "GROMACS MD engine",
+        "Blender 3D"
+      ],
+      "correct": 0,
+      "explanation": "QSPRpred je knihovna pro trénování a nasazení QSAR/QSPR modelů, která je úzce integrována do DrugEx přes třídu QSPRpredScorer."
+    }
+  ]
+}

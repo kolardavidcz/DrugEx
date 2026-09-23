@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="cs" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vizualizace 3D Exit-Vektorů | DrugEx Kapitola 6.3</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.9; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.03); }
+    }
+    .glow-cyan {
+      box-shadow: 0 0 25px rgba(6, 182, 212, 0.4);
+    }
+    .glow-emerald {
+      box-shadow: 0 0 25px rgba(16, 185, 129, 0.4);
+    }
+    .glow-rose {
+      box-shadow: 0 0 25px rgba(244, 63, 94, 0.4);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased p-4 md:p-8 font-sans selection:bg-cyan-500 selection:text-slate-950">
+
+  <div class="max-w-5xl mx-auto space-y-6">
+    
+    <!-- Header Banner -->
+    <div class="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 border border-slate-700/60 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+      <div class="absolute -right-12 -top-12 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+        <div>
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-2">
+            <span>Kapitola 6.3</span>
+            <span>•</span>
+            <span>Scaffold Hopping Telemetrie</span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+            3D Exit-Vektory: Co to je a jak fungují?
+          </h1>
+          <p class="text-slate-400 text-sm mt-1 max-w-2xl">
+            Představte si exit-vektor jako <strong class="text-cyan-300">směrový odpalovací vektor</strong> chemické vazby. Když vyměníme centrální jádro molekuly, musí nové jádro "vystřelit" periferní skupiny přesně do stejných kapes proteinu.
+          </p>
+        </div>
+
+        <!-- Mode Toggle -->
+        <div class="flex items-center bg-slate-900/80 p-1.5 rounded-xl border border-slate-700/80 shrink-0">
+          <button id="mode-chem" class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-cyan-500 text-slate-950 shadow-md">
+            🧪 Molekula (EGC Hop)
+          </button>
+          <button id="mode-dock" class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 text-slate-400 hover:text-white">
+            🚀 Vesmírný dok (Metafora)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Workspace Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Interactive Canvas Column (7 cols) -->
+      <div class="lg:col-span-7 bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+              <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-300">Interaktivní 3D/2D Projekce Vektorů</h2>
+            </div>
+            <div class="flex items-center gap-3 text-xs">
+              <span class="inline-flex items-center gap-1 text-amber-400"><span class="w-3 h-0.5 bg-amber-400 inline-block"></span> Cíl (Ref)</span>
+              <span class="inline-flex items-center gap-1 text-cyan-400"><span class="w-3 h-0.5 bg-cyan-400 inline-block"></span> Kandidát (Hop)</span>
+            </div>
+          </div>
+          
+          <div class="relative w-full aspect-[4/3] bg-slate-950 rounded-xl border border-slate-800/80 overflow-hidden cursor-grab active:cursor-grabbing flex items-center justify-center">
+            <canvas id="vectorCanvas" width="600" height="450" class="w-full h-full object-contain"></canvas>
+            
+            <!-- Canvas Overlay Tooltip -->
+            <div id="canvasStatus" class="absolute bottom-3 left-3 bg-slate-900/85 backdrop-blur border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs text-slate-300 pointer-events-none">
+              💡 Klikněte a táhněte pro rotaci 3D prostoru
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time Controls below Canvas -->
+        <div class="mt-5 space-y-4 pt-4 border-t border-slate-800/80">
+          
+          <!-- Slider 1: Theta (Angle Error) -->
+          <div>
+            <div class="flex justify-between items-center text-xs mb-1.5">
+              <label class="font-medium text-slate-300 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                Úhlová odchylka exit-vektoru (<span class="font-mono text-cyan-300">&theta;</span>)
+              </label>
+              <span id="thetaVal" class="font-mono text-cyan-400 font-bold bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">4.0°</span>
+            </div>
+            <input type="range" id="thetaSlider" min="0" max="45" step="0.5" value="4" class="w-full accent-cyan-400 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+            <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+              <span>0° (Dokonalý směr)</span>
+              <span class="text-amber-400 font-medium">10° (&sigma; okno)</span>
+              <span>45° (Totální kolize)</span>
+            </div>
+          </div>
+
+          <!-- Slider 2: Positional displacement (Delta d) -->
+          <div>
+            <div class="flex justify-between items-center text-xs mb-1.5">
+              <label class="font-medium text-slate-300 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+                Posun kotevního atomu (<span class="font-mono text-indigo-300">&Delta;d</span>)
+              </label>
+              <span id="deltaDVal" class="font-mono text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">0.18 Å</span>
+            </div>
+            <input type="range" id="deltaDSlider" min="0" max="1.2" step="0.02" value="0.18" class="w-full accent-indigo-400 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+            <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+              <span>0.00 Å (Shodný střed)</span>
+              <span class="text-amber-400 font-medium">0.25 Å (&sigma; okno)</span>
+              <span>1.20 Å (Mimo kapsu)</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Telemetry & Explanation Column (5 cols) -->
+      <div class="lg:col-span-5 space-y-5 flex flex-col justify-between">
+        
+        <!-- Score Card -->
+        <div id="scoreBox" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all duration-300">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs uppercase tracking-wider font-semibold text-slate-400">Výsledná odměna modelu</span>
+            <span id="verdictBadge" class="text-xs px-2.5 py-1 rounded-full font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              OPTIMÁLNÍ HOP
+            </span>
+          </div>
+
+          <div class="flex items-baseline gap-3 my-2">
+            <span id="totalScoreText" class="text-4xl font-extrabold font-mono tracking-tight text-emerald-400">
+              0.867
+            </span>
+            <span class="text-slate-500 text-xs font-mono">/ 1.000 Reward_EV</span>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="w-full bg-slate-800 rounded-full h-3 my-3 overflow-hidden p-0.5 border border-slate-700/50">
+            <div id="scoreBar" class="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full rounded-full transition-all duration-200" style="width: 86.7%"></div>
+          </div>
+
+          <!-- Component breakdown formula -->
+          <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800/80 text-xs">
+            <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+              <span class="text-slate-400 text-[10px] block">Úhlová složka R(&theta;)</span>
+              <span id="angleScore" class="font-mono font-bold text-cyan-400 text-sm">0.923</span>
+              <span class="text-[9px] text-slate-500 block">exp(-&theta;² / 2&sigma;²)</span>
+            </div>
+            <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+              <span class="text-slate-400 text-[10px] block">Distanční složka R(&Delta;d)</span>
+              <span id="distScore" class="font-mono font-bold text-indigo-400 text-sm">0.771</span>
+              <span class="text-[9px] text-slate-500 block">exp(-&Delta;d² / 2&sigma;²)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3 Intuitive Rules -->
+        <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 space-y-3">
+          <h3 class="text-xs uppercase tracking-wider font-semibold text-slate-300 flex items-center gap-1.5">
+            <span class="text-cyan-400">✦</span> 3 Klíčové Zásady pro Pochopení:
+          </h3>
+
+          <div class="space-y-2.5 text-xs text-slate-300">
+            <div class="flex items-start gap-2.5">
+              <div class="w-5 h-5 rounded-md bg-cyan-500/20 text-cyan-300 flex items-center justify-center font-bold shrink-0 mt-0.5">1</div>
+              <p><strong class="text-white">Co je exit-vektor:</strong> Je to orientovaná úsečka (vektor) podél vazby mezi atomem jádra a připojeným substituentem: <code class="bg-slate-800 px-1 py-0.5 rounded text-cyan-300 font-mono">v = r_sub - r_core</code>.</p>
+            </div>
+
+            <div class="flex items-start gap-2.5">
+              <div class="w-5 h-5 rounded-md bg-indigo-500/20 text-indigo-300 flex items-center justify-center font-bold shrink-0 mt-0.5">2</div>
+              <p><strong class="text-white">Proč na něm záleží:</strong> Když AI vymění chromanové jádro za pyridon-benzimidazol, musí nový kruh mířit vazby do stejných dutin. Pokud se odchýlí o 20°, substituent narazí do stěny proteinu (sterická srážka).</p>
+            </div>
+
+            <div class="flex items-start gap-2.5">
+              <div class="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-300 flex items-center justify-center font-bold shrink-0 mt-0.5">3</div>
+              <p><strong class="text-white">Jak to RL hodnotí:</strong> Namísto tvrdého filtru (projde/neprojde) používá DrugEx hladký Gaussovský zvon. Malá nepřesnost (< 5°) má odměnu ~0.95, velká odchylka (> 25°) srazí odměnu na 0.00.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Code Mapping Snippet -->
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 font-mono text-[11px] text-slate-400">
+          <div class="text-[10px] text-slate-500 mb-1 font-sans uppercase font-semibold">Přímý převod z Pythonu (Kap. 6.3):</div>
+          <p class="text-cyan-300">cos_theta = np.dot(u_ref, u_cand)</p>
+          <p class="text-indigo-300">delta_d = np.linalg.norm(p_cand - p_ref)</p>
+          <p class="text-emerald-400">Reward_EV = exp(-theta²/2&sigma;²) * exp(-delta_d²/2&sigma;²)</p>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // Canvas & 3D Math Setup
+    const canvas = document.getElementById('vectorCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let mode = 'chem'; // 'chem' or 'dock'
+    let angleRotY = -0.35;
+    let angleRotX = 0.20;
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    // Controls
+    const thetaSlider = document.getElementById('thetaSlider');
+    const deltaDSlider = document.getElementById('deltaDSlider');
+    const thetaVal = document.getElementById('thetaVal');
+    const deltaDVal = document.getElementById('deltaDVal');
+    
+    // Outputs
+    const totalScoreText = document.getElementById('totalScoreText');
+    const scoreBar = document.getElementById('scoreBar');
+    const verdictBadge = document.getElementById('verdictBadge');
+    const angleScoreEl = document.getElementById('angleScore');
+    const distScoreEl = document.getElementById('distScore');
+    const scoreBox = document.getElementById('scoreBox');
+
+    // Mode Buttons
+    const btnChem = document.getElementById('mode-chem');
+    const btnDock = document.getElementById('mode-dock');
+
+    btnChem.addEventListener('click', () => {
+      mode = 'chem';
+      btnChem.className = "px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-cyan-500 text-slate-950 shadow-md";
+      btnDock.className = "px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 text-slate-400 hover:text-white";
+      draw();
+    });
+
+    btnDock.addEventListener('click', () => {
+      mode = 'dock';
+      btnDock.className = "px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-cyan-500 text-slate-950 shadow-md";
+      btnChem.className = "px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 text-slate-400 hover:text-white";
+      draw();
+    });
+
+    // Mouse Interaction for 3D Orbit
+    canvas.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', () => isDragging = false);
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - lastMouseX;
+      const dy = e.clientY - lastMouseY;
+      angleRotY += dx * 0.01;
+      angleRotX += dy * 0.01;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      draw();
+    });
+
+    // Sliders
+    thetaSlider.addEventListener('input', () => {
+      thetaVal.textContent = parseFloat(thetaSlider.value).toFixed(1) + '°';
+      updateMetrics();
+      draw();
+    });
+
+    deltaDSlider.addEventListener('input', () => {
+      deltaDVal.textContent = parseFloat(deltaDSlider.value).toFixed(2) + ' Å';
+      updateMetrics();
+      draw();
+    });
+
+    function updateMetrics() {
+      const thetaDeg = parseFloat(thetaSlider.value);
+      const deltaD = parseFloat(deltaDSlider.value);
+      
+      const sigmaThetaDeg = 10.0;
+      const sigmaD = 0.25;
+
+      const rTheta = Math.exp(- (thetaDeg * thetaDeg) / (2 * sigmaThetaDeg * sigmaThetaDeg));
+      const rDist = Math.exp(- (deltaD * deltaD) / (2 * sigmaD * sigmaD));
+      const totalScore = rTheta * rDist;
+
+      angleScoreEl.textContent = rTheta.toFixed(3);
+      distScoreEl.textContent = rDist.toFixed(3);
+      totalScoreText.textContent = totalScore.toFixed(3);
+      scoreBar.style.width = (totalScore * 100).toFixed(1) + '%';
+
+      if (totalScore >= 0.70) {
+        verdictBadge.textContent = "OPTIMÁLNÍ HOP (VAZBA)";
+        verdictBadge.className = "text-xs px-2.5 py-1 rounded-full font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        totalScoreText.className = "text-4xl font-extrabold font-mono tracking-tight text-emerald-400";
+        scoreBar.className = "bg-gradient-to-r from-cyan-500 to-emerald-400 h-full rounded-full transition-all duration-200";
+      } else if (totalScore >= 0.30) {
+        verdictBadge.textContent = "SUB-OPTIMÁLNÍ (PNUTÍ)";
+        verdictBadge.className = "text-xs px-2.5 py-1 rounded-full font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30";
+        totalScoreText.className = "text-4xl font-extrabold font-mono tracking-tight text-amber-400";
+        scoreBar.className = "bg-gradient-to-r from-amber-500 to-yellow-400 h-full rounded-full transition-all duration-200";
+      } else {
+        verdictBadge.textContent = "KOLIZE / VADNÝ EXIT (0.0)";
+        verdictBadge.className = "text-xs px-2.5 py-1 rounded-full font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        totalScoreText.className = "text-4xl font-extrabold font-mono tracking-tight text-rose-400";
+        scoreBar.className = "bg-gradient-to-r from-rose-600 to-rose-400 h-full rounded-full transition-all duration-200";
+      }
+    }
+
+    // 3D Projection Helpers
+    function project(x, y, z, cx, cy, scale) {
+      // Rotate around Y
+      const cosY = Math.cos(angleRotY);
+      const sinY = Math.sin(angleRotY);
+      const x1 = x * cosY + z * sinY;
+      const z1 = -x * sinY + z * cosY;
+
+      // Rotate around X
+      const cosX = Math.cos(angleRotX);
+      const sinX = Math.sin(angleRotX);
+      const y2 = y * cosX - z1 * sinX;
+      const z2 = y * sinX + z1 * cosX;
+
+      const fov = 450;
+      const distance = 400;
+      const factor = fov / (distance + z2);
+
+      return {
+        x: cx + x1 * scale * factor,
+        y: cy + y2 * scale * factor,
+        scale: factor,
+        depth: z2
+      };
+    }
+
+    function drawArrow(p1, p2, color, lineWidth = 2.5, dashed = false) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = lineWidth;
+      if (dashed) ctx.setLineDash([5, 4]);
+
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+
+      // Arrowhead
+      ctx.setLineDash([]);
+      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      const headLen = 9;
+      ctx.beginPath();
+      ctx.moveTo(p2.x, p2.y);
+      ctx.lineTo(p2.x - headLen * Math.cos(angle - Math.PI / 6), p2.y - headLen * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(p2.x - headLen * Math.cos(angle + Math.PI / 6), p2.y - headLen * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2 + 10;
+      const scale = 1.3;
+
+      const thetaRad = (parseFloat(thetaSlider.value) * Math.PI) / 180;
+      const deltaD = parseFloat(deltaDSlider.value) * 35; // pixel visual scaling
+
+      // Target Protein Binding Pocket (Background Glow)
+      const pocketTarget = project(80, -90, 30, cx, cy, scale);
+      ctx.save();
+      const grad = ctx.createRadialGradient(pocketTarget.x, pocketTarget.y, 10, pocketTarget.x, pocketTarget.y, 65);
+      grad.addColorStop(0, 'rgba(245, 158, 11, 0.25)');
+      grad.addColorStop(1, 'rgba(245, 158, 11, 0.0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(pocketTarget.x, pocketTarget.y, 65, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Pocket contour ring
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(pocketTarget.x, pocketTarget.y, 35, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // Pocket text label
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillText('Sub-kapsa proteinu (Cíl)', pocketTarget.x - 55, pocketTarget.y - 42);
+
+      if (mode === 'chem') {
+        // --- 1. MOLECULAR VIEW ---
+        // Scaffold Core (Hexagon ring in center)
+        const corePoints = [];
+        const ringRadius = 45;
+        for (let i = 0; i < 6; i++) {
+          const a = (i * Math.PI) / 3;
+          corePoints.push(project(Math.cos(a) * ringRadius - 40, Math.sin(a) * ringRadius + 30, 0, cx, cy, scale));
+        }
+
+        // Draw Core Ring Polygon
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        corePoints.forEach((p, idx) => {
+          if (idx === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Label for Scaffold Core
+        const coreCenter = project(-40, 30, 0, cx, cy, scale);
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.textAlign = 'center';
+        ctx.fillText('Centrální jádro', coreCenter.x, coreCenter.y + 4);
+
+        // Core Anchor Atom (r_core_ref)
+        const r_core_ref = { x: -40 + ringRadius, y: 30, z: 0 };
+        const p_core_ref = project(r_core_ref.x, r_core_ref.y, r_core_ref.z, cx, cy, scale);
+
+        // Reference Vector: points from r_core_ref to (80, -90, 30)
+        const v_ref = {
+          x: 80 - r_core_ref.x,
+          y: -90 - r_core_ref.y,
+          z: 30 - r_core_ref.z
+        };
+        const p_sub_ref = project(r_core_ref.x + v_ref.x, r_core_ref.y + v_ref.y, r_core_ref.z + v_ref.z, cx, cy, scale);
+
+        // Candidate Anchor Atom (r_core_cand) shifted by delta_d
+        const r_core_cand = {
+          x: r_core_ref.x + deltaD * 0.7,
+          y: r_core_ref.y - deltaD * 0.5,
+          z: r_core_ref.z + deltaD * 0.4
+        };
+        const p_core_cand = project(r_core_cand.x, r_core_cand.y, r_core_cand.z, cx, cy, scale);
+
+        // Candidate Vector: rotated by thetaRad
+        // Rotate v_ref in 3D
+        const lenRef = Math.hypot(v_ref.x, v_ref.y, v_ref.z);
+        const cosT = Math.cos(thetaRad);
+        const sinT = Math.sin(thetaRad);
+        const v_cand = {
+          x: (v_ref.x * cosT - v_ref.y * sinT) * (lenRef / Math.hypot(v_ref.x * cosT - v_ref.y * sinT, v_ref.y * cosT + v_ref.x * sinT)),
+          y: (v_ref.y * cosT + v_ref.x * sinT) * (lenRef / Math.hypot(v_ref.x * cosT - v_ref.y * sinT, v_ref.y * cosT + v_ref.x * sinT)),
+          z: v_ref.z
+        };
+        const p_sub_cand = project(r_core_cand.x + v_cand.x, r_core_cand.y + v_cand.y, r_core_cand.z + v_cand.z, cx, cy, scale);
+
+        // Draw Reference Vector (Gold Dashed)
+        drawArrow(p_core_ref, p_sub_ref, '#f59e0b', 2, true);
+        
+        // Draw Delta_d displacement line
+        if (deltaD > 2) {
+          ctx.strokeStyle = '#818cf8';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([2, 2]);
+          ctx.beginPath();
+          ctx.moveTo(p_core_ref.x, p_core_ref.y);
+          ctx.lineTo(p_core_cand.x, p_core_cand.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // Draw Candidate Vector (Cyan Solid)
+        drawArrow(p_core_cand, p_sub_cand, '#06b6d4', 3, false);
+
+        // Draw Atoms as shiny 3D spheres
+        // 1. Ref Core Atom
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.arc(p_core_ref.x, p_core_ref.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2. Cand Core Atom
+        ctx.fillStyle = '#06b6d4';
+        ctx.beginPath();
+        ctx.arc(p_core_cand.x, p_core_cand.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // 3. Substituent Head Atom (Cand)
+        ctx.fillStyle = '#22d3ee';
+        ctx.beginPath();
+        ctx.arc(p_sub_cand.x, p_sub_cand.y, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Angular Arc between vectors
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.arc(p_core_cand.x, p_core_cand.y, 30, Math.atan2(v_ref.y, v_ref.x), Math.atan2(v_cand.y, v_cand.x));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Labels
+        ctx.font = '10px monospace';
+        ctx.fillStyle = '#06b6d4';
+        ctx.fillText('v_cand (Exit-vektor nového jádra)', p_core_cand.x + 10, p_core_cand.y + 22);
+
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillText('v_ref (Původní směr EGC)', p_core_ref.x - 10, p_core_ref.y - 12);
+
+      } else {
+        // --- 2. SPACE DOCK METAPHOR ---
+        const shipCenter = project(-50, 40, 0, cx, cy, scale);
+        
+        // Spaceship Hull
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(shipCenter.x - 40, shipCenter.y - 25, 80, 50, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textAlign = 'center';
+        ctx.fillText('Kosmická loď (Jádro)', shipCenter.x, shipCenter.y);
+
+        // Docking Clamps
+        const p_clamp = project(-50 + 40, 40, 0, cx, cy, scale);
+        const p_target = pocketTarget;
+        
+        drawArrow(p_clamp, p_target, '#f59e0b', 2, true);
+
+        // Rotated Docking Tunnel
+        const angle = Math.atan2(p_target.y - p_clamp.y, p_target.x - p_clamp.x) + thetaRad;
+        const len = 140;
+        const p_tunnel_end = {
+          x: p_clamp.x + Math.cos(angle) * len,
+          y: p_clamp.y + Math.sin(angle) * len
+        };
+
+        drawArrow(p_clamp, p_tunnel_end, '#06b6d4', 3.5, false);
+
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = '#06b6d4';
+        ctx.fillText('Úhel přechodové komory (Exit-Vektor)', p_clamp.x + 30, p_clamp.y + 35);
+      }
+    }
+
+    // Initial render
+    updateMetrics();
+    draw();
+  </script>
+</body>
+</html>

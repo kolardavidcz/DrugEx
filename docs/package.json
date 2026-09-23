@@ -1,0 +1,28 @@
+{
+  "name": "drugex-docs",
+  "version": "3.4.0",
+  "description": "DrugEx C++ & Chemoinformatics Reference Documentation Platform (cppreference style, 234 symbols)",
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes serve -s . -l 34150",
+    "start": "npx --yes serve -s . -l 34150",
+    "test": "node tools/check_docs.mjs",
+    "check:docs": "node tools/check_docs.mjs",
+    "audit": "node tools/deep_audit.mjs",
+    "docs": "npx --yes serve -s . -l 34150"
+  },
+  "keywords": [
+    "drugex",
+    "cppreference",
+    "chemoinformatics",
+    "rdkit",
+    "pytorch",
+    "documentation",
+    "de-novo-drug-design"
+  ],
+  "author": "David Kolar (VŠCHT Praha / ÚOCHB AV ČR)",
+  "license": "MIT",
+  "devDependencies": {
+    "serve": "^14.2.6"
+  }
+}

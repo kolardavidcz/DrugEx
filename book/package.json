@@ -1,0 +1,24 @@
+{
+  "name": "drugex-book",
+  "version": "2.0.0",
+  "description": "DrugEx: De Novo Drug Design & 3D Shape-Matching — Publication Monograph (Nature Style)",
+  "type": "module",
+  "scripts": {
+    "build": "PATH=\"$HOME/.local/bin:$PATH\" typst compile book/main.typ DrugEx_Book_Master.pdf",
+    "build:continuation": "PATH=\"$HOME/.local/bin:$PATH\" typst compile book/continuation.typ DrugEx_Book_Advanced_Continuation.pdf",
+    "build:all": "pnpm run build && pnpm run build:continuation",
+    "watch": "PATH=\"$HOME/.local/bin:$PATH\" typst watch book/main.typ DrugEx_Book_Master.pdf",
+    "test": "PATH=\"$HOME/.local/bin:$PATH\" typst compile book/main.typ DrugEx_Book_Master.pdf && PATH=\"$HOME/.local/bin:$PATH\" typst compile book/continuation.typ DrugEx_Book_Advanced_Continuation.pdf && test -s DrugEx_Book_Master.pdf && test -s DrugEx_Book_Advanced_Continuation.pdf"
+  },
+  "keywords": [
+    "drugex",
+    "de-novo-drug-design",
+    "rocs",
+    "typst",
+    "monograph",
+    "chemoinformatics",
+    "bachelor-thesis"
+  ],
+  "author": "David Kolar (VŠCHT Praha / ÚOCHB AV ČR)",
+  "license": "MIT"
+}

@@ -1,0 +1,90 @@
+<svg viewBox="0 0 760 250" class="schematic-svg" xmlns="http://www.w3.org/2000/svg">
+      <!-- Background card -->
+      <rect x="2" y="2" width="756" height="246" rx="8" fill="#0b1120" stroke="#1e293b" stroke-width="1.5"/>
+
+      <!-- Fragment 1: Aromatic Ring with Synthon [16*] -->
+      <g transform="translate(40, 50)">
+        <rect x="0" y="0" width="180" height="135" rx="6" fill="#1e1b4b" stroke="#6366f1" stroke-width="1.5"/>
+        <text x="90" y="22" text-anchor="middle" font-size="10" font-weight="bold" fill="#a5b4fc">Fragment A (Aromatický jádrový)</text>
+        
+        <!-- Benzen ring schematic -->
+        <polygon points="70,55 95,42 120,55 120,85 95,98 70,85" fill="none" stroke="#818cf8" stroke-width="2"/>
+        <circle cx="95" cy="70" r="14" fill="none" stroke="#818cf8" stroke-width="1.5" stroke-dasharray="3 2"/>
+
+        <!-- Exit vector [16*] -->
+        <line x1="120" y1="70" x2="160" y2="70" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="3 2"/>
+        <circle cx="160" cy="70" r="11" fill="#be123c" stroke="#f43f5e" stroke-width="2"/>
+        <text x="160" y="74" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#ffffff">[16*]</text>
+        <text x="90" y="122" text-anchor="middle" font-size="9" fill="#c7d2fe">c1ccccc1-[16*]</text>
+      </g>
+
+      <!-- Cleavage Bond Cut 1 -->
+      <g transform="translate(230, 85)">
+        <line x1="0" y1="0" x2="20" y2="70" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="4 3"/>
+        <text x="10" y="-10" text-anchor="middle" font-size="12">✂️</text>
+        <text x="10" y="85" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#f43f5e">Pravidlo L1</text>
+      </g>
+
+      <!-- Fragment 2: Central Amide Linker [4*] to [8*] -->
+      <g transform="translate(260, 50)">
+        <rect x="0" y="0" width="220" height="135" rx="6" fill="#064e3b" stroke="#059669" stroke-width="1.5"/>
+        <text x="110" y="22" text-anchor="middle" font-size="10" font-weight="bold" fill="#6ee7b7">Fragment B (Amidický Linker)</text>
+
+        <!-- Exit vector [4*] (Carbonyl) -->
+        <circle cx="25" cy="70" r="11" fill="#047857" stroke="#34d399" stroke-width="2"/>
+        <text x="25" y="74" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#ffffff">[4*]</text>
+        <line x1="36" y1="70" x2="70" y2="70" stroke="#34d399" stroke-width="2"/>
+
+        <!-- Carbonyl C=O -->
+        <circle cx="70" cy="70" r="9" fill="#0f766e"/>
+        <text x="70" y="74" text-anchor="middle" font-size="9" fill="#ffffff">C</text>
+        <line x1="70" y1="61" x2="70" y2="42" stroke="#f43f5e" stroke-width="2"/>
+        <line x1="74" y1="61" x2="74" y2="42" stroke="#f43f5e" stroke-width="2"/>
+        <circle cx="72" cy="36" r="8" fill="#be123c"/>
+        <text x="72" y="39" text-anchor="middle" font-size="8" fill="#ffffff">O</text>
+
+        <!-- Amide N-H -->
+        <line x1="79" y1="70" x2="115" y2="70" stroke="#34d399" stroke-width="2"/>
+        <circle cx="115" cy="70" r="9" fill="#1d4ed8"/>
+        <text x="115" y="74" text-anchor="middle" font-size="8" fill="#ffffff">NH</text>
+
+        <!-- Spacer CH2-CH2 -->
+        <line x1="124" y1="70" x2="160" y2="70" stroke="#34d399" stroke-width="2"/>
+        <text x="142" y="65" text-anchor="middle" font-size="8.5" fill="#a7f3d0">CH₂</text>
+
+        <!-- Exit vector [8*] -->
+        <line x1="160" y1="70" x2="195" y2="70" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="3 2"/>
+        <circle cx="195" cy="70" r="11" fill="#047857" stroke="#34d399" stroke-width="2"/>
+        <text x="195" y="74" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#ffffff">[8*]</text>
+        <text x="110" y="122" text-anchor="middle" font-size="9" fill="#a7f3d0">[4*]C(=O)NH-CH2-[8*]</text>
+      </g>
+
+      <!-- Cleavage Bond Cut 2 -->
+      <g transform="translate(490, 85)">
+        <line x1="0" y1="0" x2="20" y2="70" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="4 3"/>
+        <text x="10" y="-10" text-anchor="middle" font-size="12">✂️</text>
+        <text x="10" y="85" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#f43f5e">Pravidlo L5</text>
+      </g>
+
+      <!-- Fragment 3: Basic Solubilizing Group (Piperazine) -->
+      <g transform="translate(520, 50)">
+        <rect x="0" y="0" width="200" height="135" rx="6" fill="#451a03" stroke="#d97706" stroke-width="1.5"/>
+        <text x="100" y="22" text-anchor="middle" font-size="10" font-weight="bold" fill="#fde68a">Fragment C (Bazický Solubilizátor)</text>
+
+        <!-- Exit vector [5*] -->
+        <circle cx="30" cy="70" r="11" fill="#b45309" stroke="#fbbf24" stroke-width="2"/>
+        <text x="30" y="74" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#ffffff">[5*]</text>
+        <line x1="41" y1="70" x2="70" y2="70" stroke="#fbbf24" stroke-width="2"/>
+
+        <!-- Piperazine ring -->
+        <rect x="70" y="50" width="55" height="40" rx="4" fill="none" stroke="#f59e0b" stroke-width="2"/>
+        <text x="97" y="74" text-anchor="middle" font-size="8.5" fill="#fef3c7">N-Methyl</text>
+        
+        <text x="100" y="122" text-anchor="middle" font-size="9" fill="#fef3c7">[5*]N1CCN(C)CC1</text>
+      </g>
+
+      <!-- Bottom Explanatory Banner -->
+      <rect x="40" y="198" width="680" height="36" rx="4" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+      <text x="380" y="214" text-anchor="middle" font-size="9.5" font-weight="bold" fill="#38bdf8">Klíč retrosyntézy: Izotopy [1*] až [16*] striktně kódují povolenou chemickou valenci v DrugEx síti</text>
+      <text x="380" y="227" text-anchor="middle" font-size="8.5" fill="#94a3b8">Zabraňuje tvorbě nestabilních struktur (např. spojením [4*] s [4*] nevznikne nechtěný anhydrid či diketon)</text>
+    </svg>
