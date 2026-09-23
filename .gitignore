@@ -32,3 +32,5 @@ Thumbs.db
 *.Zone.Identifier
 .idea/
 .vscode/
+.vercel
+.env*
