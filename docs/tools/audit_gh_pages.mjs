@@ -10,7 +10,7 @@ const projectRoot = path.resolve(__dirname, '..');
 const repoRoot = path.join(projectRoot, 'repo');
 const docsPath = path.join(projectRoot, 'docs', 'cppreference', 'index.html');
 
-console.log('🔍 Auditing gh-pages and codebase symbols vs docs/cppreference/index.html...');
+console.log('[Audit] Auditing gh-pages and codebase symbols vs docs/cppreference/index.html...');
 
 // 1. Get current DATABASE from index.html
 const html = fs.readFileSync(docsPath, 'utf8');

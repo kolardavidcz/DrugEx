@@ -1,4 +1,4 @@
-# 🤖 AGENT.md — Technical Architecture & Maintenance Guide for AI Agents
+# AGENT.md — Technical Architecture & Maintenance Guide for AI Agents
 
 > **Project**: DrugEx Reference Platform (`~/build_projects/drugex_edu/docs`)  
 > **Purpose**: Complete, high-performance, interactive DrugEx API documentation and chemoinformatics reference platform styled after [cppreference.com](https://cppreference.com).  
@@ -7,7 +7,7 @@
 
 ---
 
-## 🏛️ Directory Layout
+## Directory Layout
 
 This branch (`docs`) strictly houses only the documentation platform:
 
@@ -28,7 +28,7 @@ This branch (`docs`) strictly houses only the documentation platform:
 
 ---
 
-## 🧪 Verification & Audit Commands
+## Verification & Audit Commands
 
 All agents modifying documentation must run:
 
@@ -44,7 +44,7 @@ pnpm dev
 
 ---
 
-## 🚀 Deployment Rules
+## Deployment Rules
 
 - **Zero Build Overhead**: Static files are served directly from root (`index.html`).
 - **No Book Assets**: All Typst book chapters, PDFs, and data benchmarks live exclusively on the `education_book` branch under `~/build_projects/drugex_edu/book`.

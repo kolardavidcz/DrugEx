@@ -11,7 +11,7 @@ const projectRoot = path.resolve(__dirname, '..');
 const repoRoot = path.join(projectRoot, 'repo');
 const docsPath = path.join(projectRoot, 'docs', 'cppreference', 'index.html');
 
-console.log('🔍 Running Deep Audit on Sphinx gh-pages and codebase...');
+console.log('[Audit] Running Deep Audit on Sphinx gh-pages and codebase...');
 
 // 1. Parse objects.inv
 const objectsInvBuf = execSync('git -C ' + repoRoot + ' show origin/gh-pages:docs/objects.inv');
@@ -106,10 +106,10 @@ for (const sf of sphinxFuncs) {
 }
 
 console.log(`\nMissing Sphinx Classes: ${missingSphinxClasses.length}`);
-for (const m of missingSphinxClasses) console.log(`  ❌ ${m.name} -> ${m.uri}`);
+for (const m of missingSphinxClasses) console.log(`  [MISSING] ${m.name} -> ${m.uri}`);
 
 console.log(`\nMissing Sphinx Functions: ${missingSphinxFuncs.length}`);
-for (const m of missingSphinxFuncs) console.log(`  ❌ ${m.name} -> ${m.uri}`);
+for (const m of missingSphinxFuncs) console.log(`  [MISSING] ${m.name} -> ${m.uri}`);
 
 // 4. Codebase inspection for classes and functions
 function walkDir(dir) {
@@ -195,7 +195,7 @@ for (const cf of codebaseFuncs) {
 console.log(`\n--- Codebase Functions (${codebaseFuncs.length}) ---`);
 for (const f of codebaseFuncs) {
   const found = keys.some(k => k === f.full || k.endsWith('::' + f.name) || db[k].title === f.name);
-  console.log(`  ${found ? '✅' : '❌'} ${f.full}`);
+  console.log(`  ${found ? '[FOUND]' : '[MISSING]'} ${f.full}`);
 }
 
 const missingCodebaseClasses = [];
@@ -207,10 +207,10 @@ for (const cc of codebaseClasses) {
 }
 
 console.log(`\nMissing Codebase Classes: ${missingCodebaseClasses.length}`);
-for (const m of missingCodebaseClasses) console.log(`  ❌ ${m.full} (${m.superclass})`);
+for (const m of missingCodebaseClasses) console.log(`  [MISSING] ${m.full} (${m.superclass})`);
 
 console.log(`\nMissing Codebase Functions: ${missingCodebaseFuncs.length}`);
-for (const m of missingCodebaseFuncs) console.log(`  ❌ ${m.full}`);
+for (const m of missingCodebaseFuncs) console.log(`  [MISSING] ${m.full}`);
 
 // 5. Audit quality of existing entries
 console.log(`\n--- Quality Audit of Existing ${keys.length} Symbols ---`);
@@ -223,19 +223,19 @@ for (const k of keys) {
   const item = db[k];
   // Check example code
   if (item.example.code.includes('print("') && item.example.code.split('\n').length <= 2) {
-    console.log(`  ⚠️ Trivial 1-2 line print example in ${k}`);
+    console.log(`  [WARN] Trivial 1-2 line print example in ${k}`);
     trivialExamples++;
   }
   // Check if class has no members defined
   if (item.kind === 'class' && (!item.members || item.members.length === 0)) {
-    console.log(`  ⚠️ Class with 0 members: ${k}`);
+    console.log(`  [WARN] Class with 0 members: ${k}`);
     missingMembers++;
   }
   // Check if function has no parameters
   if (item.kind === 'function' && (!item.parameters || item.parameters.length === 0)) {
     // If synopsis has args but parameters is empty
     if (item.synopsis.includes('(') && !item.synopsis.includes('()')) {
-      console.log(`  ⚠️ Function with args in synopsis but 0 parameters: ${k}`);
+      console.log(`  [WARN] Function with args in synopsis but 0 parameters: ${k}`);
       missingParams++;
     }
   }

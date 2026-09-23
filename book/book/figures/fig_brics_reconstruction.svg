@@ -21,7 +21,7 @@
       <!-- Cleavage Bond Cut 1 -->
       <g transform="translate(230, 85)">
         <line x1="0" y1="0" x2="20" y2="70" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="4 3"/>
-        <text x="10" y="-10" text-anchor="middle" font-size="12">✂️</text>
+        <text x="10" y="-6" text-anchor="middle" font-size="9" font-weight="bold" fill="#f43f5e">[CUT]</text>
         <text x="10" y="85" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#f43f5e">Pravidlo L1</text>
       </g>
 
@@ -62,7 +62,7 @@
       <!-- Cleavage Bond Cut 2 -->
       <g transform="translate(490, 85)">
         <line x1="0" y1="0" x2="20" y2="70" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="4 3"/>
-        <text x="10" y="-10" text-anchor="middle" font-size="12">✂️</text>
+        <text x="10" y="-6" text-anchor="middle" font-size="9" font-weight="bold" fill="#f43f5e">[CUT]</text>
         <text x="10" y="85" text-anchor="middle" font-size="8.5" font-weight="bold" fill="#f43f5e">Pravidlo L5</text>
       </g>
 

@@ -1,4 +1,4 @@
-# 🤖 AGENT.md — Technical Architecture & Maintenance Guide for AI Agents
+# AGENT.md — Technical Architecture & Maintenance Guide for AI Agents
 
 > **Project**: DrugEx Hub (`~/learn_projects/drugex`)  
 > **Purpose**: Interactive educational onboarding platform & computational workbench for Bachelor's Thesis on *De Novo Drug Design & 3D Shape Matching (ROCS) for Flexible Targets / IDPs*.  
@@ -7,7 +7,7 @@
 
 ---
 
-## 🏗️ Architecture Blueprint
+## Architecture Blueprint
 
 DrugEx Hub is engineered as a zero-friction, client-side Single Page Application (SPA) pairing modern VS Code glassmorphic design with WebGL 3D molecular visualization:
 
@@ -51,7 +51,7 @@ DrugEx Hub is engineered as a zero-friction, client-side Single Page Application
 
 ---
 
-## 🧪 Development, Auditing & Verification Commands
+## Development, Auditing & Verification Commands
 
 All agents modifying code in this repository MUST run the verification suite before reporting task completion:
 
@@ -68,16 +68,16 @@ pnpm test
 
 ---
 
-## 📁 Preserved Workspace Structure
+## Preserved Workspace Structure
 The project materials are cleanly organized and preserved under `~/build_projects/`:
-- `~/build_projects/docs` ➔ `_solved/drugex_book/docs` (includes `cppreference/index.html` React SPA)
-- `~/build_projects/book` ➔ `_solved/drugex_book/book` (monograph chapters, figures, build scripts)
-- `~/build_projects/podcast` ➔ `_solved/drugex_podcast` (TTS generation scripts, mp3s, transcripts)
-- `~/build_projects/drugex_help/` ➔ umbrella directory linking directly to `docs`, `book`, and `podcast`.
+- `~/build_projects/docs` -> `_solved/drugex_book/docs` (includes `cppreference/index.html` React SPA)
+- `~/build_projects/book` -> `_solved/drugex_book/book` (monograph chapters, figures, build scripts)
+- `~/build_projects/podcast` -> `_solved/drugex_podcast` (TTS generation scripts, mp3s, transcripts)
+- `~/build_projects/drugex_help/` -> umbrella directory linking directly to `docs`, `book`, and `podcast`.
 
 ---
 
-## 🎯 Pedagogical & Scientific Rules for Agents
+## Pedagogical & Scientific Rules for Agents
 
 1. **Deterministic Quiz Equilibrium**: When adding or updating questions in `data/quizzes/*.json`, ensure that `ensureShuffledOptions` in `app/js/state.js` maintains an exact ~25% distribution across options A, B, C, D using FNV-1a hashing.
 2. **Flexible Target & IDP Context**: Keep all references and educational callouts grounded in the student's thesis topic (using ROCS ligand-based shape matching to overcome the lack of rigid receptor pockets in flexible proteins / IDPs).

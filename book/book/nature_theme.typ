@@ -374,7 +374,7 @@
   breakable: true
 )[
   #text(font: "IBM Plex Sans", weight: "bold", size: 9.5pt, fill: nature_teal)[
-    ✦ VÝZKUMNÝ KONTEXT: #title
+    VÝZKUMNÝ KONTEXT: #title
   ]
   #v(0.3em)
   #text(size: 9.5pt, fill: rgb("#134e4a"))[#body]
@@ -469,7 +469,7 @@
             inset: (x: 5pt, y: 2pt)
           )[
             #text(font: "IBM Plex Mono", size: 7.5pt, weight: "bold", fill: rgb("#4ade80"))[
-              ✓ RUNTIME EXIT 0
+              RUNTIME EXIT 0
             ]
           ]
         ]

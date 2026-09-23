@@ -39,7 +39,7 @@ Tento glosář definuje 26 klíčových pojmů z oblasti algoritmické chemoinfo
   #text(size: 9.5pt, fill: rgb("#1e293b"))[#def]
   #if target != none [
     #v(0.3em)
-    #text(size: 9pt, weight: "medium", fill: nature_teal)[🎯 Cílové rozmezí v DrugEx: #target]
+    #text(size: 9pt, weight: "medium", fill: nature_teal)[Cílové rozmezí v DrugEx: #target]
   ]
 ]
 

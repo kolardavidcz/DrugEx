@@ -1,4 +1,4 @@
-# 🤖 AGENT.md — Education Branch Architecture & Maintenance Guide
+# AGENT.md — Education Branch Architecture & Maintenance Guide
 
 > **Branch**: `education` (in `kolardavidcz/DrugEx`)  
 > **Purpose**: Houses all educational materials, cppreference-style API docs, and Typst publication monographs.  
@@ -6,7 +6,7 @@
 
 ---
 
-## 🏛️ Directory Layout
+## Directory Layout
 
 ```
 DrugEx (branch: education)
@@ -29,7 +29,7 @@ DrugEx (branch: education)
 
 ---
 
-## 🧪 Verification Commands
+## Verification Commands
 
 Before reporting completion on any task in this branch, all agents MUST run the validation suites:
 
@@ -43,7 +43,7 @@ cd book && pnpm test
 
 ---
 
-## 🚀 Deployment Rules
+## Deployment Rules
 - **Vercel Root Directory**: `docs` (configured in Vercel project settings).
 - **Branch Target**: `education`.
 - **Change Isolation**: Only modifications under `docs/` trigger deployments to `https://drugexdocs.vercel.app`.

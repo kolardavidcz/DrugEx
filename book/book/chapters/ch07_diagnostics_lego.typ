@@ -88,7 +88,7 @@ Následující diagnostický strom systematizuje čtyři nejzávažnější pato
     stroke: 1pt + rgb("#38bdf8")
   )[
     #text(font: "IBM Plex Sans", weight: "bold", size: 10.5pt, fill: rgb("#38bdf8"))[
-      ⚡ DETEKCE ANOMÁLIE V REÁLNÉM ČASE TRÉNINKU
+      DETEKCE ANOMÁLIE V REÁLNÉM ČASE TRÉNINKU
     ]
   ]
   #v(0.2em)
@@ -290,7 +290,7 @@ Aby výzkumník nemusel čekat desítky hodin na dokončení běhu a teprve pot�
   `  • ROCS Tcombo  : Průměr = 1.08 ± 0.14 (Max = 1.48, Threshold = 0.871)`\
   `  • QSAR pIC50   : Průměr = 7.82 ± 0.61 (Max = 9.12, Threshold = 7.50)`\
   `--------------------------------------------------------------------------------`\
-  `✓ STAV POLITIKY: Stabilní gradientní postup, nulový výskyt alifatických monster.`
+  `[OK] STAV POLITIKY: Stabilní gradientní postup, nulový výskyt alifatických monster.`
 ]
 
 === Kompletní spustitelný kód produkčního prostředí s integrovanými filtry

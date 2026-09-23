@@ -1,4 +1,4 @@
-# 🧬 DrugEx Hub: Master Implementation Plan
+# DrugEx Hub: Master Implementation Plan
 ## Interactive Onboarding, Deep API Mastery & ROCS Shape-Matching Workbench for Bachelor's Thesis
 
 > **Thesis Topic**: *De Novo Drug Design Integrated with 3D Shape Matching (ROCS) for Flexible Targets and Intrinsically Disordered Proteins (IDPs)*  
@@ -8,7 +8,7 @@
 
 ---
 
-## 🎯 Executive Summary & Thesis Context
+## Executive Summary & Thesis Context
 
 This project builds **DrugEx Hub** — an advanced, high-density, web-based onboarding platform and interactive computational workbench. It bridges cutting-edge *de novo* molecular generation with 3D shape similarity matching (ROCS), designed specifically to support the student's bachelor thesis:
 
@@ -29,7 +29,7 @@ This project builds **DrugEx Hub** — an advanced, high-density, web-based onbo
 
 ---
 
-## 🏗️ System Architecture & Visual Design Blueprint
+## System Architecture & Visual Design Blueprint
 
 DrugEx Hub adopts the aesthetic and cognitive architecture of **Python Hub** (`python_overview`), combining a dark-mode VS Code / scientific glassmorphism interface with high-density interactive tools, 3D WebGL molecular viewers, and pedagogical scaffolding.
 
@@ -65,7 +65,7 @@ graph TD
 
 ---
 
-## 🗺️ Master Session Breakdown (HUGE Session Steps)
+## Master Session Breakdown (HUGE Session Steps)
 
 The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Each session represents a self-contained, rigorously verified milestone that will be planned and executed in dedicated steps.
 
@@ -88,7 +88,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-### 📦 HUGE SESSION 1: Core Shell Scaffold, Glassmorphic Theme & 3D WebGL Engine
+### HUGE SESSION 1: Core Shell Scaffold, Glassmorphic Theme & 3D WebGL Engine
 *Goal: Scaffolding the workspace, DevPort allocation, high-performance Vanilla ES Modules SPA shell, reactive state, and 3D molecular visualization capabilities.*
 
 #### Planned Sub-Steps:
@@ -109,7 +109,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-### 📦 HUGE SESSION 2: Module 1 — De Novo Molecular Generation & Representations
+### HUGE SESSION 2: Module 1 — De Novo Molecular Generation & Representations
 *Goal: Deep onboarding into molecular representations, deep learning generators, and vocabulary tokenization in DrugEx.*
 
 #### Planned Sub-Steps:
@@ -132,7 +132,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-### 📦 HUGE SESSION 3: Module 2 — Multi-Objective Reinforcement Learning (MORL) & Pareto Optimality
+### HUGE SESSION 3: Module 2 — Multi-Objective Reinforcement Learning (MORL) & Pareto Optimality
 *Goal: Mastering policy gradients, exploration-exploitation trade-offs, and multi-objective Pareto optimization in DrugEx.*
 
 #### Planned Sub-Steps:
@@ -157,7 +157,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-### 📦 HUGE SESSION 4: Module 3 — 3D Shape Matching Theory, IDPs & Conformer Engines
+### HUGE SESSION 4: Module 3 — 3D Shape Matching Theory, IDPs & Conformer Engines
 *Goal: Understanding the physics of 3D molecular shape similarity, intrinsically disordered proteins (IDPs), and conformer generation.*
 
 #### Planned Sub-Steps:
@@ -186,7 +186,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-### 📦 HUGE SESSION 5: Module 4 — Complete ROCS Scorer Backends Deep-Dive (`feature/rocs-scoring`)
+### HUGE SESSION 5: Module 4 — Complete ROCS Scorer Backends Deep-Dive (`feature/rocs-scoring`)
 *Goal: Exhaustive code-level inspection, architectural breakdown, and hands-on comparison of all ROCS scorers in `fulopjoz/DrugEx`.*
 
 #### Planned Sub-Steps:
@@ -213,7 +213,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-### 📦 HUGE SESSION 6: Module 5 — Bachelor Thesis Experimental Pipeline & Benchmark (CCR2)
+### HUGE SESSION 6: Module 5 — Bachelor Thesis Experimental Pipeline & Benchmark (CCR2)
 *Goal: Step-by-step reproduction and mastering of the entire experimental workflow (threshold determination, RL training, molecule generation, and validation).*
 
 #### Planned Sub-Steps:
@@ -241,7 +241,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-### 📦 HUGE SESSION 7: Module 6 — Scaffold-Based Design, Fragmenters & CLI / HPC Automation
+### HUGE SESSION 7: Module 6 — Scaffold-Based Design, Fragmenters & CLI / HPC Automation
 *Goal: Expanding to fragment-based generative design (linker design, scaffold hopping) and production HPC/Slurm cluster execution.*
 
 #### Planned Sub-Steps:
@@ -264,7 +264,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-### 📦 HUGE SESSION 8: Unified Print Engine (`Ctrl+P`), WCAG Audit, Thesis Protocol Generator & Polish
+### HUGE SESSION 8: Unified Print Engine (`Ctrl+P`), WCAG Audit, Thesis Protocol Generator & Polish
 *Goal: Implementing the two-column printable PDF study guide, thesis protocol exporter, accessibility audits, and production deployment.*
 
 #### Planned Sub-Steps:
@@ -283,7 +283,7 @@ The construction of DrugEx Hub is divided into **8 Major Sessions (Phases)**. Ea
 
 ---
 
-## 🔬 Core Pedagogical & Scientific Matrix
+## Core Pedagogical & Scientific Matrix
 
 To ensure maximum cognitive clarity for your bachelor thesis, every topic in DrugEx Hub uses contrastive mental models:
 
@@ -297,7 +297,7 @@ To ensure maximum cognitive clarity for your bachelor thesis, every topic in Dru
 
 ---
 
-## 📁 Detailed Directory Structure of the Implementation
+## Detailed Directory Structure of the Implementation
 
 ```
 u:\home\kolar\learn_projects\drugex\
@@ -340,7 +340,7 @@ u:\home\kolar\learn_projects\drugex\
 
 ---
 
-## 🧪 Verification & Quality Assurance Plan
+## Verification & Quality Assurance Plan
 
 Before each Huge Session is declared complete, the following empirical verifications are mandatory:
 
@@ -358,7 +358,7 @@ Before each Huge Session is declared complete, the following empirical verificat
 
 ---
 
-## 🚀 Execution Strategy & Next Steps
+## Execution Strategy & Next Steps
 
 Upon your approval of this master plan:
 1. We will begin with **HUGE SESSION 1**: Scaffolding the workspace, DevPort allocation (`34100`), glassmorphic dark theme shell, reactive state, and 3Dmol.js WebGL visualizer.

@@ -628,55 +628,88 @@
       border-radius: 6px;
       overflow: hidden;
       margin-bottom: 20px;
-      background: #0f172a;
-      color: #e2e8f0;
+      background: var(--bg-code);
+      color: var(--text-main);
+      box-shadow: var(--shadow-sm);
     }
 
     .code-card-header {
-      background: #1e293b;
+      background: #f1f5f9;
       padding: 6px 12px;
       font-size: 11.5px;
       font-family: var(--font-mono);
-      color: #94a3b8;
+      color: var(--text-muted);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid #334155;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    [data-theme="dark"] .code-card-wrap {
+      background: #0d1527;
+      color: #e2e8f0;
+      border-color: #1e293b;
+    }
+
+    [data-theme="dark"] .code-card-header {
+      background: #172033;
+      color: #94a3b8;
+      border-bottom-color: #1e293b;
     }
 
     .copy-btn {
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: #cbd5e1;
+      background: var(--bg-card);
+      border: 1px solid var(--border-main);
+      color: var(--text-main);
       font-size: 11px;
-      padding: 2px 7px;
+      padding: 2px 8px;
       border-radius: 3px;
       cursor: pointer;
       transition: all 0.15s ease;
     }
 
     .copy-btn:hover {
-      background: rgba(255, 255, 255, 0.2);
-      color: #fff;
+      background: var(--bg-page);
+      border-color: var(--border-accent);
+      color: var(--text-link);
+    }
+
+    [data-theme="dark"] .copy-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #cbd5e1;
+    }
+
+    [data-theme="dark"] .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.18);
+      color: #ffffff;
     }
 
     .code-content {
       padding: 14px;
       font-family: var(--font-mono);
       font-size: 12px;
-      line-height: 1.5;
+      line-height: 1.55;
       overflow-x: auto;
       white-space: pre;
+      background: transparent;
+      color: inherit;
     }
 
     .terminal-output {
-      background: #070c18;
-      border-top: 1px dashed #334155;
+      background: #f8fafc;
+      border-top: 1px dashed var(--border-main);
       padding: 10px 14px;
       font-family: var(--font-mono);
       font-size: 11.5px;
-      color: #38bdf8;
+      color: #0369a1;
       line-height: 1.45;
+    }
+
+    [data-theme="dark"] .terminal-output {
+      background: #080d1a;
+      border-top-color: #1e293b;
+      color: #38bdf8;
     }
 
     /* Complexity and Return value sections */
@@ -933,25 +966,26 @@
       color: #4ade80;
     }
 
-    /* Prism.js Syntax Tokens (VS Code Dark+ & GitHub Light) */
-    .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6a9955; font-style: italic; }
-    .token.punctuation { color: #d4d4d4; }
-    .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #b5cea8; }
-    .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: #ce9178; }
-    .token.operator, .token.entity, .token.url { color: #d4d4d4; }
-    .token.atrule, .token.attr-value, .token.keyword { color: #569cd6; font-weight: 500; }
-    .token.function { color: #dcdcaa; }
-    .token.class-name { color: #4ec9b0; }
-    .token.regex, .token.important, .token.variable { color: #9cdcfe; }
+    /* Prism.js Syntax Tokens (GitHub Light default & VS Code Dark+) */
+    .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6e7781; font-style: italic; }
+    .token.punctuation { color: #24292f; }
+    .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #0550ae; }
+    .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: #0a3069; }
+    .token.operator, .token.entity, .token.url { color: #24292f; }
+    .token.atrule, .token.attr-value, .token.keyword { color: #cf222e; font-weight: 600; }
+    .token.function { color: #8250df; }
+    .token.class-name { color: #953800; font-weight: 600; }
+    .token.regex, .token.important, .token.variable { color: #24292f; }
 
-    [data-theme="light"] .token.comment, [data-theme="light"] .token.prolog { color: #6e7781; }
-    [data-theme="light"] .token.punctuation { color: #24292f; }
-    [data-theme="light"] .token.boolean, [data-theme="light"] .token.number { color: #0550ae; }
-    [data-theme="light"] .token.string, [data-theme="light"] .token.char { color: #0a3069; }
-    [data-theme="light"] .token.keyword { color: #cf222e; }
-    [data-theme="light"] .token.function { color: #8250df; }
-    [data-theme="light"] .token.class-name { color: #953800; }
-    [data-theme="light"] .token.operator { color: #24292f; }
+    [data-theme="dark"] .token.comment, [data-theme="dark"] .token.prolog, [data-theme="dark"] .token.doctype, [data-theme="dark"] .token.cdata { color: #6a9955; font-style: italic; }
+    [data-theme="dark"] .token.punctuation { color: #d4d4d4; }
+    [data-theme="dark"] .token.property, [data-theme="dark"] .token.tag, [data-theme="dark"] .token.boolean, [data-theme="dark"] .token.number, [data-theme="dark"] .token.constant, [data-theme="dark"] .token.symbol { color: #b5cea8; }
+    [data-theme="dark"] .token.selector, [data-theme="dark"] .token.attr-name, [data-theme="dark"] .token.string, [data-theme="dark"] .token.char, [data-theme="dark"] .token.builtin { color: #ce9178; }
+    [data-theme="dark"] .token.operator, [data-theme="dark"] .token.entity, [data-theme="dark"] .token.url { color: #d4d4d4; }
+    [data-theme="dark"] .token.atrule, [data-theme="dark"] .token.attr-value, [data-theme="dark"] .token.keyword { color: #569cd6; font-weight: 500; }
+    [data-theme="dark"] .token.function { color: #dcdcaa; }
+    [data-theme="dark"] .token.class-name { color: #4ec9b0; }
+    [data-theme="dark"] .token.regex, [data-theme="dark"] .token.important, [data-theme="dark"] .token.variable { color: #9cdcfe; }
 
 
     .back-to-index-btn {
@@ -9735,7 +9769,7 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
                 onClick={() => { setActiveCategory("all"); goToMain(); }}
                 title="View Concentrated Main Page Reference Index"
               >
-                🏠 Main Index
+                Main Index
               </button>
               <button 
                 className={`nav-tab ${activeCategory === "all" && selectedKey !== null ? "active" : ""}`}
@@ -9767,7 +9801,7 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
                 onClick={() => setTheme(t => t === "light" ? "dark" : "light")}
                 title="Toggle Dark / Paper Theme"
               >
-                {theme === "light" ? "🌙 Dark" : "☀️ Paper"}
+                {theme === "light" ? "Dark Theme" : "Paper Theme"}
               </button>
             </div>
           </header>
@@ -9847,7 +9881,7 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
                     lineHeight: "1"
                   }}
                 >
-                  ✕
+                  x
                 </button>
               ) : (
                 <span className="search-shortcut" title="Press / to focus search">/</span>
@@ -10041,7 +10075,7 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
                       title="Copy permanent deep link to this symbol"
                       style={{ padding: "6px 12px", fontSize: "12px" }}
                     >
-                      🔗 Share Permalink
+                      Share Permalink
                     </button>
                   </div>
                 </div>

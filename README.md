@@ -1,4 +1,4 @@
-# 🧬 DrugEx Education & Chemoinformatics Hub
+# DrugEx Education & Chemoinformatics Hub
 
 [![Documentation](https://img.shields.io/badge/docs-live-emerald?style=flat-square&logo=vercel)](https://drugexdocs.vercel.app)
 [![Coverage](https://img.shields.io/badge/symbols-234%20verified-blue?style=flat-square)](https://drugexdocs.vercel.app)
@@ -9,14 +9,14 @@
 
 ---
 
-## 🌐 Live Platform & Interactive Docs
+## Live Platform & Interactive Docs
 
 The official reference platform is hosted on Vercel:
-👉 **[drugexdocs.vercel.app](https://drugexdocs.vercel.app)** *(Mirror: [docs-sigma-seven-52.vercel.app](https://docs-sigma-seven-52.vercel.app))*
+**[drugexdocs.vercel.app](https://drugexdocs.vercel.app)**
 
 ---
 
-## 📚 Repository Structure
+## Repository Structure
 
 This dedicated `education` branch isolates all learning materials and reference documentation from the core DrugEx computational engine:
 
@@ -41,7 +41,7 @@ DrugEx (branch: education)
 
 ---
 
-## 📖 Section 1: Documentation Platform (`docs/`)
+## Section 1: Documentation Platform (`docs/`)
 
 The documentation platform provides a concentrated, high-density API reference modeled after **[cppreference.com](https://cppreference.com)**:
 - **234 Symbols Indexed**:
@@ -60,7 +60,7 @@ node tools/check_docs.mjs  # Runs full 234-symbol database integrity test
 
 ---
 
-## 📘 Section 2: Onboarding Book & Monographs (`book/`)
+## Section 2: Onboarding Book & Monographs (`book/`)
 
 The monograph provides a scientific foundation and experimental protocol for Bachelor's Thesis research on:
 > *De Novo Drug Design & 3D Shape Matching (ROCS) for Flexible Targets / IDPs*
@@ -75,8 +75,8 @@ The monograph provides a scientific foundation and experimental protocol for Bac
 - **Appendices A–F**: Standard Operating Procedure (SOP), IDP Theory, Thesis Methods Template, Annotated Bibliography, Glossary, Cheatsheet.
 
 ### Precompiled Publication PDFs
-- 📕 **[DrugEx_Book_Master.pdf](DrugEx_Book_Master.pdf)** — Complete Nature-style monograph (Master edition).
-- 📗 **[DrugEx_Book_Advanced_Continuation.pdf](DrugEx_Book_Advanced_Continuation.pdf)** — Advanced continuation chapters.
+- **[DrugEx_Book_Master.pdf](DrugEx_Book_Master.pdf)** — Complete Nature-style monograph (Master edition).
+- **[DrugEx_Book_Advanced_Continuation.pdf](DrugEx_Book_Advanced_Continuation.pdf)** — Advanced continuation chapters.
 
 ### Compiling Monographs with Typst
 ```bash
@@ -87,6 +87,6 @@ pnpm test          # Compiles all editions and verifies PDF generation
 
 ---
 
-## 🚀 Deployment Policy
+## Deployment Policy
 - **Automated Vercel Deployment**: Vercel monitors `docs/` on this `education` branch.
 - **Isolated Builds**: Modifying chapters in `book/` or updating root PDFs will not trigger or disrupt the documentation deployment.
