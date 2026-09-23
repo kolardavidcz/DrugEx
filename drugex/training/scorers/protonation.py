@@ -43,9 +43,19 @@ def protonate_smiles(
 ) -> Union[str, List[str]]:
     """Return the dominant protomer at ``ph`` (default 7.4) via Dimorphite-DL.
 
-    Accepts a single SMILES (returns ``str``) or a list (returns a list of the same
-    length, order preserved). Acids → anion, bases → cation, neutral molecules unchanged.
-    Invalid SMILES or a missing/erroring Dimorphite-DL fall back to the input unchanged.
+    Parameters
+    ----------
+    smiles : str or List[str]
+        Single SMILES string or list of SMILES strings to protonate.
+    ph : float, optional
+        Target pH for protonation state calculation, by default 7.4 (physiological).
+
+    Returns
+    -------
+    str or List[str]
+        Protonated SMILES string or list of protonated SMILES matching the input length.
+        Acids are normalized to anion, bases to cation; neutral molecules remain unchanged.
+        Invalid SMILES or missing Dimorphite-DL fall back to the input unchanged.
     """
     if isinstance(smiles, str):
         return _protonate_one(smiles, ph)

@@ -25,13 +25,25 @@ import threading
 from contextlib import contextmanager
 
 
+from typing import Iterator
+
 class ScoreTimeout(Exception):
     """Raised when a single molecule exceeds the per-molecule scoring time limit."""
 
 
-def pool_context(default: str = "fork"):
+def pool_context(default: str = "fork") -> mp.context.BaseContext:
     """Return the multiprocessing context for scorer Pools, honouring DRUGEX_MP_CONTEXT.
-    An unknown/unavailable method falls back to ``default``."""
+
+    Parameters
+    ----------
+    default : str, optional
+        Default start method if unspecified or unavailable, by default "fork".
+
+    Returns
+    -------
+    mp.context.BaseContext
+        Multiprocessing context instance.
+    """
     method = os.environ.get("DRUGEX_MP_CONTEXT") or default
     try:
         return mp.get_context(method)
@@ -42,12 +54,15 @@ def pool_context(default: str = "fork"):
 def capped_n_jobs(requested: int) -> int:
     """Cap the scorer worker count via ``DRUGEX_SCORE_NJOBS``.
 
-    A very high worker count (NCPUS=62) can exhaust memory and/or wedge the fork for
-    molecule-heavy batches: the cdpkit pt_pt cell 615 reliably hung in ``getRewards`` at
-    n_jobs=62 (62 workers each loading a large per-batch conformer file), while leaner cdpkit
-    cells scored fine. Fewer, fatter workers avoid it at a negligible throughput cost for the
-    fast cdpkit/openeye backends. Unset / non-positive / non-integer ``DRUGEX_SCORE_NJOBS``
-    means "no cap" (use ``requested``); the cap never *increases* the worker count.
+    Parameters
+    ----------
+    requested : int
+        Requested worker count.
+
+    Returns
+    -------
+    int
+        Capped worker count.
     """
     cap = os.environ.get("DRUGEX_SCORE_NJOBS")
     if not cap:
@@ -61,14 +76,13 @@ def capped_n_jobs(requested: int) -> int:
     return min(requested, c)
 
 
-def score_timeout():
+def score_timeout() -> float | None:
     """Per-batch scoring wall-clock cap in seconds, from ``DRUGEX_SCORE_TIMEOUT``.
 
-    Returns ``None`` (unset / non-positive / non-numeric) meaning "wait forever" — the
-    current behaviour for external users. When set, the parallel scorer bounds ``pool.map``
-    with it: on timeout it terminates the (wedged) workers and leaves the unscored molecules
-    at score 0, so a single pathological molecule that hangs an unbounded scoring step
-    (tautomer/protonation/alignment) can never stall a whole epoch (cdpkit cell 615).
+    Returns
+    -------
+    float or None
+        Timeout in seconds or None if unbounded.
     """
     v = os.environ.get("DRUGEX_SCORE_TIMEOUT")
     if not v:
@@ -80,9 +94,14 @@ def score_timeout():
     return t if t > 0 else None
 
 
-def mol_timeout():
-    """Per-MOLECULE scoring wall-clock cap in seconds, from ``DRUGEX_SCORE_MOL_TIMEOUT``.
-    ``None`` (unset / non-positive / non-numeric) = no per-molecule cap (current behaviour)."""
+def mol_timeout() -> float | None:
+    """Per-molecule scoring wall-clock cap in seconds, from ``DRUGEX_SCORE_MOL_TIMEOUT``.
+
+    Returns
+    -------
+    float or None
+        Per-molecule timeout in seconds or None if unbounded.
+    """
     v = os.environ.get("DRUGEX_SCORE_MOL_TIMEOUT")
     if not v:
         return None
@@ -94,10 +113,20 @@ def mol_timeout():
 
 
 @contextmanager
-def molecule_time_limit(seconds):
-    """Best-effort per-molecule wall-clock cap via ``SIGALRM``; raises ``ScoreTimeout`` when
-    exceeded. A no-op when ``seconds`` is falsy, when not on the main thread (SIGALRM is
-    main-thread-only — Pool workers run their task on their own main thread, so it applies
+def molecule_time_limit(seconds: float | None) -> Iterator[None]:
+    """Best-effort per-molecule wall-clock cap via ``SIGALRM``.
+
+    Raises ``ScoreTimeout`` when exceeded. No-op when seconds is falsy or not on main thread.
+
+    Parameters
+    ----------
+    seconds : float or None
+        Allowed computation time in seconds.
+
+    Yields
+    ------
+    None
+    """
     there and in the serial path), or on a platform without ``SIGALRM``.
 
     This bounds Python-interruptible hangs — including CDPKit's Python tautomer callback and
