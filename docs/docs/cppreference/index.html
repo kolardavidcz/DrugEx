@@ -11,6 +11,9 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Prism.js Syntax Highlighting for Python -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
   
   <style>
     :root {
@@ -100,6 +103,9 @@
       top: 0;
       z-index: 50;
       box-shadow: var(--shadow-md);
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
     }
 
     .brand-title {
@@ -109,6 +115,27 @@
       font-weight: 700;
       font-size: 15px;
       letter-spacing: -0.01em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .brand-text-short {
+      display: none;
+    }
+
+    @media (max-width: 1100px) {
+      .brand-pill {
+        display: none !important;
+      }
+    }
+
+    @media (max-width: 850px) {
+      .brand-text-full {
+        display: none !important;
+      }
+      .brand-text-short {
+        display: inline !important;
+      }
     }
 
     .brand-pill {
@@ -233,16 +260,22 @@
       min-height: calc(100vh - 84px);
     }
 
-    /* Left Sidebar */
+    /* Left Sidebar - Compact Tree Hierarchy & Responsive Drawer */
     .sidebar {
-      width: 290px;
-      min-width: 290px;
+      width: 240px;
+      min-width: 240px;
       background: var(--bg-sidebar);
       border-right: 1px solid var(--border-main);
       overflow-y: auto;
       height: calc(100vh - 84px);
       position: sticky;
       top: 48px;
+      transition: width 0.2s ease, min-width 0.2s ease;
+      scrollbar-width: thin;
+    }
+
+    .sidebar.collapsed {
+      display: none !important;
     }
 
     .sidebar-section-title {
@@ -251,26 +284,151 @@
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      padding: 12px 14px 6px;
+      padding: 8px 10px 4px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 3px;
+    }
+
+    .sidebar-toggle-btn {
+      background: var(--bg-page);
+      border: 1px solid var(--border-main);
+      color: var(--text-muted);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 11.5px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+
+    .sidebar-toggle-btn:hover {
+      background: var(--bg-card);
+      color: var(--text-main);
+      border-color: var(--border-accent);
+    }
+
+    /* Tree Hierarchy */
+    .tree-category {
+      margin-bottom: 1px;
+    }
+
+    .tree-category-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 8px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
+      border-radius: 3px;
+      margin: 1px 3px;
+      user-select: none;
+      transition: background 0.1s ease;
+    }
+
+    .tree-category-header:hover {
+      background: rgba(0, 0, 0, 0.04);
+    }
+
+    [data-theme="dark"] .tree-category-header:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .tree-cat-left {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tree-chevron {
+      font-size: 8px;
+      color: var(--text-muted);
+      width: 10px;
+      text-align: center;
+      user-select: none;
+    }
+
+    .tree-cat-count {
+      font-size: 9.5px;
+      font-family: var(--font-mono);
+      background: var(--bg-badge);
+      color: var(--text-muted);
+      padding: 1px 5px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+
+    .tree-tier-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-core { background: #0284c7; }
+    .dot-ecosystem { background: #0d9488; }
+    .dot-experimental { background: #d97706; }
+
+    .tree-category-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tree-sub-group {
+      margin: 2px 0 4px;
+    }
+
+    .tree-sub-title {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 4px 8px 2px 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .code-content code, .synopsis-code code {
+      font-family: inherit !important;
+      font-size: inherit !important;
+      background: transparent !important;
+      padding: 0 !important;
+      border: 0 !important;
+    }
+
+    .tree-items-list {
+      padding-left: 8px;
     }
 
     .sidebar-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 5px 14px;
-      font-size: 12px;
+      padding: 4px 8px 4px 12px;
+      font-size: 11.5px;
       font-family: var(--font-mono);
       color: var(--text-main);
       cursor: pointer;
-      border-left: 3px solid transparent;
+      border-left: 2px solid transparent;
       transition: all 0.1s ease;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      border-radius: 0 3px 3px 0;
     }
 
     .sidebar-item:hover {
@@ -289,23 +447,42 @@
       font-weight: 600;
     }
 
-    .sidebar-badge {
-      font-size: 9.5px;
-      font-family: var(--font-sans);
-      padding: 1px 5px;
-      border-radius: 3px;
-      background: var(--bg-badge);
-      color: var(--text-muted);
-      margin-left: 6px;
+    /* Responsive Drawer <= 1024px */
+    @media (max-width: 1024px) {
+      .sidebar {
+        position: fixed;
+        left: -260px;
+        top: 48px;
+        bottom: 0;
+        height: calc(100vh - 48px);
+        z-index: 100;
+        box-shadow: none;
+        transition: left 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .sidebar.drawer-open {
+        left: 0;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+      }
+
+      .sidebar-backdrop {
+        position: fixed;
+        inset: 0;
+        top: 48px;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(2px);
+        z-index: 99;
+      }
     }
 
     /* Content Area */
     .content-area {
       flex: 1;
-      padding: 24px 32px 60px;
+      padding: 20px 28px 60px;
       background: var(--bg-card);
       overflow-y: auto;
       max-width: 1120px;
+      min-width: 0;
     }
 
     .entry-namespace {
@@ -523,10 +700,10 @@
       font-size: 11.5px;
     }
 
-    /* cppreference Landing Page Styles */
+    /* cppreference Landing Page Styles - Ultra Compact */
     .cpp-main-wrapper {
       flex: 1;
-      padding: 24px 32px 64px;
+      padding: 14px 20px 36px;
       background: var(--bg-page);
       overflow-y: auto;
       display: flex;
@@ -538,8 +715,8 @@
       max-width: 1320px;
       background: var(--bg-card);
       border: 1px solid #c8ccd1;
-      border-radius: 3px;
-      padding: 22px 28px 48px;
+      border-radius: 4px;
+      padding: 14px 18px 24px;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
 
@@ -548,12 +725,12 @@
     }
 
     .cpp-header-title {
-      font-size: 28px;
+      font-size: 20px;
       font-weight: 700;
       color: #002bb8;
       font-family: var(--font-sans);
       letter-spacing: -0.01em;
-      margin-bottom: 5px;
+      margin-bottom: 3px;
       line-height: 1.2;
     }
 
@@ -562,30 +739,68 @@
     }
 
     .cpp-header-subtitle {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-muted);
-      margin-bottom: 10px;
+      margin-bottom: 6px;
       display: flex;
       align-items: center;
-      gap: 7px;
+      gap: 5px;
       flex-wrap: wrap;
-      line-height: 1.5;
+      line-height: 1.4;
     }
 
     .cpp-sub-ver {
       color: #0645ad;
       font-weight: 500;
       text-decoration: none;
+      font-size: 10px;
+      background: var(--bg-badge);
+      padding: 1px 6px;
+      border-radius: 3px;
     }
 
     [data-theme="dark"] .cpp-sub-ver {
       color: #60a5fa;
     }
 
+    .cpp-quick-filters {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      margin: 6px 0 10px 0;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .filter-chip {
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 12px;
+      border: 1px solid var(--border-main);
+      background: var(--bg-page);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.12s ease;
+      user-select: none;
+    }
+
+    .filter-chip:hover {
+      color: var(--text-main);
+      border-color: var(--border-accent);
+    }
+
+    .filter-chip.active {
+      background: var(--accent-cyan);
+      color: #ffffff;
+      border-color: var(--accent-cyan);
+    }
+
     .cpp-header-divider {
       border: none;
       border-top: 1px solid #c8ccd1;
-      margin: 10px 0 20px 0;
+      margin: 6px 0 10px 0;
     }
 
     [data-theme="dark"] .cpp-header-divider {
@@ -595,44 +810,52 @@
     .cpp-grid-3col {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 24px 32px;
+      gap: 10px 18px;
       align-items: start;
     }
 
     @media (max-width: 1100px) {
       .cpp-grid-3col {
         grid-template-columns: repeat(2, 1fr);
-        gap: 20px 24px;
+        gap: 10px 14px;
       }
     }
 
     @media (max-width: 720px) {
       .cpp-grid-3col {
         grid-template-columns: 1fr;
-        gap: 16px;
+        gap: 8px;
       }
     }
 
     .cpp-col {
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 8px;
     }
 
     .cpp-category-block {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      padding: 6px 8px;
+      background: rgba(0, 0, 0, 0.015);
+    }
+
+    [data-theme="dark"] .cpp-category-block {
+      background: rgba(255, 255, 255, 0.015);
     }
 
     .cpp-cat-header {
-      font-size: 15px;
+      font-size: 12.5px;
       font-weight: 700;
       color: #002bb8;
       display: block;
-      padding: 0;
-      margin: 0 0 4px 0;
-      border-bottom: none;
+      padding: 0 0 3px 0;
+      margin: 0 0 2px 0;
+      border-bottom: 1px solid var(--border-subtle);
       letter-spacing: -0.01em;
     }
 
@@ -641,27 +864,30 @@
     }
 
     .cpp-subsection {
-      margin-left: 14px;
-      margin-bottom: 4px;
-    }
-
-    .cpp-sub-title {
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--text-main);
+      margin-left: 6px;
+      margin-top: 2px;
       margin-bottom: 2px;
     }
 
+    .cpp-sub-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 1px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
     .cpp-symbol-list {
-      font-size: 12px;
-      line-height: 1.6;
-      margin-left: 12px;
+      font-size: 11.5px;
+      line-height: 1.35;
+      margin-left: 4px;
       word-break: break-word;
     }
 
     .cpp-sym-link {
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: 11.5px;
       color: #0645ad;
       cursor: pointer;
       text-decoration: none;
@@ -683,14 +909,14 @@
     }
 
     .cpp-sym-sep {
-      color: #334155;
-      font-size: 11px;
-      margin: 0 4px;
+      color: #64748b;
+      font-size: 10px;
+      margin: 0 3px;
       user-select: none;
     }
 
     [data-theme="dark"] .cpp-sym-sep {
-      color: #94a3b8;
+      color: #64748b;
     }
 
     .cpp-sym-badge {
@@ -706,6 +932,27 @@
     [data-theme="dark"] .cpp-sym-badge {
       color: #4ade80;
     }
+
+    /* Prism.js Syntax Tokens (VS Code Dark+ & GitHub Light) */
+    .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6a9955; font-style: italic; }
+    .token.punctuation { color: #d4d4d4; }
+    .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #b5cea8; }
+    .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: #ce9178; }
+    .token.operator, .token.entity, .token.url { color: #d4d4d4; }
+    .token.atrule, .token.attr-value, .token.keyword { color: #569cd6; font-weight: 500; }
+    .token.function { color: #dcdcaa; }
+    .token.class-name { color: #4ec9b0; }
+    .token.regex, .token.important, .token.variable { color: #9cdcfe; }
+
+    [data-theme="light"] .token.comment, [data-theme="light"] .token.prolog { color: #6e7781; }
+    [data-theme="light"] .token.punctuation { color: #24292f; }
+    [data-theme="light"] .token.boolean, [data-theme="light"] .token.number { color: #0550ae; }
+    [data-theme="light"] .token.string, [data-theme="light"] .token.char { color: #0a3069; }
+    [data-theme="light"] .token.keyword { color: #cf222e; }
+    [data-theme="light"] .token.function { color: #8250df; }
+    [data-theme="light"] .token.class-name { color: #953800; }
+    [data-theme="light"] .token.operator { color: #24292f; }
+
 
     .back-to-index-btn {
       display: inline-flex;
@@ -9217,12 +9464,50 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
         return (hash && hash !== "main" && hash !== "index" && DATABASE[hash]) ? hash : null;
       });
       const [copied, setCopied] = useState(false);
+      const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== "undefined" ? window.innerWidth > 1024 : true);
+      const [collapsedCategories, setCollapsedCategories] = useState({});
       const searchInputRef = useRef(null);
 
       // Handle Theme
       useEffect(() => {
         document.documentElement.setAttribute("data-theme", theme);
       }, [theme]);
+
+      // Responsive sidebar auto-hide on <= 1024px screens
+      useEffect(() => {
+        const handleResize = () => {
+          if (window.innerWidth <= 1024) {
+            setIsSidebarOpen(false);
+          } else {
+            setIsSidebarOpen(true);
+          }
+        };
+        window.addEventListener("resize", handleResize);
+        return () => window.removeEventListener("resize", handleResize);
+      }, []);
+
+      // Auto-expand category containing active symbol; close mobile drawer upon selection
+      useEffect(() => {
+        if (selectedKey) {
+          for (const sec of LIBRARY_SECTIONS) {
+            const hasKey = sec.subsections.some(sub => sub.keys.includes(selectedKey));
+            if (hasKey) {
+              setCollapsedCategories(prev => ({ ...prev, [sec.id]: false }));
+              break;
+            }
+          }
+          if (window.innerWidth <= 1024) {
+            setIsSidebarOpen(false);
+          }
+        }
+      }, [selectedKey]);
+
+      // Syntax highlighting via Prism
+      useEffect(() => {
+        if (window.Prism) {
+          window.Prism.highlightAll();
+        }
+      }, [selectedKey, theme]);
 
       // URL Hash deep linking with active hashchange listener and category synchronization
       useEffect(() => {
@@ -9285,6 +9570,13 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
         }
       };
 
+      const toggleCategoryCollapse = (catId) => {
+        setCollapsedCategories(prev => ({
+          ...prev,
+          [catId]: !prev[catId]
+        }));
+      };
+
       const term = searchTerm.toLowerCase().trim();
 
       // Filtered keys for sidebar in detail view
@@ -9304,6 +9596,8 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
           return matchCat && matchSearch;
         });
       }, [term, activeCategory]);
+
+      const filteredKeysSet = useMemo(() => new Set(filteredKeys), [filteredKeys]);
 
       // Matching keys for main index filtering (searching title, module, desc, badges, members, parameters)
       const mainIndexMatches = useMemo(() => {
@@ -9392,7 +9686,7 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
         if (subMatches.length === 0) return null;
 
         return (
-          <div key={sec.id} className="cpp-category-block">
+          <div key={sec.id} id={`sec-${sec.id}`} className="cpp-category-block">
             <div className="cpp-cat-header">{sec.title}</div>
             {subMatches.map((sub, sIdx) => (
               <div key={sub.subtitle || sIdx} className="cpp-subsection">
@@ -9430,7 +9724,8 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
           <header className="top-header">
             <div className="brand-title" style={{ cursor: "pointer" }} onClick={goToMain} title="Return to Main Index">
               <span style={{ color: "#38bdf8", fontFamily: "var(--font-mono)", fontSize: "16px" }}>[D]</span>
-              <span>DrugEx C++ & Chemoinformatics Reference</span>
+              <span className="brand-text-full">DrugEx C++ & Chemoinformatics Reference</span>
+              <span className="brand-text-short">DrugEx Reference</span>
               <span className="brand-pill">v3.4 Complete Reference • {counts.all} Symbols</span>
             </div>
 
@@ -9490,6 +9785,15 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
               </div>
             ) : (
               <div className="breadcrumbs">
+                <button 
+                  className="sidebar-toggle-btn"
+                  onClick={() => setIsSidebarOpen(prev => !prev)}
+                  title={isSidebarOpen ? "Collapse Sidebar (◨)" : "Expand Sidebar (◨)"}
+                  style={{ marginRight: "6px" }}
+                >
+                  <span>◨</span>
+                  <span style={{ fontSize: "11px" }}>{isSidebarOpen ? "Hide" : "Sidebar"}</span>
+                </button>
                 <button 
                   className="back-to-index-btn"
                   onClick={goToMain}
@@ -9582,6 +9886,28 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
                 </div>
                 <hr className="cpp-header-divider" />
 
+                <div className="cpp-quick-filters">
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginRight: "4px" }}>Jump to:</span>
+                  {visibleSections.map(sec => {
+                    const totalKeys = sec.subsections.reduce((acc, sub) => acc + sub.keys.length, 0);
+                    const label = sec.title.split('(')[0].trim();
+                    return (
+                      <a 
+                        key={sec.id} 
+                        href={`#sec-${sec.id}`}
+                        className="filter-chip"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const el = document.getElementById(`sec-${sec.id}`);
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                      >
+                        {label} ({totalKeys})
+                      </a>
+                    );
+                  })}
+                </div>
+
                 {searchTerm && (
                   <div className="cpp-search-banner">
                     <span>
@@ -9610,23 +9936,73 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
             /* Detailed Symbol Reference Page */
             <div className="main-body">
               {/* Sidebar */}
-              <aside className="sidebar">
+              <aside className={`sidebar ${!isSidebarOpen ? "collapsed" : ""} ${isSidebarOpen ? "drawer-open" : ""}`}>
                 <div className="sidebar-section-title">
-                  <span>Classes & Symbols</span>
+                  <span>Libraries & Symbols</span>
                   <span>{filteredKeys.length}</span>
                 </div>
 
-                {filteredKeys.map(key => {
-                  const item = DATABASE[key];
-                  const isActive = key === selectedKey;
+                {LIBRARY_SECTIONS.map(sec => {
+                  const secMatchingKeys = [];
+                  for (const sub of sec.subsections) {
+                    for (const k of sub.keys) {
+                      if (filteredKeysSet.has(k)) {
+                        secMatchingKeys.push(k);
+                      }
+                    }
+                  }
+                  if (secMatchingKeys.length === 0) return null;
+
+                  const isCollapsed = term ? false : Boolean(collapsedCategories[sec.id]);
+                  const tierClass = sec.id === "ecosystem" ? "dot-ecosystem" : sec.id === "experimental" ? "dot-experimental" : "dot-core";
+
                   return (
-                    <div 
-                      key={key} 
-                      className={`sidebar-item ${isActive ? "active" : ""}`}
-                      onClick={() => selectItem(key)}
-                    >
-                      <span>{item.title}</span>
-                      <span className="sidebar-badge">{item.category}</span>
+                    <div key={sec.id} className="tree-category">
+                      <div 
+                        className="tree-category-header"
+                        onClick={() => toggleCategoryCollapse(sec.id)}
+                        title={`Click to ${isCollapsed ? "expand" : "collapse"} ${sec.title}`}
+                      >
+                        <div className="tree-cat-left">
+                          <span className="tree-chevron">{isCollapsed ? "▶" : "▼"}</span>
+                          <span className={`tree-tier-dot ${tierClass}`} />
+                          <span className="tree-category-title">{sec.title}</span>
+                        </div>
+                        <span className="tree-cat-count">{secMatchingKeys.length}</span>
+                      </div>
+
+                      {!isCollapsed && (
+                        <div className="tree-items-list">
+                          {sec.subsections.map((sub, sIdx) => {
+                            const subKeys = sub.keys.filter(k => filteredKeysSet.has(k));
+                            if (subKeys.length === 0) return null;
+                            return (
+                              <div key={sub.subtitle || sIdx} className="tree-sub-group">
+                                {sub.subtitle && (
+                                  <div className="tree-sub-title" title={sub.subtitle}>
+                                    {sub.subtitle}
+                                  </div>
+                                )}
+                                {subKeys.map(k => {
+                                  const item = DATABASE[k];
+                                  if (!item) return null;
+                                  const isActive = k === selectedKey;
+                                  return (
+                                    <div 
+                                      key={k} 
+                                      className={`sidebar-item ${isActive ? "active" : ""}`}
+                                      onClick={() => selectItem(k)}
+                                      title={`${item.title} (${item.module})`}
+                                    >
+                                      <span>{item.title}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -9637,6 +10013,11 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
                   </div>
                 )}
               </aside>
+
+              {/* Mobile / Half-screen Drawer Backdrop */}
+              {isSidebarOpen && (
+                <div className="sidebar-backdrop" onClick={() => setIsSidebarOpen(false)} />
+              )}
 
               {/* Content Area */}
               <main className="content-area">
@@ -9680,7 +10061,7 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
                 {/* Synopsis Box */}
                 <div className="synopsis-box">
                   <div className="synopsis-header">Defined in header &lt;{currentItem.module}&gt;</div>
-                  <div className="synopsis-code">{currentItem.synopsis}</div>
+                  <pre className="synopsis-code language-python" style={{ margin: 0, padding: 0, background: "transparent" }}><code className="language-python">{currentItem.synopsis}</code></pre>
                 </div>
 
                 {/* Description */}
@@ -9772,7 +10153,7 @@ print("Standardization.Collector accumulated molecule count:", len(collector.get
                           {copied ? "Copied!" : "Copy Code"}
                         </button>
                       </div>
-                      <pre className="code-content">{currentItem.example.code}</pre>
+                      <pre className="code-content language-python"><code className="language-python">{currentItem.example.code}</code></pre>
                       {currentItem.example.output && (
                         <div className="terminal-output">
                           <div style={{ color: "#94a3b8", marginBottom: "4px", fontSize: "10.5px" }}>&gt; Standard Output:</div>
