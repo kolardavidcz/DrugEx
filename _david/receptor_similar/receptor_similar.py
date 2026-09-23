@@ -358,6 +358,7 @@ class AdaptiveCandidateSelector:
     max_molecules: Optional[int] = 1000
     max_sascore: Optional[float] = None
     max_bertz: Optional[float] = None
+    hard_filter: bool = False
     require_valid_rdkit: bool = True
 
     def select(self, df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
@@ -402,8 +403,11 @@ class AdaptiveCandidateSelector:
             # Compute profile properties
             props = self.profile.calculate_properties(mol)
 
-            # Check dynamic tolerance window
-            if not self.profile.is_within_tolerance(props):
+            # Record tolerance status and optionally apply hard window filter
+            is_within = self.profile.is_within_tolerance(props)
+            props["within_tolerance"] = is_within
+
+            if self.hard_filter and not is_within:
                 continue
 
             # Optional upper-bound sanity caps (SA, Bertz)
@@ -1100,6 +1104,7 @@ class MoleculeBioactivityPipeline:
         max_molecules: Optional[int] = 1000,
         max_sascore: Optional[float] = None,
         max_bertz: Optional[float] = None,
+        hard_filter: bool = False,
         allow_chembl_fallback: Optional[bool] = None,
         auto_relax: bool = False,
         min_relax_paffinity: float = 5.0,
@@ -1114,7 +1119,7 @@ class MoleculeBioactivityPipeline:
         2. Automatic extraction of MolecularPropertyProfile and adaptive CV weighting
         3. Target receptor discovery in Papyrus (union across query inputs; no ChEMBL unless specified)
         4. Extraction of shared-target active ligands from Papyrus
-        5. AdaptiveCandidateSelector: dynamic tolerance window gating and property similarity ranking
+        5. AdaptiveCandidateSelector: pure soft ranking by property similarity (or dynamic window gating if hard_filter=True)
 
         Parameters
         ----------
@@ -1136,6 +1141,8 @@ class MoleculeBioactivityPipeline:
             Optional upper-bound sanity cap on Synthetic Accessibility score (default: None).
         max_bertz : float, optional
             Optional upper-bound sanity cap on Bertz complexity (default: None).
+        hard_filter : bool, optional
+            Whether to strictly drop candidates outside tolerance windows (default: False, pure soft ranking).
         allow_chembl_fallback : bool, optional
             Whether to allow remote ChEMBL target query if not in Papyrus (default: False).
         auto_relax : bool, optional
@@ -1227,7 +1234,8 @@ class MoleculeBioactivityPipeline:
                 profile=profile,
                 max_molecules=max_molecules,
                 max_sascore=max_sascore,
-                max_bertz=max_bertz
+                max_bertz=max_bertz,
+                hard_filter=hard_filter
             )
             papyrus_curated = selector.select(raw_curated)
 
