@@ -1,42 +1,30 @@
-"""OpenEye ROCS command-line interface scorer module for 3D shape and color overlay similarity."""
-
-from __future__ import annotations
-
-import logging
+"""OpenEye-ROCS based ROCS scorer."""
 import os
 import shutil
 import subprocess
 import tempfile
+import warnings
+from collections import defaultdict
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from rdkit import Chem
 
 try:
-    from openeye import oechem, oeshape  # type: ignore
+    from openeye import oechem, oeshape
 
     OE_AVAILABLE = True
 except ImportError:
     OE_AVAILABLE = False
-    oechem = None  # type: ignore
-    oeshape = None  # type: ignore
 
 from drugex.training.scorers.interfaces import ConformerGenerator, Scorer
 
-logger = logging.getLogger(__name__)
-
 
 @contextmanager
-def _managed_tmpdir() -> Iterator[str]:
-    """Managed temporary directory context manager with robust exception cleanup.
-
-    Yields
-    ------
-    str
-        Path to newly created temporary directory.
-    """
+def _managed_tmpdir():
+    """Managed temporary directory with guaranteed cleanup."""
     path = tempfile.mkdtemp(prefix="cli_rocs_")
     try:
         yield path
@@ -44,57 +32,47 @@ def _managed_tmpdir() -> Iterator[str]:
         try:
             shutil.rmtree(path, ignore_errors=True)
         except Exception as e:
-            logger.debug("Error cleaning up temporary directory %s: %s", path, e)
+            print(f"Error cleaning up temporary directory {path}: {e}")
 
 
 class OpenEyeROCSScorer(Scorer):
-    """OpenEye ROCS shape and color similarity scorer invoking the official ROCS CLI binary.
+    """OpenEye ROCS scorer that shells out to the ROCS command-line binary.
 
-    Evaluates 3D shape and chemical feature (color) similarity against one or more reference
-    queries (e.g. co-crystallized ligands or shape queries in `.sq` or `.sdf` formats).
+    Uses the OpenEye ROCS CLI via ``subprocess`` for shape-based similarity
+    scoring while relying on the OpenEye Python toolkits for reference validation
+    and RDKit for molecule handling. Requires a valid OpenEye license with the
+    ROCS binary available in ``PATH`` (or provided via ``binary_path``). If a
+    future fastROCS implementation is added, this class will remain the CLI
+    variant.
 
     Features:
-    - Multi-reference group support with best-match scoring across files in a group.
-    - Support for ShapeTanimoto, ColorTanimoto, TanimotoCombo, and ScaledColor scoring modes.
-    - Automatic multi-conformer handling with molecule ID tracking.
+    - Multiple reference group support (.sq or molecule files)
+    - Best score selection across reference groups
+    - Hybrid Python/CLI workflow for flexible integration
 
-    Parameters
-    ----------
-    conformer_generator : ConformerGenerator
-        Conformer generator used to produce 3D conformers for input molecules.
-    references : Dict[str, Union[List[str], str]]
-        Dictionary mapping reference group names to file paths (or lists of file paths).
-        If a group has multiple files, the best score across all files in that group is retained.
-    score_type : str, optional
-        ROCS scoring metric (e.g. 'TanimotoCombo', 'ShapeTanimoto', 'ColorTanimoto'),
-        by default 'TanimotoCombo'.
-    shape_only : bool, optional
-        If True, color features are ignored and only shape overlap is computed, by default False.
-    optimize : bool, optional
-        Whether to perform rigid-body alignment optimization, by default True.
-    color_optimize : bool, optional
-        Whether to optimize color overlap during alignment, by default True.
-    color_force_field : str, optional
-        Color force field to use ('ImplicitMillsDean', etc.), by default 'ImplicitMillsDean'.
-    rocs_binary : str, optional
-        Name of ROCS executable in system PATH, by default 'rocs'.
-    binary_path : str | None, optional
-        Explicit path to ROCS executable (overrides `rocs_binary` lookup), by default None.
-    show_progress : bool, optional
-        Whether to print timing and progress messages to stdout, by default True.
-
-    Raises
-    ------
-    ImportError
-        If OpenEye Python toolkits are not installed.
-    FileNotFoundError
-        If the ROCS command-line executable or any query reference file does not exist.
+    Attributes:
+        - conformer_generator: conformer generator used for generated molecules.
+        - references: dict of reference files for ROCS scoring (.sq or molecule files).
+            Dictionary keys are reference group names, values are file paths or lists
+            of file paths. For each key (group), one score is returned per molecule.
+            If a list of files is provided for a single group, the highest score across
+            all reference files in that group is returned.
+        - score_type: Type of scoring to use (e.g., TanimotoCombo)
+        - shape_only: If True, only shape scoring is performed
+        - optimize: If True, optimization is performed during scoring
+        - color_optimize: If True, color optimization is performed
+        - color_force_field: Force field to use for color optimization
+        - rocs_binary: Name of the ROCS binary to use
+        - binary_path: Path to the ROCS binary (if not in PATH)
+        - show_progress: If True, progress is shown during scoring
+        - name_suffix: Optional suffix for the scorer name (important if multiple
+           OpenEyeROCSScorer scorers are used in the same environment)
     """
 
     def __init__(
         self,
         conformer_generator: ConformerGenerator,
-        references: Dict[str, Union[List[str], str]],
+        references: dict[str, List[str] | str],
         score_type: str = "TanimotoCombo",
         shape_only: bool = False,
         optimize: bool = True,
@@ -103,72 +81,133 @@ class OpenEyeROCSScorer(Scorer):
         rocs_binary: str = "rocs",
         binary_path: str | None = None,
         show_progress: bool = True,
-    ) -> None:
-        """Initialize OpenEyeROCSScorer.
+        n_jobs: int = -1,
+        timeout: int = 300,
+        mpi_np: int = 1,
+        optimization_mode: str | None = None,
+        score_variant: str = "tanimoto",
+    ):
+        """Initialize the OpenEye ROCS scorer.
 
-        Parameters
-        ----------
-        conformer_generator : ConformerGenerator
-            Conformer generator instance.
-        references : Dict[str, Union[List[str], str]]
-            Target reference file mapping.
-        score_type : str, optional
-            Scoring function name, by default 'TanimotoCombo'.
-        shape_only : bool, optional
-            Shape-only flag, by default False.
-        optimize : bool, optional
-            Optimization flag, by default True.
-        color_optimize : bool, optional
-            Color optimization flag, by default True.
-        color_force_field : str, optional
-            Force field name, by default 'ImplicitMillsDean'.
-        rocs_binary : str, optional
-            Executable name, by default 'rocs'.
-        binary_path : str | None, optional
-            Explicit binary path, by default None.
-        show_progress : bool, optional
-            Progress logging flag, by default True.
+        Args:
+            conformer_generator: generator used to produce generated molecule conformers
+            references: dict mapping reference group names to SDF/sq reference file path(s).
+                If multiple dict items are specified, the output will be a score per group.
+                If a dict item has multiple file paths specified, molecules will be scored
+                against each reference file but only the maximum score will be returned
+                (i.e. the best match within that group).
+            score_type: Type of scoring to use (e.g., TanimotoCombo), ignored
+                if shape_only
+            shape_only: If True, only shape scoring is performed
+            optimize: turn optimizer on/off, if off score only
+            color_optimize: If True, color optimization is performed
+            color_force_field: Force field to use for color optimization
+            rocs_binary: Name of the ROCS binary to use
+            binary_path: Path to the ROCS binary (if not in PATH)
+            show_progress: If True, progress is shown during scoring
+            n_jobs: Accepted for API consistency with RDKit/CDPKit backends
+                but has no effect (OpenEye ROCS runs as a single CLI subprocess)
+            timeout: Timeout in seconds for the ROCS subprocess
+
+        Raises:
+            ImportError: If OpenEye toolkits are not available.
+            FileNotFoundError: If rocs binary not found
         """
         super().__init__()
 
         if not OE_AVAILABLE:
-            raise ImportError("OpenEye toolkits required for OpenEyeROCSScorer")
+            raise ImportError("OpenEye toolkits required")
+
+        # optimization_mode is a convenience that maps the three ROCS modes onto
+        # shape_only / score_type / color_optimize. When given it overrides those args:
+        #   shape -> -shapeonly true ; combo -> -rankby TanimotoCombo -optchem true ;
+        #   color -> -rankby ColorTanimoto -optchem true.
+        if optimization_mode is not None:
+            if optimization_mode == "shape":
+                shape_only = True
+            elif optimization_mode == "combo":
+                shape_only, score_type, color_optimize = False, "TanimotoCombo", True
+            elif optimization_mode == "color":
+                shape_only, score_type, color_optimize = False, "ColorTanimoto", True
+            else:
+                raise ValueError(
+                    "optimization_mode must be 'shape', 'combo', or 'color', "
+                    f"got {optimization_mode!r}"
+                )
 
         self.conformer_generator = conformer_generator
-        self.queries: Dict[str, List[str]] = {}
-        for name, paths in references.items():
-            if isinstance(paths, str):
-                self.queries[name] = [paths]
-            else:
-                self.queries[name] = list(paths)
 
+        # Convert to list and validate
+        self.queries = references
         self._validate_query_files()
 
         self.score_type = score_type
-        self.shape_only = shape_only
+
+        # Tversky is a different READOUT of the same alignment: ROCS always emits the Ref/Fit
+        # Tversky columns in the report (verified), so we keep the optimization as-is and just
+        # parse a different column. score_variant: "tanimoto" | "tversky_ref" | "tversky_fit".
+        _valid_variants = {"tanimoto", "tversky_ref", "tversky_fit"}
+        if score_variant not in _valid_variants:
+            raise ValueError(
+                f"score_variant must be one of {sorted(_valid_variants)}, got {score_variant!r}"
+            )
+        self.score_variant = score_variant
+        # Derive the mode for Tversky column selection. shape_only=True (whether set directly or
+        # via optimization_mode="shape") means the report has ONLY shape columns, so map to
+        # "shape" — otherwise a Tversky variant would request RefTverskyCombo, absent from a
+        # -shapeonly report, and silently score all-zeros (code-review A).
+        _mode = optimization_mode or ("shape" if shape_only else {
+            "TanimotoCombo": "combo", "ColorTanimoto": "color", "ShapeTanimoto": "shape",
+        }.get(self.score_type, "combo"))
+        _tversky_cols = {
+            ("shape", "tversky_ref"): "RefTversky",
+            ("color", "tversky_ref"): "RefColorTversky",
+            ("combo", "tversky_ref"): "RefTverskyCombo",
+            ("shape", "tversky_fit"): "FitTversky",
+            ("color", "tversky_fit"): "FitColorTversky",
+            ("combo", "tversky_fit"): "FitTverskyCombo",
+        }
+        # Column to read from the ROCS report (tanimoto keeps the legacy score_type column).
+        self._score_column = (
+            self.score_type if score_variant == "tanimoto"
+            else _tversky_cols[(_mode, score_variant)]
+        )
+
         self.optimize = optimize
         self.color_optimize = color_optimize
         self.color_force_field = color_force_field
         self.binary_path = binary_path or rocs_binary
+        self.timeout = timeout
+
+        # OpenEye ROCS parallelises via its CLI `-mpi_np` flag, not Python jobs.
+        self.mpi_np = mpi_np
+        if n_jobs not in (-1, 1):
+            warnings.warn(
+                "OpenEye ROCS runs as a single CLI subprocess; n_jobs has no "
+                "effect. Use mpi_np=N for single-node MPI parallelism instead.",
+                stacklevel=2,
+            )
+        self.n_jobs = 1
+
+        self.shape_only = shape_only
         self.rocs_binary = rocs_binary
         self.show_progress = show_progress
 
         if not shutil.which(self.binary_path):
             raise FileNotFoundError(f"ROCS binary not found: {self.binary_path}")
 
-    def _validate_query_files(self) -> None:
-        """Validate that all query reference files exist and are readable by OpenEye.
-
-        Raises
-        ------
-        FileNotFoundError
-            If any reference file cannot be found.
-        ValueError
-            If an `.sq` query file fails OpenEye shape query parsing.
-        """
-        assert isinstance(self.queries, dict), "references must be a dictionary"
+    def _validate_query_files(self):
+        """Validate all reference files exist and are readable"""
+        assert isinstance(self.queries, dict), (
+            "references must be a dictionary with keys as reference group names and values "
+            "as file paths"
+        )
 
         for name, list_of_qf in self.queries.items():
+            if isinstance(list_of_qf, str):
+                list_of_qf = [list_of_qf]
+                self.queries[name] = list_of_qf
+
             for qf in list_of_qf:
                 if not os.path.exists(qf):
                     raise FileNotFoundError(f"Reference file not found: {qf}")
@@ -176,29 +215,18 @@ class OpenEyeROCSScorer(Scorer):
                 if ext == "sq":
                     query = oeshape.OEShapeQuery()
                     if not oeshape.OEReadShapeQuery(qf, query):
-                        raise ValueError(f"Invalid reference shape query file: {qf}")
+                        raise ValueError(f"Invalid reference file: {qf}")
                 else:
                     qfs = oechem.oemolistream()
                     if not qfs.open(qf):
-                        oechem.OEThrow.Fatal(f"Unable to open reference file: '{qf}'")
+                        oechem.OEThrow.Fatal("Unable to open '%s'" % qf)
                     query = oechem.OEGraphMol()
                     if not oechem.OEReadMolecule(qfs, query):
-                        oechem.OEThrow.Fatal(f"Unable to read query molecule from: '{qf}'")
+                        oechem.OEThrow.Fatal("Unable to read query from '%s'" % qf)
 
-    def _convert_to_smiles(self, mols: Sequence[Any]) -> List[str | None]:
-        """Convert a sequence of diverse molecule formats into SMILES strings.
-
-        Parameters
-        ----------
-        mols : Sequence[Any]
-            Sequence of SMILES strings, RDKit Mols, or OpenEye OEMols.
-
-        Returns
-        -------
-        List[str | None]
-            Canonicalized list of SMILES strings.
-        """
-        smiles_list: List[str | None] = []
+    def _convert_to_smiles(self, mols) -> List[str | None]:
+        """Convert various molecule types to SMILES"""
+        smiles_list = []
         for mol in mols:
             if mol is None:
                 smiles_list.append(None)
@@ -213,29 +241,32 @@ class OpenEyeROCSScorer(Scorer):
                 raise TypeError(f"Unsupported molecule type: {type(mol)}")
         return smiles_list
 
-    def getScores(
-        self,
-        mols: Sequence[Any],
-        frags: Sequence[str | None] | None = None,
-    ) -> np.ndarray:
-        """Score input molecules against reference query groups using OpenEye ROCS.
+    @staticmethod
+    def _deduplicate_smiles(
+        smiles_list: List[Union[str, None]]
+    ) -> Tuple[List[str], Dict[int, List[int]]]:
+        """Group identical SMILES to avoid redundant conformer generation."""
+        unique_smiles: List[str] = []
+        unique_lookup: Dict[str, int] = {}
+        unique_to_original: Dict[int, List[int]] = defaultdict(list)
 
-        Parameters
-        ----------
-        mols : Sequence[Any]
-            List or sequence of molecules (SMILES, RDKit Mol, or OpenEye OEMol).
-        frags : Sequence[str | None] | None, optional
-            Fragment constraints (unused).
+        for idx, smi in enumerate(smiles_list):
+            if smi is None:
+                continue
+            unique_idx = unique_lookup.get(smi)
+            if unique_idx is None:
+                unique_idx = len(unique_smiles)
+                unique_smiles.append(smi)
+                unique_lookup[smi] = unique_idx
+            unique_to_original[unique_idx].append(idx)
 
-        Returns
-        -------
-        np.ndarray
-            2D numpy array of shape `(len(mols), len(queries))` with ROCS similarity scores.
-        """
+        return unique_smiles, unique_to_original
+
+    def getScores(self, mols, frags=None) -> np.ndarray:
+        """Score molecules using one or more ROCS queries"""
         if not mols:
-            if self.show_progress:
-                print("No molecules to score")
-            return np.zeros((0, len(self.queries)), dtype=np.float32)
+            print("No molecules to score")
+            return np.zeros(0)
 
         timer = oechem.OEWallTimer() if self.show_progress else None
         num_input_mols = len(mols)
@@ -243,41 +274,52 @@ class OpenEyeROCSScorer(Scorer):
         if self.show_progress:
             print(f"Starting ROCS scoring for {num_input_mols} molecules...")
 
+        # Convert to SMILES list for uniform processing
         smiles_list = self._convert_to_smiles(mols)
 
+        # Deduplicate SMILES to avoid redundant conformer generation
+        unique_smiles, unique_to_original = self._deduplicate_smiles(smiles_list)
+
+        if not unique_smiles:
+            return np.zeros((num_input_mols, len(self.queries)), dtype=np.float32)
+
+        if self.show_progress and len(unique_smiles) < len(smiles_list):
+            print(
+                f"  Deduplicated: {len(smiles_list)} -> {len(unique_smiles)} "
+                f"unique SMILES"
+            )
+
+        # Prepare conformers for unique SMILES only
         with _managed_tmpdir() as tmpdir:
-            conf_file = self.conformer_generator.genConformers(smiles_list, tmpdir)
+            conf_file = self.conformer_generator.genConformers(
+                unique_smiles, tmpdir
+            )
+
+            # Score using OpenEye ROCS
             scores_dict = self._score(conf_file)
 
+        # Map scores from unique indices back to original indices
         result_scores = np.zeros((num_input_mols, len(self.queries)), dtype=np.float32)
         for i, scores in enumerate(scores_dict.values()):
-            for mol_id, score in scores.items():
-                if 0 <= mol_id < num_input_mols:
-                    result_scores[mol_id, i] = score
+            for unique_idx, score in scores.items():
+                if unique_idx not in unique_to_original:
+                    continue
+                for original_idx in unique_to_original[unique_idx]:
+                    result_scores[original_idx, i] = score
 
-        if self.show_progress and timer and timer.Elapsed() > 2.0:
-            print(f"ROCS scoring completed in {timer.Elapsed():.1f}s")
+        if self.show_progress:
+            if timer and timer.Elapsed() > 2.0:
+                print(f"ROCS scoring completed in {timer.Elapsed():.1f}s")
 
         return result_scores
 
-    def _build_rocs_command(self, query_file: str, input_file: str, output_file: str) -> List[str]:
-        """Construct CLI arguments for the `rocs` binary.
-
-        Parameters
-        ----------
-        query_file : str
-            Path to reference `.sq` or molecule query file.
-        input_file : str
-            Path to multi-conformer query database file (`.oeb.gz` or `.sdf`).
-        output_file : str
-            Path where TSV results report should be written.
-
-        Returns
-        -------
-        List[str]
-            CLI argument list for `subprocess.run`.
-        """
+    def _build_rocs_command(
+        self, query_file: str, input_file: str, output_file: str
+    ) -> List[str]:
+        """Build ROCS command matching cli_base_rocs.py exactly"""
+        # Extract the directory from output_file
         output_dir = os.path.dirname(output_file) or "."
+
         cmd = [
             self.binary_path,
             "-query", query_file,
@@ -286,92 +328,76 @@ class OpenEyeROCSScorer(Scorer):
             "-reportfile", output_file,
             "-prefix", "rocs",
             "-outputdir", output_dir,
-            "-stats", "best",
-            "-nostructs",
-            "-scdbase",
+            "-stats", "best", # Include best overlay(s) for each dbase molecule
+            "-nostructs", # Don't save the structures
+            "-scdbase",  # Don't combine contiguous conformers
         ]
-
+        
         if self.shape_only:
+            # sets chemff none, optchem false and rankby tanimoto
             cmd.extend(["-shapeonly", "true"])
         else:
             cmd.extend(["-rankby", self.score_type])
             cmd.extend(["-chemff", self.color_force_field])
 
+        # set optimizer on/off, if off score only
         cmd.extend(["-opt", str(self.optimize).lower()])
+
+        # wire color_optimize to -optchem (only meaningful with optimizer on
+        # and shape_only off — ROCS ignores it otherwise)
+        if not self.shape_only and self.optimize:
+            cmd.extend(["-optchem", str(self.color_optimize).lower()])
+
+        # OpenEye single-node MPI parallelism (rocs -mpi_np N ...); inert at N<=1.
+        # This is how the ROCS CLI parallelises across cores (the `n_jobs` arg is
+        # intentionally inert — ROCS is one subprocess, not Python multiprocessing).
+        if getattr(self, "mpi_np", 1) and self.mpi_np > 1:
+            cmd[1:1] = ["-mpi_np", str(self.mpi_np)]
+
         return cmd
 
-    def _score(self, conf_file: str) -> Dict[str, Dict[int, float]]:
-        """Score conformer file against each configured reference group.
+    def _score(self, conf_file) -> dict:
+        """Score molecules with ROCS
 
-        Parameters
-        ----------
-        conf_file : str
-            Path to generated conformer file.
-
-        Returns
-        -------
-        Dict[str, Dict[int, float]]
-            Mapping of group name to `{mol_id: best_score}`.
+        Returns:
+            dict: Dictionary with reference group names as keys and scores as values.
         """
-        scores_dict: Dict[str, Dict[int, float]] = {}
+        # Multi-group scoring
+        scores_dict = {}
         for name, query_files in self.queries.items():
             if len(query_files) == 1:
                 scores_dict[name] = self._score_single_query(conf_file, query_files[0])
             else:
                 scores_dict[name] = self._score_multi_query(conf_file, query_files)
+
         return scores_dict
 
-    def _score_multi_query(self, conf_file: str, query_files: Sequence[str]) -> Dict[int, float]:
-        """Score against multiple reference files within a group and retain highest score per molecule.
+    def _score_multi_query(self, conf_file, query_files) -> dict:
+        """Score against multiple reference files in a group, return best scores as dict"""
+        best_scores = {}
 
-        Parameters
-        ----------
-        conf_file : str
-            Path to conformer file.
-        query_files : Sequence[str]
-            List of reference files in this group.
-
-        Returns
-        -------
-        Dict[int, float]
-            Dictionary of `{mol_id: max_score}`.
-        """
-        best_scores: Dict[int, float] = {}
         for query_file in query_files:
             query_scores = self._score_single_query(conf_file, query_file)
-            for mol_id, score in query_scores.items():
-                best_scores[mol_id] = max(score, best_scores.get(mol_id, 0.0))
+
+            # Take maximum score for each molecule across all reference files
+            for mol_title, score in query_scores.items():
+                best_scores[mol_title] = max(score, best_scores.get(mol_title, 0.0))
+
         return best_scores
 
-    def _score_single_query(self, conf_file: str, query_file: str) -> Dict[int, float]:
-        """Score molecules against a single reference file.
-
-        Parameters
-        ----------
-        conf_file : str
-            Path to conformer database file.
-        query_file : str
-            Path to single reference query file.
-
-        Returns
-        -------
-        Dict[int, float]
-            Mapping of `{mol_id: score}`.
-        """
-        scores: Dict[int, float] = {}
-        if self.show_progress:
-            print("Scoring with reference file:", query_file)
+    def _score_single_query(self, conf_file, query_file: str) -> dict:
+        """Score molecules against a single reference file and return as dict"""
+        scores = {}
+        print("Scoring with reference file:", query_file)
 
         with _managed_tmpdir() as tmpdir:
-            if not conf_file or not os.path.exists(conf_file):
-                if self.show_progress:
-                    print("No valid molecules written to input conformer file")
+            if not conf_file:
+                print("No valid molecules written to input file")
                 return scores
-
+            # Execute ROCS
             output_file = self._execute_rocs(query_file, conf_file, tmpdir)
             if not output_file:
-                if self.show_progress:
-                    print("ROCS execution failed or output file not created")
+                print("ROCS execution failed or output file not created")
                 return scores
 
             scores = self._parse_results(output_file)
@@ -379,45 +405,27 @@ class OpenEyeROCSScorer(Scorer):
         return scores
 
     def _execute_rocs(self, query_file: str, input_file: str, tmpdir: str) -> str:
-        """Run the ROCS executable via subprocess.
-
-        Parameters
-        ----------
-        query_file : str
-            Reference query file path.
-        input_file : str
-            Input conformer file path.
-        tmpdir : str
-            Temporary execution workspace directory.
-
-        Returns
-        -------
-        str
-            Path to generated TSV output report file.
-
-        Raises
-        ------
-        RuntimeError
-            If ROCS executable fails, times out, or output file is empty.
-        """
+        """Execute ROCS CLI"""
         output_file = os.path.join(tmpdir, "rocs_output.tsv")
+
         cmd = self._build_rocs_command(query_file, input_file, output_file)
 
-        if not os.path.exists(query_file):
-            raise RuntimeError(f"Query file not found: {query_file}")
-        if not os.path.exists(input_file):
-            raise RuntimeError(f"Input file not found: {input_file}")
-        if not shutil.which(self.binary_path):
-            raise RuntimeError(f"ROCS binary not found: {self.binary_path}")
-
-        rocs_timer = oechem.OEWallTimer() if self.show_progress else None
         try:
+            # Check prerequisites
+            if not os.path.exists(query_file):
+                raise RuntimeError(f"Query file not found: {query_file}")
+            if not os.path.exists(input_file):
+                raise RuntimeError(f"Input file not found: {input_file}")
+            if not shutil.which(self.binary_path):
+                raise RuntimeError(f"ROCS binary not found: {self.binary_path}")
+
+            # Execute ROCS with timing
+            rocs_timer = oechem.OEWallTimer() if self.show_progress else None
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=300,
-                env=dict(os.environ, OMP_NUM_THREADS="1"),
+                timeout=self.timeout,
             )
 
             if self.show_progress and rocs_timer and rocs_timer.Elapsed() > 2.0:
@@ -428,51 +436,58 @@ class OpenEyeROCSScorer(Scorer):
                     f"ROCS failed with return code {result.returncode}:\n{result.stderr}"
                 )
 
-            if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-                raise RuntimeError(f"ROCS output file is missing or empty: {output_file}")
+            if not os.path.exists(output_file):
+                raise RuntimeError(f"ROCS output file not created: {output_file}")
 
+            if os.path.getsize(output_file) == 0:
+                raise RuntimeError(f"ROCS output file is empty: {output_file}")
+
+        except RuntimeError as e:
+            raise RuntimeError(e)
         except subprocess.TimeoutExpired:
-            raise RuntimeError("ROCS execution timed out after 300 seconds")
+            raise RuntimeError(
+                f"ROCS execution timed out after {self.timeout}s"
+            )
+        except Exception as e:
+            raise RuntimeError(f"ROCS execution failed: {e}")
 
         return output_file
 
-    def _parse_results(self, output_file: str) -> Dict[int, float]:
-        """Parse ROCS TSV output report and extract maximum score per molecule.
+    def _parse_results(self, output_file: str) -> dict[str, float]:
+        """Parse ROCS output and return scores as a dictionary"""
+        scores = {}
 
-        Parameters
-        ----------
-        output_file : str
-            Path to ROCS TSV report.
-
-        Returns
-        -------
-        Dict[int, float]
-            Mapping of `{mol_id: best_conformer_score}`.
-        """
-        scores: Dict[int, float] = {}
         if not os.path.exists(output_file):
+            print(f"Output file not found: {output_file}")
             return scores
 
         df = pd.read_csv(output_file, sep="\t")
-        if df.empty or "Name" not in df.columns or self.score_type not in df.columns:
+
+        if df.empty:
+            print("ROCS output file is empty")
             return scores
 
+        if "Name" not in df.columns or self._score_column not in df.columns:
+            print(
+                f"ROCS output file is missing required column {self._score_column!r}; "
+                f"available: {list(df.columns)}"
+            )
+            return scores
+
+        # find the maximum score per molecule out of all its conformers/isomers
         for _, row in df.iterrows():
+            # Extract molecule ID from "mol_<id>+<conf>"
             try:
-                mol_id = int(str(row["Name"]).split("+")[0].split("_")[1])
-            except (IndexError, ValueError):
-                continue
-            conf_score = float(row[self.score_type])
-            scores[mol_id] = max(scores.get(mol_id, 0.0), conf_score)
+                mol_id = int(row["Name"].split("+")[0].split("_")[1])
+            except IndexError:
+                raise ValueError(f"Invalid molecule name format: {row['Name']}")
+            conf_score = float(row[self._score_column])
+            mol_max_score = scores.get(mol_id, 0.0)
+            scores[mol_id] = max(mol_max_score, conf_score)
 
         return scores
 
     def getKey(self) -> List[str]:
-        """Return list of identifier keys for the reference groups.
-
-        Returns
-        -------
-        List[str]
-            List of formatted keys: `['ROCS_<group_name>', ...]`.
-        """
-        return [f"ROCS_{name}" for name in self.queries.keys()]
+        """Return scorer identifier (suffixed by non-default score_variant so keys don't collide)."""
+        sfx = f"_{self.score_variant}" if self.score_variant != "tanimoto" else ""
+        return [f"ROCS_{name}{sfx}" for name in self.queries.keys()]

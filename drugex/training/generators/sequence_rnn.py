@@ -99,10 +99,16 @@ class SequenceRNN(Generator):
 
         Parameters
         ----------
-        gpus : sequence of int
+        gpus : Sequence[int]
             Sequence of GPU indices.
         """
-        self.device = torch.device(f'cuda:{gpus[0]}') if torch.cuda.is_available() and len(gpus) > 0 else torch.device('cpu')
+        if not gpus or gpus[0] == -1 or not torch.cuda.is_available():
+            self.device = torch.device('cpu')
+            self.to(self.device)
+            self.gpus = (-1,)
+            return
+
+        self.device = torch.device(f'cuda:{gpus[0]}')
         self.to(self.device)
         self.gpus = (gpus[0],) if len(gpus) > 0 else tuple()
 

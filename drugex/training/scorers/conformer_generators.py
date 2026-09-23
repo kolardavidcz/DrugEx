@@ -1,83 +1,73 @@
-"""3D Conformer generators for OpenEye Omega, Schrödinger MacroModel/confgenx, RDKit ETKDGv3, and CDPKit ConfGen."""
-
 from __future__ import annotations
 
 import gc
-import logging
 import os
-import shutil
-import subprocess
+import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
-
-import numpy as np
-from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolDescriptors
-from rdkit.Chem.EnumerateStereoisomers import (
-    EnumerateStereoisomers,
-    StereoEnumerationOptions,
-)
-
-from drugex.training.scorers.interfaces import ConformerGenerator
 
 try:
-    from openeye import oechem, oemolprop, oeomega  # type: ignore
+    from openeye import oechem, oemolprop, oeomega, oequacpac
 
     OE_AVAILABLE = True
 except ImportError:
     OE_AVAILABLE = False
-    oechem = None  # type: ignore
-    oemolprop = None  # type: ignore
-    oeomega = None  # type: ignore
+
+import shutil
+import subprocess
+from typing import Callable, List
+
+from drugex.training.scorers.interfaces import ConformerGenerator
+from rdkit import Chem
+from rdkit.Chem import rdMolDescriptors, AllChem
+from rdkit.Chem.EnumerateStereoisomers import (EnumerateStereoisomers,
+                                               StereoEnumerationOptions)
+from rdkit.Chem.MolStandardize import rdMolStandardize
 
 try:
-    import CDPL.Base as CDPLBase  # type: ignore
-    import CDPL.Chem as CDPLChem  # type: ignore
-    import CDPL.ConfGen as CDPLConfGen  # type: ignore
-    import CDPL.MolProp as CDPLMolProp  # type: ignore
-    from CDPL.Chem import StereoisomerGenerator  # type: ignore
-
+    import CDPL.Chem as CDPLChem
+    import CDPL.ConfGen as CDPLConfGen
+    import CDPL.Base as CDPLBase
+    import CDPL.MolProp as CDPLMolProp
+    from CDPL.Chem import StereoisomerGenerator
     CDPL_AVAILABLE = True
 except ImportError:
     CDPL_AVAILABLE = False
-    CDPLChem = None  # type: ignore
-    CDPLConfGen = None  # type: ignore
-    CDPLBase = None  # type: ignore
-    CDPLMolProp = None  # type: ignore
-    StereoisomerGenerator = None  # type: ignore
+
+# Native RDKit tautomer canonicalizer (constructed once; cheap).
+# Cap the enumeration: RDKit defaults to maxTautomers/maxTransforms = 1000, which lets
+# Canonicalize() explore pathologically for molecules with many tautomerizable centers.
+# 50 is ample for picking a canonical tautomer and bounds the worst case (audit 2026-06-23).
+_RDKIT_TAUTOMER_MAX = 50
+_RDKIT_TAUTOMER_ENUMERATOR = rdMolStandardize.TautomerEnumerator()
+_RDKIT_TAUTOMER_ENUMERATOR.SetMaxTautomers(_RDKIT_TAUTOMER_MAX)
+_RDKIT_TAUTOMER_ENUMERATOR.SetMaxTransforms(_RDKIT_TAUTOMER_MAX)
+
+# CDPKit DefaultTautomerGenerator has NO native enumeration cap, so a molecule with
+# many tautomerizable centres can enumerate pathologically. Returning False from the
+# callback DOES stop generation (verified 2026-06-25), so we cap the count there.
+# 50 is ample for picking a canonical (highest-scoring) tautomer.
+_MAX_TAUTOMERS = 50
+# pH-7.4 protonation for the RDKit backend = Dimorphite-DL (pure-RDKit; core RDKit has no
+# pH ionization). Import-guarded so the module still loads if it is absent.
+try:
+    from drugex.training.scorers.protonation import protonate_smiles as _rdkit_protonate_smiles
+except ImportError:
+    _rdkit_protonate_smiles = None
+
 
 logger = logging.getLogger(__name__)
 
-
 class OmegaConformerGenerator(ConformerGenerator):
-    """Conformer generator using OpenEye OMEGA toolkit.
+    """Conformer Generator using Omega
 
-    Generates low-energy 3D conformations by enumerating stereocenters with OEFlipper
-    and building conformer ensembles using classical torsional driving and rule-based
-    ring conformation libraries.
-
-    Parameters
-    ----------
-    max_conformers : int, optional
-        Maximum number of conformers to generate per molecule, capped at 200, by default 10.
-    max_centers : int, optional
-        Maximum number of unspecified stereocenters to enumerate, by default 4.
-    max_heavy_atoms : int, optional
-        Drop molecules exceeding this heavy atom count threshold, by default 35.
-    max_rotatable_bonds : int, optional
-        Drop molecules exceeding this rotatable bond count threshold, by default 15.
-    filter : Any, optional
-        Optional OpenEye OEFilter instance, filter file path, or filter type integer,
-        by default None.
-    use_gpu : bool, optional
-        Whether to utilize GPU acceleration for torsion driving if available, by default False.
-    show_progress : bool, optional
-        Whether to print progress indicators during conformer generation, by default False.
-
-    Raises
-    ------
-    ImportError
-        If OpenEye toolkits (`openeye.oechem` or `openeye.oeomega`) are not installed.
+    Attributes:
+        max_conformers (int): max number of conformers to generate
+        max_centers (int): maximum number of stereocenters to enumerate
+        max_heavy_atoms (int): drop molecules with more heavy atoms than max_heavy_atoms
+        max_rotatable_bonds (int): drop molecules with more rotatable bonds than
+            max_rotatable_bonds
+        use_gpu (bool): whether to use GPU for conformer generation
+        show_progress (bool): whether to show progress during conformer generation
     """
 
     def __init__(
@@ -86,34 +76,42 @@ class OmegaConformerGenerator(ConformerGenerator):
         max_centers: int = 4,
         max_heavy_atoms: int = 35,
         max_rotatable_bonds: int = 15,
-        filter: Any = None,
+        filter: oemolprop.OEFilter | int | str | None = None,
         use_gpu: bool = False,
         show_progress: bool = False,
-    ) -> None:
-        """Initialize the OpenEye Omega conformer generator.
+        protonate: bool = True,
+        canonicalize_tautomer: bool = True,
+        timeout: int = 20,
+    ):
+        """Initialize the conformer generator
 
-        Parameters
-        ----------
-        max_conformers : int, optional
-            Maximum conformers per molecule, by default 10.
-        max_centers : int, optional
-            Maximum stereocenters to enumerate, by default 4.
-        max_heavy_atoms : int, optional
-            Maximum heavy atom count, by default 35.
-        max_rotatable_bonds : int, optional
-            Maximum rotatable bond count, by default 15.
-        filter : Any, optional
-            OEFilter instance or filter specification path, by default None.
-        use_gpu : bool, optional
-            Whether to use GPU if supported, by default False.
-        show_progress : bool, optional
-            Enable verbose progress dots, by default False.
+        Args:
+            max_conformers (int): max number of conformers to generate
+            max_centers (int): maximum number of stereocenters to enumerate
+            max_heavy_atoms (int): drop molecules with more heavy atoms than
+                max_heavy_atoms
+            max_rotatable_bonds (int): drop molecules with more rotatable bonds than
+                max_rotatable_bonds
+            filter (oemolprop.OEFilter | int | str | None): filter to apply
+                Either a path to a OEFilter file or an OEFilter object, or
+                a int representing a OEFilter_Type (can be given like:
+                    oemolprop.OEFilterType_BlockBuster)
+            use_gpu (bool): whether to use GPU for conformer generation
+            show_progress (bool): whether to show progress during conformer generation
+            timeout (int): per-molecule Omega search-time cap in seconds. Omega has
+                NO default per-molecule cap, so a torsion-driving-heavy molecule can
+                run unbounded and blow the GPU walltime (audit 2026-06-25). 20s bounds
+                the pathological tail; applied to both the top-level search-time and
+                the torsion-driving search-time via SetMaxSearchTime.
         """
         if not OE_AVAILABLE:
-            raise ImportError("OpenEye toolkits required for OmegaConformerGenerator")
+            raise ImportError("OpenEye toolkits required")
 
         if max_conformers > 200:
-            logger.warning("max_conformers > 200 may cause memory issues. Setting to 200.")
+            print(
+                "Warning: max_conformers > 200 may cause memory issues "
+                "Setting to 200."
+            )
             self.max_conformers = 200
         else:
             self.max_conformers = max_conformers
@@ -123,16 +121,14 @@ class OmegaConformerGenerator(ConformerGenerator):
         self.filter = filter
         self.use_gpu = use_gpu
         self.show_progress = show_progress
+        self.protonate = protonate
+        self.canonicalize_tautomer = canonicalize_tautomer
+        self.timeout = timeout
 
-    def _create_fresh_omega(self) -> Any:
-        """Create a fresh OEOmega instance with conservative parameter bounds.
-
-        Returns
-        -------
-        oeomega.OEOmega
-            Configured OpenEye Omega conformer builder instance.
-        """
+    def _build_omega_options(self):
+        """Build the OEOmegaOptions with the proven parameters + the search-time cap."""
         opts = oeomega.OEOmegaOptions()
+        # Use conservative conformer limits
         opts.SetMaxConfs(self.max_conformers)
         opts.SetStrictStereo(False)
         opts.SetFromCT(True)
@@ -141,6 +137,13 @@ class OmegaConformerGenerator(ConformerGenerator):
         opts.SetEnumRing(True)
         opts.SetRotorOffset(False)
 
+        # Per-molecule search-time cap (BLOCKER B5): Omega has no default cap, so a
+        # torsion-driving-heavy molecule can run unbounded. Cap both the top-level
+        # search-time and the torsion-driving search-time (verified native API).
+        opts.SetMaxSearchTime(float(self.timeout))
+        opts.GetTorDriveOptions().SetMaxSearchTime(float(self.timeout))
+
+        # Force CPU mode to reduce memory pressure
         if self.use_gpu and oeomega.OEOmegaIsGPUReady():
             opts.GetTorDriveOptions().SetUseGPU(True)
             opts.SetSampleHydrogens(False)
@@ -148,99 +151,100 @@ class OmegaConformerGenerator(ConformerGenerator):
             opts.GetTorDriveOptions().SetUseGPU(False)
             opts.SetSampleHydrogens(True)
 
-        return oeomega.OEOmega(opts)
+        return opts
 
-    def _filter_mol(self, smi: str, mol: Any) -> bool:
-        """Evaluate if an OpenEye molecule passes atom count and rotatable bond filters.
+    def _omega_options_for_test(self):
+        """Return the configured OEOmegaOptions (introspection for tests)."""
+        return self._build_omega_options()
 
-        Parameters
-        ----------
-        smi : str
-            SMILES representation for logging.
-        mol : oechem.OEMolBase
-            OpenEye molecule to test.
+    def _create_fresh_omega(self):
+        """Create a fresh Omega instance with proven parameters"""
+        return oeomega.OEOmega(self._build_omega_options())
 
-        Returns
-        -------
-        bool
-            True if molecule should be filtered out (rejected), False if accepted.
-        """
+    def _filter_mol(self, smi, mol) -> bool:
+        """Filter molecules based on heavy atoms and rotatable bonds"""
+
+        # filter based on heavy atoms and rotatable bonds
         if oechem.OECount(mol, oechem.OEIsHeavy()) > self.max_heavy_atoms:
-            oechem.OEThrow.Warning(f"Skipping {smi} with > {self.max_heavy_atoms} heavy atoms")
+            oechem.OEThrow.Warning(
+                f"Skipping {smi} with > {self.max_heavy_atoms} heavy atoms"
+            )
             return True
 
         if oechem.OECount(mol, oechem.OEIsRotor()) > self.max_rotatable_bonds:
-            oechem.OEThrow.Warning(f"Skipping {smi} with > {self.max_rotatable_bonds} rotatable bonds")
+            oechem.OEThrow.Warning(
+                f"Skipping {smi} with > {self.max_rotatable_bonds} rotatable bonds"
+            )
             return True
 
         if self.filter is not None:
             filter_type = oechem.oeifstream(self.filter) if isinstance(self.filter, str) else self.filter
-            oe_filter = oemolprop.OEFilter(filter_type)
-            oe_filter.SetMMFFTypeCheck(True)
-            if not oe_filter(mol):
-                oechem.OEThrow.Warning(f"Skipping {smi} due to: {oe_filter.GetMessage(mol)}")
+            filter = oemolprop.OEFilter(filter_type)
+            filter.SetMMFFTypeCheck(True)
+            if not filter(mol):
+                oechem.OEThrow.Warning(f"Skipping {smi} due to: {filter.GetMessage(mol)}")
                 return True
         return False
 
-    def _get_isomers(self, mol: Any) -> Iterator[Any]:
-        """Enumerate stereoisomers using OpenEye OEFlipper.
-
-        Parameters
-        ----------
-        mol : oechem.OEMolBase
-            Input molecule.
-
-        Yields
-        ------
-        oechem.OEMol
-            Enumerated stereoisomer OEMol instances.
-        """
+    def _get_isomers(self, mol):
+        """Generate isomers for a molecule using OMEGA"""
         opts = oeomega.OEFlipperOptions()
         opts.SetMaxCenters(self.max_centers)
         for conf in oeomega.OEFlipper(mol, opts):
             iso = oechem.OEMol(conf)
             yield iso
 
-    def genConformers(self, smiles_list: Sequence[str | None], out_dir: str) -> str:
-        """Generate 3D conformers for input SMILES strings using OpenEye OMEGA.
+    def genConformers(self, smiles_list, out_dir) -> str:
+        """Generate conformers using Openeye Omega
 
-        Parameters
-        ----------
-        smiles_list : Sequence[str | None]
-            List or sequence of SMILES strings.
-        out_dir : str
-            Target directory to write the generated conformer archive.
+        Args:
+            smiles_list (list[str]): List of SMILES strings to generate conformers for.
+            out_dir (str): Path to the output directory for the generated conformers.
 
-        Returns
-        -------
-        str
-            Absolute path to output `.oeb.gz` archive containing generated conformers.
+        Returns:
+            str: Path to the output conformers file (oeb.gz)
         """
-        os.makedirs(out_dir, exist_ok=True)
-        tmp_outfile = os.path.join(out_dir, "conformers.oeb.gz")
+        tmp_outfile = os.path.join(out_dir, f"conformers.oeb.gz")
         ofs = oechem.oemolostream()
         if not ofs.open(tmp_outfile):
-            oechem.OEThrow.Fatal(f"Unable to open {tmp_outfile} for writing conformers")
+            oechem.OEThrow.Fatal(
+                "Unable to open %s for writing conformers" % tmp_outfile
+            )
 
         omega = self._create_fresh_omega()
 
+        # Progress tracking for conformer generation
         dots = None
         if self.show_progress and len(smiles_list) > 50:
             print("Generating conformers...")
             dots = oechem.OEThreadedDots(100, 50, "molecules")
 
         for i, smi in enumerate(smiles_list):
-            if smi is None or not smi.strip():
-                continue
             mol = oechem.OEMol()
             title = f"mol_{i}"
             mol.SetTitle(title)
 
-            if not oechem.OESmilesToMol(mol, smi):
+            if smi is None or not oechem.OESmilesToMol(mol, smi):
                 continue
 
             if self._filter_mol(smi, mol):
                 continue
+
+            # NATIVE OpenEye prep (OEQuacPac) BEFORE OEFlipper + Omega:
+            #   OEGetReasonableTautomers(pKaNorm=protonate) -> reasonable tautomer
+            #   (+ pH-7.4 ionization when protonate); else OESetNeutralpHModel (protonate only).
+            # Guarded per-molecule (parity with RDKit/CDPKit): a bad molecule is skipped,
+            # never allowed to abort the whole batch.
+            try:
+                if self.canonicalize_tautomer:
+                    tauts = list(oequacpac.OEGetReasonableTautomers(
+                        mol, oequacpac.OETautomerOptions(), self.protonate))
+                    if tauts:
+                        mol = oechem.OEMol(tauts[0])
+                elif self.protonate:
+                    oequacpac.OESetNeutralpHModel(mol)
+            except Exception:
+                pass
 
             for j, iso in enumerate(self._get_isomers(mol)):
                 iso.SetTitle(f"{title}+{j}")
@@ -249,7 +253,8 @@ class OmegaConformerGenerator(ConformerGenerator):
                     oechem.OEWriteMolecule(ofs, iso)
                 else:
                     oechem.OEThrow.Warning(
-                        f"{smi}: {iso.GetTitle()} {oeomega.OEGetOmegaError(ret_code)}"
+                        "%s: %s %s"
+                        % (smi, iso.GetTitle(), oeomega.OEGetOmegaError(ret_code))
                     )
 
             if dots:
@@ -265,30 +270,15 @@ class OmegaConformerGenerator(ConformerGenerator):
 
 
 class SchrodingerConformerGenerator(ConformerGenerator):
-    """Conformer generator utilizing Schrödinger's `confgenx` and `sdconvert` CLI tools.
+    """Conformer generator using Schrodinger's software.
 
-    Runs ligand preparation, stereoisomer enumeration, and torsional sampling via
-    Schrödinger MacroModel/confgenx utilities. Requires the `SCHRODINGER` environment
-    variable pointing to a valid installation directory.
-
-    Parameters
-    ----------
-    max_conformers : int, optional
-        Maximum conformers per molecule, by default 10.
-    max_isomers : int, optional
-        Maximum stereoisomers per molecule, by default 4.
-    max_heavy_atoms : int, optional
-        Maximum heavy atom count cutoff, by default 35.
-    max_rotatable_bonds : int, optional
-        Maximum rotatable bond count cutoff, by default 15.
-    reactions : Sequence[Callable[[Chem.Mol], Chem.Mol]] | None, optional
-        List of reaction/transformation callables applied to each RDKit molecule
-        prior to conformer generation, by default None.
-
-    Raises
-    ------
-    RuntimeError
-        If `SCHRODINGER` environment variable is not defined.
+    Attributes:
+        max_conformers: Maximum number of conformers to generate.
+        max_isomers: Maximum number of isomers to generate.
+        max_heavy_atoms: Maximum number of heavy atoms allowed.
+        max_rotatable_bonds: Maximum number of rotatable bonds allowed.
+        reactions: List of reaction functions to apply.
+            Should take an rdkit molecule as input and return a modified molecule.
     """
 
     def __init__(
@@ -297,23 +287,8 @@ class SchrodingerConformerGenerator(ConformerGenerator):
         max_isomers: int = 4,
         max_heavy_atoms: int = 35,
         max_rotatable_bonds: int = 15,
-        reactions: Sequence[Callable[[Chem.Mol], Chem.Mol]] | None = None,
-    ) -> None:
-        """Initialize the Schrödinger conformer generator.
-
-        Parameters
-        ----------
-        max_conformers : int, optional
-            Maximum conformers to produce, by default 10.
-        max_isomers : int, optional
-            Maximum stereoisomers, by default 4.
-        max_heavy_atoms : int, optional
-            Heavy atom limit, by default 35.
-        max_rotatable_bonds : int, optional
-            Rotatable bond limit, by default 15.
-        reactions : Sequence[Callable[[Chem.Mol], Chem.Mol]] | None, optional
-            Pre-generation reaction functions, by default None.
-        """
+        reactions: list[Callable] | None = None,
+    ):
         if "SCHRODINGER" not in os.environ:
             raise RuntimeError("SCHRODINGER environment variable is not set")
 
@@ -323,45 +298,28 @@ class SchrodingerConformerGenerator(ConformerGenerator):
         self.max_rotatable_bonds = max_rotatable_bonds
         self.reactions = reactions
 
-    def _filter_mol(self, mol: Chem.Mol | None) -> bool:
-        """Filter RDKit molecules based on heavy atom and rotatable bond count thresholds.
-
-        Parameters
-        ----------
-        mol : Chem.Mol | None
-            RDKit molecule to inspect.
-
-        Returns
-        -------
-        bool
-            True if molecule should be filtered out, False otherwise.
-        """
+    def _filter_mol(self, mol) -> bool:
+        """Filter molecules based on heavy atoms and rotatable bonds"""
         if mol is None:
             return True
 
+        # filter based on heavy atoms and rotatable bonds
         if rdMolDescriptors.CalcNumHeavyAtoms(mol) > self.max_heavy_atoms:
-            print(f"Skipping {Chem.MolToSmiles(mol)} with > {self.max_heavy_atoms} heavy atoms")
+            print(
+                f"Skipping {Chem.MolToSmiles(mol)} with > {self.max_heavy_atoms} heavy atoms"
+            )
             return True
 
         if rdMolDescriptors.CalcNumRotatableBonds(mol) > self.max_rotatable_bonds:
-            print(f"Skipping {Chem.MolToSmiles(mol)} with > {self.max_rotatable_bonds} rotatable bonds")
+            print(
+                f"Skipping {Chem.MolToSmiles(mol)} with > {self.max_rotatable_bonds} rotatable bonds"
+            )
             return True
 
         return False
 
-    def apply_reactions(self, mol: Chem.Mol | None) -> Chem.Mol | None:
-        """Apply pre-processing chemical reactions (e.g. beta-lactam opening).
-
-        Parameters
-        ----------
-        mol : Chem.Mol | None
-            RDKit molecule.
-
-        Returns
-        -------
-        Chem.Mol | None
-            Chemically modified molecule.
-        """
+    def apply_reactions(self, mol):
+        """Apply reactions to hydrolyze beta-lactams and DBO scaffolds"""
         if mol is None or self.reactions is None:
             return mol
 
@@ -370,35 +328,29 @@ class SchrodingerConformerGenerator(ConformerGenerator):
 
         return mol
 
-    def genConformers(self, smiles_list: Sequence[str | None], out_dir: str) -> str:
-        """Generate 3D conformers using Schrödinger `confgenx`.
+    def genConformers(self, smiles_list, out_dir) -> str:
+        """Generate conformers using Schrodinger confgenx
 
-        Parameters
-        ----------
-        smiles_list : Sequence[str | None]
-            Sequence of SMILES strings to generate conformers for.
-        out_dir : str
-            Directory path to write input and output files.
-
-        Returns
-        -------
-        str
-            Path to the output SDF file containing generated conformers.
+        Returns:
+            str: Path to the output SDF file containing generated conformers.
         """
-        os.makedirs(out_dir, exist_ok=True)
         currwd = os.getcwd()
         os.chdir(out_dir)
 
         mols = [Chem.MolFromSmiles(smi) for smi in smiles_list if smi is not None]
+
+        # Filter out unwanted molecules
         mols = [mol for mol in mols if not self._filter_mol(mol)]
+
+        # apply reactions to hydrolyze beta-lactams and DBO scaffolds
         mols = [self.apply_reactions(mol) for mol in mols if mol is not None]
 
+        # save rdkit mols to temporary sd file
         tmp_infile = f"{out_dir}/input_mols.sdf"
         with Chem.SDWriter(tmp_infile) as w:
             for i, mol in enumerate(mols):
-                if mol is None:
-                    continue
                 mol.SetProp("_Name", f"mol_{i}")
+                # get isomers
                 opts = StereoEnumerationOptions(
                     tryEmbedding=False,
                     onlyUnassigned=False,
@@ -407,9 +359,12 @@ class SchrodingerConformerGenerator(ConformerGenerator):
                 )
                 for j, iso in enumerate(EnumerateStereoisomers(mol, opts)):
                     iso.SetProp("_Name", f"mol_{i}+{j}")
-                    iso = Chem.AddHs(iso)
-                    w.write(iso)
+                    if iso is not None:
+                        iso = Chem.AddHs(iso)
+                    if iso is not None:
+                        w.write(iso)
 
+        # run confgenx
         confgenx_cmd = [
             f"{os.environ['SCHRODINGER']}/confgenx",
             tmp_infile,
@@ -420,6 +375,7 @@ class SchrodingerConformerGenerator(ConformerGenerator):
         print("Running confgenx with command:", " ".join(confgenx_cmd))
         subprocess.run(confgenx_cmd, check=True)
 
+        # convert maegz file to sdf
         tmp_outfile = f"{out_dir}/output_conformers.sdf"
         sdconvert_cmd = [
             f"{os.environ['SCHRODINGER']}/utilities/sdconvert",
@@ -430,6 +386,10 @@ class SchrodingerConformerGenerator(ConformerGenerator):
         ]
         subprocess.run(sdconvert_cmd, check=True)
 
+        # read in sdf file, and add 0.01 to all coordinates
+        # this prevents issues with ROCS if all coordinates of a dimension are 0
+        # this happened with 8SKP of which the generated conformer is planar and had
+        # all z-coordinates as 0
         suppl = Chem.SDMolSupplier(tmp_outfile, removeHs=False)
         corrected_mols = []
         for mol in suppl:
@@ -440,6 +400,7 @@ class SchrodingerConformerGenerator(ConformerGenerator):
                     mol.GetConformer().SetAtomPosition(atom.GetIdx(), new_pos)
                 corrected_mols.append(mol)
 
+        # write modified sdf file
         with Chem.SDWriter(tmp_outfile) as w:
             for mol in corrected_mols:
                 if mol is not None:
@@ -450,26 +411,15 @@ class SchrodingerConformerGenerator(ConformerGenerator):
 
 
 class RDKitConformerGenerator(ConformerGenerator):
-    """3D Conformer generator using RDKit's Experimental-Torsion Distance Geometry (ETKDGv3).
+    """Conformer Generator using RDKit ETKDGv3
 
-    Performs unassigned stereoisomer enumeration followed by multi-conformer embedding
-    and RMSD pruning using RDKit's ETKDGv3 algorithm.
-
-    Parameters
-    ----------
-    max_conformers : int, optional
-        Maximum number of conformers to embed per stereoisomer, capped at 200, by default 10.
-    max_isomers : int, optional
-        Maximum number of unspecified stereoisomers to enumerate, by default 4.
-    max_heavy_atoms : int, optional
-        Drop molecules exceeding this heavy atom count threshold, by default 35.
-    max_rotatable_bonds : int, optional
-        Drop molecules exceeding this rotatable bond count threshold, by default 15.
-    num_threads : int, optional
-        Number of threads for ETKDG embedding (0 = all available CPU cores).
-        Set to 1 when calling within multiprocessing to avoid CPU contention, by default 0.
-    show_progress : bool, optional
-        Whether to log progress information during conformer generation, by default False.
+    Attributes:
+        max_conformers (int): max number of conformers to generate
+        max_isomers (int): maximum number of stereoisomers to enumerate
+        max_heavy_atoms (int): drop molecules with more heavy atoms than max_heavy_atoms
+        max_rotatable_bonds (int): drop molecules with more rotatable bonds than
+            max_rotatable_bonds
+        show_progress (bool): whether to show progress during conformer generation
     """
 
     def __init__(
@@ -479,27 +429,34 @@ class RDKitConformerGenerator(ConformerGenerator):
         max_heavy_atoms: int = 35,
         max_rotatable_bonds: int = 15,
         num_threads: int = 0,
+        timeout: int = 20,
         show_progress: bool = False,
-    ) -> None:
-        """Initialize the RDKit ETKDGv3 conformer generator.
+        protonate: bool = True,
+        canonicalize_tautomer: bool = True,
+    ):
+        """Initialize the conformer generator
 
-        Parameters
-        ----------
-        max_conformers : int, optional
-            Maximum conformers to generate per isomer, by default 10.
-        max_isomers : int, optional
-            Maximum stereoisomers to enumerate, by default 4.
-        max_heavy_atoms : int, optional
-            Heavy atom ceiling, by default 35.
-        max_rotatable_bonds : int, optional
-            Rotatable bond ceiling, by default 15.
-        num_threads : int, optional
-            Thread count for embedding (0 = all cores), by default 0.
-        show_progress : bool, optional
-            Whether to log generation progress, by default False.
+        Args:
+            max_conformers (int): max number of conformers to generate
+            max_isomers (int): maximum number of stereoisomers to enumerate
+            max_heavy_atoms (int): drop molecules with more heavy atoms than
+                max_heavy_atoms
+            max_rotatable_bonds (int): drop molecules with more rotatable bonds than
+                max_rotatable_bonds
+            num_threads (int): Number of threads for ETKDG conformer generation.
+                0 = use all available CPU cores (default).
+            timeout (int): Per-isomer timeout in seconds for ETKDG embedding.
+                0 = no timeout. Default 20s bounds the ~10% of molecules that fail
+                to embed cleanly (these otherwise burn timeout x max_isomers seconds
+                each and dominate an RL epoch; audit 2026-06-23). The fast ~90% embed
+                in <1s and are unaffected.
+            show_progress (bool): whether to show progress during conformer generation
         """
         if max_conformers > 200:
-            logger.warning("max_conformers > 200 may cause memory issues. Setting to 200.")
+            print(
+                "Warning: max_conformers > 200 may cause memory issues "
+                "Setting to 200."
+            )
             self.max_conformers = 200
         else:
             self.max_conformers = max_conformers
@@ -507,37 +464,25 @@ class RDKitConformerGenerator(ConformerGenerator):
         self.max_heavy_atoms = max_heavy_atoms
         self.max_rotatable_bonds = max_rotatable_bonds
         self.num_threads = num_threads
+        self.timeout = timeout
         self.show_progress = show_progress
+        self.protonate = protonate
+        self.canonicalize_tautomer = canonicalize_tautomer
 
-    def _create_fresh_etkdg(self) -> AllChem.EmbedParameters:
-        """Create ETKDGv3 embedding parameters with reproducible random seed.
-
-        Returns
-        -------
-        AllChem.EmbedParameters
-            Configured RDKit ETKDGv3 embedding parameter object.
-        """
+    def _create_fresh_etkdg(self):
+        """Create ETKDGv3 parameters for conformer generation."""
         params = AllChem.ETKDGv3()
-        params.randomSeed = 0xC0FFEE
+        params.randomSeed = 0xc0ffee
         params.numThreads = self.num_threads
         params.pruneRmsThresh = 0.5
+        if self.timeout > 0:
+            params.timeout = self.timeout
         return params
 
-    def _filter_mol(self, smi: str, mol: Chem.Mol) -> bool:
-        """Check if molecule exceeds heavy atom or rotatable bond thresholds.
+    def _filter_mol(self, smi, mol) -> bool:
+        """Filter molecules based on heavy atoms and rotatable bonds"""
 
-        Parameters
-        ----------
-        smi : str
-            SMILES string for logging.
-        mol : Chem.Mol
-            RDKit molecule to test.
-
-        Returns
-        -------
-        bool
-            True if molecule should be filtered out, False otherwise.
-        """
+        # filter based on heavy atoms and rotatable bonds
         if rdMolDescriptors.CalcNumHeavyAtoms(mol) > self.max_heavy_atoms:
             message = f"Skipping {smi} with > {self.max_heavy_atoms} heavy atoms"
             if self.show_progress:
@@ -556,44 +501,27 @@ class RDKitConformerGenerator(ConformerGenerator):
 
         return False
 
-    def _get_isomers(self, mol: Chem.Mol) -> Iterator[Chem.Mol]:
-        """Enumerate unassigned stereoisomers for an RDKit molecule.
-
-        Parameters
-        ----------
-        mol : Chem.Mol
-            RDKit molecule.
-
-        Yields
-        ------
-        Chem.Mol
-            Enumerated stereoisomer instances.
-        """
+    def _get_isomers(self, mol):
+        """Generate isomers for a molecule using RDKit"""
         opts = StereoEnumerationOptions()
         opts.maxIsomers = self.max_isomers
         opts.onlyUnassigned = True
         opts.tryEmbedding = False
-        opts.rand = 0xC0FFEE
+        opts.rand = 0xc0ffee
         for iso in EnumerateStereoisomers(mol, options=opts):
             yield iso
 
-    def genConformers(self, smiles_list: Sequence[str | None], out_dir: str) -> str:
-        """Generate 3D conformers for input SMILES using RDKit ETKDGv3 and save to SDF.
+    def genConformers(self, smiles_list, out_dir) -> str:
+        """Generate conformers using RDKit ETKDG
 
-        Parameters
-        ----------
-        smiles_list : Sequence[str | None]
-            List of SMILES strings.
-        out_dir : str
-            Output directory where `conformers.sdf` will be written.
+        Args:
+            smiles_list (list[str]): List of SMILES strings to generate conformers for.
+            out_dir (str): Path to the output directory for the generated conformers.
 
-        Returns
-        -------
-        str
-            Path to the written `conformers.sdf` file.
+        Returns:
+            str: Path to the output conformers file (SDF)
         """
-        os.makedirs(out_dir, exist_ok=True)
-        tmp_outfile = os.path.join(out_dir, "conformers.sdf")
+        tmp_outfile = os.path.join(out_dir, f"conformers.sdf")
         writer = Chem.SDWriter(tmp_outfile)
 
         etkdg = self._create_fresh_etkdg()
@@ -602,17 +530,31 @@ class RDKitConformerGenerator(ConformerGenerator):
             logger.info("Generating conformers with RDKit ETKDG")
 
         for i, smi in enumerate(smiles_list):
-            if smi is None or not smi.strip():
+            # Skip None and empty inputs
+            if smi is None or not smi:
                 continue
 
             mol = Chem.MolFromSmiles(smi)
             title = f"mol_{i}"
 
-            if mol is None:
+            if smi is None or mol is None:
                 continue
 
             if self._filter_mol(smi, mol):
                 continue
+
+            # Prep BEFORE stereoisomer enumeration + embedding. Order is load-bearing:
+            # tautomer Canonicalize strips sp3/bond stereo, so it must precede _get_isomers.
+            #   tautomer-canonicalize -> protonate(pH 7.4) -> stereoisomers -> AddHs -> embed
+            if self.canonicalize_tautomer:
+                try:
+                    mol = _RDKIT_TAUTOMER_ENUMERATOR.Canonicalize(mol)
+                except Exception:
+                    pass
+            if self.protonate and _rdkit_protonate_smiles is not None:
+                reparsed = Chem.MolFromSmiles(_rdkit_protonate_smiles(Chem.MolToSmiles(mol)))
+                if reparsed is not None:
+                    mol = reparsed
 
             for j, iso in enumerate(self._get_isomers(mol)):
                 iso = Chem.AddHs(iso)
@@ -622,10 +564,11 @@ class RDKitConformerGenerator(ConformerGenerator):
                     conf_ids = AllChem.EmbedMultipleConfs(
                         iso,
                         numConfs=self.max_conformers,
-                        params=etkdg,
+                        params=etkdg
                     )
 
                     if len(conf_ids) > 0:
+                        # Write all conformers
                         for conf_id in conf_ids:
                             writer.write(iso, confId=conf_id)
                     else:
@@ -636,7 +579,9 @@ class RDKitConformerGenerator(ConformerGenerator):
                             logger.debug(message)
 
                 except (RuntimeError, ValueError) as e:
-                    message = f"{smi}: {iso.GetProp('_Name')} conformer generation error: {e}"
+                    message = (
+                        f"{smi}: {iso.GetProp('_Name')} conformer generation error: {e}"
+                    )
                     if self.show_progress:
                         logger.warning(message)
                     else:
@@ -647,35 +592,32 @@ class RDKitConformerGenerator(ConformerGenerator):
         gc.collect()
         return tmp_outfile
 
-    def write_conformers(self, mols: Sequence[Chem.Mol | str | None], out_file: str) -> None:
-        """Write conformers for a sequence of RDKit molecules or SMILES strings to an SDF file.
+    def write_conformers(self, mols: List, out_file: str) -> None:
+        """Write conformers for RDKit molecules to an SDF file
 
-        Parameters
-        ----------
-        mols : Sequence[Chem.Mol | str | None]
-            Molecules or SMILES to process.
-        out_file : str
-            Target SDF file path.
+        Args:
+            mols: List of RDKit molecules
+            out_file: Path to output SDF file
         """
-        smiles_list: List[str] = []
-        for mol in mols:
+        # Convert molecules to SMILES
+        smiles_list = []
+        for i, mol in enumerate(mols):
             if mol is None:
                 continue
-            if isinstance(mol, str):
-                smiles_list.append(mol)
-            else:
-                try:
-                    smi = Chem.MolToSmiles(mol)
-                    smiles_list.append(smi)
-                except Exception:
-                    continue
+            try:
+                smi = Chem.MolToSmiles(mol)
+                smiles_list.append(smi)
+            except Exception:
+                continue
+
+        if not smiles_list:
+            # Create empty file
+            with open(out_file, 'w') as f:
+                pass
+            return
 
         output_path = Path(out_file).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if not smiles_list:
-            output_path.touch()
-            return
 
         sdf_file = self.genConformers(smiles_list, output_path.parent.as_posix())
         if not sdf_file or not os.path.exists(sdf_file):
@@ -687,34 +629,23 @@ class RDKitConformerGenerator(ConformerGenerator):
 
 
 class CDPKitConformerGenerator(ConformerGenerator):
-    """Conformer generator using Chemical Data Processing Toolkit (CDPKit) `CDPL.ConfGen`.
+    """Conformer Generator using CDPKit CDPL.ConfGen
 
-    Utilizes CDPKit's stochastic torsional sampling, force-field minimization,
-    and stereoisomer enumeration following official CDPKit cookbook practices.
+    CDPKit conformer generation following the official CDPKit examples.
+    Based on gen_confs.py from CDPKit GitHub repository.
 
-    Parameters
-    ----------
-    max_conformers : int, optional
-        Maximum conformers per stereoisomer, capped at 200, by default 10.
-    max_isomers : int, optional
-        Maximum stereoisomers to enumerate, by default 4.
-    max_heavy_atoms : int, optional
-        Maximum heavy atoms allowed, by default 35.
-    max_rotatable_bonds : int, optional
-        Maximum rotatable bonds allowed, by default 15.
-    timeout : int, optional
-        Timeout limit for conformer generation per molecule in seconds, by default 3600.
-    min_rmsd : float, optional
-        Minimum RMSD threshold for keeping distinct conformers in Angstroms, by default 0.5.
-    energy_window : float, optional
-        Energy window for conformer retention above local minimum in kcal/mol, by default 20.0.
-    show_progress : bool, optional
-        Whether to log progress messages, by default False.
+    This implementation uses StereoisomerGenerator for explicit stereoisomer enumeration,
+    matching the behavior of RDKit and OpenEye implementations.
 
-    Raises
-    ------
-    ImportError
-        If CDPKit Python bindings (`CDPL`) are not installed.
+    Attributes:
+        max_conformers (int): max number of conformers to generate per stereoisomer
+        max_isomers (int): maximum number of stereoisomers to enumerate
+        max_heavy_atoms (int): drop molecules with more heavy atoms than max_heavy_atoms
+        max_rotatable_bonds (int): drop molecules with more rotatable bonds than max_rotatable_bonds
+        timeout (int): timeout for conformer generation in seconds
+        min_rmsd (float): minimum RMSD between conformers
+        energy_window (float): energy window for conformer selection in kcal/mol
+        show_progress (bool): whether to show progress during conformer generation
     """
 
     def __init__(
@@ -723,40 +654,35 @@ class CDPKitConformerGenerator(ConformerGenerator):
         max_isomers: int = 4,
         max_heavy_atoms: int = 35,
         max_rotatable_bonds: int = 15,
-        timeout: int = 3600,
+        timeout: int = 20,  # seconds/molecule. Was 3600 (1hr!) per the CDPKit example, which
+                            # let cdpkit/supermol/eps0.3 run ~31min/epoch; 20s bounds the
+                            # pathological tail (CDPL enforces it natively via settings.timeout).
         min_rmsd: float = 0.5,
         energy_window: float = 20.0,
         show_progress: bool = False,
-    ) -> None:
-        """Initialize the CDPKit conformer generator.
+        protonate: bool = True,
+        canonicalize_tautomer: bool = True,
+    ):
+        """Initialize the CDPKit conformer generator
 
-        Parameters
-        ----------
-        max_conformers : int, optional
-            Max conformers per isomer, by default 10.
-        max_isomers : int, optional
-            Max stereoisomers, by default 4.
-        max_heavy_atoms : int, optional
-            Max heavy atoms, by default 35.
-        max_rotatable_bonds : int, optional
-            Max rotatable bonds, by default 15.
-        timeout : int, optional
-            Timeout per molecule in seconds, by default 3600.
-        min_rmsd : float, optional
-            RMSD pruning threshold in Angstroms, by default 0.5.
-        energy_window : float, optional
-            Energy window in kcal/mol, by default 20.0.
-        show_progress : bool, optional
-            Whether to log progress, by default False.
+        Args:
+            max_conformers (int): max number of conformers to generate per stereoisomer
+            max_isomers (int): maximum number of stereoisomers to enumerate
+            max_heavy_atoms (int): drop molecules with more heavy atoms than max_heavy_atoms
+            max_rotatable_bonds (int): drop molecules with more rotatable bonds than max_rotatable_bonds
+            timeout (int): timeout for conformer generation in seconds
+            min_rmsd (float): minimum RMSD between conformers
+            energy_window (float): energy window for conformer selection in kcal/mol
+            show_progress (bool): whether to show progress during conformer generation
         """
         if not CDPL_AVAILABLE:
-            raise ImportError(
-                "CDPKit not available. Install with: conda install -c conda-forge cdpkit "
-                "or pip install cdpkit"
-            )
+            raise ImportError("CDPKit not available. Install with: conda install -c conda-forge cdpkit")
 
         if max_conformers > 200:
-            logger.warning("max_conformers > 200 may cause memory issues. Setting to 200.")
+            print(
+                "Warning: max_conformers > 200 may cause memory issues. "
+                "Setting to 200."
+            )
             self.max_conformers = 200
         else:
             self.max_conformers = max_conformers
@@ -768,36 +694,29 @@ class CDPKitConformerGenerator(ConformerGenerator):
         self.min_rmsd = min_rmsd
         self.energy_window = energy_window
         self.show_progress = show_progress
+        self.protonate = protonate
+        self.canonicalize_tautomer = canonicalize_tautomer
 
-    def _create_conf_generator(self) -> Any:
-        """Create a CDPKit ConformerGenerator with configured parameters.
-
-        Returns
-        -------
-        CDPLConfGen.ConformerGenerator
-            Configured CDPKit conformer generator engine.
-        """
+    def _create_conf_generator(self):
+        """Create a CDPKit ConformerGenerator with optimal settings following CDPKit examples"""
         conf_gen = CDPLConfGen.ConformerGenerator()
+
+        # Configure settings following CDPKit gen_confs.py example
         conf_gen.settings.timeout = self.timeout * 1000  # Convert to milliseconds
         conf_gen.settings.minRMSD = self.min_rmsd
         conf_gen.settings.energyWindow = self.energy_window
         conf_gen.settings.maxNumOutputConformers = self.max_conformers
+
         return conf_gen
 
-    def _gen_conf_ensemble(self, mol: Any, conf_gen: Any) -> Tuple[int, int]:
-        """Generate conformer ensemble for a CDPKit molecule.
+    def _gen_conf_ensemble(self, mol, conf_gen):
+        """Generate conformer ensemble following CDPKit gen_confs.py pattern
 
-        Parameters
-        ----------
-        mol : CDPLChem.BasicMolecule
-            CDPKit molecule.
-        conf_gen : CDPLConfGen.ConformerGenerator
-            Configured conformer generator.
+        Directly from CDPKit documentation:
+        https://cdpkit.org/cdpl_python_cookbook/confgen/gen_ensemble.html
 
-        Returns
-        -------
-        Tuple[int, int]
-            (status_code, num_conformers_generated)
+        Returns:
+            tuple: (status, num_conformers)
         """
         CDPLConfGen.prepareForConformerGeneration(mol)
         status = conf_gen.generate(mol)
@@ -810,18 +729,14 @@ class CDPKitConformerGenerator(ConformerGenerator):
 
         return status, num_confs
 
-    def _smiles_to_cdpl_mol(self, smiles: str) -> Any:
-        """Parse a SMILES string into a CDPKit molecule with initialized basic properties.
+    def _smiles_to_cdpl_mol(self, smiles: str):
+        """Convert SMILES to CDPKit molecule
 
-        Parameters
-        ----------
-        smiles : str
-            SMILES representation.
+        Initializes basic molecular properties (hydrogen counts, hybridization,
+        ring flags, aromaticity) required for filtering and downstream processing.
 
-        Returns
-        -------
-        CDPLChem.BasicMolecule | None
-            Parsed CDPKit molecule, or None on failure.
+        Uses CDPKit's official calcBasicProperties pattern from the cookbook:
+        https://cdpkit.org/cdpl_python_cookbook/descr/fingerprints/ecfp.html
         """
         if not smiles:
             return None
@@ -830,31 +745,34 @@ class CDPKitConformerGenerator(ConformerGenerator):
             mol = CDPLChem.parseSMILES(smiles.strip())
             if mol is None or mol.getNumAtoms() == 0:
                 return None
+
+            # Initialize basic molecular properties (CDPKit official pattern)
+            # Required for getRotatableBondCount and other molecular descriptors
             CDPLChem.calcBasicProperties(mol, False)
+
             return mol
         except Exception:
             return None
 
-    def _filter_mol(self, smi: str, mol: Any) -> bool:
-        """Check if CDPKit molecule exceeds heavy atom or rotatable bond thresholds.
+    def _filter_mol(self, smi: str, mol) -> bool:
+        """Filter molecules based on heavy atoms and rotatable bonds
 
-        Parameters
-        ----------
-        smi : str
-            SMILES string for error reporting.
-        mol : CDPLChem.BasicMolecule
-            CDPKit molecule with initialized properties.
+        Note: Molecule must have basic properties initialized via
+        calcBasicProperties before calling this method (done in _smiles_to_cdpl_mol).
 
-        Returns
-        -------
-        bool
-            True if molecule should be filtered out, False otherwise.
+        Args:
+            smi: SMILES string for error reporting
+            mol: CDPKit molecule object with basic properties initialized
+
+        Returns:
+            True if molecule should be filtered out (rejected), False otherwise
         """
         if mol is None:
             return True
 
         try:
             heavy_atom_count = CDPLMolProp.getHeavyAtomCount(mol)
+
             if heavy_atom_count > self.max_heavy_atoms:
                 message = f"Skipping {smi} with {heavy_atom_count} heavy atoms (max: {self.max_heavy_atoms})"
                 if self.show_progress:
@@ -863,9 +781,13 @@ class CDPKitConformerGenerator(ConformerGenerator):
                     logger.debug(message)
                 return True
 
+            # Filter by rotatable bonds to match RDKit/Omega behaviour
             rot_bonds = CDPLMolProp.getRotatableBondCount(mol)
             if rot_bonds > self.max_rotatable_bonds:
-                message = f"Skipping {smi} with {rot_bonds} rotatable bonds (max: {self.max_rotatable_bonds})"
+                message = (
+                    f"Skipping {smi} with {rot_bonds} rotatable bonds "
+                    f"(max: {self.max_rotatable_bonds})"
+                )
                 if self.show_progress:
                     logger.warning(message)
                 else:
@@ -873,37 +795,53 @@ class CDPKitConformerGenerator(ConformerGenerator):
                 return True
 
             return False
+
         except Exception:
+            # Catch any unexpected errors
             return True
 
-    def _get_isomers(self, mol: Any) -> Iterator[Any]:
-        """Enumerate stereoisomers for a molecule using CDPKit StereoisomerGenerator.
+    def _get_isomers(self, mol):
+        """Generate stereoisomers for a molecule using CDPKit StereoisomerGenerator
 
-        Parameters
-        ----------
-        mol : CDPLChem.BasicMolecule
-            Input CDPKit molecule.
+        This explicitly enumerates stereoisomers up to the ``max_isomers`` limit,
+        matching the behavior of RDKit and OpenEye implementations.
 
-        Yields
-        ------
-        CDPLChem.BasicMolecule
-            Configured stereoisomer copies.
+        See: https://cdpkit.org/cdpl_api_doc/python_api_doc/classCDPL_1_1Chem_1_1StereoisomerGenerator.html
+
+        Args:
+            mol: CDPKit molecule object
+
+        Yields:
+            CDPKit molecule objects (stereoisomers)
         """
+        # Create stereoisomer generator
         stereo_gen = StereoisomerGenerator()
+
+        # Enable both atom and bond stereochemistry enumeration
         stereo_gen.enumerateAtomConfig(True)
         stereo_gen.enumerateBondConfig(True)
+
+        # Don't include already specified centers (only enumerate unspecified)
         stereo_gen.includeSpecifiedCenters(False)
+
+        # Set up the generator with the molecule
         stereo_gen.setup(mol)
 
+        # Generate stereoisomers up to max_isomers limit
         count = 0
         while count < self.max_isomers:
+            # Create a copy of the molecule for this stereoisomer
             iso_mol = CDPLChem.BasicMolecule(mol)
+
+            # Generate next stereoisomer configuration
             if not stereo_gen.generate():
                 break
 
+            # Apply the stereochemistry descriptors to the molecule copy
             atom_descriptors = stereo_gen.getAtomDescriptors()
             bond_descriptors = stereo_gen.getBondDescriptors()
 
+            # Set stereochemistry on the isomer molecule
             for i, desc in enumerate(atom_descriptors):
                 if i < iso_mol.getNumAtoms():
                     CDPLChem.setStereoDescriptor(iso_mol.getAtom(i), desc)
@@ -915,23 +853,79 @@ class CDPKitConformerGenerator(ConformerGenerator):
             yield iso_mol
             count += 1
 
+        # If no stereoisomers were generated, yield the original molecule
         if count == 0:
             yield mol
 
-    def genConformers(self, smiles_list: Sequence[str | None], out_dir: str) -> str:
-        """Generate 3D conformers for input SMILES using CDPKit and write to an SDF file.
+    def _canonical_tautomer(self, mol):
+        """Return the dominant (highest-scoring) tautomer via NATIVE CDPKit.
 
-        Parameters
-        ----------
-        smiles_list : Sequence[str | None]
-            Sequence of SMILES strings to generate conformers for.
-        out_dir : str
-            Output directory for the conformer SDF file.
+        The enumeration is bounded: CDPKit's DefaultTautomerGenerator has no native
+        cap, so we count accepted tautomers in the callback and ``return False`` to
+        stop generation once ``_MAX_TAUTOMERS`` have been scored (verified: a False
+        return halts enumeration). This bounds the worst case for tautomer-rich
+        molecules (BLOCKER B6, audit 2026-06-25).
+        """
+        gen = CDPLChem.DefaultTautomerGenerator()
+        gen.setMode(CDPLChem.TautomerGenerator.Mode.TOPOLOGICALLY_UNIQUE)
+        scorer = CDPLChem.TautomerScore()
+        best = {"mol": None, "score": float("-inf"), "n": 0}
 
-        Returns
-        -------
-        str
-            Path to generated SDF file with conformers, or empty string if no conformers generated.
+        def _cb(taut):
+            t = CDPLChem.BasicMolecule(taut)
+            CDPLChem.calcBasicProperties(t, True)
+            s = scorer(t)
+            if s > best["score"]:
+                best["score"], best["mol"] = s, t
+            best["n"] += 1
+            # Stop once the cap is reached (False halts generation).
+            return best["n"] < _MAX_TAUTOMERS
+
+        gen.setCallbackFunction(_cb)
+        gen.generate(mol)
+        return best["mol"] if best["mol"] is not None else mol
+
+    def _canonical_tautomer_count(self, mol):
+        """Count how many tautomers the (capped) enumeration accepts (test probe)."""
+        gen = CDPLChem.DefaultTautomerGenerator()
+        gen.setMode(CDPLChem.TautomerGenerator.Mode.TOPOLOGICALLY_UNIQUE)
+        seen = {"n": 0}
+
+        def _cb(taut):
+            seen["n"] += 1
+            return seen["n"] < _MAX_TAUTOMERS
+
+        gen.setCallbackFunction(_cb)
+        gen.generate(mol)
+        return seen["n"]
+
+    def _protonate_physiological(self, mol):
+        """Return the pH-7.4 dominant protonation state via NATIVE CDPKit."""
+        std = CDPLChem.ProtonationStateStandardizer()
+        out = CDPLChem.BasicMolecule()
+        std.standardize(
+            mol, out,
+            CDPLChem.ProtonationStateStandardizer.Flavor.PHYSIOLOGICAL_CONDITION_STATE,
+        )
+        CDPLChem.calcBasicProperties(out, True)  # re-init for downstream stereo/confgen
+        return out
+
+    def genConformers(self, smiles_list, out_dir) -> str:
+        """Generate conformers for a list of SMILES and save to SDF
+
+        For each input SMILES:
+        1. Enumerate up to max_isomers stereoisomers using StereoisomerGenerator
+        2. For each stereoisomer, generate up to max_conformers conformations
+        3. Total output: up to (max_isomers × max_conformers) structures per molecule
+
+        This matches the behavior of RDKit and OpenEye implementations.
+
+        Args:
+            smiles_list (list[str]): List of SMILES strings to generate conformers for
+            out_dir (str): Output directory for the conformer SDF file
+
+        Returns:
+            str: Path to the generated SDF file with conformers
         """
         if not smiles_list:
             return ""
@@ -940,8 +934,12 @@ class CDPKitConformerGenerator(ConformerGenerator):
         tmp_outfile = os.path.join(out_dir, "conformers_cdpkit.sdf")
 
         if self.show_progress:
-            logger.info("Generating conformers for %d molecules using CDPKit", len(smiles_list))
+            logger.info(
+                "Generating conformers for %d molecules using CDPKit",
+                len(smiles_list),
+            )
 
+        # Create SDF writer (following CDPKit example)
         try:
             writer = CDPLChem.FileSDFMolecularGraphWriter(tmp_outfile)
         except Exception as e:
@@ -949,49 +947,67 @@ class CDPKitConformerGenerator(ConformerGenerator):
                 logger.error("Error creating CDPKit SDF writer: %s", e)
             return ""
 
+        # Create conformer generator once (following CDPKit example)
         conf_gen = self._create_conf_generator()
+
         total_conformers = 0
         valid_molecules = 0
 
-        status_to_str: Dict[int, str] = {
-            CDPLConfGen.ReturnCode.UNINITIALIZED: "uninitialized",
-            CDPLConfGen.ReturnCode.TIMEOUT: "max. processing time exceeded",
-            CDPLConfGen.ReturnCode.ABORTED: "aborted",
-            CDPLConfGen.ReturnCode.FORCEFIELD_SETUP_FAILED: "force field setup failed",
-            CDPLConfGen.ReturnCode.FORCEFIELD_MINIMIZATION_FAILED: "force field structure refinement failed",
-            CDPLConfGen.ReturnCode.FRAGMENT_LIBRARY_NOT_SET: "fragment library not available",
-            CDPLConfGen.ReturnCode.FRAGMENT_CONF_GEN_FAILED: "fragment conformer generation failed",
-            CDPLConfGen.ReturnCode.FRAGMENT_CONF_GEN_TIMEOUT: "fragment conformer generation timeout",
-            CDPLConfGen.ReturnCode.FRAGMENT_ALREADY_PROCESSED: "fragment already processed",
-            CDPLConfGen.ReturnCode.TORSION_DRIVING_FAILED: "torsion driving failed",
-            CDPLConfGen.ReturnCode.CONF_GEN_FAILED: "conformer generation failed",
-            CDPLConfGen.ReturnCode.NO_FIXED_SUBSTRUCT_COORDS: "fixed substructure atoms do not provide 3D coordinates",
+        # Status code to string mapping (from CDPKit example)
+        status_to_str = {
+            CDPLConfGen.ReturnCode.UNINITIALIZED: 'uninitialized',
+            CDPLConfGen.ReturnCode.TIMEOUT: 'max. processing time exceeded',
+            CDPLConfGen.ReturnCode.ABORTED: 'aborted',
+            CDPLConfGen.ReturnCode.FORCEFIELD_SETUP_FAILED: 'force field setup failed',
+            CDPLConfGen.ReturnCode.FORCEFIELD_MINIMIZATION_FAILED: 'force field structure refinement failed',
+            CDPLConfGen.ReturnCode.FRAGMENT_LIBRARY_NOT_SET: 'fragment library not available',
+            CDPLConfGen.ReturnCode.FRAGMENT_CONF_GEN_FAILED: 'fragment conformer generation failed',
+            CDPLConfGen.ReturnCode.FRAGMENT_CONF_GEN_TIMEOUT: 'fragment conformer generation timeout',
+            CDPLConfGen.ReturnCode.FRAGMENT_ALREADY_PROCESSED: 'fragment already processed',
+            CDPLConfGen.ReturnCode.TORSION_DRIVING_FAILED: 'torsion driving failed',
+            CDPLConfGen.ReturnCode.CONF_GEN_FAILED: 'conformer generation failed',
+            CDPLConfGen.ReturnCode.NO_FIXED_SUBSTRUCT_COORDS: 'fixed substructure atoms do not provide 3D coordinates'
         }
 
         for i, smi in enumerate(smiles_list):
             if not smi or smi.strip() == "":
                 continue
 
+            # Convert SMILES to CDPL molecule
             mol = self._smiles_to_cdpl_mol(smi)
             if mol is None:
                 if self.show_progress:
                     logger.warning("Failed to parse SMILES for CDPKit: %s", smi)
                 continue
 
+            # Filter molecules
             if self._filter_mol(smi, mol):
                 continue
 
+            # NATIVE CDPKit prep BEFORE stereoisomer enumeration (order load-bearing):
+            #   tautomer-canonicalize -> protonate(pH 7.4) -> stereoisomers -> conformers
+            if self.canonicalize_tautomer:
+                try:
+                    mol = self._canonical_tautomer(mol)
+                except Exception:
+                    pass
+            if self.protonate:
+                try:
+                    mol = self._protonate_physiological(mol)
+                except Exception:
+                    pass
+
+            # Generate stereoisomers and conformers for each
             for j, iso in enumerate(self._get_isomers(mol)):
                 mol_name = f"mol_{i}+{j}"
                 CDPLChem.setName(iso, mol_name)
 
                 try:
+                    # Generate conformer ensemble (following CDPKit example)
                     status, num_confs = self._gen_conf_ensemble(iso, conf_gen)
 
-                    if (
-                        status != CDPLConfGen.ReturnCode.SUCCESS
-                        and status != CDPLConfGen.ReturnCode.TOO_MUCH_SYMMETRY
-                    ):
+                    # Check for severe error reported by status code (from CDPKit example)
+                    if status != CDPLConfGen.ReturnCode.SUCCESS and status != CDPLConfGen.ReturnCode.TOO_MUCH_SYMMETRY:
                         if self.show_progress:
                             error_msg = status_to_str.get(status, f"unknown status {status}")
                             logger.warning(
@@ -1001,6 +1017,7 @@ class CDPKitConformerGenerator(ConformerGenerator):
                             )
                         continue
 
+                    # Output generated ensemble if available (from CDPKit example)
                     if num_confs > 0:
                         try:
                             writer.write(iso)
@@ -1022,14 +1039,22 @@ class CDPKitConformerGenerator(ConformerGenerator):
                                     )
                         except Exception as e:
                             if self.show_progress:
-                                logger.warning("Failed to write conformers for %s: %s", mol_name, e)
+                                logger.warning(
+                                    "Failed to write conformers for %s: %s",
+                                    mol_name,
+                                    e,
+                                )
                     else:
                         if self.show_progress:
                             logger.warning("No CDPKit conformers generated for %s", mol_name)
 
                 except Exception as e:
                     if self.show_progress:
-                        logger.warning("CDPKit conformer generation error for %s: %s", mol_name, e)
+                        logger.warning(
+                            "CDPKit conformer generation error for %s: %s",
+                            mol_name,
+                            e,
+                        )
 
         try:
             writer.close()
@@ -1043,38 +1068,37 @@ class CDPKitConformerGenerator(ConformerGenerator):
                 total_conformers,
             )
 
+        # Clean up memory
         gc.collect()
+
         return tmp_outfile if total_conformers > 0 else ""
 
-    def write_conformers(self, mols: Sequence[Chem.Mol | str | None], out_file: str) -> None:
-        """Write conformers for a sequence of molecules or SMILES to an SDF file.
+    def write_conformers(self, mols: List, out_file: str) -> None:
+        """Write conformers for RDKit molecules to an SDF file
 
-        Parameters
-        ----------
-        mols : Sequence[Chem.Mol | str | None]
-            Molecules or SMILES to generate conformers for.
-        out_file : str
-            Target SDF output file path.
+        Args:
+            mols: List of RDKit molecules
+            out_file: Path to output SDF file
         """
-        smiles_list: List[str] = []
-        for mol in mols:
+        # Convert molecules to SMILES
+        smiles_list = []
+        for i, mol in enumerate(mols):
             if mol is None:
                 continue
-            if isinstance(mol, str):
-                smiles_list.append(mol)
-            else:
-                try:
-                    smi = Chem.MolToSmiles(mol)
-                    smiles_list.append(smi)
-                except Exception:
-                    continue
+            try:
+                smi = Chem.MolToSmiles(mol)
+                smiles_list.append(smi)
+            except Exception:
+                continue
+
+        if not smiles_list:
+            # Create empty file
+            with open(out_file, 'w') as f:
+                pass
+            return
 
         output_path = Path(out_file).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if not smiles_list:
-            output_path.touch()
-            return
 
         sdf_file = self.genConformers(smiles_list, output_path.parent.as_posix())
         if not sdf_file or not os.path.exists(sdf_file):
