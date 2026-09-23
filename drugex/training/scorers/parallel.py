@@ -127,13 +127,6 @@ def molecule_time_limit(seconds: float | None) -> Iterator[None]:
     ------
     None
     """
-    there and in the serial path), or on a platform without ``SIGALRM``.
-
-    This bounds Python-interruptible hangs — including CDPKit's Python tautomer callback and
-    the per-conformer alignment loop — so a single pathological molecule is scored 0 (invalid
-    -> 0 reward) instead of wedging the whole epoch (cell 615). A pure-C single-call hang that
-    never returns to Python is caught by the Pool-level ``score_timeout`` backstop instead.
-    """
     if (not seconds
             or threading.current_thread() is not threading.main_thread()
             or not hasattr(signal, "SIGALRM")):
