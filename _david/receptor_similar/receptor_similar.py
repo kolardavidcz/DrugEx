@@ -1,10 +1,12 @@
 """End-to-End Molecular Bioactivity & Target Deconvolution Pipeline (Papyrus-Only).
 
 This module automates the extraction and curation of shared-target ligand spaces:
-1. Standardizes a query molecule using DrugEx DefaultStandardizer (SMILES -> canonical SMILES, InChIKey, connectivity).
-2. Identifies all biological receptors (targets / UniProt accessions) binding the molecule via Papyrus (with ChEMBL API fallback).
-3. Harvests all compounds active against one or more of these identified receptors exclusively from Papyrus chemogenomics.
-4. Checks and filters candidate molecules by properties that support DrugEx Scorers (pAffinity, QED, SAScore, MW, LogP, TPSA).
+1. Standardizes query molecule(s) using DrugEx DefaultStandardizer (SMILES -> canonical SMILES, InChIKey, connectivity).
+2. Derives an automatic MolecularPropertyProfile across input molecule(s) with adaptive CV-based weighting
+   (conserved properties get tighter windows and higher ranking weights; variable properties get relaxed windows).
+3. Deconvolutes biological receptors (UniProt accessions) directly within Papyrus (strictly no ChEMBL unless opted-in).
+4. Harvests active ligands from Papyrus chemogenomics, filters via dynamic tolerance windows, and ranks candidates
+   by weighted property similarity to the input profile.
 """
 
 from __future__ import annotations
@@ -14,13 +16,14 @@ import sys
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple, TypedDict, Union
+from typing import Any, Callable, ClassVar, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple, TypedDict, Union
 
 import numpy as np
 import pandas as pd
 import requests
 from rdkit import Chem
 from rdkit.Chem import Crippen, Descriptors, QED, rdMolDescriptors
+from rdkit.Chem.GraphDescriptors import BertzCT
 
 from drugex.data.processing import Standardization
 from drugex.molecules.converters.standardizers import DefaultStandardizer, StandardizationException
@@ -51,7 +54,7 @@ class TargetRecord(TypedDict):
     Attributes
     ----------
     target_chembl_id : str
-        ChEMBL target identifier (e.g. ``'CHEMBL2111414'``).
+        Target identifier (e.g. ``'CHEMBL2111414'``).
     uniprot_acc : str
         Primary UniProt accession code (e.g. ``'P00519'``).
     pref_name : str
@@ -73,41 +76,68 @@ class TargetRecord(TypedDict):
 
 
 @dataclass
-class ScorerPropertyFilter:
-    """Evaluates and filters molecules against property constraints supporting DrugEx Scorers.
+class PropertyProfileEntry:
+    """Statistical summary and tolerance bounds for a single molecular property.
 
-    Parameters
+    Attributes
     ----------
-    min_paffinity : Optional[float]
-        Minimum consensus pAffinity (-log10 M) threshold (default: 6.0, corresponding to pIC50 >= 6.0).
-    min_qed : Optional[float]
-        Minimum quantitative drug-likeness score (0.0 to 1.0).
-    max_sascore : Optional[float]
-        Maximum synthetic accessibility score (1.0 to 10.0, lower is easier to synthesize).
-    mw_range : Optional[Tuple[float, float]]
-        Acceptable molecular weight range in Daltons (e.g. (200.0, 600.0)).
-    logp_range : Optional[Tuple[float, float]]
-        Acceptable octanol-water partition coefficient range (e.g. (0.0, 5.0)).
-    tpsa_range : Optional[Tuple[float, float]]
-        Acceptable topological polar surface area range in Å² (e.g. (0.0, 140.0)).
-    require_valid_rdkit : bool
-        If True, drops any molecules failing RDKit parsing or sanitization (default: True).
-    max_molecules : Optional[int]
-        Optional upper cap on the number of candidate molecules returned (e.g. 1000 for fine-tuning).
+    name : str
+        Human-readable property name (e.g. 'MW', 'logP', 'HBA').
+    mean : float
+        Mean value across input molecule(s) (or exact value if single molecule).
+    std : float
+        Sample standard deviation across input molecule(s).
+    cv : float
+        Coefficient of variation (std / (|mean| + eps)).
+    weight : float
+        Normalized ranking weight in property similarity distance (sums to 1.0 across profile).
+    is_conserved : bool
+        True if property displays high conservation (low variance) across input molecules.
+    tolerance_min : float
+        Lower tolerance window bound for filtering.
+    tolerance_max : float
+        Upper tolerance window bound for filtering.
     """
 
-    min_paffinity: Optional[float] = 6.0
-    min_qed: Optional[float] = None
-    max_sascore: Optional[float] = None
-    mw_range: Optional[Tuple[float, float]] = None
-    logp_range: Optional[Tuple[float, float]] = None
-    tpsa_range: Optional[Tuple[float, float]] = None
-    require_valid_rdkit: bool = True
-    max_molecules: Optional[int] = None
+    name: str
+    mean: float
+    std: float
+    cv: float
+    weight: float
+    is_conserved: bool
+    tolerance_min: float
+    tolerance_max: float
+
+
+@dataclass
+class MolecularPropertyProfile:
+    """Multidimensional physicochemical property profile derived from input molecule(s).
+
+    Extracts core properties (MW, logP, TPSA, HBA, HBD, RotBonds, AromaticRings, FractionCSP3, QED),
+    measures variation across input molecules, adaptively weights conserved vs. variable features,
+    and calculates similarity distance to rank candidate ligands.
+    """
+
+    entries: Dict[str, PropertyProfileEntry] = field(default_factory=dict)
+    n_inputs: int = 1
+    tolerance_factor: float = 1.0
+
+    # Default absolute buffer scales for properties
+    _DEFAULT_SCALES: ClassVar[Dict[str, float]] = {
+        "MW": 50.0,
+        "logP": 1.0,
+        "TPSA": 20.0,
+        "HBA": 1.0,
+        "HBD": 1.0,
+        "RotBonds": 2.0,
+        "AromaticRings": 1.0,
+        "FractionCSP3": 0.15,
+        "QED": 0.15,
+    }
 
     @staticmethod
-    def compute_molecular_properties(mol: Chem.Mol) -> Dict[str, float]:
-        """Compute chemical properties corresponding to DrugEx Scorers.
+    def calculate_properties(mol: Chem.Mol) -> Dict[str, float]:
+        """Compute core physicochemical descriptor properties for a single molecule.
 
         Parameters
         ----------
@@ -117,34 +147,233 @@ class ScorerPropertyFilter:
         Returns
         -------
         props : Dict[str, float]
-            Dictionary containing MW, logP, TPSA, QED, and SAScore.
+            Dictionary containing MW, logP, TPSA, HBA, HBD, RotBonds, AromaticRings, FractionCSP3, QED.
         """
-        props: Dict[str, float] = {
+        return {
             "MW": float(Descriptors.MolWt(mol)),
             "logP": float(Crippen.MolLogP(mol)),
             "TPSA": float(rdMolDescriptors.CalcTPSA(mol)),
+            "HBA": float(rdMolDescriptors.CalcNumLipinskiHBA(mol)),
+            "HBD": float(rdMolDescriptors.CalcNumLipinskiHBD(mol)),
+            "RotBonds": float(rdMolDescriptors.CalcNumRotatableBonds(mol)),
+            "AromaticRings": float(rdMolDescriptors.CalcNumAromaticRings(mol)),
+            "FractionCSP3": float(rdMolDescriptors.CalcFractionCSP3(mol)),
             "QED": float(QED.qed(mol)),
         }
-        try:
-            props["SAScore"] = float(sascorer.calculateScore(mol))
-        except Exception:
-            props["SAScore"] = float("nan")
-        return props
 
-    def filter(self, df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
-        """Filter a DataFrame of molecules and annotate computed property columns.
+    @classmethod
+    def from_molecules(
+        cls,
+        molecules: Sequence[NormalizedMolecule],
+        tolerance_factor: float = 1.0
+    ) -> MolecularPropertyProfile:
+        """Derive property profile and adaptive weights from one or more input molecules.
+
+        Parameters
+        ----------
+        molecules : sequence of NormalizedMolecule
+            Standardized input molecules.
+        tolerance_factor : float, optional
+            Multiplier for tolerance window width (default: 1.0; <1.0 = stricter, >1.0 = looser).
+
+        Returns
+        -------
+        profile : MolecularPropertyProfile
+            Configured property profile instance.
+        """
+        all_props: List[Dict[str, float]] = []
+        for norm in molecules:
+            mol = Chem.MolFromSmiles(norm.canonical_smiles)
+            if mol is not None:
+                all_props.append(cls.calculate_properties(mol))
+
+        if not all_props:
+            raise ValueError("No valid molecules provided to derive property profile.")
+
+        df_props = pd.DataFrame(all_props)
+        prop_names = list(df_props.columns)
+        n_mols = len(df_props)
+
+        entries: Dict[str, PropertyProfileEntry] = {}
+        raw_weights: Dict[str, float] = {}
+
+        for col in prop_names:
+            vals = df_props[col].values
+            mean_val = float(np.mean(vals))
+            std_val = float(np.std(vals)) if n_mols > 1 else 0.0
+            cv_val = std_val / (abs(mean_val) + 1e-4) if mean_val != 0 else std_val
+
+            # Determine conservation status
+            # Integer count features (HBA, HBD, AromaticRings) are conserved if std <= 0.5
+            is_count = col in ("HBA", "HBD", "AromaticRings", "RotBonds")
+            if n_mols == 1:
+                is_conserved = True
+                raw_weight = 1.0
+            else:
+                if is_count:
+                    is_conserved = std_val <= 0.5 or cv_val <= 0.15
+                else:
+                    is_conserved = cv_val <= 0.15
+
+                # Adaptive weighting: conserved properties get higher weight
+                raw_weight = 1.0 / (cv_val + 0.10)
+
+            raw_weights[col] = raw_weight
+
+            # Calculate tolerance windows
+            scale = cls._DEFAULT_SCALES.get(col, 1.0)
+            if n_mols == 1:
+                # Single molecule tolerance
+                if col == "MW":
+                    buffer = max(50.0, abs(mean_val) * 0.20) * tolerance_factor
+                elif col == "logP":
+                    buffer = 1.2 * tolerance_factor
+                elif col == "TPSA":
+                    buffer = max(25.0, abs(mean_val) * 0.25) * tolerance_factor
+                elif is_count:
+                    buffer = max(1.0, round(scale * tolerance_factor))
+                elif col in ("FractionCSP3", "QED"):
+                    buffer = 0.20 * tolerance_factor
+                else:
+                    buffer = scale * tolerance_factor
+
+                t_min = max(0.0, mean_val - buffer) if col not in ("logP",) else mean_val - buffer
+                t_max = mean_val + buffer
+                if col in ("FractionCSP3", "QED"):
+                    t_min = max(0.0, t_min)
+                    t_max = min(1.0, t_max)
+            else:
+                # Multiple molecules: envelope around [min, max] with adaptive buffer
+                min_val = float(np.min(vals))
+                max_val = float(np.max(vals))
+                buffer = (0.5 * scale if is_conserved else 1.2 * scale) * tolerance_factor
+
+                t_min = max(0.0, min_val - buffer) if col not in ("logP",) else min_val - buffer
+                t_max = max_val + buffer
+                if col in ("FractionCSP3", "QED"):
+                    t_min = max(0.0, t_min)
+                    t_max = min(1.0, t_max)
+
+            entries[col] = PropertyProfileEntry(
+                name=col,
+                mean=mean_val,
+                std=std_val,
+                cv=cv_val,
+                weight=0.0,  # updated below after normalization
+                is_conserved=is_conserved,
+                tolerance_min=t_min,
+                tolerance_max=t_max
+            )
+
+        # Normalize weights so they sum to 1.0
+        total_weight = sum(raw_weights.values())
+        for col, entry in entries.items():
+            entry.weight = raw_weights[col] / total_weight
+
+        return cls(entries=entries, n_inputs=n_mols, tolerance_factor=tolerance_factor)
+
+    def is_within_tolerance(self, props: Dict[str, float]) -> bool:
+        """Check if a candidate molecule's properties fall within all tolerance windows.
+
+        Parameters
+        ----------
+        props : Dict[str, float]
+            Properties of the candidate molecule.
+
+        Returns
+        -------
+        within : bool
+            True if all properties fall within the defined tolerance bounds.
+        """
+        for name, entry in self.entries.items():
+            val = props.get(name)
+            if val is None:
+                continue
+            if not (entry.tolerance_min <= val <= entry.tolerance_max):
+                return False
+        return True
+
+    def compute_similarity(self, props: Dict[str, float]) -> float:
+        """Compute weighted normalized similarity score to the profile centroid.
+
+        Parameters
+        ----------
+        props : Dict[str, float]
+            Properties of the candidate molecule.
+
+        Returns
+        -------
+        similarity : float
+            Similarity score S in (0.0, 1.0], where 1.0 indicates exact identity with centroid.
+        """
+        total_dist = 0.0
+        for name, entry in self.entries.items():
+            val = props.get(name)
+            if val is None:
+                continue
+            scale = self._DEFAULT_SCALES.get(name, 1.0)
+            diff = abs(val - entry.mean) / scale
+            total_dist += entry.weight * diff
+
+        # Invert distance into bounded similarity metric
+        return float(1.0 / (1.0 + total_dist))
+
+    def print_summary(self) -> None:
+        """Print a concise terminal summary table of the derived property profile."""
+        header = f"Molecular Property Profile (Derived from {self.n_inputs} input molecule{'s' if self.n_inputs > 1 else ''})"
+        print("=" * 86)
+        print(header.center(86))
+        print("=" * 86)
+        print(f"{'Property':<14} {'Mean/Ref':>10} {'StdDev':>8} {'CV':>7} {'Weight':>8} {'Status':<11} {'Tolerance Window':>22}")
+        print("-" * 86)
+        for name, entry in self.entries.items():
+            status = "Conserved" if entry.is_conserved else "Variable"
+            window = f"[{entry.tolerance_min:7.2f}, {entry.tolerance_max:7.2f}]"
+            print(
+                f"{name:<14} {entry.mean:>10.2f} {entry.std:>8.2f} {entry.cv:>7.2f} "
+                f"{entry.weight:>8.3f} {status:<11} {window:>22}"
+            )
+        print("=" * 86)
+
+
+@dataclass
+class AdaptiveCandidateSelector:
+    """Filters candidate ligands via dynamic profile tolerance windows and ranks by property similarity.
+
+    Parameters
+    ----------
+    profile : MolecularPropertyProfile
+        The derived property profile.
+    max_molecules : Optional[int]
+        Maximum number of candidate molecules to retain (default: 1000).
+    max_sascore : Optional[float]
+        Optional upper-bound sanity cap on Synthetic Accessibility score (default: None).
+    max_bertz : Optional[float]
+        Optional upper-bound sanity cap on BertzCT molecular complexity (default: None).
+    require_valid_rdkit : bool
+        If True, discards candidate SMILES failing RDKit sanitization (default: True).
+    """
+
+    profile: MolecularPropertyProfile
+    max_molecules: Optional[int] = 1000
+    max_sascore: Optional[float] = None
+    max_bertz: Optional[float] = None
+    require_valid_rdkit: bool = True
+
+    def select(self, df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
+        """Filter and rank candidate molecules.
 
         Parameters
         ----------
         df : pd.DataFrame
-            DataFrame containing a 'smiles' or 'SMILES' column.
+            DataFrame of molecules containing 'smiles' or 'SMILES'.
         verbose : bool, optional
-            Whether to log filtering summary statistics (default: False).
+            Whether to log selection statistics.
 
         Returns
         -------
-        filtered_df : pd.DataFrame
-            Filtered DataFrame with annotated property columns ('MW', 'logP', 'TPSA', 'QED', 'SAScore').
+        ranked_df : pd.DataFrame
+            Filtered DataFrame sorted by property_similarity and pAffinity descending.
         """
         if df.empty:
             return df.copy()
@@ -155,80 +384,72 @@ class ScorerPropertyFilter:
 
         n_initial = len(df)
         records = df.to_dict(orient="records")
-        accepted_records: List[Dict[str, Any]] = []
+        accepted: List[Dict[str, Any]] = []
 
         for rec in records:
             smi = rec.get(smiles_col)
             if not isinstance(smi, str) or len(smi) < 2:
                 continue
 
-            # Affinity check
-            if self.min_paffinity is not None:
-                p_aff = rec.get("pAffinity") or rec.get("pchembl_value_Mean")
-                if p_aff is not None:
-                    try:
-                        if float(p_aff) < self.min_paffinity:
-                            continue
-                    except (ValueError, TypeError):
-                        pass
-
             mol = Chem.MolFromSmiles(smi)
             if mol is None:
                 if self.require_valid_rdkit:
                     continue
                 else:
-                    accepted_records.append(rec)
+                    accepted.append(rec)
                     continue
 
-            # Calculate Scorer properties
-            props = self.compute_molecular_properties(mol)
-            mw = props["MW"]
-            logp = props["logP"]
-            tpsa = props["TPSA"]
-            qed_val = props["QED"]
-            sa_val = props["SAScore"]
+            # Compute profile properties
+            props = self.profile.calculate_properties(mol)
 
-            # Filter bounds
-            if self.mw_range is not None:
-                if not (self.mw_range[0] <= mw <= self.mw_range[1]):
-                    continue
+            # Check dynamic tolerance window
+            if not self.profile.is_within_tolerance(props):
+                continue
 
-            if self.logp_range is not None:
-                if not (self.logp_range[0] <= logp <= self.logp_range[1]):
-                    continue
+            # Optional upper-bound sanity caps (SA, Bertz)
+            if self.max_sascore is not None:
+                try:
+                    sa_val = float(sascorer.calculateScore(mol))
+                    props["SAScore"] = sa_val
+                    if sa_val > self.max_sascore:
+                        continue
+                except Exception:
+                    pass
 
-            if self.tpsa_range is not None:
-                if not (self.tpsa_range[0] <= tpsa <= self.tpsa_range[1]):
-                    continue
+            if self.max_bertz is not None:
+                try:
+                    bertz_val = float(BertzCT(mol))
+                    props["BertzCT"] = bertz_val
+                    if bertz_val > self.max_bertz:
+                        continue
+                except Exception:
+                    pass
 
-            if self.min_qed is not None:
-                if qed_val < self.min_qed:
-                    continue
+            # Compute property similarity to input profile
+            sim = self.profile.compute_similarity(props)
+            props["property_similarity"] = sim
 
-            if self.max_sascore is not None and not np.isnan(sa_val):
-                if sa_val > self.max_sascore:
-                    continue
+            # Merge into record
+            rec.update(props)
+            accepted.append(rec)
 
-            # Annotate properties into record
-            rec["MW"] = mw
-            rec["logP"] = logp
-            rec["TPSA"] = tpsa
-            rec["QED"] = qed_val
-            rec["SAScore"] = sa_val
-            accepted_records.append(rec)
-
-        if not accepted_records:
+        if not accepted:
             cols = list(df.columns)
-            for c in ["MW", "logP", "TPSA", "QED", "SAScore"]:
+            for c in ["MW", "logP", "TPSA", "HBA", "HBD", "RotBonds", "AromaticRings", "FractionCSP3", "QED", "property_similarity"]:
                 if c not in cols:
                     cols.append(c)
             return pd.DataFrame(columns=cols)
 
-        out_df = pd.DataFrame(accepted_records)
+        out_df = pd.DataFrame(accepted)
 
-        # Sort by pAffinity descending
+        # Sort primarily by property_similarity, secondarily by pAffinity
+        sort_cols = ["property_similarity"]
+        ascending = [False]
         if "pAffinity" in out_df.columns:
-            out_df = out_df.sort_values(by="pAffinity", ascending=False)
+            sort_cols.append("pAffinity")
+            ascending.append(False)
+
+        out_df = out_df.sort_values(by=sort_cols, ascending=ascending)
 
         # Cap max molecules if requested
         if self.max_molecules is not None and len(out_df) > self.max_molecules:
@@ -238,8 +459,8 @@ class ScorerPropertyFilter:
 
         if verbose:
             print(
-                f"[ScorerPropertyFilter] Kept {len(out_df)} / {n_initial} molecules "
-                f"matching Scorer constraints."
+                f"[AdaptiveCandidateSelector] Retained {len(out_df)} / {n_initial} candidate molecules "
+                f"matching input property profile."
             )
 
         return out_df
@@ -251,21 +472,30 @@ class PipelineResult:
 
     Attributes
     ----------
-    query_molecule : NormalizedMolecule
-        Standardized query structure and associated InChIKey hashes.
+    query_molecules : List[NormalizedMolecule]
+        List of standardized input query structures and InChIKeys.
     targets : List[TargetRecord]
-        List of identified target receptors interacting with the query compound.
+        List of identified target receptors interacting with the query compounds.
+    property_profile : MolecularPropertyProfile
+        The derived multidimensional physicochemical property profile.
     papyrus_curated : pd.DataFrame
-        Curated, quality-filtered benchmark subset harvested from Papyrus chemogenomics.
+        Curated benchmark subset harvested exclusively from Papyrus chemogenomics,
+        filtered and ranked by property similarity to the input profile.
     """
 
-    query_molecule: NormalizedMolecule
+    query_molecules: List[NormalizedMolecule]
     targets: List[TargetRecord]
+    property_profile: MolecularPropertyProfile
     papyrus_curated: pd.DataFrame
 
     @property
+    def query_molecule(self) -> NormalizedMolecule:
+        """First standardized query molecule (for backward compatibility)."""
+        return self.query_molecules[0] if self.query_molecules else NormalizedMolecule("", "", "")
+
+    @property
     def molecules(self) -> pd.DataFrame:
-        """Primary DataFrame of harvested molecules."""
+        """Primary DataFrame of harvested and ranked candidate molecules."""
         return self.papyrus_curated
 
     @property
@@ -374,9 +604,9 @@ def ensure_papyrus_downloaded(
 class MoleculeBioactivityPipeline:
     """Automated multi-target bioactivity extraction pipeline using exclusively Papyrus chemogenomics.
 
-    Standardizes a query ligand, deconvolutes its biological receptor targets,
-    and extracts all shared-target active molecules directly from Papyrus with optional
-    Scorer property filtering (pAffinity, QED, SAScore, MW, LogP, TPSA).
+    Standardizes query ligand(s), derives an automatic physicochemical property profile,
+    discovers biological targets directly within Papyrus (no ChEMBL unless explicitly enabled),
+    and extracts shared-target active molecules ranked by property similarity.
 
     Parameters
     ----------
@@ -384,32 +614,19 @@ class MoleculeBioactivityPipeline:
         Version tag of the Papyrus database to read (default: ``'latest'``).
     papyrus_source_path : str, optional
         Explicit path to Papyrus repository folder. If None, automatically detected.
+    allow_chembl_fallback : bool, optional
+        Whether to query remote ChEMBL API if a molecule is not indexed in Papyrus (default: False).
     timeout : int, optional
-        HTTP network request timeout in seconds for fallback ChEMBL target queries (default: 15).
+        HTTP request timeout in seconds for optional ChEMBL queries (default: 15).
     session : requests.Session, optional
         Custom HTTP session for connection pooling. If None, a default session is created.
     auto_download_papyrus : bool, optional
         Whether to automatically download Papyrus dataset if missing on disk (default: True).
-
-    Examples
-    --------
-    >>> from receptor_similar import MoleculeBioactivityPipeline, ScorerPropertyFilter
-    >>> pipeline = MoleculeBioactivityPipeline()
-    >>> smi = "Cc1ccc(cc1Nc2nccc(n2)c3cccnc3)NC(=O)c4ccc(cc4)CN5CCN(C)CC5"
-    >>> prop_filter = ScorerPropertyFilter(min_paffinity=6.5, min_qed=0.4, max_sascore=4.5)
-    >>> result = pipeline.run(smi, property_filter=prop_filter)
-    >>> print(f"Found {len(result.targets)} targets and {len(result.papyrus_curated)} ligands.")
     """
 
     @staticmethod
     def _resolve_papyrus_path() -> Optional[str]:
-        """Automatically locate local Papyrus repository cache if present on disk.
-
-        Returns
-        -------
-        path : str or None
-            Absolute path to the local Papyrus root directory, or None if not found.
-        """
+        """Automatically locate local Papyrus repository cache if present on disk."""
         candidate_roots = [
             Path(__file__).resolve().parents[2] / "tutorial" / "data" / "data" / ".Papyrus",
             Path(__file__).resolve().parents[2] / "data" / "data" / ".Papyrus",
@@ -428,11 +645,13 @@ class MoleculeBioactivityPipeline:
         self,
         papyrus_version: str = "latest",
         papyrus_source_path: Optional[str] = None,
+        allow_chembl_fallback: bool = False,
         timeout: int = 15,
         session: Optional[requests.Session] = None,
         auto_download_papyrus: bool = True
     ) -> None:
         self.papyrus_version: str = papyrus_version
+        self.allow_chembl_fallback: bool = allow_chembl_fallback
         self.timeout: int = timeout
         self.chembl_api: str = "https://www.ebi.ac.uk/chembl/api/data"
         self.session: requests.Session = session if session is not None else requests.Session()
@@ -447,9 +666,6 @@ class MoleculeBioactivityPipeline:
     def standardize_molecule(self, smiles: str) -> NormalizedMolecule:
         """Normalize chemical structure using DrugEx DefaultStandardizer and generate InChIKeys.
 
-        Applies DrugEx standardizer routines (metal disconnection, normalization,
-        largest fragment selection, charge neutralization) prior to database querying.
-
         Parameters
         ----------
         smiles : str
@@ -459,11 +675,6 @@ class MoleculeBioactivityPipeline:
         -------
         normalized : NormalizedMolecule
             Named tuple containing ``(canonical_smiles, inchikey, connectivity)``.
-
-        Raises
-        ------
-        ValueError
-            If the supplied SMILES string cannot be parsed or standardized.
         """
         try:
             can_smiles = self.standardizer(smiles)
@@ -595,7 +806,7 @@ class MoleculeBioactivityPipeline:
         organism: Optional[str] = "Homo sapiens",
         target_type: str = "SINGLE PROTEIN"
     ) -> List[TargetRecord]:
-        """Query ChEMBL REST API as fallback to identify biological receptors for a novel compound.
+        """Query ChEMBL REST API only if explicitly allowed by user.
 
         Parameters
         ----------
@@ -691,12 +902,13 @@ class MoleculeBioactivityPipeline:
         connectivity: Optional[str] = None,
         min_paffinity: float = 6.0,
         organism: Optional[str] = "Homo sapiens",
-        target_type: str = "SINGLE PROTEIN"
+        target_type: str = "SINGLE PROTEIN",
+        allow_chembl_fallback: Optional[bool] = None
     ) -> List[TargetRecord]:
-        """Identify biological receptor targets binding the query compound.
+        """Identify biological receptor targets binding a query compound.
 
-        Prioritizes fast local Papyrus querying. If the query structure is not indexed
-        in Papyrus, seamlessly falls back to the ChEMBL target resolution API.
+        Queries Papyrus directly. Remote ChEMBL query is strictly disabled unless
+        allow_chembl_fallback is True.
 
         Parameters
         ----------
@@ -710,6 +922,8 @@ class MoleculeBioactivityPipeline:
             Organism taxonomy filter (default: 'Homo sapiens').
         target_type : str, optional
             Target classification filter (default: 'SINGLE PROTEIN').
+        allow_chembl_fallback : bool, optional
+            Override instance allow_chembl_fallback setting.
 
         Returns
         -------
@@ -718,7 +932,7 @@ class MoleculeBioactivityPipeline:
         """
         conn = connectivity or inchikey.split("-")[0]
 
-        # 1. Search Papyrus
+        # 1. Search Papyrus strictly
         papyrus_targets = self.find_targets_papyrus(
             inchikey=inchikey,
             connectivity=conn,
@@ -728,21 +942,24 @@ class MoleculeBioactivityPipeline:
         if papyrus_targets:
             return papyrus_targets
 
-        # 2. Fallback to ChEMBL
-        return self.find_targets_chembl(
-            inchikey=inchikey,
-            min_paffinity=min_paffinity,
-            organism=organism,
-            target_type=target_type
-        )
+        # 2. Only query ChEMBL if explicitly allowed
+        use_chembl = self.allow_chembl_fallback if allow_chembl_fallback is None else allow_chembl_fallback
+        if use_chembl:
+            return self.find_targets_chembl(
+                inchikey=inchikey,
+                min_paffinity=min_paffinity,
+                organism=organism,
+                target_type=target_type
+            )
+
+        return []
 
     def get_papyrus_curated(
         self,
         target_accessions: Sequence[str],
         min_paffinity: Optional[float] = 6.0,
         quality_filter: Optional[str] = "High",
-        deduplicate: bool = True,
-        property_filter: Optional[ScorerPropertyFilter] = None
+        deduplicate: bool = True
     ) -> pd.DataFrame:
         """Harvest ligands for specified targets exclusively from Papyrus chemogenomics.
 
@@ -756,8 +973,6 @@ class MoleculeBioactivityPipeline:
             Papyrus data quality filter (``'High'``, ``'Medium'``, or None, default: ``'High'``).
         deduplicate : bool, optional
             Whether to deduplicate molecules by SMILES (default: True).
-        property_filter : ScorerPropertyFilter, optional
-            Optional property filter matching DrugEx Scorers (QED, SAScore, MW, LogP, TPSA).
 
         Returns
         -------
@@ -846,10 +1061,6 @@ class MoleculeBioactivityPipeline:
                 .reset_index(drop=True)
             )
 
-        # Apply Scorer property filter if configured
-        if property_filter is not None:
-            filtered_papyrus = property_filter.filter(filtered_papyrus)
-
         return filtered_papyrus
 
     # Backward compatibility alias
@@ -880,122 +1091,145 @@ class MoleculeBioactivityPipeline:
 
     def run(
         self,
-        smiles: str,
+        smiles: str | Sequence[str],
         min_paffinity: float = 6.0,
         quality_filter: Optional[str] = "High",
         organism: Optional[str] = "Homo sapiens",
-        min_ligands_threshold: int = 50,
+        min_target_consensus: int = 1,
+        tolerance_factor: float = 1.0,
         max_molecules: Optional[int] = 1000,
-        auto_relax: bool = True,
-        min_relax_paffinity: float = 5.0,
-        deduplicate: bool = True,
-        show_progress: bool = True,
-        property_filter: Optional[ScorerPropertyFilter] = None,
-        # Direct property filter convenience shortcuts:
-        filter_properties: bool = False,
-        min_qed: Optional[float] = None,
         max_sascore: Optional[float] = None,
-        mw_range: Optional[Tuple[float, float]] = None,
-        logp_range: Optional[Tuple[float, float]] = None,
-        tpsa_range: Optional[Tuple[float, float]] = None
+        max_bertz: Optional[float] = None,
+        allow_chembl_fallback: Optional[bool] = None,
+        auto_relax: bool = False,
+        min_relax_paffinity: float = 5.0,
+        min_ligands_threshold: int = 50,
+        deduplicate: bool = True,
+        show_progress: bool = True
     ) -> PipelineResult:
-        """Execute the Papyrus-only bioactivity deconvolution pipeline.
+        """Execute the automatic property-profiled Papyrus bioactivity pipeline.
 
         Chains:
-        1. Standardization via DrugEx DefaultStandardizer
-        2. Target receptor discovery via Papyrus (with ChEMBL fallback)
-        3. Extraction of shared-target ligands from Papyrus
-        4. Optional Scorer property filtering (pAffinity, QED, SAScore, MW, LogP, TPSA)
+        1. Standardization of query molecule(s) via DrugEx DefaultStandardizer
+        2. Automatic extraction of MolecularPropertyProfile and adaptive CV weighting
+        3. Target receptor discovery in Papyrus (union across query inputs; no ChEMBL unless specified)
+        4. Extraction of shared-target active ligands from Papyrus
+        5. AdaptiveCandidateSelector: dynamic tolerance window gating and property similarity ranking
 
         Parameters
         ----------
-        smiles : str
-            Raw SMILES string of the query molecule.
+        smiles : str or sequence of str
+            One or more query molecule SMILES strings.
         min_paffinity : float, optional
             Minimum affinity threshold (default: 6.0, pIC50 >= 6.0).
         quality_filter : str, optional
             Papyrus curation quality filter (``'High'``, ``'Medium'``, or None, default: ``'High'``).
         organism : str, optional
             Target source taxonomy filter (default: ``'Homo sapiens'``).
-        min_ligands_threshold : int, optional
-            Minimum number of unique candidate ligands desired (default: 50).
+        min_target_consensus : int, optional
+            Minimum number of query molecules that must bind a target for inclusion (default: 1).
+        tolerance_factor : float, optional
+            Tolerance window multiplier (<1.0 = stricter, >1.0 = looser, default: 1.0).
         max_molecules : int, optional
-            Upper cap on candidate molecules for training efficiency (default: 1000).
-        auto_relax : bool, optional
-            Whether to automatically relax pAffinity threshold if fewer candidates are found (default: True).
-        min_relax_paffinity : float, optional
-            Floor limit for automatic affinity relaxation (default: 5.0).
-        show_progress : bool, optional
-            Whether to stream in-place updating progress bar to stdout (default: True).
-        property_filter : ScorerPropertyFilter, optional
-            Configured property filter instance.
-        filter_properties : bool, optional
-            If True and `property_filter` is None, constructs a `ScorerPropertyFilter` from kwargs.
-        min_qed : float, optional
-            Minimum QED threshold when filter_properties is True.
+            Upper cap on candidate molecules returned (default: 1000).
         max_sascore : float, optional
-            Maximum SAScore threshold when filter_properties is True.
-        mw_range : tuple of (float, float), optional
-            Molecular weight bounds when filter_properties is True.
-        logp_range : tuple of (float, float), optional
-            LogP bounds when filter_properties is True.
-        tpsa_range : tuple of (float, float), optional
-            TPSA bounds when filter_properties is True.
+            Optional upper-bound sanity cap on Synthetic Accessibility score (default: None).
+        max_bertz : float, optional
+            Optional upper-bound sanity cap on Bertz complexity (default: None).
+        allow_chembl_fallback : bool, optional
+            Whether to allow remote ChEMBL target query if not in Papyrus (default: False).
+        auto_relax : bool, optional
+            Whether to relax pAffinity if fewer than min_ligands_threshold candidates found (default: False).
+        min_relax_paffinity : float, optional
+            Floor limit for affinity relaxation (default: 5.0).
+        min_ligands_threshold : int, optional
+            Minimum candidates desired if auto_relax is enabled (default: 50).
+        deduplicate : bool, optional
+            Whether to deduplicate molecules by SMILES (default: True).
+        show_progress : bool, optional
+            Whether to display progress bars and profile summary table (default: True).
 
         Returns
         -------
         result : PipelineResult
-            Consolidated dataclass containing `query_molecule`, `targets`, and `papyrus_curated`.
+            Consolidated dataclass containing `query_molecules`, `targets`, `property_profile`, and `papyrus_curated`.
         """
-        # Build property filter if requested
-        active_prop_filter: Optional[ScorerPropertyFilter] = property_filter
-        if active_prop_filter is None and filter_properties:
-            active_prop_filter = ScorerPropertyFilter(
-                min_paffinity=min_paffinity,
-                min_qed=min_qed,
-                max_sascore=max_sascore,
-                mw_range=mw_range,
-                logp_range=logp_range,
-                tpsa_range=tpsa_range,
-                max_molecules=max_molecules
-            )
-        elif active_prop_filter is not None and max_molecules is not None and active_prop_filter.max_molecules is None:
-            active_prop_filter.max_molecules = max_molecules
+        # 1. Normalize inputs
+        smiles_list: List[str] = [smiles] if isinstance(smiles, str) else list(smiles)
+        if not smiles_list:
+            raise ValueError("No SMILES provided to run pipeline.")
 
         if show_progress:
-            self._print_progress(0.10, "Step 1/3: Standardizing query structure with DrugEx...")
+            self._print_progress(0.10, f"Step 1/4: Standardizing {len(smiles_list)} input molecule{'s' if len(smiles_list) > 1 else ''} with DrugEx...")
 
-        # Step 1: Standardize with DrugEx DefaultStandardizer
-        normalized = self.standardize_molecule(smiles)
+        normalized_molecules: List[NormalizedMolecule] = []
+        for s in smiles_list:
+            normalized_molecules.append(self.standardize_molecule(s))
+
+        # 2. Derive MolecularPropertyProfile
+        if show_progress:
+            self._print_progress(0.25, "Step 2/4: Computing input property profile & adaptive weights...")
+
+        profile = MolecularPropertyProfile.from_molecules(
+            normalized_molecules,
+            tolerance_factor=tolerance_factor
+        )
+
+        if show_progress:
+            # Print derived profile summary table to terminal
+            print("\n")
+            profile.print_summary()
 
         current_paffinity = float(min_paffinity)
 
         while True:
             if show_progress:
-                smi_preview = normalized.canonical_smiles[:25] + ("..." if len(normalized.canonical_smiles) > 25 else "")
-                self._print_progress(0.35, f"Step 2/3: Identifying targets for {smi_preview} (pAffinity >= {current_paffinity:.1f})...")
+                self._print_progress(0.45, f"Step 3/4: Deconvoluting targets in Papyrus (pAffinity >= {current_paffinity:.1f})...")
 
-            # Step 2: Target Discovery (Papyrus first, ChEMBL fallback)
-            targets = self.find_targets(
-                inchikey=normalized.inchikey,
-                connectivity=normalized.connectivity,
-                min_paffinity=current_paffinity,
-                organism=organism
-            )
+            # 3. Target Deconvolution in Papyrus
+            target_counts: Dict[str, int] = {}
+            target_map: Dict[str, TargetRecord] = {}
 
+            for norm in normalized_molecules:
+                t_list = self.find_targets(
+                    inchikey=norm.inchikey,
+                    connectivity=norm.connectivity,
+                    min_paffinity=current_paffinity,
+                    organism=organism,
+                    allow_chembl_fallback=allow_chembl_fallback
+                )
+                for t in t_list:
+                    acc = t["uniprot_acc"]
+                    target_counts[acc] = target_counts.get(acc, 0) + 1
+                    if acc not in target_map or t["pchembl_query"] > target_map[acc]["pchembl_query"]:
+                        target_map[acc] = t
+
+            # Consensus filter
+            targets: List[TargetRecord] = [
+                t for acc, t in target_map.items()
+                if target_counts.get(acc, 0) >= min_target_consensus
+            ]
             target_accessions = [t["uniprot_acc"] for t in targets]
 
             if show_progress:
-                self._print_progress(0.65, f"Step 3/3: Found {len(targets)} targets. Extracting ligands from Papyrus...")
+                self._print_progress(0.70, f"Step 4/4: Found {len(targets)} targets. Extracting & ranking candidates from Papyrus...")
 
-            # Step 3: Extract from Papyrus
-            papyrus_curated = self.get_papyrus_curated(
+            # 4. Extract candidates from Papyrus
+            raw_curated = self.get_papyrus_curated(
                 target_accessions=target_accessions,
                 min_paffinity=current_paffinity,
                 quality_filter=quality_filter,
-                deduplicate=deduplicate,
-                property_filter=active_prop_filter
+                deduplicate=deduplicate
             )
+
+            # 5. Adaptive Candidate Selection (dynamic tolerance window + similarity ranking)
+            selector = AdaptiveCandidateSelector(
+                profile=profile,
+                max_molecules=max_molecules,
+                max_sascore=max_sascore,
+                max_bertz=max_bertz
+            )
+            papyrus_curated = selector.select(raw_curated)
 
             # Auto-relax affinity if below threshold
             n_candidates = len(papyrus_curated)
@@ -1010,7 +1244,7 @@ class MoleculeBioactivityPipeline:
                         f"Found {n_candidates} candidates across {len(targets)} targets at "
                         f"pAffinity >= {current_paffinity:.1f}. Auto-relaxing to {next_paffinity:.1f}..."
                     )
-                    self._print_progress(0.35, msg)
+                    self._print_progress(0.45, msg)
                 current_paffinity = next_paffinity
                 continue
 
@@ -1019,11 +1253,12 @@ class MoleculeBioactivityPipeline:
         if show_progress:
             self._print_progress(
                 1.00,
-                f"Done! {len(targets)} targets | {len(papyrus_curated)} Papyrus curated ligands"
+                f"Done! {len(targets)} targets | {len(papyrus_curated)} candidates ranked by property similarity"
             )
 
         return PipelineResult(
-            query_molecule=normalized,
+            query_molecules=normalized_molecules,
             targets=targets,
+            property_profile=profile,
             papyrus_curated=papyrus_curated
         )
