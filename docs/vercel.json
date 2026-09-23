@@ -4,6 +4,10 @@
   "trailingSlash": false,
   "devCommand": "npx --yes serve -s . -l $PORT",
   "rewrites": [
+    { "source": "/pipelines", "destination": "/pipelines.html" },
+    { "source": "/pipelines/(.*)", "destination": "/pipelines.html" },
+    { "source": "/schemas", "destination": "/pipelines.html" },
+    { "source": "/schemas/(.*)", "destination": "/pipelines.html" },
     { "source": "/docs", "destination": "/index.html" },
     { "source": "/docs/(.*)", "destination": "/index.html" },
     { "source": "/cppreference", "destination": "/index.html" },

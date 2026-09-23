@@ -48,6 +48,10 @@ The documentation platform provides a concentrated, high-density API reference m
   - **DrugEx Core (186 symbols)**: Generators (`SequenceRNN`, `GraphTransformer`), MORL Explorers (`SequenceExplorer`), Environments (`DrugExEnvironment`), Scorers (`RDKitROCSScorer`, `SAScorer`, `SmoothClippedScore`), Modifiers, and Decoders.
   - **Chemoinformatics Ecosystem (24 symbols)**: RDKit ETKDGv3 conformer generation, QSPRpred predictors, Scaffviz clustering, and Papyrus data loaders.
   - **Experimental Methods (24 symbols)**: Shape-matching descriptors, Pareto Crowding Distance, Youden's Index calibration, and BRICS fragmentation.
+- **Interactive Pipeline & Method Schemas**:
+  - Visual diagrams and mathematical dataflow schemas for 5 core DrugEx workflows: Multi-Objective RL, End-to-End Training, 3D Shape-Matching (ROCS), Fragment-Based Elaboration, and Telemetry / Pathology Filter Cascades.
+  - Interactive SVG visual flowcards, component inspection, algebraic chaining expressions, and full cppreference-grade component chaining matrices.
+  - Dedicated standalone page accessible at `/pipelines` and `/schemas` (`pipelines.html`).
 - **Fast Client-Side Search**: Instant prefix matching, category filtering, and direct links to GitHub source implementations.
 
 ### Running Docs Locally

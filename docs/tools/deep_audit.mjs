@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
-const repoRoot = path.join(projectRoot, 'repo');
+const repoRoot = fs.existsSync(path.join(projectRoot, 'repo'))
+  ? path.join(projectRoot, 'repo')
+  : path.resolve(projectRoot, '..', 'repo');
 const docsPath = path.join(projectRoot, 'docs', 'cppreference', 'index.html');
 
 console.log('[Audit] Running Deep Audit on Sphinx gh-pages and codebase...');

@@ -25,6 +25,20 @@
 - **Chemo Ecosystem (24 symbols)**: RDKit 2D/3D descriptors, coordinates, QED, rotatable bonds, QSPRPred variance filtering, and CDPKit basic molecule & analytical shape overlap.
 - **Experimental Techniques (24 symbols)**: USRCAT 60D shape-moments, ElectroShape 4D electrostatics, ProLIF protein-ligand interaction fingerprints, Chemprop D-MPNN architectures, Scaffviz scaffold hopping, RAScore synthetic accessibility, MMFF94 force-field strain, AutoDock Vina receptor grids, and OpenFE alchemical free energy networks.
 
+### 4. Interactive Pipeline Schemas & Architecture Visualizer
+- **5 Core DrugEx Workflows (Visual Diagrams & Algebraic Chaining)**:
+  1. **Multi-Objective RL Pipeline** (`#pipelines/morl`): `Scorer + Modifier(Threshold) -> Objective Score s_i in [0,1] + Environment -> Reward R + Agent(pi_theta) vs Prior(pi_0) -> Pareto Selection -> Policy Update`.
+  2. **End-to-End Training Flow** (`#pipelines/training`): `Corpus (Papyrus) + Tokenizer -> Pre-training (MLE) -> Prior pi_0 + Actives -> Fine-Tuning -> Agent pi_init + Environment -> Explorer Loop -> Pareto Leads`.
+  3. **3D Shape-Matching (ROCS) Scoring Flow** (`#pipelines/rocs`): `SMILES + Deduplication -> Conformer Generator (ETKDGv3) -> MMFF94 Strain Filter -> 3D Alignment -> Shape/Color Tanimoto -> TanimotoCombo -> SmoothClipped Reward`.
+  4. **Fragment-Based Generative Pipeline** (`#pipelines/fragment`): `Active Hits + BRICS/Murcko -> Fragment Synthons [*] -> VocSmiles(encode_frags) -> FragExplorer + Valence Mask -> Combinatorial Assembly -> LE/LipE Feedback`.
+  5. **Telemetry & Pathology Filter Cascade** (`#pipelines/telemetry`): `Generated Batch (N) -> [Q1 Validity] -> [Q2 Uniqueness] -> [Q3 SAScore/Ring Strain] -> [Q4 Desired Ratio Pareto] -> [Q5 Diversity] -> Telemetry Feedback`.
+- **Deep Inspection & Interactivity**:
+  - Pure SVG vector diagrams with responsive layout, custom stage color themes, and dynamic dark/paper theme compatibility.
+  - Interactive Node Inspector displaying mathematical transformations, input/output data contracts, parameter tables, and diagnostics.
+  - Clickable cross-references linking directly to cppreference symbol documentation.
+  - Component Chaining Matrix providing complete tabular architectural breakdowns.
+  - Dedicated standalone visual page at `/pipelines` and `/schemas` (`pipelines.html`).
+
 ---
 
 ## Quickstart & Local Development
