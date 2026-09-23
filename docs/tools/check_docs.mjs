@@ -261,10 +261,180 @@ if (tagStart === -1) {
   }
 }
 
+// 7. Validate PIPELINE_SCHEMAS and pipelines.html Parity
+console.log('\nValidating PIPELINE_SCHEMAS and pipelines.html Parity...');
+
+// Parity check for pipelines.html
+const rootPipelines = path.join(projectRoot, 'pipelines.html');
+const nestedPipelines = path.join(projectRoot, 'docs', 'cppreference', 'pipelines.html');
+if (fs.existsSync(rootPipelines) && fs.existsSync(nestedPipelines)) {
+  const rootBuf = fs.readFileSync(rootPipelines);
+  const nestedBuf = fs.readFileSync(nestedPipelines);
+  if (!rootBuf.equals(nestedBuf)) {
+    console.error('Error: root pipelines.html and docs/cppreference/pipelines.html differ! Both copies must remain strictly in sync.');
+    errors++;
+  } else {
+    console.log('Verified: root pipelines.html and docs/cppreference/pipelines.html are in sync.');
+  }
+}
+
+// Helper function to validate pipeline schema array and canvas geometry
+function validatePipelineSchemas(pipelines, sourceName) {
+  if (!Array.isArray(pipelines) || pipelines.length !== 5) {
+    console.error(`[${sourceName}] Expected 5 pipeline schemas, got ${pipelines?.length}`);
+    errors++;
+    return;
+  }
+  console.log(`[PASS] [${sourceName}] 5 Pipeline schemas evaluated successfully.`);
+  const requiredIds = ['morl', 'training', 'rocs', 'fragment', 'telemetry'];
+  for (const reqId of requiredIds) {
+    const found = pipelines.find(p => p.id === reqId);
+    if (!found) {
+      console.error(`[${sourceName}] Missing required pipeline ID: "${reqId}"`);
+      errors++;
+    }
+  }
+
+  let missingPipelineSymbols = 0;
+  for (const p of pipelines) {
+    // Check nodes count and coordinates within 1130x355 canvas
+    if (!Array.isArray(p.nodes) || p.nodes.length !== 8) {
+      console.error(`[${sourceName}] Pipeline "${p.id}" expected 8 nodes, got ${p.nodes?.length}`);
+      errors++;
+    }
+    for (const n of p.nodes || []) {
+      if (n.x < 0 || n.x + 220 > 1130 || n.y < 0 || n.y + 98 > 355) {
+        console.error(`[${sourceName}] Pipeline "${p.id}" node "${n.stepLabel}" out of canvas bounds: (${n.x}, ${n.y})`);
+        errors++;
+      }
+      for (const sym of n.drugexSymbols || []) {
+        if (!db[sym]) {
+          console.error(`[${sourceName}] Pipeline "${p.id}" node "${n.stepLabel}" references missing symbol in DATABASE: "${sym}"`);
+          missingPipelineSymbols++;
+          errors++;
+        }
+      }
+    }
+
+    // Check connectors coordinates within 1130x355 canvas
+    if (!Array.isArray(p.connectors) || p.connectors.length < 5) {
+      console.error(`[${sourceName}] Pipeline "${p.id}" has invalid connectors array (${p.connectors?.length})`);
+      errors++;
+    }
+    for (const [cIdx, c] of (p.connectors || []).entries()) {
+      if (c.fromX < 0 || c.fromX > 1130 || c.toX < 0 || c.toX > 1130 || c.fromY < 0 || c.fromY > 355 || c.toY < 0 || c.toY > 355) {
+        console.error(`[${sourceName}] Pipeline "${p.id}" connector ${cIdx} coordinates out of bounds: from(${c.fromX}, ${c.fromY}) to(${c.toX}, ${c.toY})`);
+        errors++;
+      }
+    }
+
+    // Check feedback loop if present
+    if (p.feedbackLoop) {
+      const fb = p.feedbackLoop;
+      if (fb.fromX < 0 || fb.fromX > 1130 || fb.toX < 0 || fb.toX > 1130 || fb.fromY < 0 || fb.fromY > 355 || fb.toY < 0 || fb.toY > 355) {
+        console.error(`[${sourceName}] Pipeline "${p.id}" feedback loop coordinates out of bounds: from(${fb.fromX}, ${fb.fromY}) to(${fb.toX}, ${fb.toY})`);
+        errors++;
+      }
+    }
+
+    // Check matrixRows
+    if (!Array.isArray(p.matrixRows) || p.matrixRows.length !== 8) {
+      console.error(`[${sourceName}] Pipeline "${p.id}" expected 8 matrix rows, got ${p.matrixRows?.length}`);
+      errors++;
+    }
+
+    // Check equation terms point to valid node indices
+    for (const eqItem of (p.equation || [])) {
+      if (eqItem.type === 'term' && (eqItem.nodeIdx === undefined || eqItem.nodeIdx < 0 || eqItem.nodeIdx >= (p.nodes?.length || 0))) {
+        console.error(`[${sourceName}] Pipeline "${p.id}" equation term "${eqItem.text}" has invalid nodeIdx: ${eqItem.nodeIdx}`);
+        errors++;
+      }
+    }
+  }
+
+  if (missingPipelineSymbols === 0) {
+    console.log(`[PASS] [${sourceName}] All drugexSymbols in PIPELINE_SCHEMAS exist in DATABASE.`);
+  }
+}
+
+// Extract PIPELINE_SCHEMAS from index.html
+const pipeStart = scriptCode.indexOf('const PIPELINE_SCHEMAS = [');
+if (pipeStart === -1) {
+  console.error('Fatal: PIPELINE_SCHEMAS definition not found in index.html script.');
+  errors++;
+} else {
+  const pipeEnd = scriptCode.indexOf('function getStageColor');
+  const pipeCode = scriptCode.slice(pipeStart, pipeEnd).trim();
+  try {
+    const pipeEval = pipeCode.replace(/^const PIPELINE_SCHEMAS =/, 'globalThis.PIPELINE_SCHEMAS_INDEX =');
+    vm.runInContext(pipeEval, context);
+    validatePipelineSchemas(context.PIPELINE_SCHEMAS_INDEX, 'index.html');
+  } catch (err) {
+    console.error('Error evaluating PIPELINE_SCHEMAS from index.html:', err);
+    errors++;
+  }
+}
+
+// Extract and validate PIPELINE_SCHEMAS from pipelines.html
+if (fs.existsSync(rootPipelines)) {
+  const pipHtml = fs.readFileSync(rootPipelines, 'utf8');
+  const pipScriptMatch = pipHtml.match(/<script type="text\/babel">([\s\S]*?)<\/script>/);
+  if (!pipScriptMatch) {
+    console.error('Fatal: Babel script block not found in pipelines.html.');
+    errors++;
+  } else {
+    const pipScript = pipScriptMatch[1];
+    const pipStart = pipScript.indexOf('const PIPELINE_SCHEMAS = [');
+    const pipEnd = pipScript.indexOf('function getStageColor');
+    if (pipStart === -1 || pipEnd === -1) {
+      console.error('Fatal: PIPELINE_SCHEMAS or getStageColor not found in pipelines.html.');
+      errors++;
+    } else {
+      const pipCode = pipScript.slice(pipStart, pipEnd).trim();
+      try {
+        const pipEval = pipCode.replace(/^const PIPELINE_SCHEMAS =/, 'globalThis.PIPELINE_SCHEMAS_PIPE =');
+        vm.runInContext(pipEval, context);
+        validatePipelineSchemas(context.PIPELINE_SCHEMAS_PIPE, 'pipelines.html');
+      } catch (err) {
+        console.error('Error evaluating PIPELINE_SCHEMAS from pipelines.html:', err);
+        errors++;
+      }
+    }
+  }
+}
+
+// 8. Strict Emoji Prohibition Check
+console.log('\nValidating Strict Zero-Emoji Rule...');
+const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F1E6}-\u{1F1FF}]/u;
+const filesToScan = [
+  rootCandidate,
+  nestedCandidate,
+  rootPipelines,
+  nestedPipelines,
+  path.join(projectRoot, 'tools', 'check_docs.mjs'),
+  path.join(projectRoot, 'tools', 'audit_examples.mjs')
+];
+let emojiErrors = 0;
+for (const file of filesToScan) {
+  if (fs.existsSync(file)) {
+    const content = fs.readFileSync(file, 'utf8');
+    const match = content.match(emojiRegex);
+    if (match) {
+      console.error(`Error: Emoji detected in ${path.relative(projectRoot, file)}: "${match[0]}"`);
+      emojiErrors++;
+      errors++;
+    }
+  }
+}
+if (emojiErrors === 0) {
+  console.log('[PASS] Verified 0 emojis across documentation files.');
+}
+
 if (errors > 0) {
   console.error(`Validation failed with ${errors} error(s).`);
   process.exit(1);
 }
 
 console.log('[SUCCESS] All assertions passed: 100% schema compliance, 0 broken cross-links, authentic cppreference format verified!\n');
+
 
