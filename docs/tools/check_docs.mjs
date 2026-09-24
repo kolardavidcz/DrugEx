@@ -302,28 +302,74 @@ if (tagStart === -1) {
           console.error('getEffectiveMembers is not a function.');
           errors++;
         } else {
-          let classesWithoutInit = 0;
-          let totalClasses = 0;
+          let classesWithInit = 0;
+          let methodOrderErrors = 0;
+          let checkedClasses = 0;
           for (const k of keys) {
             const item = db[k];
             if (item.kind === 'class') {
-              totalClasses++;
+              checkedClasses++;
               const eff = getEffectiveMembers(item);
-              if (!eff.some(m => m.name.startsWith('__init__'))) {
-                console.error(`Class "${k}" missing __init__ constructor in getEffectiveMembers.`);
-                classesWithoutInit++;
+              if (eff.some(m => m.name.startsWith('__init__'))) {
+                console.error(`Class "${k}" unexpectedly has __init__ in getEffectiveMembers (constructors belong in header synopsis).`);
+                classesWithInit++;
+                errors++;
+              }
+              // Verify ordering: all regular methods must appear before any magic methods
+              let seenMagic = false;
+              for (const m of eff) {
+                if (m.name.startsWith('__')) {
+                  seenMagic = true;
+                } else if (seenMagic) {
+                  console.error(`Class "${k}" has regular method "${m.name}" after magic dunder method.`);
+                  methodOrderErrors++;
+                  errors++;
+                  break;
+                }
+              }
+            }
+          }
+          if (classesWithInit === 0 && methodOrderErrors === 0) {
+            console.log(`[PASS] getEffectiveMembers verified: 0 classes have __init__ in member functions; 100% of classes (${checkedClasses}) strictly order regular methods before magic methods.`);
+          }
+        }
+
+        // Validate getMagicMethodOperator helper
+        const getMagicMethodOperator = context.getMagicMethodOperator;
+        if (typeof getMagicMethodOperator !== 'function') {
+          console.error('getMagicMethodOperator is not a function.');
+          errors++;
+        } else {
+          const opTests = [
+            { name: '__init__(args)', expectedOp: '(constructor)', expectedCls: 'op-constructor' },
+            { name: '__call__(smiles)', expectedOp: 'obj(...)', expectedCls: 'op-call' },
+            { name: '__getitem__(key)', expectedOp: 'obj[...]', expectedCls: 'op-subscript' },
+            { name: '__len__()', expectedOp: 'len(obj)', expectedCls: 'op-len' },
+            { name: '__iter__()', expectedOp: 'iter(obj)', expectedCls: 'op-iter' },
+            { name: '__contains__(token)', expectedOp: 'x in obj', expectedCls: 'op-subscript' },
+            { name: 'fit(train_loader)', expectedOp: null },
+            { name: 'generate(100)', expectedOp: null }
+          ];
+          for (const ot of opTests) {
+            const res = getMagicMethodOperator(ot.name);
+            if (ot.expectedOp === null) {
+              if (res !== null) {
+                console.error(`getMagicMethodOperator("${ot.name}") expected null, got:`, res);
+                errors++;
+              }
+            } else {
+              if (!res || res.op !== ot.expectedOp || res.cls !== ot.expectedCls) {
+                console.error(`getMagicMethodOperator("${ot.name}") mismatch: expected op="${ot.expectedOp}" cls="${ot.expectedCls}", got:`, res);
                 errors++;
               }
             }
           }
-          if (classesWithoutInit === 0) {
-            console.log(`[PASS] getEffectiveMembers verified: 100% of classes (${totalClasses}/${totalClasses}) include __init__ constructors.`);
-          }
+          console.log('[PASS] getMagicMethodOperator verified across all special Python operator mappings.');
         }
       }
     }
   } catch (err) {
-    console.error('Error evaluating getSymbolTag / isAbstractSymbol / getEffectiveMembers:', err);
+    console.error('Error evaluating getSymbolTag / isAbstractSymbol / getEffectiveMembers / getMagicMethodOperator:', err);
     errors++;
   }
 }

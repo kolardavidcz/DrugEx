@@ -685,6 +685,58 @@
       font-weight: 500;
     }
 
+    .member-fn-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .member-op-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+
+    .member-op-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 6px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      border-radius: 4px;
+      letter-spacing: 0.2px;
+      line-height: 1.4;
+    }
+
+    .member-op-badge.op-constructor { background: rgba(124, 58, 237, 0.12); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.28); }
+    .member-op-badge.op-call { background: rgba(2, 132, 199, 0.12); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.28); }
+    .member-op-badge.op-subscript { background: rgba(13, 148, 136, 0.12); color: #0d9488; border: 1px solid rgba(13, 148, 136, 0.28); }
+    .member-op-badge.op-len { background: rgba(22, 163, 74, 0.12); color: #16a34a; border: 1px solid rgba(22, 163, 74, 0.28); }
+    .member-op-badge.op-iter { background: rgba(225, 29, 72, 0.12); color: #e11d48; border: 1px solid rgba(225, 29, 72, 0.28); }
+    .member-op-badge.op-misc { background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid rgba(100, 116, 139, 0.28); }
+
+    [data-theme="dark"] .member-op-badge.op-constructor { background: rgba(192, 132, 252, 0.16); color: #c084fc; border-color: rgba(192, 132, 252, 0.35); }
+    [data-theme="dark"] .member-op-badge.op-call { background: rgba(56, 189, 248, 0.16); color: #38bdf8; border-color: rgba(56, 189, 248, 0.35); }
+    [data-theme="dark"] .member-op-badge.op-subscript { background: rgba(45, 212, 191, 0.16); color: #2dd4bf; border-color: rgba(45, 212, 191, 0.35); }
+    [data-theme="dark"] .member-op-badge.op-len { background: rgba(52, 211, 153, 0.16); color: #34d399; border-color: rgba(52, 211, 153, 0.35); }
+    [data-theme="dark"] .member-op-badge.op-iter { background: rgba(251, 113, 133, 0.16); color: #fb7185; border-color: rgba(251, 113, 133, 0.35); }
+    [data-theme="dark"] .member-op-badge.op-misc { background: rgba(148, 163, 184, 0.16); color: #94a3b8; border-color: rgba(148, 163, 184, 0.35); }
+
+    .member-op-label {
+      font-size: 11px;
+      font-style: italic;
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+    }
+
+    .member-fn-sig {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-link);
+    }
+
     /* Code Card */
     .code-card-wrap {
       border: 1px solid var(--border-main);
@@ -6144,6 +6196,10 @@ Maximum sequence length constraint: 60`
     def __init__(self, encode_frags: bool = False, words: tuple = defaultWords, max_len: int = 100) -> None`,
         description: "The primary SMILES sequence tokenizer for DrugEx RNN and GPT-2 models. Uses regex-based tokenization to parse multi-character atoms ('Cl', 'Br'), formal charges ('[N+]', '[O-]'), aromatic elements ('c', 'n', 'o', 's'), branch parentheses, and ring closure digits.",
         members: [
+            { name: "__init__(encode_frags=False, words=defaultWords, max_len=100)", desc: "Constructs and initializes the VocSmiles tokenizer with token vocabulary and sequence budget." },
+            { name: "__len__()", desc: "Returns total number of unique tokens in the vocabulary, used for neural embedding sizing." },
+            { name: "__getitem__(key)", desc: "Subscript indexing: returns integer token ID for string token or token string for integer index." },
+            { name: "__contains__(key)", desc: "Checks whether a given chemical token or character string exists within vocabulary." },
             { name: "splitSequence(seq)", desc: "Splits a SMILES string into a list of chemical tokens via compiled regular expressions." },
             { name: "encode(tokens, frags=None)", desc: "Converts token list into a LongTensor of shape [N, max_len]." },
             { name: "decode(tensor, is_tk=True, is_smiles=True)", desc: "Decodes LongTensor back into canonical SMILES string." }
@@ -6235,6 +6291,10 @@ Decoded target string: CC(=O)O`
     def __init__(self, words: Optional[Iterable[str]] = None, max_len: int = 80, n_frags: int = 4) -> None`,
         description: "Vocabulary for graph-based molecular generation. Encodes discrete atomic properties: atomic number (C, N, O, S, F, Cl, Br, P), formal charges (-1, 0, +1), and bond orders (single, double, triple, aromatic).",
         members: [
+            { name: "__init__(words=None, max_len=80, n_frags=4)", desc: "Constructs and initializes the VocGraph 2D molecular graph vocabulary." },
+            { name: "__len__()", desc: "Returns the count of registered atom and bond feature words in the vocabulary." },
+            { name: "__getitem__(key)", desc: "Subscript lookup: returns token index for graph word, or word for token index." },
+            { name: "__contains__(word)", desc: "Checks whether a graph feature word exists within the vocabulary." },
             { name: "encode(mol)", desc: "Converts RDKit Mol into node feature matrix [N, D_node] and edge adjacency tensor [N, N, D_edge]." },
             { name: "decode(nodes, edges)", desc: "Reconstructs valid RDKit Mol from node vectors and edge matrices." }
         ],
@@ -6289,6 +6349,9 @@ Word '1O-': Element=O-, Valence=1, AtomicNum=8, Charge=-1`
     ) -> None`,
         description: "Manages streaming and encoding of SMILES sequences into tensor-ready batches. Automates vocabulary synchronization, duplicate sequence filtering, and length validation across large raw datasets.",
         members: [
+          { name: "__init__(molecules, vocabulary=None, update_voc=True, throw=False, check_unique=True)", desc: "Constructs and initializes the sequence corpus pipeline with molecular supplier." },
+          { name: "__iter__()", desc: "Iterates lazily over processed and tokenized molecular sequences from the input corpus." },
+          { name: "__len__()", desc: "Returns the total count of sequences in the corpus supplier if finite." },
           { name: "processMolecule(seq)", desc: "Tokenizes and encodes a single SMILES string into an integer index array." },
           { name: "saveVoc(path)", desc: "Saves current vocabulary state to disk." },
           { name: "getVoc()", desc: "Returns the active SequenceVocabulary instance." }
@@ -6350,9 +6413,10 @@ for smi, enc in zip(smiles_input[:3], [e for e in encoded_mols if e is not None]
     def __init__(self, data_path: str, voc_path: Optional[str] = None) -> None`,
         description: "Memory-mapped and disk-backed PyTorch Dataset orchestrating tokenized SMILES sequences. Prepares batches with custom collation, padding masks, and target labels for next-token cross-entropy training.",
         members: [
-          { name: "dataToLoader(batch_size=128, shuffle=True)", desc: "Creates and returns a configured PyTorch DataLoader." },
+          { name: "__init__(data_path, voc_path=None)", desc: "Constructs and initializes the disk-backed SMILES PyTorch dataset." },
           { name: "__len__()", desc: "Returns total number of encoded sequences in dataset." },
-          { name: "__getitem__(idx)", desc: "Retrieves single (input_tokens, target_tokens) tuple." }
+          { name: "__getitem__(idx)", desc: "Retrieves single (input_tokens, target_tokens) tuple." },
+          { name: "dataToLoader(batch_size=128, shuffle=True)", desc: "Creates and returns a configured PyTorch DataLoader." }
         ],
         variables: [
           { name: "data", type: "np.ndarray", desc: "Encoded 2D token matrix of shape [N, max_len]." }
@@ -14863,7 +14927,7 @@ class VinaConfig:
     energy_range: float = 3.0`,
         description: "Configuration container for AutoDock Vina / QuickVina docking runs. Encapsulates 3D search space center, bounding box dimensions, exhaustiveness parameter, and maximum binding pose generation count.",
         members: [
-          { name: "__init__(center, box_size, exhaustiveness, num_modes, energy_range)", desc: "Initializes docking parameter configuration." }
+          { name: "to_dict()", desc: "Serializes the VinaConfig settings into a configuration dictionary." }
         ],
         variables: [
           { name: "center", type: "Tuple[float, float, float]", desc: "(x, y, z) coordinates of grid box center in Angstroms." },
@@ -15190,74 +15254,39 @@ for idx, smi in enumerate(items, 1):
       return false;
     }
 
-    // Helper to retrieve member functions for a symbol, ensuring constructors (__init__) are always present for classes
+    // Helper to retrieve member functions for a symbol, ordering regular methods first and magic methods second (excluding __init__)
     function getEffectiveMembers(item) {
-      if (!item) return [];
-      const members = item.members ? [...item.members] : [];
-      if (item.kind === "class") {
-        const hasInit = members.some(m => m.name.startsWith("__init__"));
-        if (!hasInit) {
-          let sig = "__init__()";
-          if (item.synopsis && item.synopsis.includes("def __init__")) {
-            const initIdx = item.synopsis.indexOf("def __init__");
-            const openParen = item.synopsis.indexOf("(", initIdx);
-            if (openParen !== -1) {
-              let pDepth = 1;
-              let closeParen = -1;
-              for (let i = openParen + 1; i < item.synopsis.length; i++) {
-                const ch = item.synopsis[i];
-                if (ch === "(") pDepth++;
-                else if (ch === ")") {
-                  pDepth--;
-                  if (pDepth === 0) {
-                    closeParen = i;
-                    break;
-                  }
-                }
-              }
-              if (closeParen !== -1) {
-                const rawParams = item.synopsis.slice(openParen + 1, closeParen);
-                let cleaned = rawParams.split("\n").map(l => l.trim()).filter(Boolean).join(" ");
-                cleaned = cleaned.replace(/^self\s*,\s*/, "").replace(/^self$/, "").trim();
-                let simplified = "";
-                let depth = 0;
-                let inType = false;
-                for (let i = 0; i < cleaned.length; i++) {
-                  const ch = cleaned[i];
-                  if (ch === ":" && depth === 0 && !inType) {
-                    inType = true;
-                    continue;
-                  }
-                  if (inType) {
-                    if (ch === "[" || ch === "(" || ch === "{") depth++;
-                    else if (ch === "]" || ch === ")" || ch === "}") depth--;
-                    else if (ch === "=" && depth === 0) {
-                      inType = false;
-                      simplified += " = ";
-                      continue;
-                    } else if (ch === "," && depth === 0) {
-                      inType = false;
-                      simplified += ", ";
-                      continue;
-                    }
-                    continue;
-                  }
-                  if (ch === "[" || ch === "(" || ch === "{") depth++;
-                  else if (ch === "]" || ch === ")" || ch === "}") depth--;
-                  simplified += ch;
-                }
-                simplified = simplified.replace(/\s+/g, " ").replace(/\s*=\s*/g, "=").replace(/\s*,\s*/g, ", ").trim();
-                if (simplified.length > 0) sig = `__init__(${simplified})`;
-              }
-            }
-          } else if (item.parameters && item.parameters.length > 0) {
-            sig = `__init__(${item.parameters.map(p => p.name).join(", ")})`;
-          }
-          const desc = `Constructs and initializes the ${item.title} instance.`;
-          members.unshift({ name: sig, desc });
-        }
-      }
-      return members;
+      if (!item || !item.members) return [];
+      // Filter out __init__ constructor from member functions table (constructors are documented in synopsis/header)
+      const filtered = item.members.filter(m => !m.name.startsWith("__init__"));
+      // 1st: regular methods, 2nd: magic dunder methods
+      const regularMethods = filtered.filter(m => !m.name.startsWith("__"));
+      const magicMethods = filtered.filter(m => m.name.startsWith("__"));
+      return [...regularMethods, ...magicMethods];
+    }
+
+    // Helper to resolve Python magic dunder methods to their special operator/syntax signpost
+    function getMagicMethodOperator(name) {
+      if (!name) return null;
+      const match = name.match(/^(__[a-zA-Z0-9_]+__)/);
+      if (!match) return null;
+      const dunder = match[1];
+      const map = {
+        "__init__": { op: "(constructor)", label: null, cls: "op-constructor" },
+        "__call__": { op: "obj(...)", label: "callable", cls: "op-call" },
+        "__getitem__": { op: "obj[...]", label: "operator[]", cls: "op-subscript" },
+        "__setitem__": { op: "obj[...] = v", label: "operator[]=", cls: "op-subscript" },
+        "__len__": { op: "len(obj)", label: "length", cls: "op-len" },
+        "__iter__": { op: "iter(obj)", label: "for x in obj", cls: "op-iter" },
+        "__next__": { op: "next(obj)", label: "generator step", cls: "op-iter" },
+        "__repr__": { op: "repr(obj)", label: "debug", cls: "op-misc" },
+        "__str__": { op: "str(obj)", label: "print", cls: "op-misc" },
+        "__enter__": { op: "with obj:", label: "context enter", cls: "op-call" },
+        "__exit__": { op: "with obj:", label: "context exit", cls: "op-call" },
+        "__contains__": { op: "x in obj", label: "membership", cls: "op-subscript" },
+        "__add__": { op: "obj + other", label: "operator+", cls: "op-len" }
+      };
+      return map[dunder] || null;
     }
 
     // Main React Application Component
@@ -15998,7 +16027,14 @@ for idx, smi in enumerate(items, 1):
                 {/* Parameters Table */}
                 {currentItem.parameters && currentItem.parameters.length > 0 && (
                   <div>
-                    <h2 className="section-header">Parameters</h2>
+                    <h2 className="section-header">
+                      {currentItem.kind === "class" ? "Constructor Parameters" : "Parameters"}
+                    </h2>
+                    {currentItem.kind === "class" && (
+                      <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "-6px", marginBottom: "10px" }}>
+                        Arguments accepted by the <code>__init__</code> constructor when instantiating this class.
+                      </p>
+                    )}
                     <ul className="param-list">
                       {currentItem.parameters.map(param => (
                         <li key={param.name}>
@@ -16021,17 +16057,32 @@ for idx, smi in enumerate(items, 1):
                       <table className="ref-table">
                         <thead>
                           <tr>
-                            <th style={{ width: "42%" }}>Function</th>
+                            <th style={{ width: "42%" }}>Function / Operator</th>
                             <th>Description</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {effectiveMembers.map(m => (
-                            <tr key={m.name}>
-                              <td className="code-cell">{m.name}</td>
-                              <td>{m.desc}</td>
-                            </tr>
-                          ))}
+                          {effectiveMembers.map(m => {
+                            const opInfo = getMagicMethodOperator(m.name);
+                            return (
+                              <tr key={m.name}>
+                                <td className="code-cell">
+                                  {opInfo ? (
+                                    <div className="member-fn-cell">
+                                      <div className="member-op-row">
+                                        <span className={`member-op-badge ${opInfo.cls}`}>{opInfo.op}</span>
+                                        {opInfo.label && <span className="member-op-label">{opInfo.label}</span>}
+                                      </div>
+                                      <span className="member-fn-sig">{m.name}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="member-fn-sig">{m.name}</span>
+                                  )}
+                                </td>
+                                <td>{m.desc}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
