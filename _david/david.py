@@ -1,8 +1,3 @@
-from drugex.train import Reinforce
-from qsprpred.models import QSPRModel
-from drugex.training.scorers.modifiers import SmoothClippedScore
-from drugex.training.scorers.properties import Property
-from drugex.training.generators import SequenceRNN
 from __future__ import annotations
 
 # --- Standard Library ---
@@ -20,6 +15,7 @@ from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from rdkit import Chem
 from rdkit.Chem import Draw
+import torch
 from torch.utils.data import DataLoader
 
 matplotlib.use("Agg")
@@ -32,13 +28,44 @@ from qsprpred.models import scikit_learn as qspr_models
 from scaffviz.clustering import manifold
 from scaffviz.depiction import plot as scaff_plot
 
-# --- Project Modules (Local & DrugEx) ---
-from _david import receptor_similar
-from drugex.data import datasets, processing
+# --- DrugEx Core & Submodule Namespaces ---
+import drugex
+from drugex import data, logs, molecules, parallel, training, utils
+from drugex.data import datasets, fragments, processing
 from drugex.data.corpus import corpus, vocabulary
 from drugex.logs import logger
+from drugex.molecules import converters, mol, suppliers
+from drugex.molecules.converters import default as default_converters
+from drugex.molecules.converters import standardizers
 from drugex.training import environment, explorers, generators, monitors, rewards
-from drugex.training.scorers import modifiers, properties, qsprpred, similarity  # noqa: F401
+from drugex.training.scorers import (
+    conformer_generators,
+    modifiers,
+    oe_color_smarts,
+    properties,
+    protonation,
+    qsprpred,
+    sascorer,
+    similarity,
+    smiles as smiles_scorers,
+)
+
+# --- DrugEx Direct Class Imports (convenience: namespace.Class or bare Class) ---
+from drugex.data.corpus.vocabulary import VocGraph, VocSmiles
+from drugex.data.datasets import GraphFragDataSet, SmilesDataSet, SmilesFragDataSet
+from drugex.data.processing import CorpusEncoder, RandomTrainTestSplitter, Standardization
+from drugex.training.environment import DrugExEnvironment
+from drugex.training.explorers import FragGraphExplorer, FragSequenceExplorer, SequenceExplorer
+from drugex.training.generators import GraphTransformer, SequenceRNN, SequenceTransformer
+from drugex.training.monitors import FileMonitor, NullMonitor
+from drugex.training.rewards import ParetoCrowdingDistance, ParetoRewardScheme, ParetoTanimotoDistance, WeightedSum
+from drugex.training.scorers.modifiers import ClippedScore, ScoreModifier, SmoothClippedScore
+from drugex.training.scorers.properties import Property
+from drugex.training.scorers.qsprpred import QSPRPredScorer
+from drugex.training.scorers.similarity import FraggleSimilarity, TverskyFingerprintSimilarity, TverskyGraphSimilarity
+
+# --- Local Project Modules ---
+from _david import receptor_similar
 
 logger.setLevel("ERROR")
 warnings.filterwarnings("ignore")
@@ -152,7 +179,7 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
         # Rank 101 – 200	    0.315→0.2920	    Elbow inflection point: transitions toward synthetic scaffolds
         # Rank 201 – 500	    0.292→0.2570	    Chemical Noise: synthetic heteroaromatics, sulfonamides, basic amines
         # Rank 501 – 1,070	    0.257→0.2150	    Completely divergent chemistry (only share target binding)
-
+        #! add noise as a decoy
         max_molecules=200
         result: DataFrame = pipline.run(molecule_smile, max_molecules).molecules
 
