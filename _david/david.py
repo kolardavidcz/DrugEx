@@ -1,3 +1,8 @@
+from drugex.train import Reinforce
+from qsprpred.models import QSPRModel
+from drugex.training.scorers.modifiers import SmoothClippedScore
+from drugex.training.scorers.properties import Property
+from drugex.training.generators import SequenceRNN
 from __future__ import annotations
 
 # --- Standard Library ---
@@ -42,87 +47,141 @@ GPUS = [1]  # we will use only one GPU with ID=1, but if you have more, you can 
 SAVE_PROOF = False
 
 
-@contextmanager
-def MY_save_plot(output_path: Path | str, **subplots_kwargs: Any) -> Generator[plt.Axes, None, None]:
-    """Context manager that automatically saves and closes a matplotlib figure.
+class MY_ERROR(RuntimeError):
+    def __init__(self, message="error somewehre in david.py"):
+        super().__init__(message)
 
-    Parameters
-    ----------
-    output_path : Path or str
-        Destination path for the PNG file.
-    **subplots_kwargs : Any
-        Arguments forwarded to plt.subplots (e.g. figsize=(10, 4)).
-    """
-    fig, ax = plt.subplots(**subplots_kwargs)
-    try:
-        yield ax
-    finally:
-        fig.savefig(output_path, bbox_inches="tight")
-        plt.close(fig)
-
-
-class david:
-    # https://pubchem.ncbi.nlm.nih.gov/compound/Epigallocatechin-Gallate
-    MOLECULE = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+class ALL_METHODS():
 
     N_PROCESSES = 12  # number of CPU cores to use
     CHUNK_SIZE = 1000  # largest chunk per CPU core (regulates RAM usage)
 
-    EPOCHS = 200
-    LOSS_TOLERANCE = 0.02
-    EPSILON = 0.1
-    BATCH_SIZE = 32
+    EPOCHS = 20
+    MIN_BATCH_SIZE = 10 #is couted based on accesable molecules + number of desired epochs
 
-    def __init__(self) -> None:
+    LOSS_TOLERANCE = 0.02#
+    EPSILON = 0.1
+
+
+    def __init__(self):
+
+        #essecnail path
         self.ROOT_PATH: Path = Path(__file__).resolve().parent.parent
         self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "outputs"
-
-        # input data
-        self.MODEL_DIR_PR: Path = self.ROOT_PATH / "data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT"
+        
+        #imput
         self.QSAR_DIR : Path = self.ROOT_PATH / "tutorial/data/models/qsar"
 
-        # output
+        #output
         self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.OUTPUT_DIR: Path = self.BASE_OUTPUT_DIR / self.RUN_ID
-
-        self.MODEL_DIR_TL: Path = self.OUTPUT_DIR / "transfer_learning"
-        self.MODEL_DIR_RL: Path = self.OUTPUT_DIR / "reinforcement_learning"
-        self.MODEL_DIR_TL_RL: Path = self.MODEL_DIR_RL
-
-        self.DATA_DIR: Path = self.MODEL_DIR_TL / "data"
-
-        # dir creation
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        self.MODEL_DIR_TL.mkdir(parents=True, exist_ok=True)
-        self.MODEL_DIR_RL.mkdir(parents=True, exist_ok=True)
-        self.DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-        self.VOC = vocabulary.VocSmiles.fromFile(self.MODEL_DIR_PR / "Papyrus05.5_smiles_rnn_PT.vocab")
 
+    @staticmethod
+    def molecules_save_image(generated_sample : DataFrame, out_dir : Path) -> None:
+        mols = [Chem.MolFromSmiles(s) for s in generated_sample["SMILES"][:25] if Chem.MolFromSmiles(s)]
+        if not mols:
+            raise 
+        
+        img = Draw.MolsToGridImage(mols, molsPerRow=5, subImgSize=[250, 250])
+        img.save(str(out_dir / "generated_molecules.png"))
+
+    
+    @staticmethod
+    @contextmanager
+    def MY_save_plot(output_path: Path | str, **subplots_kwargs: Any) -> Generator[plt.Axes, None, None]:
+        """Context manager that automatically saves and closes a matplotlib figure.
+
+        Parameters
+        ----------
+        output_path : Path or str
+            Destination path for the PNG file.
+        **subplots_kwargs : Any
+            Arguments forwarded to plt.subplots (e.g. figsize=(10, 4)).
+        """
+        fig, ax = plt.subplots(**subplots_kwargs)
+        try:
+            yield ax
+        finally:
+            fig.savefig(output_path, bbox_inches="tight")
+            plt.close(fig)
+
+    @staticmethod
+    def vizualize(finetuned : generators.SequenceRNN, model_prefix : Path, out_dir : Path) -> DataFrame:
+
+        performance_for_epoch: DataFrame = pd.read_csv(f"{model_prefix}_fit.tsv", sep="\t")
+        
+        with ALL_METHODS.MY_save_plot(out_dir / "training_loss.png") as ax:
+            performance_for_epoch[["loss_train", "loss_valid", "valid_ratio"]].plot.line(logy=True, ax=ax)
+
+        generated_sample: DataFrame = finetuned.generate(num_samples=100)
+        generated_sample.to_csv(out_dir / "generated_molecules.tsv", sep="\t", index=False)
+
+        ALL_METHODS.molecules_save_image(generated_sample, out_dir)
+
+        return generated_sample
+
+class MY_TRANSFER_LEARNING(ALL_METHODS):
+    # https://pubchem.ncbi.nlm.nih.gov/compound/Epigallocatechin-Gallate
+
+
+    def __init__(self) -> None:
+        
+        # output
+        self.MODEL: Path = self.OUTPUT_DIR / "transfer_learning"
+        self.MODEL.mkdir(parents=True, exist_ok=True)
+
+        # input data
+        self.MODEL_PRETRAINED: Path = self.ROOT_PATH / "data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT"
+
+        self.VOC = vocabulary.VocSmiles.fromFile(self.MODEL_PRETRAINED / "Papyrus05.5_smiles_rnn_PT.vocab")
+        
         self.PRETRAINED = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)  # is_lstm = MORE PARAMETERS
-        self.PRETRAINED.loadStatesFromFile(self.MODEL_DIR_PR / "Papyrus05.5_smiles_rnn_PT.pkg")
+        self.PRETRAINED.loadStatesFromFile(self.MODEL_PRETRAINED / "Papyrus05.5_smiles_rnn_PT.pkg")
 
-    def __LEARNING_TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(self, molecule_smile : str) -> list[Any]:
+    def __receptor_similar_molecules_get_SMILES(self, molecule_smile : str) -> tuple[list[Any], int]:
+
+        #TODO Physicochemical profile + 2D Pharmocophore/Morgan Tanimato similarity ranking
 
         pipline = receptor_similar.MoleculeBioactivityPipeline()
-        result: DataFrame = pipline.run(molecule_smile).papyrus_curated
-        if result.empty:
-            raise RuntimeError("No active ligands found...")
+
+        # Candidate Rank Range	Property Similarity Score	Chemical Profile in Papyrus
+        # Top 1 – 20	        0.704→0.4000	    High resemblance: polyphenols, flavones, catechins, rich in −OH−OH groups
+        # Rank 21 – 100	        0.400→0.3150	    Moderate resemblance: natural-product-like, polycyclic, polar
+        # Rank 101 – 200	    0.315→0.2920	    Elbow inflection point: transitions toward synthetic scaffolds
+        # Rank 201 – 500	    0.292→0.2570	    Chemical Noise: synthetic heteroaromatics, sulfonamides, basic amines
+        # Rank 501 – 1,070	    0.257→0.2150	    Completely divergent chemistry (only share target binding)
+
+        max_molecules=200
+        result: DataFrame = pipline.run(molecule_smile, max_molecules).molecules
+
+        if (self.MIN_BATCH_SIZE * self.EPOCHS < result.sum()):
+
+            if(result.empty):
+                raise MY_ERROR(f"No molecules found: result.sum ({result.sum()})")
+
+            raise MY_ERROR(f"No eought result molecules to train: MIN_BATCH_SIZE({self.MIN_BATCH_SIZE}) * EPOCHS({self.EPOCHS}) < result({result.sum()})")
+        
+        BATCH_SIZE = int( result.sum() / self.EPOCHS )
+        result = result[0:BATCH_SIZE+1]
+
 
         smiles: Series = result["SMILES"]
 
-        smiles_paralel = processing.Standardization(n_proc=self.N_PROCESSES, chunk_size=self.CHUNK_SIZE).apply(smiles)
+        smiles_paralel = processing.Standardization(n_proc=self.N_PROCESSES, chunk_size=self.CHUNK_SIZE) \
+                                   .apply(smiles)
         if smiles_paralel is None:
-            raise RuntimeError("Standardization failed to process molecules.")
+            raise MY_ERROR("Standardization failed to process molecules.")
 
         if SAVE_PROOF:
             pd.Series(smiles_paralel, name="SMILES").to_csv(
-                self.MODEL_DIR_TL / "training_ligands.tsv", sep="\t", index=False
+                self.MODEL / "training_ligands.tsv", sep="\t", index=False
             )
 
-        return smiles_paralel
+        return smiles_paralel, BATCH_SIZE
 
-    def __LEARNING_TRANSFER_LEARNING_tokenization(self, smiles_train : list[Any] ) -> tuple[datasets.SmilesDataSet, processing.CorpusEncoder]:
+    def __tokenization(self, smiles_train : list[Any] ) -> tuple[datasets.SmilesDataSet, processing.CorpusEncoder]:
 
         encoder = processing.CorpusEncoder(
             corpus.SequenceCorpus,  # The corpus CLASS (NOT OBJECT, just just as a constructor)
@@ -135,46 +194,49 @@ class david:
             n_proc=self.N_PROCESSES,
             chunk_size=self.CHUNK_SIZE
         )
-        data_collector = datasets.SmilesDataSet(self.DATA_DIR / "ligand_corpus.tsv", rewrite=True)
+        data_collector = datasets.SmilesDataSet(self.OUTPUT_DIR / "ligand_corpus.tsv", rewrite=True)
         
         encoder.apply(smiles_train, collector=data_collector)
 
         return data_collector, encoder
 
-    def __LEARNING_TRANSFER_LEARNING_make_test_dataset(self, data_collector : datasets.SmilesDataSet) -> tuple[DataLoader, DataLoader]:
+    def __make_test_dataset(self, data_collector : datasets.SmilesDataSet, BATCH_SIZE : int) -> tuple[DataLoader, DataLoader]:
 
         if SAVE_PROOF:
             splitter = processing.RandomTrainTestSplitter(0.1, 10000)
             train, test  = splitter(data_collector.getData())
             
             pd.DataFrame(train, columns=data_collector.getColumns()).to_csv(
-                self.DATA_DIR / "ligand_train.tsv", header=True, index=False, sep="\t"
+                self.OUTPUT_DIR / "ligand_train.tsv", header=True, index=False, sep="\t"
             )
             pd.DataFrame(test, columns=data_collector.getColumns()).to_csv(
-                self.DATA_DIR / "ligand_test.tsv", header=True, index=False, sep="\t"
+                self.OUTPUT_DIR / "ligand_test.tsv", header=True, index=False, sep="\t"
             )
 
-            self.VOC.toFile(self.DATA_DIR / "pretrained.vocab")
+            self.VOC.toFile(self.OUTPUT_DIR / "pretrained.vocab")
             
-            train_loader = datasets.SmilesDataSet.dataToLoader(train, batch_size=self.BATCH_SIZE, vocabulary=self.VOC)
-            valid_loader = datasets.SmilesDataSet.dataToLoader(test, batch_size=self.BATCH_SIZE, vocabulary=self.VOC)
+            train_loader = datasets.SmilesDataSet.dataToLoader(train, batch_size=BATCH_SIZE, vocabulary=self.VOC)
+            valid_loader = datasets.SmilesDataSet.dataToLoader(test, batch_size=BATCH_SIZE, vocabulary=self.VOC)
             return train_loader, valid_loader
-        
+        ########
+
         loaders = data_collector.asDataLoader(
-            batch_size=self.BATCH_SIZE,
+            batch_size=BATCH_SIZE,
             splitter=processing.RandomTrainTestSplitter(0.1, 10000),
         )
-        if isinstance(loaders, (list, tuple)) and len(loaders) == 2:
-            return loaders[0], loaders[1]
-        raise RuntimeError("Expected exactly two DataLoaders (train, valid) from splitter.")
+        if (not isinstance(loaders, (list, tuple))) or len(loaders) != 2:
+                raise MY_ERROR("Expected exactly two DataLoaders \"(list, tuple)\" (train, valid) from splitter.")
 
-    def __LEARNING_TRANSFER_LEARNING_transfer_learning(self, train_loader : DataLoader, valid_loader : DataLoader, model_prefix : Path) -> generators.SequenceRNN:
+        return loaders[0], loaders[1]
+            
+
+    def __transfer_learning(self, train_loader : DataLoader, valid_loader : DataLoader, model_prefix : Path) -> generators.SequenceRNN:
 
         finetuned = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
-        finetuned.loadStatesFromFile(self.MODEL_DIR_PR / "Papyrus05.5_smiles_rnn_PT.pkg")
+        finetuned.loadStatesFromFile(self.MODEL_PRETRAINED / "Papyrus05.5_smiles_rnn_PT.pkg")
 
         reset_directory : bool =True
-                                                  #save_smiles=True MAKES SAVE SAMPLE SMILES
+                                                    #save_smiles=True MAKES SAVE SAMPLE SMILES
         monitor = monitors.FileMonitor(model_prefix, save_smiles=True, reset_directory=reset_directory)
                             
         #   _______ _____            _____ _   _ _____ _   _  _____ 
@@ -187,200 +249,82 @@ class david:
         finetuned.fit(train_loader, valid_loader, epochs=self.EPOCHS, monitor=monitor, loss_tolerance=self.LOSS_TOLERANCE)
 
         if SAVE_PROOF:
-            self.VOC.toFile(self.MODEL_DIR_TL / "finetuned.vocab") #NEEDED ONLY FOR NOT-PRETRAINED AI
+            self.VOC.toFile(self.MODEL / "finetuned.vocab")
 
         return finetuned
 
-    def __molecules_save_image(self, generated_sample : DataFrame) -> None:
-        mols = [Chem.MolFromSmiles(s) for s in generated_sample["SMILES"][:25] if Chem.MolFromSmiles(s)]
-        if mols:
-            img = Draw.MolsToGridImage(mols, molsPerRow=5, subImgSize=[250, 250])
-            img.save(str(self.MODEL_DIR_TL / "generated_molecules.png"))
-
-    def __LEARNING_TRANSFER_LEARNING_vizualize(self, finetuned : generators.SequenceRNN, model_prefix : Path) -> DataFrame:
-
-        performance_for_epoch: DataFrame = pd.read_csv(f"{model_prefix}_fit.tsv", sep="\t")
+    def TRANSFER_LEARNING(self, my_molecule) -> tuple[generators.SequenceRNN, DataFrame]:
         
-        with MY_save_plot(self.MODEL_DIR_TL / "training_loss.png") as ax:
-            performance_for_epoch[["loss_train", "loss_valid", "valid_ratio"]].plot.line(logy=True, ax=ax)
+        smiles_train, BATCH_SIZE = self.__receptor_similar_molecules_get_SMILES(my_molecule)
 
-        generated_sample: DataFrame = finetuned.generate(num_samples=100)
-        generated_sample.to_csv(self.MODEL_DIR_TL / "generated_molecules.tsv", sep="\t", index=False)
-
-        self.__molecules_save_image(generated_sample)
-
-        return generated_sample
-
-    def LEARNING_TRANSFER_LEARNING(self, my_molecule : str = MOLECULE) -> tuple[generators.SequenceRNN, DataFrame]:
+        data_collector, encoder = self.__tokenization(smiles_train)
         
-        smiles_train = self.__LEARNING_TRANSFER_LEARNING_MY_receptor_similar_molecules_get_SMILES(my_molecule)
+        train_loader, valid_loader = self.__make_test_dataset(data_collector, BATCH_SIZE)
 
-        data_collector, encoder = self.__LEARNING_TRANSFER_LEARNING_tokenization(smiles_train)
-        
-        train_loader, valid_loader = self.__LEARNING_TRANSFER_LEARNING_make_test_dataset(data_collector)
+        model_prefix = self.MODEL / "david_finetuned" #wil be added ""_SOMETING.tsv" to the end
+        finetuned: generators.SequenceRNN = self.__transfer_learning(train_loader, valid_loader, model_prefix)
 
-        model_prefix = self.MODEL_DIR_TL / "david_finetuned" #wil be added ""_SOMETING.tsv" to the end
-        finetuned: generators.SequenceRNN = self.__LEARNING_TRANSFER_LEARNING_transfer_learning(train_loader, valid_loader, model_prefix)
-
-        generated_sample = self.__LEARNING_TRANSFER_LEARNING_vizualize(finetuned, model_prefix)
+        generated_sample = ALL_METHODS.vizualize(finetuned, model_prefix, self.MODEL)
 
         return finetuned, generated_sample
 
-    # def COMPARE_vizualization(self, scores):
-    #     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    #     scores.QSPRpred_A2AR_RandomForestClassifier.hist(ax=axes[0])
-    #     axes[0].set_title("QSPRpred_A2AR_RandomForestClassifier")
-    #     scores.SA.hist(ax=axes[1])
-    #     axes[1].set_title("SA")
-    #     fig.savefig(os.path.join(self.MODEL_DIR_TL, "score_distributions.png"), bbox_inches="tight")
-    #     plt.close(fig)
 
-    # def COMPARE_SCORE_SHOWCASE(self, environment, my_molecule : str="C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"):
-    #     finetuned, generated_sample = self.TRANSFER_LEARNING(my_molecule)
-    #     scores = environment.getScores(generated_sample.SMILES)
+class RAINFORCMENT_LEARNING(ALL_METHODS):
+
+    def __init__(self, finetuned : SequenceRNN):
+        self.MODEL: Path = self.OUTPUT_DIR / "reinforcement_learning"
+        self.MODEL.mkdir(parents=True, exist_ok=True)
+
         
-    #     # Save scored molecules
-    #     scored_df = pd.concat([generated_sample.reset_index(drop=True), scores.reset_index(drop=True)], axis=1)
-    #     scored_df.to_csv(os.path.join(self.MODEL_DIR_TL, "tl_generated_candidates_scored.tsv"), sep="\t", index=False)
+        self.PRETRAINED: Path = self.ROOT_PATH / "data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT"
+        self.VOC = vocabulary.VocSmiles.fromFile(self.PRETRAINED / "Papyrus05.5_smiles_rnn_PT.vocab")
 
-    #     self.__TRANSFER_LEARNING_vizualize()
+        self.MUTATE : SequenceRNN = finetuned
 
-    def LEARNING_RAINFORCEMENT_LEARNING_vizualization(self, scores, generated, qsprpred_scorer):
-        ...
-        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-        scores[qsprpred_scorer.getKey()].hist(ax=axes[0])
-        axes[0].set_title(qsprpred_scorer.getKey())
-        scores.SA.hist(ax=axes[1])
-        axes[1].set_title("SA")
-        fig.savefig(self.MODEL_DIR_RL / "rl_score_distributions.png", bbox_inches="tight")
-        plt.close(fig)
+    def RAINFORCEMENT_LEARNING(self):
 
-        dataset = qspr_data.MoleculeTable("david_agent", df=generated)
-        dataset.addProperty(qsprpred_scorer.getKey(), scores[qsprpred_scorer.getKey()].values)
-        dataset.addDescriptors(
-            [qspr_fps.MorganFP(radius=3, nBits=2048)]
-        )
+        scorers = [
+            Property( prop="QED",
+                modifier=SmoothClippedScore(lower_x=0.4, upper_x=0.8)),
 
-        plt_manifold = scaff_plot.Plot(manifold.TSNE())
-        fig_manifold = plt_manifold.plot(
-            dataset,
-            color_by=qsprpred_scorer.getKey(),
-            interactive=False,
-            color_continuous_scale="rdylgn"
-        )
-        if fig_manifold is not None:
-            fig_manifold.write_html(str(self.MODEL_DIR_RL / "rl_chemical_space.html"))
-
-    def LEARNING_COMPARE_vizualization(self, df, generated):
-        df_joined : DataFrame = pd.concat(
-            [
-                pd.DataFrame(
-                    {"SMILES" : df.SMILES.to_list(), "Group" : "Set"}
-                ),
-                pd.DataFrame(
-                    {"SMILES" : generated.SMILES, "Group" : "Generated"}
-                )
-            ]
-        )
-
-        dataset = qspr_data.MoleculeTable(name="david_joined", df = df_joined)
-        dataset.addDescriptors([qspr_fps.MorganFP(radius=3, nBits=2048)])
-
-        plt_manifold = scaff_plot.Plot(manifold.TSNE())
-        fig_manifold = plt_manifold.plot(dataset, recalculate=False, color_by="Group", interactive=False)
-        if fig_manifold is not None:
-            fig_manifold.write_html(str(self.MODEL_DIR_RL / "chemical_space_comparison.html"))
-
-    def RAINFORCEMENT_LEARNING_SCORE_SHOWCASE(self, environment : environment.DrugExEnvironment):
-
-        agent = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
-        agent.loadStatesFromFile(self.MODEL_DIR_RL / "david_agent.pkg")
-
-        generated_sample = agent.generate(num_samples=100)
-
-        scores = environment.getScores(generated_sample.SMILES)
-
-        # Save scored molecules
-        scored_df = pd.concat([generated_sample.reset_index(drop=True), scores.reset_index(drop=True)], axis=1)
-        scored_df.to_csv(self.MODEL_DIR_RL / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
-
-        qsprpred_scorer = [s for s in environment.scorers if isinstance(s, qsprpred.QSPRPredScorer)][0]
-        self.LEARNING_RAINFORCEMENT_LEARNING_vizualization(scores, generated_sample, qsprpred_scorer)
-
-    def LEARNING_RAINFORCEMENT_LEARNING(self):
-
-        QSAR_DIR_old_way_for_external_package : str = str(self.QSAR_DIR)
-
-        predictor = qspr_models.SklearnModel(
-            name="DAVID_RandomForestClassifier",
-            base_dir=QSAR_DIR_old_way_for_external_package
-        )
-
-        #TODO: how about more functions?
-
-        qsprpred_scorer = qsprpred.QSPRPredScorer(predictor)
-
-        sascore = properties.Property("SA")
-        #how about: 'QED': Quantitative Estimate of Drug-likeness
-        sascore.setModifier(modifiers.SmoothClippedScore(lower_x=5, upper_x=3))
-        qsprpred_scorer.setModifier(modifiers.ClippedScore(lower_x=0.2, upper_x=0.8))
-
-        scorers: list[properties.Property | qsprpred.QSPRPredScorer] = [
-            qsprpred_scorer,
-            sascore
-        ]
-        thresholds = [
-            0.5,
-            0.1
+            Property( prop="SAScore", 
+                modifier=SmoothClippedScore(lower_x=4.5, upper_x=2.5))
         ]
 
-        env = environment.DrugExEnvironment(scorers, thresholds, reward_scheme=rewards.ParetoCrowdingDistance())
+        reward_scheme = rewards.ParetoCrowdingDistance()
+        reward_scheme_v2 = rewards.ParetoTanimotoDistance()
 
-        finetuned = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
-        finetuned_path = self.MODEL_DIR_TL / "david_finetuned.pkg"
-        if not finetuned_path.exists():
-            finetuned_path = self.ROOT_PATH / "tutorial/data/models/finetuned/smiles-rnn/david_finetuned.pkg"
-        finetuned.loadStatesFromFile(finetuned_path)
-
-        explorer = explorers.SequenceExplorer(
-            agent = finetuned, #TODO pretrained
-            env = env,
-            mutate = self.PRETRAINED, # network introducing "random mutations" to the generated structures (rate determined by epsilon)
-            epsilon = self.EPSILON,
-            use_gpus = GPUS
-        )
-
-        monitor = monitors.FileMonitor(self.MODEL_DIR_RL / "david_agent", save_smiles=True, reset_directory=True)
-        explorer.fit(monitor=monitor, epochs=100)
-
-        df_info = pd.read_csv(self.MODEL_DIR_RL / "david_agent_fit.tsv", sep="\t")
-        df_info.head()
-        with MY_save_plot(self.MODEL_DIR_RL / "rl_training_curves.png") as ax:
-            df_info[["loss_train", "valid_ratio", "unique_ratio", "desired_ratio"]].plot.line(ax=ax)
-
-        self.RAINFORCEMENT_LEARNING_SCORE_SHOWCASE(env)
-
-    # In DrugEx, Reinforcement Learning consists of 5 modular pieces:
-
-    # The Agent (agent): The model being trained (starts from your david_finetuned.pkg).
-    # |↑        The Mutator (mutate): A frozen baseline model (usually self.PRETRAINED). With probability epsilon (e.g. 0.1), tokens are chosen from the mutator instead of the agent, preventing the agent from getting stuck generating the exact same single molecule over and over ("mode collapse").
-    # ↓|        ↓
-    # Scorers & Modifiers (Scorer + ScoreModifier): Every scorer must output values scaled between 0.0 and 1.0 (desirability utility).
-    # |   ↓↑
-    # |   The Environment (DrugExEnvironment): Takes your scorers, matching desirability thresholds, and an objective combiner (e.g. ParetoCrowdingDistance() for multi-objective optimization).
-    # ↓
-    # The Explorer (SequenceExplorer): Orchestrates the generator sampling, scoring, policy gradient updates, and passes metrics to FileMonitor.
-    def REAL_RAINFORCEMENT_LEARNING(self) -> None:
-        # TODO: similarity.TverskyFingerprintSimilarity
-        ...
-
+        # # 5. Reward Scheme
+        # reward_scheme = ParetoCrowdingDistance()
+        # # 6. Environment
+        # env = DrugExEnvironment(
+        #     scorers=scorers,
+        #     thresholds=[0.5, 0.5, 0.5],
+        #     reward_scheme=reward_scheme
+        # )
+        # # 7. Explorer (RL Orchestrator)
+        # explorer = SequenceExplorer(
+        #     agent=agent,
+        #     mutate=mutate,
+        #     env=env,
+        #     epsilon=0.20,
+        #     beta=0.0,
+        #     n_samples=1000,
+        #     batch_size=128
+        # )
+        # # 8. Monitor & Fit
+        # monitor = FileMonitor("rl_outputs/run_01", save_smiles=True)
+        # explorer.fit(monitor=monitor, epochs=100, patience=20, criteria='desired_ratio')
 
 
 if __name__ == "__main__":
-    tmp = david()
-    tmp.LEARNING_TRANSFER_LEARNING()
-    tmp.LEARNING_RAINFORCEMENT_LEARNING()
-    tmp.REAL_RAINFORCEMENT_LEARNING()
+    my_molecule : str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+    TL = MY_TRANSFER_LEARNING()
+    finetuned, generated_sample = TL.TRANSFER_LEARNING(my_molecule)
+
+    # ! fine tooning could be only molecules = 50 to 1000, with pIC50 > 6.0
+    RL = RAINFORCMENT_LEARNING(finetuned)
+    RL.RAINFORCEMENT_LEARNING(my_molecule)
 
 
 
