@@ -3000,9 +3000,20 @@ for idx, (scaff, mol) in enumerate(zip(scaffold_prompts, elaborations)):
     ) -> None`,
         description: "Multi-layer recurrent neural network (LSTM or GRU) for autoregressive SMILES sequence generation. Computes next-token probability distributions conditioned on preceding tokens, trained via cross-entropy loss against large-scale chemical libraries (e.g. ChEMBL).",
         members: [
+          { name: "fit(train_loader, valid_loader=None, epochs=100, monitor=None, patience=50)", desc: "Trains the recurrent network via maximum-likelihood teacher forcing cross-entropy loss." },
+          { name: "generate(num_samples=100, batch_size=128, drop_duplicates=True, raw=False)", desc: "Autoregressively generates batches of SMILES strings, returning clean molecules or token lists." },
+          { name: "sample(batch_size)", desc: "Generates sequences step-by-step using categorical multinomial sampling from recurrent logits." },
+          { name: "evolve(batch_size, epsilon=0.0, crover=None, mutate=None)", desc: "Samples candidate SMILES with epsilon-greedy mutation and crossover policy mixing for RL exploration." },
           { name: "forward(x, h=None)", desc: "Computes forward pass token logits and updated recurrent hidden state." },
-          { name: "sample(num_samples)", desc: "Generates sequences step-by-step using categorical multinomial sampling." },
-          { name: "likelihood(x)", desc: "Calculates negative log-likelihood loss for sequence batch x." }
+          { name: "init_h(batch_size=64)", desc: "Initializes zero-filled recurrent hidden and cell state tensors on active device." },
+          { name: "likelihood(target)", desc: "Calculates negative log-likelihood cross-entropy loss for sequence batch target." },
+          { name: "trainNet(loader, epoch, epochs)", desc: "Executes single training epoch through DataLoader with teacher forcing loss backpropagation." },
+          { name: "validateNet(loader, monitor=None)", desc: "Evaluates validation DataLoader perplexity loss without updating network weights." },
+          { name: "loadStatesFromFile(path)", desc: "Restores saved model weights and architecture state dict from .pkg file." },
+          { name: "loadStates(state_dict, strict=True)", desc: "Loads model weights directly from an in-memory PyTorch state dictionary." },
+          { name: "saveStatesToFile(path)", desc: "Serializes current network weights and hyperparameter state dict to .pkg file." },
+          { name: "getModel()", desc: "Extracts and returns the model parameter state dictionary." },
+          { name: "attachToGPUs(gpus)", desc: "Binds model layers across specified CUDA devices using PyTorch DataParallel." }
         ],
         variables: [
           { name: "rnn", type: "nn.LSTM | nn.GRU", desc: "PyTorch recurrent layer stack." },
@@ -3015,7 +3026,7 @@ for idx, (scaff, mol) in enumerate(zip(scaffold_prompts, elaborations)):
           { name: "num_layers", type: "int", desc: "Number of stacked recurrent layers (default: 3)." },
           { name: "dropout", type: "float", desc: "Dropout probability applied between recurrent layers (default: 0.2)." }
         ],
-        notes: "RNN inference is strictly sequential in time; generating 10,000 samples typically benefits heavily from batch sampling with batch sizes between 256 and 512.",
+        notes: "SequenceRNN uses .fit(...) for model optimization and .generate(...) or .sample(...) for autoregressive sequence sampling. It does not implement a .run(...) method (pipeline execution via .run() or .fit() belongs to high-level orchestrators such as drugex.train.Pretrain, drugex.train.Finetune, or drugex.train.Reinforce). Generating large sample sets benefits heavily from batch sampling with batch sizes between 256 and 512.",
         example: {
           code: `from drugex.training.generators.sequence_rnn import SequenceRNN
 from drugex.data.corpus.vocabulary import VocSmiles
@@ -3068,8 +3079,17 @@ print(f"  Mean negative log-lik   : {(-log_likelihoods.mean()).item():.3f}")`,
     ) -> None`,
         description: "GPT-2 style decoder-only self-attention transformer for causal SMILES sequence generation and fragment-to-lead elaboration. Utilizes multi-head causal attention masks to allow parallelized pre-training across entire sequences without recurrent bottlenecks.",
         members: [
+          { name: "fit(train_loader, valid_loader=None, epochs=100, monitor=None, patience=50)", desc: "Trains transformer decoder using causal masked cross-entropy teacher forcing." },
+          { name: "generate(frags, num_samples=128, batch_size=128, drop_duplicates=True)", desc: "Autoregressively generates SMILES continuations conditioned on input fragment prompts." },
+          { name: "sample(batch_size)", desc: "Samples unconditional SMILES sequences using causal self-attention decoding." },
           { name: "forward(src, tgt=None)", desc: "Forward pass through self-attention layers with causal lower-triangular attention mask." },
-          { name: "generate(frags, batch_size=128)", desc: "Performs autoregressive token generation conditioned on input fragment prompts." }
+          { name: "trainNet(loader, epoch, epochs)", desc: "Executes single training epoch over causal sequence batches." },
+          { name: "validateNet(loader, monitor=None)", desc: "Evaluates cross-entropy loss over validation fragment-molecule pairs." },
+          { name: "loadStatesFromFile(path)", desc: "Restores transformer weights and positional embedding states from .pkg file." },
+          { name: "loadStates(state_dict, strict=True)", desc: "Loads model weights directly from an in-memory PyTorch state dictionary." },
+          { name: "saveStatesToFile(path)", desc: "Serializes transformer weights and configuration to .pkg checkpoint." },
+          { name: "getModel()", desc: "Extracts and returns the model parameter state dictionary." },
+          { name: "attachToGPUs(gpus)", desc: "Distributes multi-head attention layers across specified GPU device IDs." }
         ],
         variables: [
           { name: "layers", type: "nn.ModuleList", desc: "Stack of multi-head self-attention and feedforward transformer blocks." },
@@ -3142,8 +3162,17 @@ print(f"  Vocabulary projection   : {logits.shape[-1]} tokens")`,
     ) -> None`,
         description: "Direct molecular graph generation architecture. Generates atom feature matrices (element, formal charge, implicit hydrogens) and bond adjacency tensors directly, eliminating linearization syntax errors inherent in string-based SMILES representations.",
         members: [
+          { name: "fit(train_loader, valid_loader=None, epochs=100, monitor=None, patience=50)", desc: "Trains graph attention layers on molecular node feature and bond connectivity tensors." },
+          { name: "generate(frags, num_samples=128, batch_size=128)", desc: "Generates molecular graphs conditioned on input fragment subgraphs." },
+          { name: "sample(num_samples)", desc: "Samples valid 2D molecular graphs with valence and ring-closure constraints." },
           { name: "forward(nodes, edges)", desc: "Processes node feature vectors and bond matrices through graph self-attention." },
-          { name: "sample(num_samples)", desc: "Samples valid 2D molecular graphs with valence and ring-closure constraints." }
+          { name: "trainNet(loader, epoch, epochs)", desc: "Runs single training pass optimizing atom-type and bond-type classification losses." },
+          { name: "validateNet(loader, monitor=None)", desc: "Calculates validation loss across molecular graph test batches." },
+          { name: "loadStatesFromFile(path)", desc: "Restores trained graph transformer weights from .pkg file." },
+          { name: "loadStates(state_dict, strict=True)", desc: "Loads model weights directly from an in-memory PyTorch state dictionary." },
+          { name: "saveStatesToFile(path)", desc: "Serializes current network weights and hyperparameter state dict to .pkg file." },
+          { name: "getModel()", desc: "Extracts and returns the model parameter state dictionary." },
+          { name: "attachToGPUs(gpus)", desc: "Binds model layers across specified CUDA devices using PyTorch DataParallel." }
         ],
         variables: [
           { name: "atom_layer", type: "nn.Module", desc: "Atomic node classification projection head." },
@@ -3415,8 +3444,11 @@ Active batch size for elaboration: 32`
     ) -> None`,
         description: "De novo sequence reinforcement learning explorer for optimizing SequenceRNN models. Samples SMILES batches, collects multi-objective rewards from DrugExEnvironment, and performs policy gradient updates with reward-weighted likelihood loss.",
         members: [
-          { name: "fit(epochs, monitor=None)", desc: "Runs the complete RL training trajectory across specified epoch count." },
-          { name: "step(epoch)", desc: "Executes a single sampling, scoring, reward calculation, and backward pass iteration." }
+          { name: "fit(train_loader=None, valid_loader=None, monitor=None, epochs=1000, patience=50, reload_interval=50, criteria='desired_ratio', min_epochs=100)", desc: "Runs the complete RL exploration trajectory across specified epochs, updating agent policy weights." },
+          { name: "forward()", desc: "Generates candidate molecule batch using agent and mutation prior, returning decoded SMILES and sequence tensors." },
+          { name: "policy_gradient(smiles=None, seqs=None, epoch=None, epochs=None)", desc: "Executes REINFORCE policy gradient step using environment rewards with baseline subtraction." },
+          { name: "getNovelMoleculeMetrics(scores)", desc: "Computes validity ratio, uniqueness ratio, desired ratio, and mean objective scores for generated batch." },
+          { name: "saveBestState(value, epoch, it)", desc: "Persists best model checkpoint based on chosen early stopping criteria." }
         ],
         variables: [
           { name: "agent", type: "SequenceRNN", desc: "Active generative network." },
@@ -8382,60 +8414,86 @@ Training mode selected: FT`
         module: "drugex.train",
         title: "Pretrain",
         kind: "class",
-        badges: ["DrugEx CLI", "Pre-training", "Language Modeling"],
-        synopsis: `class Pretrain:
-    def __init__(self, args: Namespace) -> None
-    def run(self) -> None`,
-        description: "Workflow coordinator executing unsupervised pre-training of de novo generator models on massive chemical corpora (e.g. Papyrus, ZINC, ChEMBL) using cross-entropy language modeling loss.",
+        badges: ["DrugEx 3.4+", "Dual-Use API", "High-Level Orchestrator", "Pre-training"],
+        synopsis: `class Pretrain(SetUpGenerator):
+    def __init__(
+        self,
+        args: Optional[Union[Namespace, dict]] = None,
+        base_dir: str = '.',
+        input: Optional[str] = None,
+        mol_type: str = 'smiles',
+        algorithm: str = 'rnn',
+        epochs: int = 1000,
+        batch_size: int = 256,
+        use_gpus: Sequence[int] = (0,),
+        patience: int = 50,
+        **kwargs
+    ) -> None
+    def fit(self) -> Generator: ...
+    def __call__(self) -> Generator: ...`,
+        description: "High-level end-to-end pre-training orchestrator that eliminates boilerplate training loops. Users do not need to manually construct chemical vocabularies (VocSmiles/VocGraph), instantiate PyTorch DataLoaders, write training/validation loops, or configure FileMonitors. Operates in dual-use mode: runs directly from the command line with parsed CLI arguments or imports cleanly as an instantiated class in regular Python development scripts (such as _david/david.py, custom pipelines, or Jupyter notebooks) via keyword arguments or configuration dictionaries.",
         members: [
-          { name: "run()", desc: "Instantiates model, DataLoader, ScheduledOptim, and executes pre-training epochs." }
+          { name: "fit()", desc: "Executes the complete pre-training workflow and returns the trained generator model instance." },
+          { name: "__call__()", desc: "Functional execution alias for fit()." },
+          { name: "prepareInputs()", desc: "Automatically resolves chemical vocabulary and constructs training/validation PyTorch DataLoaders." },
+          { name: "setGeneratorAlgorithm(voc)", desc: "Constructs the generator neural architecture (SequenceRNN, SequenceTransformer, or GraphTransformer)." },
+          { name: "getMonitor()", desc: "Returns configured TrainingMonitor or instantiates default FileMonitor saving checkpoints to generators/ directory." }
         ],
         variables: [
-          { name: "model", type: "Generator", desc: "Instantiated generator model." }
+          { name: "agent", type: "Generator", desc: "Instantiated generator model being optimized." },
+          { name: "monitor", type: "TrainingMonitor", desc: "Training monitor tracking loss progression and model checkpoints." },
+          { name: "output_file_base", type: "str", desc: "Resolved filesystem path prefix for serialized checkpoints." }
         ],
         parameters: [
-          { name: "args", type: "Namespace", desc: "Parsed CLI parameters." }
+          { name: "args", type: "Optional[Union[Namespace, dict]]", desc: "Optional CLI argument namespace or dictionary of parameters." },
+          { name: "base_dir", type: "str", desc: "Working root directory containing data/ and generators/ subdirectories (default: '.')." },
+          { name: "input", type: "Optional[str]", desc: "Dataset filename prefix in data/ directory (e.g. 'chembl_corpus')." },
+          { name: "mol_type", type: "str", desc: "Molecular representation: 'smiles' or 'graph' (default: 'smiles')." },
+          { name: "algorithm", type: "str", desc: "Generative architecture: 'rnn' (SequenceRNN) or 'trans' (Transformer) (default: 'rnn')." },
+          { name: "epochs", type: "int", desc: "Maximum number of pre-training epochs (default: 1000)." },
+          { name: "batch_size", type: "int", desc: "Batch size for training DataLoaders (default: 256)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "CUDA GPU device indices (default: (0,))." },
+          { name: "patience", type: "int", desc: "Early stopping patience in epochs without validation loss improvement (default: 50)." },
+          { name: "train_loader", type: "Optional[DataLoader]", desc: "Optional pre-existing PyTorch DataLoader to bypass disk loading entirely." },
+          { name: "valid_loader", type: "Optional[DataLoader]", desc: "Optional pre-existing validation DataLoader." }
         ],
-        notes: "Saves pre-trained model weights as .pkg checkpoint for subsequent fine-tuning or reinforcement learning.",
+        notes: "Dual-use execution: pass an argparse.Namespace from the CLI, or initialize directly in regular Python scripts with keyword arguments. When train_loader and valid_loader are provided in-memory, all disk dataset loading is bypassed.",
         example: {
-          code: `import argparse
-from drugex.train import Pretrain
+          code: `from drugex.train import Pretrain
 
-# Configure unsupervised de novo generator pre-training on ChEMBL bioactive corpus
-args = argparse.Namespace(
-    task="train",
-    algorithm="Transformer",
-    mode="PT",
-    data_dir="./data/chembl_gpt2_tokens",
-    output_dir="./models/checkpoints",
+# Programmatic pretraining in a development Python script (zero boilerplate)
+pretrainer = Pretrain(
+    base_dir="./workspace",
+    input="papyrus_corpus",
+    mol_type="smiles",
+    algorithm="rnn",
     epochs=50,
     batch_size=128,
-    lr=5e-4,
-    warmup_steps=4000,
-    device="cuda:0"
+    use_gpus=[0],
+    patience=10
 )
 
-pretrainer = Pretrain(args)
+# Automated data loading, vocabulary construction, and training loop
+trained_agent = pretrainer.fit()
 
-print("DrugEx Unsupervised Pretraining Engine:")
-print(f"  Generator Architecture : {args.algorithm} (Causal GPT-2 Decoder)")
-print(f"  Training Mode          : {args.mode} (Cross-Entropy Language Modeling)")
-print(f"  Tokenized Corpus       : {args.data_dir} (1.8M bioactive SMILES)")
-print(f"  Scheduled Epochs       : {args.epochs} (batch_size={args.batch_size})")
-print(f"  Optimizer & Scheduler  : ScheduledOptim (lr={args.lr}, warmup={args.warmup_steps} steps)")
-print(f"  Compute Hardware       : {args.device} (Mixed Precision FP16)")`,
-          output: `DrugEx Unsupervised Pretraining Engine:
-  Generator Architecture : Transformer (Causal GPT-2 Decoder)
-  Training Mode          : PT (Cross-Entropy Language Modeling)
-  Tokenized Corpus       : ./data/chembl_gpt2_tokens (1.8M bioactive SMILES)
-  Scheduled Epochs       : 50 (batch_size=128)
-  Optimizer & Scheduler  : ScheduledOptim (lr=0.0005, warmup=4000 steps)
-  Compute Hardware       : cuda:0 (Mixed Precision FP16)`
+# Autoregressively sample candidate SMILES from the trained generator
+samples = trained_agent.generate(num_samples=5, batch_size=5)
+
+print("Pretrain programmatic orchestrator completed:")
+print(f"  Architecture: {pretrainer.algorithm.upper()} ({pretrainer.mol_type})")
+print(f"  Checkpoint  : {pretrainer.output_file_base}.pkg")
+print(f"  Sample count: {len(samples)}")
+print(f"  First sample: {samples[0]}")`,
+          output: `Pretrain programmatic orchestrator completed:
+  Architecture: RNN (smiles)
+  Checkpoint  : ./workspace/generators/papyrus_corpus_smiles_rnn_PT.pkg
+  Sample count: 5
+  First sample: CC(=O)Nc1ccc(O)cc1`
         },
         seeAlso: [
           "drugex::train::Finetune",
           "drugex::train::Reinforce",
-          "drugex::train::train_model"
+          "drugex::train::DataPreparation"
         ]
       },
 
@@ -8444,38 +8502,86 @@ print(f"  Compute Hardware       : {args.device} (Mixed Precision FP16)")`,
         module: "drugex.train",
         title: "Finetune",
         kind: "class",
-        badges: ["DrugEx CLI", "Transfer Learning", "Focus Space"],
-        synopsis: `class Finetune:
-    def __init__(self, args: Namespace) -> None
-    def run(self) -> None`,
-        description: "Workflow coordinator executing transfer-learning fine-tuning of pre-trained models on target-specific bioactivity subsets (e.g. A2AR ligands, kinase inhibitors).",
+        badges: ["DrugEx 3.4+", "Dual-Use API", "High-Level Orchestrator", "Focus Space"],
+        synopsis: `class Finetune(SetUpGenerator):
+    def __init__(
+        self,
+        args: Optional[Union[Namespace, dict]] = None,
+        base_dir: str = '.',
+        input: Optional[str] = None,
+        agent_path: Optional[str] = None,
+        mol_type: str = 'smiles',
+        algorithm: str = 'rnn',
+        epochs: int = 100,
+        batch_size: int = 64,
+        use_gpus: Sequence[int] = (0,),
+        patience: int = 50,
+        **kwargs
+    ) -> None
+    def fit(self) -> Generator: ...
+    def __call__(self) -> Generator: ...`,
+        description: "High-level transfer learning orchestrator adapting pre-trained chemical generators to focused bioactivity subsets (e.g. A2AR ligands, kinase inhibitors). Eliminates boilerplate by automatically loading base model checkpoints, preparing focused DataLoaders, aligning vocabularies, and managing training schedules. Dual-use design supports CLI invocation or direct class import into regular Python development scripts (such as _david/david.py, custom pipelines, or Jupyter notebooks) via keyword arguments or dict config.",
         members: [
-          { name: "run()", desc: "Loads pre-trained weights, reduces learning rate, and fine-tunes on focused set." }
+          { name: "fit()", desc: "Executes transfer learning fine-tuning loop and returns adapted generator model." },
+          { name: "__call__()", desc: "Functional execution alias for fit()." },
+          { name: "loadStatesFromFile(generator, path)", desc: "Restores pre-trained weights from specified .pkg checkpoint." },
+          { name: "prepareInputs()", desc: "Constructs focused DataLoaders and aligns vocabulary with pre-trained corpus." },
+          { name: "getMonitor()", desc: "Returns configured TrainingMonitor or instantiates default FileMonitor." }
         ],
-        variables: [],
+        variables: [
+          { name: "agent", type: "Generator", desc: "Generator model being fine-tuned." },
+          { name: "output_file_base", type: "str", desc: "Resolved filesystem path prefix for fine-tuned checkpoints." }
+        ],
         parameters: [
-          { name: "args", type: "Namespace", desc: "CLI argument namespace." }
+          { name: "args", type: "Optional[Union[Namespace, dict]]", desc: "Optional CLI argument namespace or dictionary." },
+          { name: "base_dir", type: "str", desc: "Project directory containing data/ and generators/ subdirectories (default: '.')." },
+          { name: "input", type: "Optional[str]", desc: "Focused active dataset filename or prefix in data/ directory." },
+          { name: "agent_path", type: "Optional[str]", desc: "Path or prefix to pre-trained base model .pkg file." },
+          { name: "mol_type", type: "str", desc: "Chemical encoding: 'smiles' or 'graph' (default: 'smiles')." },
+          { name: "algorithm", type: "str", desc: "Neural architecture: 'rnn' or 'trans' (default: 'rnn')." },
+          { name: "epochs", type: "int", desc: "Fine-tuning epochs (typically 10-50, default: 100)." },
+          { name: "batch_size", type: "int", desc: "Batch size for focused fine-tuning (default: 64)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "CUDA GPU device indices (default: (0,))." },
+          { name: "train_loader", type: "Optional[DataLoader]", desc: "Optional pre-existing in-memory DataLoader to bypass disk loading." },
+          { name: "valid_loader", type: "Optional[DataLoader]", desc: "Optional pre-existing in-memory validation DataLoader." }
         ],
-        notes: "Requires fewer epochs (typically 5-10) than pre-training to prevent catastrophic forgetting.",
+        notes: "Dual-use class: instantiate directly in Python scripts with kwargs, or supply pre-instantiated in-memory train_loader and valid_loader objects. Prevents catastrophic forgetting by supporting reduced learning rates and early stopping.",
         example: {
-          code: `import argparse
-from drugex.train import Finetune
+          code: `from drugex.train import Finetune
 
-args = argparse.Namespace(
-    pretrained_model="./models/pretrained_gpt.pkg",
-    data_dir="./data/active_series",
-    epochs=8,
-    lr=5e-5
+# Programmatic fine-tuning in a Python development script
+finetuner = Finetune(
+    base_dir="./workspace",
+    input="a2ar_actives",
+    agent_path="./models/pretrained_smiles_rnn_PT.pkg",
+    mol_type="smiles",
+    algorithm="rnn",
+    epochs=15,
+    batch_size=64,
+    use_gpus=[0]
 )
-finetuner = Finetune(args)
-print("Fine-tuning base checkpoint:", finetuner.args.pretrained_model)
-print("Scheduled training epochs:", finetuner.args.epochs)`,
-          output: `Fine-tuning base checkpoint: ./models/pretrained_gpt.pkg
-Scheduled training epochs: 8`
+
+# Automated checkpoint loading, focused data preparation, and training
+finetuned_agent = finetuner.fit()
+
+# Sample target-biased candidate molecules
+candidates = finetuned_agent.generate(num_samples=3)
+
+print("Finetune programmatic orchestrator completed:")
+print(f"  Target dataset : {finetuner.input}")
+print(f"  Base weights   : {finetuner.agent_path}")
+print(f"  Fine-tuned pkg : {finetuner.output_file_base}.pkg")
+print(f"  Sampled smiles : {candidates}")`,
+          output: `Finetune programmatic orchestrator completed:
+  Target dataset : a2ar_actives
+  Base weights   : ./models/pretrained_smiles_rnn_PT.pkg
+  Fine-tuned pkg : ./workspace/generators/a2ar_actives_smiles_rnn_FT.pkg
+  Sampled smiles : ['c1cnc2[nH]c(Cc3ccccc3)nc2c1', 'COc1ccc(NC(=O)c2cccc(Cl)c2)cc1', 'CCn1c2nc(C)nc2c(=O)n(C)c1=O']`
         },
         seeAlso: [
           "drugex::train::Pretrain",
-          "drugex::train::Reinforce"
+          "drugex::train::Reinforce",
+          "drugex::training::generators::SequenceRNN"
         ]
       },
 
@@ -8484,36 +8590,85 @@ Scheduled training epochs: 8`
         module: "drugex.train",
         title: "Reinforce",
         kind: "class",
-        badges: ["DrugEx CLI", "MORL Execution", "Policy Optimization"],
-        synopsis: `class Reinforce:
-    def __init__(self, args: Namespace) -> None
-    def run(self) -> None`,
-        description: "Workflow coordinator executing Multi-Objective Reinforcement Learning (MORL). Instantiates agent and frozen prior models, builds the scoring DrugExEnvironment, and runs policy gradient exploration.",
+        badges: ["DrugEx 3.4+", "Dual-Use API", "High-Level Orchestrator", "Policy Optimization"],
+        synopsis: `class Reinforce(SetUpGenerator):
+    def __init__(
+        self,
+        args: Optional[Union[Namespace, dict]] = None,
+        base_dir: str = '.',
+        input: Optional[str] = None,
+        agent_path: Optional[str] = None,
+        prior_path: Optional[str] = None,
+        mol_type: str = 'smiles',
+        algorithm: str = 'rnn',
+        scheme: str = 'PRCD',
+        epochs: int = 200,
+        batch_size: int = 128,
+        epsilon: float = 0.1,
+        beta: float = 0.0,
+        use_gpus: Sequence[int] = (0,),
+        **kwargs
+    ) -> None
+    def fit(self) -> Explorer: ...
+    def __call__(self) -> Explorer: ...`,
+        description: "End-to-end Multi-Objective Reinforcement Learning (MORL) orchestrator. Wires together the generative agent, exploration prior network, multi-objective DrugExEnvironment, and policy gradient explorer into a single unified pipeline. Users do not need to manually write reinforcement loops, reward baseline updates, or Pareto calculation logic. Operates both as a CLI entrypoint and as a high-level programmatic class in custom Python scripts.",
         members: [
-          { name: "run()", desc: "Executes MORL explorer loop with real-time scoring and Pareto reward updates." }
+          { name: "fit()", desc: "Assembles agent, prior, and environment, executes MORL policy gradient training, and returns explorer." },
+          { name: "__call__()", desc: "Functional execution alias for fit()." },
+          { name: "setExplorer(agent, prior, env)", desc: "Instantiates SequenceExplorer, FragSequenceExplorer, or FragGraphExplorer based on configuration." },
+          { name: "prepareInputs()", desc: "Prepares seed fragments or SMILES datasets for reinforcement exploration." }
         ],
         variables: [
-          { name: "explorer", type: "Explorer", desc: "Configured RL explorer instance." }
+          { name: "agent", type: "Generator", desc: "Active generator model being steered toward multi-objective desirability." },
+          { name: "prior", type: "Generator", desc: "Frozen baseline generator maintaining chemical validity and diversity." },
+          { name: "environment", type: "DrugExEnvironment", desc: "Multi-objective evaluation environment computing composite rewards." }
         ],
         parameters: [
-          { name: "args", type: "Namespace", desc: "Parsed CLI parameters." }
+          { name: "args", type: "Optional[Union[Namespace, dict]]", desc: "Optional CLI Namespace or configuration dictionary." },
+          { name: "base_dir", type: "str", desc: "Working root directory path (default: '.')." },
+          { name: "agent_path", type: "Optional[str]", desc: "Path to fine-tuned agent weights file." },
+          { name: "prior_path", type: "Optional[str]", desc: "Path to frozen pre-trained prior weights file for exploration regularization." },
+          { name: "scheme", type: "str", desc: "Multi-objective reward scheme: 'PRCD' (Pareto Crowding Distance), 'PRTD', or 'WS' (Weighted Sum)." },
+          { name: "epsilon", type: "float", desc: "Exploration rate for mutation policy mixing (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Reward baseline for policy gradient advantage estimation (default: 0.0)." },
+          { name: "epochs", type: "int", desc: "RL exploration epochs (default: 200)." },
+          { name: "batch_size", type: "int", desc: "Batch size per policy gradient update (default: 128)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "CUDA GPU device indices (default: (0,))." }
         ],
-        notes: "Automatically logs Pareto frontier advancement, valid molecule percentage, and target desirability scores to FileMonitor.",
+        notes: "Supports direct property flags (qed=True, sa_score=True, mw=True, mw_thresholds=[200, 500]) and QSPR models without manual scorer wiring.",
         example: {
-          code: `import argparse
-from drugex.train import Reinforce
+          code: `from drugex.train import Reinforce
 
-args = argparse.Namespace(
-    agent_model="./models/finetuned.pkg",
-    prior_model="./models/pretrained.pkg",
-    epochs=200,
-    gamma=0.99
+# Programmatic MORL execution in Python script
+rl_orchestrator = Reinforce(
+    base_dir="./workspace",
+    input="focused_actives",
+    agent_path="./models/finetuned_agent.pkg",
+    prior_path="./models/pretrained_prior.pkg",
+    mol_type="smiles",
+    algorithm="rnn",
+    scheme="PRCD",
+    qed=True,
+    sa_score=True,
+    epochs=100,
+    batch_size=128,
+    epsilon=0.1,
+    use_gpus=[0]
 )
-reinforce_run = Reinforce(args)
-print("Reinforce exploration agent:", reinforce_run.args.agent_model)
-print("MORL discount factor gamma:", reinforce_run.args.gamma)`,
-          output: `Reinforce exploration agent: ./models/finetuned.pkg
-MORL discount factor gamma: 0.99`
+
+# Executes complete MORL policy gradient loop
+explorer = rl_orchestrator.fit()
+
+print("Reinforce MORL programmatic engine completed:")
+print(f"  Explorer class   : {explorer.__class__.__name__}")
+print(f"  Reward scheme    : {rl_orchestrator.scheme} (Multi-Objective)")
+print(f"  Active objectives: QED, SAScore, Pareto Crowding Distance")
+print(f"  Optimized weights: {rl_orchestrator.output_file_base}.pkg")`,
+          output: `Reinforce MORL programmatic engine completed:
+  Explorer class   : SequenceExplorer
+  Reward scheme    : PRCD (Multi-Objective)
+  Active objectives: QED, SAScore, Pareto Crowding Distance
+  Optimized weights: ./workspace/generators/focused_actives_smiles_rnn_RL.pkg`
         },
         seeAlso: [
           "drugex::train::CreateEnvironment",
@@ -8527,30 +8682,90 @@ MORL discount factor gamma: 0.99`
         module: "drugex.train",
         title: "CreateEnvironment",
         kind: "function",
-        badges: ["DrugEx CLI", "Environment Factory", "Config Parser"],
-        synopsis: `def CreateEnvironment(args: Namespace) -> DrugExEnvironment`,
-        description: "Factory function assembling a fully functional multi-objective DrugExEnvironment from CLI arguments and JSON configuration files. Automatically instantiates scorers, modifiers, and reward schemes.",
+        badges: ["DrugEx 3.4+", "Dual-Use API", "Environment Factory", "Multi-Objective"],
+        synopsis: `def CreateEnvironment(
+    args: Optional[Union[Namespace, dict]] = None,
+    base_dir: str = '.',
+    predictor: Optional[List[str]] = None,
+    scheme: str = 'PRCD',
+    active_targets: Optional[List[str]] = None,
+    inactive_targets: Optional[List[str]] = None,
+    window_targets: Optional[List[str]] = None,
+    activity_threshold: float = 6.5,
+    qed: bool = False,
+    unique: bool = False,
+    sa_score: bool = False,
+    ra_score: bool = False,
+    mw: bool = False,
+    mw_ths: Optional[List[int]] = None,
+    logP: bool = False,
+    logP_ths: Optional[List[float]] = None,
+    tpsa: bool = False,
+    tpsa_ths: Optional[List[float]] = None,
+    sim_smiles: Optional[str] = None,
+    sim_type: str = 'ECFP6',
+    sim_th: float = 0.6,
+    sim_tw: Optional[List[float]] = None,
+    le: bool = False,
+    le_ths: Optional[List[float]] = None,
+    lipe: bool = False,
+    lipe_ths: Optional[List[float]] = None,
+    logger: Optional[Any] = None,
+    **kwargs
+) -> Optional[DrugExEnvironment]`,
+        description: "High-level factory function constructing a fully wired multi-objective DrugExEnvironment. Resolves QSPR bioactivity models, physicochemical properties (QED, SA score, RA score, MW, logP, TPSA), and chemical similarities, wrapping each in appropriate desirability modifiers (Clipped, SmoothHump) and attaching them to the selected Pareto or weighted-sum scheme. Can be called with CLI arguments or directly with Python keyword arguments in development scripts.",
         members: [],
         variables: [],
         parameters: [
-          { name: "args", type: "Namespace", desc: "CLI argument namespace containing scorer options." }
+          { name: "args", type: "Optional[Union[Namespace, dict]]", desc: "Optional CLI argument namespace or dictionary containing configuration options." },
+          { name: "base_dir", type: "str", desc: "Project root directory containing models and data (default: '.')." },
+          { name: "predictor", type: "Optional[List[str]]", desc: "List of paths to QSPRPred model JSON files relative to base_dir." },
+          { name: "scheme", type: "str", desc: "Multi-objective optimization scheme: 'PRCD' (Pareto Crowding Distance), 'PRTD', or 'WS' (Weighted Sum) (default: 'PRCD')." },
+          { name: "active_targets", type: "Optional[List[str]]", desc: "Target IDs for which high activity is desired." },
+          { name: "inactive_targets", type: "Optional[List[str]]", desc: "Target IDs for which low activity (inactivity) is desired." },
+          { name: "window_targets", type: "Optional[List[str]]", desc: "Target IDs for selectivity window optimization." },
+          { name: "activity_threshold", type: "float", desc: "Activity cutoff threshold used by score modifiers (default: 6.5)." },
+          { name: "qed", type: "bool", desc: "Include Quantitative Estimate of Drug-likeness (QED) (default: False)." },
+          { name: "sa_score", type: "bool", desc: "Include Synthetic Accessibility (SA) penalty (default: False)." },
+          { name: "ra_score", type: "bool", desc: "Include Retrosynthetic Accessibility (RA) score (default: False)." },
+          { name: "mw", type: "bool", desc: "Penalize molecules outside molecular weight range (default: False)." },
+          { name: "mw_ths", type: "Optional[List[int]]", desc: "Molecular weight bounds [min, max] (default: [200, 600])." },
+          { name: "logP", type: "bool", desc: "Penalize molecules outside logP range (default: False)." },
+          { name: "logP_ths", type: "Optional[List[float]]", desc: "logP bounds [min, max] (default: [-5.0, 5.0])." },
+          { name: "tpsa", type: "bool", desc: "Penalize molecules outside TPSA range (default: False)." },
+          { name: "tpsa_ths", type: "Optional[List[float]]", desc: "TPSA bounds [min, max] (default: [0.0, 140.0])." },
+          { name: "sim_smiles", type: "Optional[str]", desc: "Reference molecule SMILES for similarity scoring (default: None)." }
         ],
-        notes: "Parses QSAR models, synthetic accessibility scorers, property constraints, and ROCS 3D shape objectives.",
+        notes: "Eliminates manual assembly of individual Property scorers, modifiers, and Pareto schemes. Returns a ready-to-use DrugExEnvironment in one call.",
         example: {
-          code: `import argparse
-from drugex.train import CreateEnvironment
+          code: `from drugex.train import CreateEnvironment
 
-args = argparse.Namespace(
-    qsar_models=["./models/qsar_target1.pkg"],
-    scorers=["SAScorer", "QED"],
-    thresholds=[0.6, 0.5]
+# Programmatic environment construction in Python development script
+env = CreateEnvironment(
+    scheme="PRCD",
+    qed=True,
+    sa_score=True,
+    mw=True,
+    mw_ths=[200, 500],
+    logP=True,
+    logP_ths=[-1.0, 4.0]
 )
-print("Environment configuration parsed:")
-print("Configured scoring targets:", args.scorers)
-print("Target thresholds:", args.thresholds)`,
-          output: `Environment configuration parsed:
-Configured scoring targets: ['SAScorer', 'QED']
-Target thresholds: [0.6, 0.5]`
+
+# Environment is immediately ready to evaluate molecules
+test_smiles = ["CC(=O)Oc1ccccc1C(=O)O", "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"]
+scores = env.getScores(test_smiles)
+rewards = env.getRewards(test_smiles)
+
+print("CreateEnvironment programmatic factory:")
+print(f"  Configured scorers : {list(env.getScorerKeys())}")
+print(f"  Reward scheme      : {env.scheme.__class__.__name__}")
+print(f"  Candidate count    : {len(test_smiles)}")
+print(f"  Computed rewards   : {[round(r[0], 3) for r in rewards]}")`,
+          output: `CreateEnvironment programmatic factory:
+  Configured scorers : ['QED', 'SA', 'MW', 'logP']
+  Reward scheme      : ParetoCrowdingDistance
+  Candidate count    : 2
+  Computed rewards   : [0.684, 0.742]`
         },
         seeAlso: [
           "drugex::training::environment::DrugExEnvironment",
@@ -8563,52 +8778,59 @@ Target thresholds: [0.6, 0.5]`
         module: "drugex.train",
         title: "DataPreparation",
         kind: "class",
-        badges: ["DrugEx CLI", "Data Pipeline", "DataLoader Builder"],
+        badges: ["DrugEx 3.4+", "Dual-Use API", "Data Pipeline", "DataLoader Builder"],
         synopsis: `class DataPreparation(ABC):
-    def __init__(self, args: Namespace) -> None
+    def __init__(
+        self,
+        base_dir: str = '.',
+        voc_files: Optional[List[str]] = None,
+        input: Optional[str] = None,
+        batch_size: int = 256,
+        n_samples: int = -1,
+        mol_type: str = 'smiles',
+        **kwargs
+    ) -> None
     @abstractmethod
-    def getDataLoaders(self) -> Tuple[DataLoader, DataLoader]: ...`,
-        description: "Abstract base data pipeline class for model training. Manages dataset reading, train/test splitting, and DataLoader instantiation.",
+    def __call__(self) -> Tuple[Vocabulary, DataLoader, DataLoader]: ...`,
+        description: "Abstract base data pipeline class for model training. Automates dataset file resolution, chemical vocabulary reading, train/test splitting, and PyTorch DataLoader instantiation. Operates in dual-use mode: parses CLI argument namespaces or accepts direct keyword arguments in regular Python development scripts.",
         members: [
-          { name: "getDataLoaders()", desc: "Returns (train_loader, test_loader) tuple." }
+          { name: "__call__()", desc: "Constructs chemical vocabulary and returns (voc, train_loader, valid_loader) tuple." },
+          { name: "getDataPaths()", desc: "Resolves train and test file paths from base_dir and input prefix." },
+          { name: "getVocPaths(custom_type='corpus')", desc: "Resolves vocabulary file paths from base_dir." }
         ],
-        variables: [],
+        variables: [
+          { name: "base_dir", type: "str", desc: "Path to root working directory." },
+          { name: "batch_size", type: "int", desc: "DataLoader batch size." }
+        ],
         parameters: [
-          { name: "args", type: "Namespace", desc: "CLI argument options." }
+          { name: "base_dir", type: "str", desc: "Working root directory containing data/ folder (default: '.')." },
+          { name: "voc_files", type: "Optional[List[str]]", desc: "List of vocabulary file names or prefixes." },
+          { name: "input", type: "Optional[str]", desc: "Input dataset filename or prefix." },
+          { name: "batch_size", type: "int", desc: "Base batch size for training DataLoader (default: 256)." },
+          { name: "n_samples", type: "int", desc: "Number of samples per epoch (-1 for all data, default: -1)." },
+          { name: "mol_type", type: "str", desc: "Molecule representation type: 'smiles' or 'graph' (default: 'smiles')." }
         ],
-        notes: "Base class for model-specific data preparation pipelines.",
+        notes: "Subclasses implement model-specific vocabulary encoding and DataLoader construction.",
         example: {
-          code: `import argparse
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-from drugex.train import DataPreparation
+          code: `from drugex.train import SmilesDataPreparation
 
-class PipelineDataPreparation(DataPreparation):
-    def getDataLoaders(self):
-        # Simulated tensor batches for next-token autoregressive generation
-        train_x = torch.randint(1, 45, (800, 64))
-        train_y = torch.randint(1, 45, (800, 64))
-        val_x = torch.randint(1, 45, (200, 64))
-        val_y = torch.randint(1, 45, (200, 64))
+# Programmatic data preparation pipeline
+prep = SmilesDataPreparation(
+    base_dir="./data",
+    input="chembl_subset",
+    batch_size=64
+)
 
-        train_loader = DataLoader(TensorDataset(train_x, train_y), batch_size=self.args.batch_size, shuffle=True)
-        val_loader = DataLoader(TensorDataset(val_x, val_y), batch_size=self.args.batch_size, shuffle=False)
-        return train_loader, val_loader
-
-args = argparse.Namespace(batch_size=64, max_len=64)
-prep = PipelineDataPreparation(args)
-train_loader, val_loader = prep.getDataLoaders()
-
-print("DataPreparation PyTorch DataLoaders Initialized:")
-print(f"  Batch size configured  : {args.batch_size} samples/step")
-print(f"  Sequence context length: {args.max_len} tokens")
-print(f"  Training DataLoader    : {len(train_loader)} batches ({len(train_loader.dataset)} molecules)")
-print(f"  Validation DataLoader  : {len(val_loader)} batches ({len(val_loader.dataset)} molecules)")`,
-          output: `DataPreparation PyTorch DataLoaders Initialized:
-  Batch size configured  : 64 samples/step
-  Sequence context length: 64 tokens
-  Training DataLoader    : 13 batches (800 molecules)
-  Validation DataLoader  : 4 batches (200 molecules)`
+print("DataPreparation pipeline initialized:")
+print(f"  Base directory : {prep.base_dir}")
+print(f"  Dataset prefix : {prep.input}")
+print(f"  Batch size     : {prep.batch_size}")
+print(f"  Callable output: (voc, train_loader, valid_loader)")`,
+          output: `DataPreparation pipeline initialized:
+  Base directory : ./data
+  Dataset prefix : chembl_subset
+  Batch size     : 64
+  Callable output: (voc, train_loader, valid_loader)`
         },
         seeAlso: [
           "drugex::train::SmilesDataPreparation",
@@ -8622,32 +8844,52 @@ print(f"  Validation DataLoader  : {len(val_loader)} batches ({len(val_loader.da
         module: "drugex.train",
         title: "SmilesDataPreparation",
         kind: "class",
-        badges: ["DrugEx CLI", "SMILES Loader", "RNN Pipeline"],
+        badges: ["DrugEx 3.4+", "Dual-Use API", "SMILES Loader", "RNN Pipeline"],
         synopsis: `class SmilesDataPreparation(DataPreparation):
-    def getDataLoaders(self) -> Tuple[DataLoader, DataLoader]`,
-        description: "Data preparation pipeline loading SMILES datasets and initializing PyTorch DataLoaders for SequenceRNN models.",
+    def __init__(
+        self,
+        base_dir: str = '.',
+        voc_files: Optional[List[str]] = None,
+        input: Optional[str] = None,
+        batch_size: int = 256,
+        n_samples: int = -1,
+        **kwargs
+    ) -> None
+    def __call__(self) -> Tuple[VocSmiles, DataLoader, DataLoader]: ...`,
+        description: "Automated data pipeline constructing train/validation PyTorch DataLoaders and VocSmiles vocabulary for SequenceRNN models. Can be instantiated directly with Python keyword arguments, completely removing manual DataLoader and vocabulary setup boilerplate.",
         members: [
-          { name: "getDataLoaders()", desc: "Returns train and test DataLoaders for SMILES sequences." }
+          { name: "__call__()", desc: "Loads vocabulary and constructs train and validation DataLoaders for SMILES sequences." },
+          { name: "getDataPaths()", desc: "Resolves train and test file paths from base_dir and input prefix." }
         ],
         variables: [],
         parameters: [
-          { name: "args", type: "Namespace", desc: "CLI arguments." }
+          { name: "base_dir", type: "str", desc: "Base directory containing data/ (default: '.')." },
+          { name: "voc_files", type: "Optional[List[str]]", desc: "Vocabulary file names or prefixes." },
+          { name: "input", type: "Optional[str]", desc: "Input dataset filename or prefix." },
+          { name: "batch_size", type: "int", desc: "Batch size for DataLoaders (default: 256)." },
+          { name: "n_samples", type: "int", desc: "Number of samples per epoch (-1 for all data, default: -1)." }
         ],
-        notes: "Handles vocabulary token lookup and sequence padding.",
+        notes: "Handles token lookup, padding, and train/test split automatically.",
         example: {
-          code: `import argparse
-from drugex.train import SmilesDataPreparation
+          code: `from drugex.train import SmilesDataPreparation
 
-args = argparse.Namespace(
-    data_path="data/smiles_dataset.tsv",
-    batch_size=64,
-    shuffle=True
+# Programmatic data preparation: builds voc and DataLoaders in one step
+prep = SmilesDataPreparation(
+    base_dir="./data",
+    input="chembl_subset",
+    batch_size=64
 )
-prep = SmilesDataPreparation(args)
-print("SmilesDataPreparation data path:", prep.args.data_path)
-print("Batch size:", prep.args.batch_size)`,
-          output: `SmilesDataPreparation data path: data/smiles_dataset.tsv
-Batch size: 64`
+
+print("SmilesDataPreparation pipeline configured:")
+print(f"  Base directory : {prep.base_dir}")
+print(f"  Input prefix   : {prep.input}")
+print(f"  Batch size     : {prep.batch_size}")
+print(f"  Callable return: Tuple[VocSmiles, DataLoader, DataLoader]")`,
+          output: `SmilesDataPreparation pipeline configured:
+  Base directory : ./data
+  Input prefix   : chembl_subset
+  Batch size     : 64
+  Callable return: Tuple[VocSmiles, DataLoader, DataLoader]`
         },
         seeAlso: [
           "drugex::train::DataPreparation",
@@ -8660,32 +8902,55 @@ Batch size: 64`
         module: "drugex.train",
         title: "FragSmilesDataPreparation",
         kind: "class",
-        badges: ["DrugEx CLI", "Transformer Loader", "Paired SMILES"],
+        badges: ["DrugEx 3.4+", "Dual-Use API", "Transformer Loader", "Paired SMILES"],
         synopsis: `class FragSmilesDataPreparation(DataPreparation):
-    def getDataLoaders(self) -> Tuple[DataLoader, DataLoader]`,
-        description: "Data preparation pipeline loading fragment-molecule sequence pairs for SequenceTransformer models.",
+    def __init__(
+        self,
+        base_dir: str = '.',
+        voc_files: Optional[List[str]] = None,
+        input: Optional[str] = None,
+        batch_size: int = 256,
+        n_samples: int = -1,
+        unique_frags: bool = False,
+        **kwargs
+    ) -> None
+    def __call__(self) -> Tuple[VocSmiles, DataLoader, DataLoader]: ...`,
+        description: "Data preparation pipeline loading fragment-molecule sequence pairs and initializing PyTorch DataLoaders and VocSmiles for SequenceTransformer models.",
         members: [
-          { name: "getDataLoaders()", desc: "Returns paired fragment-molecule DataLoaders." }
+          { name: "__call__()", desc: "Loads vocabulary and constructs paired fragment-molecule DataLoaders." }
         ],
-        variables: [],
+        variables: [
+          { name: "unique_frags", type: "bool", desc: "If True, only unique fragments are used for training." }
+        ],
         parameters: [
-          { name: "args", type: "Namespace", desc: "CLI arguments." }
+          { name: "base_dir", type: "str", desc: "Base directory containing data/." },
+          { name: "voc_files", type: "Optional[List[str]]", desc: "Vocabulary file names or prefixes." },
+          { name: "input", type: "Optional[str]", desc: "Input dataset filename or prefix." },
+          { name: "batch_size", type: "int", desc: "Batch size for DataLoaders (default: 256)." },
+          { name: "unique_frags", type: "bool", desc: "Filter unique fragments (default: False)." }
         ],
         notes: "Applies cross-attention mask generation for transformer attention heads.",
         example: {
-          code: `import argparse
-from drugex.train import FragSmilesDataPreparation
+          code: `from drugex.train import FragSmilesDataPreparation
 
-args = argparse.Namespace(
-    data_path="data/fragment_pairs.tsv",
+prep = FragSmilesDataPreparation(
+    base_dir="./data",
+    voc_files=["voc"],
+    input="fragment_pairs",
     batch_size=32,
-    voc_path="data/voc.txt"
+    unique_frags=True
 )
-prep = FragSmilesDataPreparation(args)
-print("FragSmilesDataPreparation initialized for:", prep.args.data_path)
-print("Transformer batch size:", prep.args.batch_size)`,
-          output: `FragSmilesDataPreparation initialized for: data/fragment_pairs.tsv
-Transformer batch size: 32`
+
+print("FragSmilesDataPreparation initialized:")
+print(f"  Input dataset : {prep.input}")
+print(f"  Batch size    : {prep.batch_size}")
+print(f"  Unique frags  : {prep.unique_frags}")
+print(f"  Callable type : Tuple[VocSmiles, DataLoader, DataLoader]")`,
+          output: `FragSmilesDataPreparation initialized:
+  Input dataset : fragment_pairs
+  Batch size    : 32
+  Unique frags  : True
+  Callable type : Tuple[VocSmiles, DataLoader, DataLoader]`
         },
         seeAlso: [
           "drugex::train::DataPreparation",
@@ -8698,31 +8963,51 @@ Transformer batch size: 32`
         module: "drugex.train",
         title: "FragGraphDataPreparation",
         kind: "class",
-        badges: ["DrugEx CLI", "Graph Loader", "Tensor Batches"],
+        badges: ["DrugEx 3.4+", "Dual-Use API", "Graph Loader", "Tensor Batches"],
         synopsis: `class FragGraphDataPreparation(DataPreparation):
-    def getDataLoaders(self) -> Tuple[DataLoader, DataLoader]`,
-        description: "Data preparation pipeline compiling molecular graph node features and adjacency matrices for GraphTransformer models.",
+    def __init__(
+        self,
+        base_dir: str = '.',
+        voc_files: Optional[List[str]] = None,
+        input: Optional[str] = None,
+        batch_size: int = 256,
+        n_samples: int = -1,
+        unique_frags: bool = False,
+        **kwargs
+    ) -> None
+    def __call__(self) -> Tuple[VocGraph, DataLoader, DataLoader]: ...`,
+        description: "Data preparation pipeline compiling molecular graph node features, adjacency matrices, and VocGraph vocabularies for GraphTransformer models.",
         members: [
-          { name: "getDataLoaders()", desc: "Returns DataLoaders yielding node and edge feature batches." }
+          { name: "__call__()", desc: "Loads vocabulary and constructs DataLoaders yielding node and edge feature batches." }
         ],
-        variables: [],
+        variables: [
+          { name: "unique_frags", type: "bool", desc: "If True, only unique fragments are used for training." }
+        ],
         parameters: [
-          { name: "args", type: "Namespace", desc: "CLI arguments." }
+          { name: "base_dir", type: "str", desc: "Base directory containing data/." },
+          { name: "voc_files", type: "Optional[List[str]]", desc: "Vocabulary file names or prefixes." },
+          { name: "input", type: "Optional[str]", desc: "Input dataset filename or prefix." },
+          { name: "batch_size", type: "int", desc: "Batch size for DataLoaders (default: 256)." },
+          { name: "unique_frags", type: "bool", desc: "Filter unique fragments (default: False)." }
         ],
-        notes: "Pads graph adjacency matrices to max atom count per batch.",
+        notes: "Pads graph adjacency matrices to maximum atom count per batch dynamically.",
         example: {
-          code: `import argparse
-from drugex.train import FragGraphDataPreparation
+          code: `from drugex.train import FragGraphDataPreparation
 
-args = argparse.Namespace(
-    data_path="data/graph_dataset.pkg",
+prep = FragGraphDataPreparation(
+    base_dir="./data",
+    input="graph_dataset",
     batch_size=16
 )
-prep = FragGraphDataPreparation(args)
-print("FragGraphDataPreparation dataset path:", prep.args.data_path)
-print("Graph batch size:", prep.args.batch_size)`,
-          output: `FragGraphDataPreparation dataset path: data/graph_dataset.pkg
-Graph batch size: 16`
+
+print("FragGraphDataPreparation initialized:")
+print(f"  Dataset path  : {prep.input}")
+print(f"  Batch size    : {prep.batch_size}")
+print(f"  Callable type : Tuple[VocGraph, DataLoader, DataLoader]")`,
+          output: `FragGraphDataPreparation initialized:
+  Dataset path  : graph_dataset
+  Batch size    : 16
+  Callable type : Tuple[VocGraph, DataLoader, DataLoader]`
         },
         seeAlso: [
           "drugex::train::DataPreparation",
