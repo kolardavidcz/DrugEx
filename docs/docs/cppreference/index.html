@@ -2921,16 +2921,12 @@ Scalarized candidate rewards:
     def __call__(self, smiles: List[str], scores: np.ndarray, thresholds: Optional[List[float]] = None) -> np.ndarray: ...`,
         description: "Abstract base class for Pareto-dominance-based reward schemes in multi-objective reinforcement learning. Decomposes the [N, M] objective matrix into non-dominated Pareto fronts using get_Pareto_fronts, ranks solutions within each front, and distributes scalar rewards in [0, 1].",
         members: [
-          { name: "getParetoFronts(scores)", desc: "Decomposes candidate score matrix into sequential non-dominated Pareto front index arrays." },
-          { name: "getMoleculeRank(fronts, smiles, scores)", desc: "Abstract method to rank molecules within each Pareto front from worst to best." },
-          { name: "__call__(smiles, scores, thresholds)", desc: "Computes scalar rewards: rewards[ranks, 0] = np.arange(len(scores)) / len(scores)." }
+          { name: "getParetoFronts(scores)", desc: "Decomposes candidate score matrix of shape (N, M) into sequential non-dominated Pareto front index arrays [F_0, F_1, ...]." },
+          { name: "getMoleculeRank(fronts, smiles=None, scores=None)", desc: "Abstract method ranking molecules within each Pareto front from worst to best. Takes fronts (List[np.ndarray]), optional smiles (List[str]), and scores (np.ndarray of shape [N, M]). Returns ranked integer indices (np.ndarray of shape (N,))." },
+          { name: "__call__(smiles, scores, thresholds=None)", desc: "Computes scalar policy rewards of shape (N, 1) in [0.0, 1.0]: rewards[ranks[i], 0] = i / N. Parameters: smiles (List[str] of length N), scores (np.ndarray of shape [N, M]), thresholds (Optional[List[float]] of length M)." }
         ],
         variables: [],
-        parameters: [
-          { name: "smiles", type: "List[str]", desc: "Generated molecule SMILES strings to rank." },
-          { name: "scores", type: "np.ndarray", desc: "[N, M] matrix of objective values for each molecule across M tasks." },
-          { name: "thresholds", type: "Optional[List[float]]", desc: "Desirability thresholds (accepted for interface compatibility)." }
-        ],
+        parameters: [],
         notes: "Dominant front is first (index 0). Rewards scale linearly across overall ranks such that the best molecule receives reward (N-1)/N.",
         example: {
           code: `import numpy as np
@@ -2972,17 +2968,12 @@ Normalized reward values:
     def __call__(self, smiles: List[str], scores: np.ndarray, thresholds: Optional[List[float]] = None) -> np.ndarray: ...`,
         description: "Gold-standard multi-objective ranking scheme in DrugEx based on NSGA-II non-dominated sorting and normalized crowding distance. Partitions the candidate population into non-dominated Pareto tiers and ranks molecules within each front based on cuboid isolation in objective space, preventing generator mode collapse during reinforcement learning.",
         members: [
-          { name: "getMoleculeRank(fronts, smiles=None, scores=None)", desc: "Calculates normalized objective crowding distances d_i for each front and returns a 1D index array of shape (N,) ordered from worst (rank 0) to best (rank N-1). Boundary solutions receive d_i = inf." },
+          { name: "getMoleculeRank(fronts, smiles=None, scores=None)", desc: "Calculates normalized objective crowding distances d_i for each front and returns a 1D index array of shape (N,) ordered from worst (rank 0) to best (rank N-1). Boundary solutions along each objective receive d_i = inf. Parameters: fronts (List[np.ndarray]), smiles (Optional[List[str]]), scores (np.ndarray of shape [N, M])." },
           { name: "getParetoFronts(scores)", desc: "Inherited from ParetoRewardScheme; partitions score matrix of shape (N, M) into sequential non-dominated Pareto front index arrays [F_0, F_1, ...]." },
-          { name: "__call__(smiles, scores, thresholds=None)", desc: "Computes normalized scalar policy gradient rewards of shape (N, 1) in [0.0, 1.0]: rewards[ranks[i], 0] = i / N." }
+          { name: "__call__(smiles, scores, thresholds=None)", desc: "Computes normalized scalar policy gradient rewards of shape (N, 1) in [0.0, 1.0]: rewards[ranks[i], 0] = i / N. Parameters: smiles (List[str] of length N), scores (np.ndarray of shape [N, M]), thresholds (Optional[List[float]] of length M)." }
         ],
         variables: [],
-        parameters: [
-          { name: "fronts", type: "List[np.ndarray]", desc: "List of 1D integer index arrays, where fronts[k] contains candidate indices on Pareto front k." },
-          { name: "smiles", type: "Optional[List[str]]", desc: "List of N candidate SMILES strings (accepted for interface compatibility)." },
-          { name: "scores", type: "Optional[np.ndarray]", desc: "Float matrix of shape (N, M) containing M objective desirability scores for N molecules." },
-          { name: "thresholds", type: "Optional[List[float]]", desc: "Desirability threshold vector of length M (accepted for interface compatibility)." }
-        ],
+        parameters: [],
         notes: "Boundary solutions with minimum and maximum values for each objective receive infinite crowding distance (d = inf) to guarantee frontier edge exploration. For interior solutions, crowding distance accumulates normalized neighbor spans: d_i += (s_{i+1,m} - s_{i-1,m}) / (s_{max,m} - s_{min,m}). Dimensions with zero range are skipped. Returns rewards of shape (N, 1).",
         example: {
           code: `import numpy as np
@@ -3089,14 +3080,10 @@ c1ccccc1                                 |   0.20 |  0.35 |           0.000 | Fi
     def __call__(self, smiles: List[str], scores: np.ndarray, thresholds: np.ndarray) -> np.ndarray: ...`,
         description: "Dynamic desirability-weighted scalarization reward scheme. Computes weights inversely proportional to the proportion of generated molecules satisfying desirability thresholds for each objective, automatically focusing reinforcement learning exploration on struggling objectives.",
         members: [
-          { name: "__call__(smiles, scores, thresholds)", desc: "Calculates dynamic objective weights from threshold pass rates and returns dot product scores.dot(weight.T)." }
+          { name: "__call__(smiles, scores, thresholds)", desc: "Calculates dynamic objective weights from threshold pass rates and returns scalarized rewards of shape (N, 1): scores.dot(weight.T). Parameters: smiles (List[str] of length N), scores (np.ndarray of shape [N, M]), thresholds (np.ndarray of shape [M,])." }
         ],
         variables: [],
-        parameters: [
-          { name: "smiles", type: "List[str]", desc: "Generated molecules SMILES list." },
-          { name: "scores", type: "np.ndarray", desc: "[N, M] array of objective scores." },
-          { name: "thresholds", type: "np.ndarray", desc: "[M,] array of desirability thresholds." }
-        ],
+        parameters: [],
         notes: "Weight formula: weight_j = ((scores[:, j] < thresholds[j]).mean() + 0.01) / ((scores[:, j] >= thresholds[j]).mean() + 0.01), normalized to sum to 1. Objectives where few molecules pass get higher weights.",
         example: {
           code: `import numpy as np
@@ -5408,14 +5395,10 @@ Benzene Fragment   |    0.8 |   0.2 |          0.180 | Minimal Substructure`
     ) -> pd.DataFrame: ...`,
         description: "Static utility class validating SMILES chemical syntax and verifying fragment substructure retention. Serves as the primary validation gate across all DrugEx reinforcement learning environments, penalizing invalid valences, ring-closure errors, and disconnected components.",
         members: [
-            { name: "checkSmiles(smiles, frags=None, no_multifrag_smiles=True)", desc: "Validates a batch of candidate SMILES strings against RDKit parsing rules and fragment retention constraints. Returns pd.DataFrame of shape (N, 2) containing integer boolean columns 'Valid' and 'Accurate'." }
+            { name: "checkSmiles(smiles, frags=None, no_multifrag_smiles=True)", desc: "Validates a batch of candidate SMILES against RDKit parsing rules and fragment retention constraints. Parameters: smiles (Sequence[str | None]), frags (Optional[Sequence[str | None]]), no_multifrag_smiles (bool = True; disconnected '.' marked Valid=0). Returns pd.DataFrame of shape (N, 2) with integer boolean columns 'Valid' and 'Accurate'." }
         ],
         variables: [],
-        parameters: [
-            { name: "smiles", type: "Sequence[str | None]", desc: "List or sequence of SMILES strings to evaluate." },
-            { name: "frags", type: "Optional[Sequence[str | None]]", desc: "Corresponding list of fragment SMILES (dot-separated for multiple fragments) that each generated molecule must contain (default: None)." },
-            { name: "no_multifrag_smiles", type: "bool", desc: "If True, SMILES strings containing disconnected dot notation '.' are marked with Valid=0 (default: True)." }
-        ],
+        parameters: [],
         notes: "Invalid molecules identified by SmilesChecker (Valid=0) are immediately zeroed out across all objectives in DrugExEnvironment, preventing non-physical structures from polluting Pareto fronts. Malformed, empty, or None strings return Valid=0 without raising exceptions.",
         example: {
             code: `import pandas as pd
@@ -12907,14 +12890,10 @@ First collected fragment-molecule pair:
     def __call__(self, data: np.ndarray, batch_size: int, vocabulary: Vocabulary) -> DataLoader`,
         description: "Data-to-loader converter class in SmilesFragDataSet converting fragmented SMILES arrays into collated PyTorch DataLoader instances with custom sequence collation.",
         members: [
-          { name: "__call__(data, batch_size, vocabulary)", desc: "Builds a DataLoader from raw fragment sequences." }
+          { name: "__call__(data, batch_size, vocabulary)", desc: "Builds a DataLoader from raw fragment sequences. Parameters: data (np.ndarray of shape [N, 2] containing fragment and molecule sequences), batch_size (int), vocabulary (Vocabulary). Returns DataLoader yielding (indices, padded_tokens) of shape [B, max_len]." }
         ],
         variables: [],
-        parameters: [
-          { name: "data", type: "np.ndarray", desc: "Array of raw string sequence tokens." },
-          { name: "batch_size", type: "int", desc: "DataLoader batch size." },
-          { name: "vocabulary", type: "Vocabulary", desc: "Vocabulary used to encode sequences into tensors." }
-        ],
+        parameters: [],
         notes: "Integrates collate_fn to automatically pad variable-length fragment tokens.",
         example: {
           code: `import numpy as np
@@ -15391,10 +15370,16 @@ class VinaConfig:
         variables: [
           { name: "center", type: "Tuple[float, float, float]", desc: "(x, y, z) coordinates of grid box center in Angstroms." },
           { name: "box_size", type: "Tuple[float, float, float]", desc: "(size_x, size_y, size_z) dimensions in Angstroms." },
-          { name: "exhaustiveness", type: "int", desc: "MCMC global search exhaustiveness (default: 8)." }
+          { name: "exhaustiveness", type: "int", desc: "MCMC global search exhaustiveness (default: 8)." },
+          { name: "num_modes", type: "int", desc: "Maximum number of binding modes to generate (default: 9)." },
+          { name: "energy_range", type: "float", desc: "Energy difference window from best mode in kcal/mol (default: 3.0)." }
         ],
         parameters: [
-          { name: "center", type: "Tuple[float, float, float]", desc: "Receptor pocket centroid." }
+          { name: "center", type: "Tuple[float, float, float]", desc: "Receptor pocket centroid (x, y, z) in Angstroms." },
+          { name: "box_size", type: "Tuple[float, float, float]", desc: "Grid box dimensions (size_x, size_y, size_z) in Angstroms (default: (20.0, 20.0, 20.0))." },
+          { name: "exhaustiveness", type: "int", desc: "MCMC global search exhaustiveness parameter (default: 8)." },
+          { name: "num_modes", type: "int", desc: "Maximum number of binding modes to generate (default: 9)." },
+          { name: "energy_range", type: "float", desc: "Energy difference window from best mode in kcal/mol (default: 3.0)." }
         ],
         notes: "Higher exhaustiveness exponentially increases search thoroughness at the expense of CPU time per molecule.",
         example: {
@@ -15746,6 +15731,53 @@ for idx, smi in enumerate(items, 1):
         "__add__": { op: "obj + other", label: "operator+", cls: "op-len" }
       };
       return map[dunder] || null;
+    }
+
+    // Helper resolving interactive micro-visualization type for symbols
+    function getMicroVizType(key) {
+      if (!key) return null;
+      if (
+        key === "drugex::training::rewards::ParetoCrowdingDistance" ||
+        key === "drugex::utils::pareto::get_Pareto_fronts" ||
+        key === "drugex::training::rewards::ParetoRewardScheme" ||
+        key === "drugex::training::rewards::RewardScheme" ||
+        key === "drugex::training::rewards::WeightedSum"
+      ) {
+        return "pareto_crowding";
+      }
+      if (key === "drugex::training::rewards::ParetoTanimotoDistance") {
+        return "pareto_tanimoto";
+      }
+      if (
+        key === "drugex::training::scorers::ScoreModifier" ||
+        key === "drugex::training::scorers::SmoothClippedScore" ||
+        key === "drugex::training::scorers::ClippedScore" ||
+        key === "drugex::training::scorers::MinMaxGaussian" ||
+        key === "drugex::training::scorers::modifiers::ThresholdedLinear" ||
+        key === "drugex::training::scorers::modifiers::SmoothHump" ||
+        key === "drugex::training::scorers::modifiers::Squared" ||
+        key === "drugex::training::scorers::modifiers::AbsoluteScore" ||
+        key === "drugex::training::scorers::modifiers::Chained" ||
+        key === "drugex::training::scorers::Gaussian" ||
+        key === "drugex::training::scorers::Linear"
+      ) {
+        return "modifier_curve";
+      }
+      if (
+        key === "drugex::training::environment::DrugExEnvironment" ||
+        key === "drugex::training::environment::Environment" ||
+        key === "drugex::training::explorers::SequenceExplorer" ||
+        key === "drugex::training::explorers::FragSequenceExplorer" ||
+        key === "drugex::training::explorers::GraphExplorer" ||
+        key === "drugex::training::explorers::FragGraphExplorer" ||
+        key === "drugex::training::explorers::Explorer" ||
+        key === "drugex::training::explorers::FragExplorer" ||
+        key === "drugex::training::scorers::SmilesChecker" ||
+        key === "drugex::train::Reinforce"
+      ) {
+        return "rl_policy_cycle";
+      }
+      return null;
     }
 
     // Main React Application Component
@@ -16487,7 +16519,7 @@ for idx, smi in enumerate(items, 1):
                 {(() => {
                   const vizType = getMicroVizType(selectedKey);
                   return vizType ? (
-                    <MicroVizPanel symbolKey={selectedKey} vizType={vizType} item={currentItem} theme={theme} />
+                    <MicroVizPanel key={selectedKey} symbolKey={selectedKey} vizType={vizType} item={currentItem} theme={theme} />
                   ) : null;
                 })()}
 
@@ -18252,43 +18284,6 @@ for idx, smi in enumerate(items, 1):
     // Micro-Visualizations Engine & Interactive SVG Components
     // =========================================================================
 
-    function getMicroVizType(key) {
-      if (!key) return null;
-      if (
-        key === "drugex::training::rewards::ParetoCrowdingDistance" ||
-        key === "drugex::utils::pareto::get_Pareto_fronts" ||
-        key === "drugex::training::rewards::ParetoRewardScheme"
-      ) {
-        return "pareto_crowding";
-      }
-      if (key === "drugex::training::rewards::ParetoTanimotoDistance") {
-        return "pareto_tanimoto";
-      }
-      if (
-        key === "drugex::training::scorers::SmoothClippedScore" ||
-        key === "drugex::training::scorers::ClippedScore" ||
-        key === "drugex::training::scorers::MinMaxGaussian" ||
-        key === "drugex::training::scorers::modifiers::ThresholdedLinear" ||
-        key === "drugex::training::scorers::modifiers::SmoothHump" ||
-        key === "drugex::training::scorers::Gaussian" ||
-        key === "drugex::training::scorers::Linear"
-      ) {
-        return "modifier_curve";
-      }
-      if (
-        key === "drugex::training::environment::DrugExEnvironment" ||
-        key === "drugex::training::environment::Environment" ||
-        key === "drugex::training::explorers::SequenceExplorer" ||
-        key === "drugex::training::explorers::FragSequenceExplorer" ||
-        key === "drugex::training::explorers::FragGraphExplorer" ||
-        key === "drugex::training::explorers::Explorer" ||
-        key === "drugex::training::explorers::FragExplorer"
-      ) {
-        return "rl_policy_cycle";
-      }
-      return null;
-    }
-
     function MicroVizPanel({ symbolKey, vizType, item, theme }) {
       const titles = {
         pareto_crowding: {
@@ -18334,13 +18329,13 @@ for idx, smi in enumerate(items, 1):
       const [activePointId, setActivePointId] = useState("B");
 
       const points = [
-        { id: "A", name: "Candidate A (Potency Extremum)", f1: 0.94, f2: 0.35, front: 0, d: "inf (Boundary)", rank: "Rank 4 (Front 0)", reward: 0.800, note: "Boundary solution with maximal f1 potency. Assigned infinite crowding distance (d = inf) to guarantee frontier edge preservation." },
-        { id: "B", name: "Candidate B (Isolated Lead)", f1: 0.78, f2: 0.70, front: 0, d: "1.428 (High)", rank: "Rank 5 (Front 0)", reward: 1.000, note: "Interior point flanked by Cand A and Cand C. Spans large bounding cuboid [0.58, 0.94] x [0.35, 0.84]. Top reward awarded to isolated diversity." },
-        { id: "C", name: "Candidate C (Crowded Analog 1)", f1: 0.58, f2: 0.84, front: 0, d: "0.245 (Low)", rank: "Rank 2 (Front 0)", reward: 0.400, note: "Closely packs with Cand D in objective space. Cuboid is tightly constrained; crowding distance penalty reduces reward." },
-        { id: "D", name: "Candidate D (Crowded Analog 2)", f1: 0.52, f2: 0.87, front: 0, d: "0.210 (Low)", rank: "Rank 1 (Front 0)", reward: 0.200, note: "Redundant cluster solution adjacent to Cand C. Demoted in ranking to discourage mode collapse into identical profiles." },
-        { id: "E", name: "Candidate E (QED Extremum)", f1: 0.32, f2: 0.95, front: 0, d: "inf (Boundary)", rank: "Rank 3 (Front 0)", reward: 0.600, note: "Boundary solution with maximal f2 QED drug-likeness. Assigned infinite crowding distance (d = inf)." },
+        { id: "A", name: "Candidate A (Potency Extremum)", f1: 0.94, f2: 0.35, front: 0, d: "inf (Boundary)", rank: "Rank 4 (Front 0)", reward: 0.800, note: "Boundary solution with maximal f1 potency. Assigned infinite crowding distance (d = inf) to guarantee preservation of frontier boundary extremities." },
+        { id: "B", name: "Candidate B (Isolated Lead)", f1: 0.78, f2: 0.70, front: 0, d: "1.428 (High)", rank: "Rank 5 (Front 0)", reward: 1.000, note: "Interior point flanked by Cand C (0.58, 0.84) and Cand A (0.94, 0.35). Spans large bounding cuboid [0.58, 0.94] x [0.35, 0.84]. Top policy gradient reward awarded to isolated diversity." },
+        { id: "C", name: "Candidate C (Crowded Analog 1)", f1: 0.58, f2: 0.84, front: 0, d: "0.245 (Low)", rank: "Rank 2 (Front 0)", reward: 0.400, note: "Closely packs with Cand D in objective space. Flanked by Cand D and Cand B. Cuboid is tightly constrained; crowding distance penalty demotes candidate." },
+        { id: "D", name: "Candidate D (Crowded Analog 2)", f1: 0.52, f2: 0.87, front: 0, d: "0.210 (Low)", rank: "Rank 1 (Front 0)", reward: 0.200, note: "Redundant cluster solution adjacent to Cand C. Squeezed in objective space; tightly bounded cuboid reduces reward to discourage mode collapse." },
+        { id: "E", name: "Candidate E (QED Extremum)", f1: 0.32, f2: 0.95, front: 0, d: "inf (Boundary)", rank: "Rank 3 (Front 0)", reward: 0.600, note: "Boundary solution with maximal f2 QED drug-likeness. Assigned infinite crowding distance (d = inf) to guarantee preservation of frontier boundary extremities." },
         { id: "F", name: "Candidate F (Dominated Sub-lead)", f1: 0.68, f2: 0.52, front: 1, d: "0.850", rank: "Rank 2 (Front 1)", reward: 0.125, note: "Dominated by Candidate B (0.78 > 0.68 and 0.70 > 0.52). Partitioned into secondary Pareto Front 1." },
-        { id: "G", name: "Candidate G (Dominated Moderate)", f1: 0.44, f2: 0.68, front: 1, d: "0.620", rank: "Rank 1 (Front 1)", reward: 0.062, note: "Dominated by Candidate C and Candidate D. Partitioned into secondary Pareto Front 1." },
+        { id: "G", name: "Candidate G (Dominated Moderate)", f1: 0.44, f2: 0.68, front: 1, d: "0.620", rank: "Rank 1 (Front 1)", reward: 0.062, note: "Dominated by Candidate C (0.58 > 0.44 and 0.84 > 0.68) and Candidate D. Partitioned into secondary Pareto Front 1." },
         { id: "H", name: "Candidate H (Sub-optimal Baseline)", f1: 0.25, f2: 0.40, front: 2, d: "inf", rank: "Rank 1 (Front 2)", reward: 0.000, note: "Dominated across all objectives by multiple candidates. Partitioned into Front 2; receives zero reward." }
       ];
 
@@ -18357,22 +18352,73 @@ for idx, smi in enumerate(items, 1):
       // Front 1 curve path: G -> F
       const f1Path = `M ${mapX(0.44)} ${mapY(0.68)} L ${mapX(0.68)} ${mapY(0.52)}`;
 
-      // Cuboid for Point B: neighbors C (0.58, 0.84) and A (0.94, 0.35)
-      const cuboidBX = mapX(0.58);
-      const cuboidBW = mapX(0.94) - mapX(0.58);
-      const cuboidBY = mapY(0.84);
-      const cuboidBH = mapY(0.35) - mapY(0.84);
-
-      // Tiny cuboid for Point C/D: between D (0.52, 0.87) and B (0.78, 0.70)
-      const cuboidCDX = mapX(0.52);
-      const cuboidCDW = mapX(0.78) - mapX(0.52);
-      const cuboidCDY = mapY(0.87);
-      const cuboidCDH = mapY(0.70) - mapY(0.87);
-
       const isDark = theme === "dark";
       const axisColor = isDark ? "#475569" : "#cbd5e1";
       const gridColor = isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
       const textColor = isDark ? "#94a3b8" : "#64748b";
+
+      // Active Cuboid Parameters
+      let cuboidRect = null;
+      let ghostCuboid = null;
+
+      if (activePointId === "B") {
+        cuboidRect = {
+          x: mapX(0.58),
+          y: mapY(0.84),
+          w: mapX(0.94) - mapX(0.58),
+          h: mapY(0.35) - mapY(0.84),
+          df1: 0.36,
+          df2: 0.49,
+          color: "#0284c7",
+          title: "Active Cuboid d_B = 1.428 (High Isolation -> Top Reward)"
+        };
+        ghostCuboid = {
+          x: mapX(0.52),
+          y: mapY(0.87),
+          w: mapX(0.78) - mapX(0.52),
+          h: mapY(0.70) - mapY(0.87),
+          color: "#d97706",
+          title: "Crowded Cluster (d_C,D ~ 0.23)"
+        };
+      } else if (activePointId === "C") {
+        cuboidRect = {
+          x: mapX(0.52),
+          y: mapY(0.87),
+          w: mapX(0.78) - mapX(0.52),
+          h: mapY(0.70) - mapY(0.87),
+          df1: 0.26,
+          df2: 0.17,
+          color: "#d97706",
+          title: "Active Cuboid d_C = 0.245 (Tightly Constrained -> Lower Reward)"
+        };
+        ghostCuboid = {
+          x: mapX(0.58),
+          y: mapY(0.84),
+          w: mapX(0.94) - mapX(0.58),
+          h: mapY(0.35) - mapY(0.84),
+          color: "#0284c7",
+          title: "Isolated Lead B (d_B = 1.428)"
+        };
+      } else if (activePointId === "D") {
+        cuboidRect = {
+          x: mapX(0.32),
+          y: mapY(0.95),
+          w: mapX(0.58) - mapX(0.32),
+          h: mapY(0.84) - mapY(0.95),
+          df1: 0.26,
+          df2: 0.11,
+          color: "#d97706",
+          title: "Active Cuboid d_D = 0.210 (Tightly Constrained -> Lower Reward)"
+        };
+        ghostCuboid = {
+          x: mapX(0.58),
+          y: mapY(0.84),
+          w: mapX(0.94) - mapX(0.58),
+          h: mapY(0.35) - mapY(0.84),
+          color: "#0284c7",
+          title: "Isolated Lead B (d_B = 1.428)"
+        };
+      }
 
       return (
         <div>
@@ -18383,6 +18429,9 @@ for idx, smi in enumerate(items, 1):
                   <stop offset="0%" stopColor="#0284c7" stopOpacity="0.25" />
                   <stop offset="100%" stopColor="#0d9488" stopOpacity="0.05" />
                 </linearGradient>
+                <marker id="paretoArrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 8 5 L 0 9 z" fill="#fb7185" />
+                </marker>
               </defs>
 
               {/* Grid Lines */}
@@ -18401,37 +18450,91 @@ for idx, smi in enumerate(items, 1):
               <text x={340} y={252} fill="var(--text-main)" fontSize="11" fontWeight="600" textAnchor="middle">Objective f1: Target Potency / Activity (pIC50 Desirability)</text>
               <text x={18} y={130} fill="var(--text-main)" fontSize="11" fontWeight="600" textAnchor="middle" transform="rotate(-90, 18, 130)">Objective f2: Drug-Likeness (QED Desirability)</text>
 
-              {/* Highlight Cuboid around Isolated Point B */}
-              <rect
-                x={cuboidBX}
-                y={cuboidBY}
-                width={cuboidBW}
-                height={cuboidBH}
-                fill="rgba(2, 132, 199, 0.12)"
-                stroke="#0284c7"
-                strokeWidth="1.5"
-                strokeDasharray="4,3"
-                rx="4"
-              />
-              <text x={cuboidBX + 6} y={cuboidBY + 14} fill="#0284c7" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)">
-                Cuboid d_B (Isolation Box)
-              </text>
+              {/* Ghost Cuboid (for contrast comparison) */}
+              {ghostCuboid && (
+                <g>
+                  <rect
+                    x={ghostCuboid.x}
+                    y={ghostCuboid.y}
+                    width={ghostCuboid.w}
+                    height={ghostCuboid.h}
+                    fill={ghostCuboid.color === "#0284c7" ? "rgba(2, 132, 199, 0.06)" : "rgba(245, 158, 11, 0.06)"}
+                    stroke={ghostCuboid.color}
+                    strokeWidth="1"
+                    strokeDasharray="2,2"
+                    rx="3"
+                    opacity="0.7"
+                  />
+                  <text x={ghostCuboid.x + 4} y={ghostCuboid.y + 11} fill={ghostCuboid.color} fontSize="8.5" fontFamily="var(--font-mono)" opacity="0.8">
+                    {ghostCuboid.title}
+                  </text>
+                </g>
+              )}
 
-              {/* Highlight Cuboid around Crowded Points C/D */}
-              <rect
-                x={cuboidCDX}
-                y={cuboidCDY}
-                width={cuboidCDW}
-                height={cuboidCDH}
-                fill="rgba(245, 158, 11, 0.10)"
-                stroke="#d97706"
-                strokeWidth="1"
-                strokeDasharray="3,2"
-                rx="3"
-              />
-              <text x={cuboidCDX + 4} y={cuboidCDY + 12} fill="#d97706" fontSize="9" fontWeight="600" fontFamily="var(--font-mono)">
-                Crowded d_C,D
-              </text>
+              {/* Active Cuboid around selected point */}
+              {cuboidRect && (
+                <g>
+                  <rect
+                    x={cuboidRect.x}
+                    y={cuboidRect.y}
+                    width={cuboidRect.w}
+                    height={cuboidRect.h}
+                    fill={cuboidRect.color === "#0284c7" ? "rgba(2, 132, 199, 0.16)" : "rgba(245, 158, 11, 0.14)"}
+                    stroke={cuboidRect.color}
+                    strokeWidth="2"
+                    strokeDasharray="4,3"
+                    rx="4"
+                  />
+                  <text x={cuboidRect.x + 6} y={cuboidRect.y + 14} fill={cuboidRect.color} fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)">
+                    {cuboidRect.title}
+                  </text>
+                  <text x={cuboidRect.x + cuboidRect.w / 2} y={cuboidRect.y + cuboidRect.h - 4} fill={cuboidRect.color} fontSize="8.5" fontFamily="var(--font-mono)" textAnchor="middle">
+                    Delta f1={cuboidRect.df1.toFixed(2)}, Delta f2={cuboidRect.df2.toFixed(2)}
+                  </text>
+                </g>
+              )}
+
+              {/* Boundary Rays for Extremum points A & E */}
+              {activePointId === "A" && (
+                <g>
+                  <line x1={mapX(0.94)} y1={mapY(0.35)} x2={mapX(1.0)} y2={mapY(0.35)} stroke="#0284c7" strokeWidth="2" strokeDasharray="3,2" />
+                  <line x1={mapX(0.94)} y1={mapY(0.35)} x2={mapX(0.94)} y2={mapY(0.0)} stroke="#0284c7" strokeWidth="2" strokeDasharray="3,2" />
+                  <rect x={mapX(0.80)} y={mapY(0.20)} width={175} height={20} rx="3" fill="var(--bg-card)" stroke="#0284c7" strokeWidth="1" />
+                  <text x={mapX(0.80) + 6} y={mapY(0.20) + 14} fill="#0284c7" fontSize="9" fontWeight="700" fontFamily="var(--font-mono)">
+                    Boundary Extremum: d = inf
+                  </text>
+                </g>
+              )}
+              {activePointId === "E" && (
+                <g>
+                  <line x1={mapX(0.32)} y1={mapY(0.95)} x2={mapX(0.0)} y2={mapY(0.95)} stroke="#0284c7" strokeWidth="2" strokeDasharray="3,2" />
+                  <line x1={mapX(0.32)} y1={mapY(0.95)} x2={mapX(0.32)} y2={mapY(1.0)} stroke="#0284c7" strokeWidth="2" strokeDasharray="3,2" />
+                  <rect x={mapX(0.04)} y={mapY(0.98)} width={175} height={20} rx="3" fill="var(--bg-card)" stroke="#0284c7" strokeWidth="1" />
+                  <text x={mapX(0.04) + 6} y={mapY(0.98) + 14} fill="#0284c7" fontSize="9" fontWeight="700" fontFamily="var(--font-mono)">
+                    Boundary Extremum: d = inf
+                  </text>
+                </g>
+              )}
+
+              {/* Domination Indicator for Front 1 candidates */}
+              {activePointId === "F" && (
+                <g>
+                  <line x1={mapX(0.78)} y1={mapY(0.70)} x2={mapX(0.68)} y2={mapY(0.52)} stroke="#fb7185" strokeWidth="2" strokeDasharray="4,2" markerEnd="url(#paretoArrow)" />
+                  <rect x={mapX(0.55)} y={mapY(0.48)} width={215} height={20} rx="3" fill="var(--bg-card)" stroke="#fb7185" strokeWidth="1" />
+                  <text x={mapX(0.55) + 6} y={mapY(0.48) + 14} fill="#fb7185" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)">
+                    Dominated by B (0.78 &gt; 0.68, 0.70 &gt; 0.52)
+                  </text>
+                </g>
+              )}
+              {activePointId === "G" && (
+                <g>
+                  <line x1={mapX(0.58)} y1={mapY(0.84)} x2={mapX(0.44)} y2={mapY(0.68)} stroke="#fb7185" strokeWidth="2" strokeDasharray="4,2" markerEnd="url(#paretoArrow)" />
+                  <rect x={mapX(0.32)} y={mapY(0.62)} width={215} height={20} rx="3" fill="var(--bg-card)" stroke="#fb7185" strokeWidth="1" />
+                  <text x={mapX(0.32) + 6} y={mapY(0.62) + 14} fill="#fb7185" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)">
+                    Dominated by C (0.58 &gt; 0.44, 0.84 &gt; 0.68)
+                  </text>
+                </g>
+              )}
 
               {/* Front 0 Curve */}
               <path d={f0Path} fill="none" stroke="#0284c7" strokeWidth="2.5" />
@@ -18462,21 +18565,21 @@ for idx, smi in enumerate(items, 1):
                     onMouseEnter={() => setActivePointId(p.id)}
                   >
                     {isActive && (
-                      <circle cx={px} cy={py} r="11" fill="none" stroke={dotColor} strokeWidth="2" strokeDasharray="2,2" opacity="0.8" />
+                      <circle cx={px} cy={py} r="12" fill="none" stroke={dotColor} strokeWidth="2" strokeDasharray="2,2" opacity="0.8" />
                     )}
                     <circle
                       cx={px}
                       cy={py}
-                      r={isActive ? "6.5" : "5"}
+                      r={isActive ? "7" : "5"}
                       fill={dotColor}
                       stroke="#ffffff"
                       strokeWidth="1.5"
                     />
                     <text
                       x={px}
-                      y={py - 8}
+                      y={py - 10}
                       fill={isActive ? "var(--text-main)" : textColor}
-                      fontSize={isActive ? "11" : "10"}
+                      fontSize={isActive ? "11.5" : "10"}
                       fontWeight={isActive ? "700" : "500"}
                       fontFamily="var(--font-mono)"
                       textAnchor="middle"
@@ -18500,10 +18603,10 @@ for idx, smi in enumerate(items, 1):
             </span>
             <span className="micro-viz-legend-item">
               <span className="micro-viz-legend-dot" style={{ background: "#64748b" }}></span>
-              Front 2 (Sub-optimal)
+              Front 2 (Sub-optimal Baseline)
             </span>
             <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
-              Hover any candidate point for coordinates and crowding metrics
+              Click or hover any candidate point to inspect crowding box and rank
             </span>
           </div>
 
@@ -18547,22 +18650,42 @@ for idx, smi in enumerate(items, 1):
 
       // Node coordinates for 680 x 250 canvas
       const nodePositions = {
-        macro:  { x: 120, y: 70 },
+        macro:  { x: 110, y: 70 },
         spiro:  { x: 260, y: 55 },
-        indole: { x: 90,  y: 180 },
-        quin1:  { x: 240, y: 175 },
-        quin2:  { x: 370, y: 175 }
+        indole: { x: 85,  y: 180 },
+        quin1:  { x: 235, y: 175 },
+        quin2:  { x: 375, y: 175 }
       };
 
       const isDark = theme === "dark";
       const edgeRed = isDark ? "#f87171" : "#ef4444";
       const edgeGreen = isDark ? "#34d399" : "#10b981";
 
+      // Pairwise similarity lookup
+      const pairwiseTc = {
+        "macro-spiro": 0.15, "spiro-macro": 0.15,
+        "macro-indole": 0.18, "indole-macro": 0.18,
+        "macro-quin1": 0.11, "quin1-macro": 0.11,
+        "macro-quin2": 0.08, "quin2-macro": 0.08,
+        "spiro-indole": 0.22, "indole-spiro": 0.22,
+        "spiro-quin1": 0.16, "quin1-spiro": 0.16,
+        "spiro-quin2": 0.14, "quin2-spiro": 0.14,
+        "indole-quin1": 0.24, "quin1-indole": 0.24,
+        "indole-quin2": 0.21, "quin2-indole": 0.21,
+        "quin1-quin2": 0.89, "quin2-quin1": 0.89
+      };
+
       return (
         <div>
           <div className="micro-viz-svg-wrap">
             <svg className="micro-viz-svg" viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
-              {/* Diversity Network Connectors */}
+              {/* Network Boundary Box on Left */}
+              <rect x="15" y="15" width="415" height="220" fill="none" stroke="var(--border-subtle)" strokeWidth="1" rx="6" />
+              <text x="30" y="36" fill="var(--text-muted)" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)">
+                CHEMICAL SCAFFOLD SPACE (ECFP6 FINGERPRINTS)
+              </text>
+
+              {/* Redundant Cluster Connector between Quin1 and Quin2 */}
               <line
                 x1={nodePositions.quin1.x}
                 y1={nodePositions.quin1.y}
@@ -18572,21 +18695,34 @@ for idx, smi in enumerate(items, 1):
                 strokeWidth="3.5"
                 strokeDasharray="5,3"
               />
-              <rect x="270" y="160" width="70" height="18" fill="var(--bg-card)" rx="3" stroke={edgeRed} strokeWidth="1" />
-              <text x="305" y="172" fill={edgeRed} fontSize="9" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+              <rect x="270" y="163" width="70" height="18" fill="var(--bg-card)" rx="3" stroke={edgeRed} strokeWidth="1" />
+              <text x="305" y="175" fill={edgeRed} fontSize="9" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
                 Tc = 0.89
               </text>
 
-              {/* Diverse Scaffold Connections */}
-              <line x1={nodePositions.macro.x} y1={nodePositions.macro.y} x2={nodePositions.spiro.x} y2={nodePositions.spiro.y} stroke={edgeGreen} strokeWidth="1.2" strokeDasharray="3,3" opacity="0.6" />
-              <line x1={nodePositions.macro.x} y1={nodePositions.macro.y} x2={nodePositions.indole.x} y2={nodePositions.indole.y} stroke={edgeGreen} strokeWidth="1.2" strokeDasharray="3,3" opacity="0.6" />
-              <line x1={nodePositions.spiro.x} y1={nodePositions.spiro.y} x2={nodePositions.quin1.x} y2={nodePositions.quin1.y} stroke={edgeGreen} strokeWidth="1.2" strokeDasharray="3,3" opacity="0.6" />
+              {/* Dynamic Diversity Connectors from active candidate to all others */}
+              {candidates.filter(c => c.id !== activeMolId).map(other => {
+                const p1 = nodePositions[activeMolId];
+                const p2 = nodePositions[other.id];
+                const tcKey = `${activeMolId}-${other.id}`;
+                const tc = pairwiseTc[tcKey] || 0.15;
+                const isRedundant = tc >= 0.80;
+                if (isRedundant) return null; // already drawn above
 
-              {/* Network Boundary Box on Left */}
-              <rect x="20" y="20" width="410" height="210" fill="none" stroke="var(--border-subtle)" strokeWidth="1" rx="6" />
-              <text x="35" y="40" fill="var(--text-muted)" fontSize="10.5" fontWeight="700" fontFamily="var(--font-mono)">
-                CHEMICAL SCAFFOLD SPACE (ECFP6 FINGERPRINTS)
-              </text>
+                return (
+                  <line
+                    key={`link-${activeMolId}-${other.id}`}
+                    x1={p1.x}
+                    y1={p1.y}
+                    x2={p2.x}
+                    y2={p2.y}
+                    stroke={edgeGreen}
+                    strokeWidth="1.2"
+                    strokeDasharray="3,3"
+                    opacity="0.65"
+                  />
+                );
+              })}
 
               {/* Network Nodes */}
               {candidates.map(c => {
@@ -18607,7 +18743,7 @@ for idx, smi in enumerate(items, 1):
                     <text x={pos.x} y={pos.y + 4} fill="#ffffff" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
                       {c.rank}
                     </text>
-                    <text x={pos.x} y={pos.y + 32} fill="var(--text-main)" fontSize="10.5" fontWeight={isSelected ? "700" : "500"} textAnchor="middle">
+                    <text x={pos.x} y={pos.y + 32} fill="var(--text-main)" fontSize="10" fontWeight={isSelected ? "700" : "500"} textAnchor="middle">
                       {c.name}
                     </text>
                   </g>
@@ -18615,13 +18751,13 @@ for idx, smi in enumerate(items, 1):
               })}
 
               {/* Reward Ranking Ladder on Right */}
-              <rect x="450" y="20" width="210" height="210" fill="var(--table-header)" stroke="var(--border-subtle)" strokeWidth="1" rx="6" />
-              <text x="465" y="40" fill="var(--text-muted)" fontSize="10.5" fontWeight="700" fontFamily="var(--font-mono)">
+              <rect x="445" y="15" width="220" height="220" fill="var(--table-header)" stroke="var(--border-subtle)" strokeWidth="1" rx="6" />
+              <text x="460" y="36" fill="var(--text-muted)" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)">
                 TANIMOTO TIE-BREAK LADDER
               </text>
 
               {candidates.map((c, idx) => {
-                const rowY = 56 + idx * 34;
+                const rowY = 48 + idx * 36;
                 const isSelected = c.id === activeMolId;
 
                 return (
@@ -18632,20 +18768,20 @@ for idx, smi in enumerate(items, 1):
                     onMouseEnter={() => setActiveMolId(c.id)}
                   >
                     <rect
-                      x="460"
+                      x="455"
                       y={rowY}
-                      width="190"
-                      height="26"
+                      width="200"
+                      height="28"
                       rx="4"
                       fill={isSelected ? "rgba(2, 132, 199, 0.15)" : "transparent"}
                       stroke={isSelected ? "var(--accent-cyan)" : "transparent"}
                       strokeWidth="1"
                     />
-                    <circle cx="475" cy={rowY + 13} r="6" fill={c.color} />
-                    <text x="490" y={rowY + 17} fill="var(--text-main)" fontSize="11" fontWeight={isSelected ? "700" : "500"}>
-                      {c.name.split(" ")[0]}
+                    <circle cx="470" cy={rowY + 14} r="6" fill={c.color} />
+                    <text x="484" y={rowY + 18} fill="var(--text-main)" fontSize="10.5" fontWeight={isSelected ? "700" : "500"}>
+                      {c.name}
                     </text>
-                    <text x="635" y={rowY + 17} fill={c.color} fontSize="10.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="end">
+                    <text x="645" y={rowY + 18} fill={c.color} fontSize="10" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="end">
                       R = {c.reward.toFixed(2)}
                     </text>
                   </g>
@@ -18705,6 +18841,10 @@ for idx, smi in enumerate(items, 1):
 
       const [activeTab, setActiveTab] = useState(getInitialTab);
       const [cursorX, setCursorX] = useState(6.0);
+
+      useEffect(() => {
+        setActiveTab(getInitialTab());
+      }, [symbolKey]);
 
       // Canvas: 680 x 240. Map x: 70 -> 610 (540px width). Map y: 200 -> 40 (160px height).
       const mapX = (x) => 70 + (x / 10.0) * 540;
@@ -18809,15 +18949,76 @@ for idx, smi in enumerate(items, 1):
               onMouseMove={handleSvgMouseMove}
               style={{ cursor: "crosshair" }}
             >
+              {/* Threshold Zones & Background Annotations */}
               {activeTab === "clipped" && (
                 <g>
                   <rect x={mapX(0)} y={mapY(1.0)} width={mapX(4.0) - mapX(0)} height={160} fill="rgba(239, 68, 68, 0.08)" />
                   <rect x={mapX(8.0)} y={mapY(1.0)} width={mapX(10.0) - mapX(8.0)} height={160} fill="rgba(239, 68, 68, 0.08)" />
-                  <text x={mapX(2.0)} y={120} fill="#ef4444" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                  <rect x={mapX(4.0)} y={mapY(1.0)} width={mapX(8.0) - mapX(4.0)} height={160} fill="rgba(16, 185, 129, 0.06)" />
+                  <text x={mapX(2.0)} y={120} fill="#ef4444" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
                     VANISHED GRADIENT (0.0)
                   </text>
-                  <text x={mapX(9.0)} y={120} fill="#ef4444" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                  <text x={mapX(6.0)} y={120} fill="var(--accent-emerald)" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    ACTIVE RAMP (df/dx = 0.25)
+                  </text>
+                  <text x={mapX(9.0)} y={120} fill="#ef4444" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
                     SATURATED (0.0)
+                  </text>
+                  <line x1={mapX(4.0)} y1={40} x2={mapX(4.0)} y2={200} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3,3" />
+                  <text x={mapX(4.0)} y={32} fill="#ef4444" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    lower_x = 4.0 (Kink)
+                  </text>
+                  <line x1={mapX(8.0)} y1={40} x2={mapX(8.0)} y2={200} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3,3" />
+                  <text x={mapX(8.0)} y={32} fill="#ef4444" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    upper_x = 8.0 (Ceiling)
+                  </text>
+                </g>
+              )}
+
+              {activeTab === "smooth" && (
+                <g>
+                  <line x1={mapX(4.0)} y1={40} x2={mapX(4.0)} y2={200} stroke="#3b82f6" strokeWidth="1" strokeDasharray="3,3" opacity="0.6" />
+                  <text x={mapX(4.0)} y={32} fill="#3b82f6" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    lower_x = 4.0
+                  </text>
+                  <line x1={mapX(6.0)} y1={40} x2={mapX(6.0)} y2={200} stroke="#0284c7" strokeWidth="1.5" strokeDasharray="4,2" />
+                  <rect x={mapX(6.0) - 62} y={18} width={124} height={16} rx="3" fill="var(--bg-card)" stroke="#0284c7" strokeWidth="1" />
+                  <text x={mapX(6.0)} y={30} fill="#0284c7" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    x0 = 6.0 (Midpoint, d=0.5)
+                  </text>
+                  <line x1={mapX(8.0)} y1={40} x2={mapX(8.0)} y2={200} stroke="#3b82f6" strokeWidth="1" strokeDasharray="3,3" opacity="0.6" />
+                  <text x={mapX(8.0)} y={32} fill="#3b82f6" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    upper_x = 8.0
+                  </text>
+                </g>
+              )}
+
+              {activeTab === "gaussian" && (
+                <g>
+                  <rect x={mapX(3.0)} y={mapY(1.0)} width={mapX(6.0) - mapX(3.0)} height={160} fill="rgba(16, 185, 129, 0.08)" />
+                  <text x={mapX(4.5)} y={120} fill="var(--accent-emerald)" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    OPTIMAL PLATEAU (d = 1.0)
+                  </text>
+                  <line x1={mapX(3.0)} y1={40} x2={mapX(3.0)} y2={200} stroke="var(--accent-emerald)" strokeWidth="1.5" strokeDasharray="3,3" />
+                  <text x={mapX(3.0)} y={32} fill="var(--accent-emerald)" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    lower_x = 3.0
+                  </text>
+                  <line x1={mapX(6.0)} y1={40} x2={mapX(6.0)} y2={200} stroke="var(--accent-emerald)" strokeWidth="1.5" strokeDasharray="3,3" />
+                  <text x={mapX(6.0)} y={32} fill="var(--accent-emerald)" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    upper_x = 6.0
+                  </text>
+                </g>
+              )}
+
+              {activeTab === "thresholded" && (
+                <g>
+                  <rect x={mapX(6.0)} y={mapY(1.0)} width={mapX(10.0) - mapX(6.0)} height={160} fill="rgba(239, 68, 68, 0.06)" />
+                  <text x={mapX(8.0)} y={120} fill="#ef4444" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    SATURATED (df/dx = 0)
+                  </text>
+                  <line x1={mapX(6.0)} y1={40} x2={mapX(6.0)} y2={200} stroke="#0284c7" strokeWidth="1.5" strokeDasharray="3,3" />
+                  <text x={mapX(6.0)} y={32} fill="#0284c7" fontSize="8.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    Threshold = 6.0
                   </text>
                 </g>
               )}
@@ -18842,14 +19043,18 @@ for idx, smi in enumerate(items, 1):
               <text x={340} y={232} fill="var(--text-main)" fontSize="11" fontWeight="600" textAnchor="middle">Raw Physical Property x (e.g. pIC50, MW / 100, LogP + 2)</text>
               <text x={18} y={120} fill="var(--text-main)" fontSize="11" fontWeight="600" textAnchor="middle" transform="rotate(-90, 18, 120)">Desirability d(x)</text>
 
+              {/* Comparison Ghost Curves */}
               {activeTab === "smooth" && (
                 <path d={generatePath("clipped")} fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeDasharray="4,4" opacity="0.6" />
+              )}
+              {activeTab === "clipped" && (
+                <path d={generatePath("smooth")} fill="none" stroke="#0284c7" strokeWidth="1.5" strokeDasharray="4,4" opacity="0.45" />
               )}
 
               {/* Main Active Curve */}
               <path d={generatePath(activeTab)} fill="none" stroke="#0284c7" strokeWidth="3" />
 
-              {/* Interactive Cursor Indicator */}
+              {/* Interactive Crosshair & Cursor Indicator */}
               <line
                 x1={mapX(cursorX)}
                 y1={40}
@@ -18859,6 +19064,16 @@ for idx, smi in enumerate(items, 1):
                 strokeWidth="1.5"
                 strokeDasharray="2,2"
               />
+              <line
+                x1={70}
+                y1={mapY(activeEval.d)}
+                x2={610}
+                y2={mapY(activeEval.d)}
+                stroke="#0284c7"
+                strokeWidth="1"
+                strokeDasharray="2,2"
+                opacity="0.5"
+              />
               <circle
                 cx={mapX(cursorX)}
                 cy={mapY(activeEval.d)}
@@ -18867,6 +19082,26 @@ for idx, smi in enumerate(items, 1):
                 stroke="#ffffff"
                 strokeWidth="2"
               />
+              <rect
+                x={Math.min(mapX(cursorX) + 8, 510)}
+                y={Math.max(mapY(activeEval.d) - 24, 45)}
+                width="92"
+                height="18"
+                rx="3"
+                fill="var(--bg-card)"
+                stroke="#0284c7"
+                strokeWidth="1"
+              />
+              <text
+                x={Math.min(mapX(cursorX) + 12, 514)}
+                y={Math.max(mapY(activeEval.d) - 12, 57)}
+                fill="var(--text-main)"
+                fontSize="8.5"
+                fontWeight="700"
+                fontFamily="var(--font-mono)"
+              >
+                ({cursorX.toFixed(2)}, {activeEval.d.toFixed(2)})
+              </text>
             </svg>
           </div>
 
@@ -18878,7 +19113,13 @@ for idx, smi in enumerate(items, 1):
             {activeTab === "smooth" && (
               <span className="micro-viz-legend-item">
                 <span className="micro-viz-legend-dot" style={{ background: "var(--text-muted)" }}></span>
-                Piecewise ClippedScore (Contrast)
+                Piecewise ClippedScore (Vanished Contrast)
+              </span>
+            )}
+            {activeTab === "clipped" && (
+              <span className="micro-viz-legend-item">
+                <span className="micro-viz-legend-dot" style={{ background: "#0284c7", opacity: 0.5 }}></span>
+                SmoothClippedScore Sigmoid (Smooth Contrast)
               </span>
             )}
             <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
@@ -18910,73 +19151,86 @@ for idx, smi in enumerate(items, 1):
 
     function RLPolicyCycleViz({ theme, symbolKey }) {
       const [activeStepIdx, setActiveStepIdx] = useState(3);
+      const isDark = theme === "dark";
 
       const steps = [
         {
           id: "agent",
           step: "Step 01",
+          badge: "GENERATOR",
+          color: "#0284c7",
           name: "Agent Policy pi_theta",
           sub: "SequenceRNN / Transformer",
-          shape: "Out: [B, L] tensor & [B] SMILES",
+          shape: "Tensor: [B, L] -> SMILES",
           math: "a_t ~ pi_theta(a_t | s_t)",
-          note: "Active generative model rollout; samples batches of token sequences under current policy parameters."
+          note: "Active generative model rollout; samples batches of chemical token sequences under current policy parameters theta."
         },
         {
           id: "prior",
           step: "Step 02",
+          badge: "REGULARIZER",
+          color: "#06b6d4",
           name: "Frozen Prior pi_0",
-          sub: "Mutate Regularizer (epsilon=0.1)",
-          shape: "Mix: epsilon * pi_0 + (1 - epsilon) * pi_theta",
-          math: "x_t ~ (1 - eps) * pi_theta + eps * pi_0",
-          note: "Maintains chemical validity and syntactic rules learned during pre-training; penalizes mode collapse."
+          sub: "Pre-trained Language Model",
+          shape: "eps*pi_0 + (1-eps)*pi_theta",
+          math: "x_t ~ (1 - eps)*pi_theta + eps*pi_0",
+          note: "Maintains chemical syntax and validity learned during pre-training (epsilon=0.1); penalizes mode collapse away from drug-like space."
         },
         {
           id: "smiles_checker",
           step: "Step 03",
+          badge: "SANITY GATE",
+          color: "#d97706",
           name: "SmilesChecker Gate",
-          sub: "Valence & Sanity Filter",
-          shape: "Mask: [B] binary Valid & Accurate",
+          sub: "Valence & Substructure Filter",
+          shape: "Filter: [B] valid binary",
           math: "Valid = 1 if RDKit(smi) else 0",
-          note: "Syntactically invalid SMILES or fragmented valences are zeroed out (score = 0.0) before scoring."
+          note: "Syntactically invalid SMILES, valence violations, or disconnected structures are immediately filtered (score = 0.0) before scoring."
         },
         {
           id: "env",
           step: "Step 04",
+          badge: "SCORING ENV",
+          color: "#10b981",
           name: "DrugExEnvironment",
           sub: "Scorers + Modifiers",
-          shape: "Scores: [B, M] matrix & [B] Desired",
+          shape: "Scores: [B, M] in [0, 1]",
           math: "s_{i,m} = f_m(metric_{i,m}); Desired = prod(s_m >= th_m)",
-          note: "Evaluates parallel objectives (ROCS, QSAR, SA, MW) through desirability modifiers into [0, 1]."
+          note: "Evaluates parallel objectives (ROCS 3D shape, QSAR potency, SA synthesis, MW) transformed into [0, 1] desirability scores."
         },
         {
           id: "reward",
           step: "Step 05",
+          badge: "NSGA-II REWARD",
+          color: "#8b5cf6",
           name: "RewardScheme (MORL)",
           sub: "ParetoCrowdingDistance",
-          shape: "Rewards: [B, 1] normalized scalars",
+          shape: "Rewards: [B, 1] in [0, 1]",
           math: "R = rank(F_0, F_1, ..., crowding_d) / B",
-          note: "Partitions candidates into non-dominated Pareto tiers and calculates NSGA-II crowding distance."
+          note: "Decomposes candidate population into non-dominated Pareto tiers and computes crowding distance or Tanimoto diversity to break ties."
         },
         {
           id: "reinforce",
           step: "Step 06",
+          badge: "POLICY GRADIENT",
+          color: "#ec4899",
           name: "REINFORCE Update",
-          sub: "Policy Gradient Step",
-          shape: "Loss: scalar float -> grad theta",
-          math: "L(theta) = - E[(R - beta) * sum_t log pi_theta(a_t)]",
-          note: "Backpropagates reward-weighted log-likelihood loss with baseline subtraction beta to update agent."
+          sub: "Policy Gradient Ascent",
+          shape: "Loss: L(theta) -> grad theta",
+          math: "grad L = - E[(R - beta) * sum_t grad log pi_theta(a_t)]",
+          note: "Backpropagates reward-weighted log-likelihood loss with moving baseline subtraction beta to update agent generative parameters."
         }
       ];
 
       const active = steps[activeStepIdx] || steps[3];
 
       const blockCoords = [
-        { x: 30,  y: 25, w: 180, h: 75 },
-        { x: 250, y: 25, w: 180, h: 75 },
-        { x: 470, y: 25, w: 180, h: 75 },
-        { x: 470, y: 135, w: 180, h: 75 },
-        { x: 250, y: 135, w: 180, h: 75 },
-        { x: 30,  y: 135, w: 180, h: 75 }
+        { x: 30,  y: 24, w: 180, h: 76 },
+        { x: 250, y: 24, w: 180, h: 76 },
+        { x: 470, y: 24, w: 180, h: 76 },
+        { x: 470, y: 136, w: 180, h: 76 },
+        { x: 250, y: 136, w: 180, h: 76 },
+        { x: 30,  y: 136, w: 180, h: 76 }
       ];
 
       return (
@@ -18984,23 +19238,41 @@ for idx, smi in enumerate(items, 1):
           <div className="micro-viz-svg-wrap">
             <svg className="micro-viz-svg" viewBox="0 0 680 240" xmlns="http://www.w3.org/2000/svg">
               <defs>
-                <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <marker id="arrow-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                   <path d="M 0 1 L 8 5 L 0 9 z" fill="#0284c7" />
+                </marker>
+                <marker id="arrow-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 8 5 L 0 9 z" fill="#06b6d4" />
+                </marker>
+                <marker id="arrow-amber" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 8 5 L 0 9 z" fill="#d97706" />
+                </marker>
+                <marker id="arrow-emerald" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 8 5 L 0 9 z" fill="#10b981" />
+                </marker>
+                <marker id="arrow-purple" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 8 5 L 0 9 z" fill="#8b5cf6" />
+                </marker>
+                <marker id="arrow-pink" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 8 5 L 0 9 z" fill="#ec4899" />
                 </marker>
               </defs>
 
               {/* Connecting Flow Arrows */}
-              <line x1={210} y1={62} x2={244} y2={62} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
-              <line x1={430} y1={62} x2={464} y2={62} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
-              <path d="M 560 100 L 560 129" fill="none" stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
-              <line x1={470} y1={172} x2={436} y2={172} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
-              <line x1={250} y1={172} x2={216} y2={172} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
-              <path d="M 120 135 L 120 106" fill="none" stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
+              <line x1={210} y1={62} x2={244} y2={62} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow-blue)" />
+              <line x1={430} y1={62} x2={464} y2={62} stroke="#06b6d4" strokeWidth="2" markerEnd="url(#arrow-cyan)" />
+              <path d="M 560 100 L 560 130" fill="none" stroke="#d97706" strokeWidth="2" markerEnd="url(#arrow-amber)" />
+              <line x1={470} y1={174} x2={436} y2={174} stroke="#10b981" strokeWidth="2" markerEnd="url(#arrow-emerald)" />
+              <line x1={250} y1={174} x2={216} y2={174} stroke="#8b5cf6" strokeWidth="2" markerEnd="url(#arrow-purple)" />
+              <path d="M 120 136 L 120 106" fill="none" stroke="#ec4899" strokeWidth="2" markerEnd="url(#arrow-pink)" />
 
               {/* Step Blocks */}
               {steps.map((s, idx) => {
                 const c = blockCoords[idx];
                 const isSelected = idx === activeStepIdx;
+                const cardBg = isSelected
+                  ? (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(2, 132, 199, 0.08)")
+                  : "var(--bg-card)";
 
                 return (
                   <g
@@ -19015,21 +19287,47 @@ for idx, smi in enumerate(items, 1):
                       width={c.w}
                       height={c.h}
                       rx="6"
-                      fill={isSelected ? "rgba(2, 132, 199, 0.15)" : "var(--bg-card)"}
-                      stroke={isSelected ? "#0284c7" : "var(--border-main)"}
+                      fill={cardBg}
+                      stroke={isSelected ? s.color : "var(--border-main)"}
                       strokeWidth={isSelected ? "2" : "1"}
                     />
-                    <text x={c.x + 10} y={c.y + 18} fill="#0284c7" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)">
+                    <rect
+                      x={c.x + 8}
+                      y={c.y + 8}
+                      width={48}
+                      height={16}
+                      rx="3"
+                      fill={isSelected ? s.color : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)")}
+                    />
+                    <text
+                      x={c.x + 32}
+                      y={c.y + 19}
+                      fill={isSelected ? "#ffffff" : s.color}
+                      fontSize="9"
+                      fontWeight="700"
+                      fontFamily="var(--font-mono)"
+                      textAnchor="middle"
+                    >
                       {s.step}
                     </text>
-                    <text x={c.x + 10} y={c.y + 36} fill="var(--text-main)" fontSize="11" fontWeight="700">
+                    <text
+                      x={c.x + 62}
+                      y={c.y + 19}
+                      fill="var(--text-muted)"
+                      fontSize="8.5"
+                      fontWeight="700"
+                      fontFamily="var(--font-mono)"
+                    >
+                      {s.badge}
+                    </text>
+                    <text x={c.x + 8} y={c.y + 38} fill="var(--text-main)" fontSize="10.5" fontWeight="700">
                       {s.name}
                     </text>
-                    <text x={c.x + 10} y={c.y + 52} fill="var(--text-muted)" fontSize="9.5" fontFamily="var(--font-sans)">
+                    <text x={c.x + 8} y={c.y + 52} fill="var(--text-muted)" fontSize="9" fontFamily="var(--font-sans)">
                       {s.sub}
                     </text>
-                    <text x={c.x + 10} y={c.y + 68} fill="#0d9488" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="600">
-                      {s.shape.split(":")[0]}: {s.shape.split(":")[1]?.slice(0, 16)}...
+                    <text x={c.x + 8} y={c.y + 67} fill={s.color} fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="600">
+                      {s.shape}
                     </text>
                   </g>
                 );
@@ -19040,18 +19338,26 @@ for idx, smi in enumerate(items, 1):
           <div className="micro-viz-legend">
             <span className="micro-viz-legend-item">
               <span className="micro-viz-legend-dot" style={{ background: "#0284c7" }}></span>
-              Forward Trajectory Generation (01 -&gt; 02 -&gt; 03)
+              Rollout &amp; Prior (01 - 02)
             </span>
             <span className="micro-viz-legend-item">
-              <span className="micro-viz-legend-dot" style={{ background: "#0d9488" }}></span>
-              Multi-Objective Evaluation &amp; Reward (04 -&gt; 05)
+              <span className="micro-viz-legend-dot" style={{ background: "#d97706" }}></span>
+              SmilesChecker (03)
             </span>
             <span className="micro-viz-legend-item">
-              <span className="micro-viz-legend-dot" style={{ background: "#7c3aed" }}></span>
-              REINFORCE Policy Gradient Update (06 -&gt; 01)
+              <span className="micro-viz-legend-dot" style={{ background: "#10b981" }}></span>
+              Scoring Env (04)
+            </span>
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#8b5cf6" }}></span>
+              Reward &amp; Pareto (05)
+            </span>
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#ec4899" }}></span>
+              REINFORCE Update (06)
             </span>
             <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
-              Hover any pipeline stage to inspect tensor shapes and operations
+              Hover any stage to inspect tensor shapes and mathematical operations
             </span>
           </div>
 
@@ -19059,6 +19365,8 @@ for idx, smi in enumerate(items, 1):
             <div className="micro-viz-readout-row">
               <span className="micro-viz-readout-label">{active.step}:</span>
               <span className="micro-viz-readout-val" style={{ color: "var(--text-main)" }}>{active.name} ({active.sub})</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Phase:</span>
+              <span className="micro-viz-readout-val" style={{ color: active.color, fontWeight: "700" }}>{active.badge}</span>
               <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Tensors / Arrays:</span>
               <span className="micro-viz-readout-val">{active.shape}</span>
             </div>

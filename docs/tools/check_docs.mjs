@@ -117,10 +117,16 @@ for (const key of keys) {
     }
   }
 
-  // Check class member completeness
+  // Check class member completeness and constructor parameter hygiene
   if (item.kind === 'class') {
     if (!Array.isArray(item.members) || item.members.length === 0) {
       console.error(`Class "${key}" has empty members array.`);
+      errors++;
+    }
+    const syn = item.synopsis || '';
+    const hasZeroArgInit = /def\s+__init__\s*\(\s*self\s*\)\s*(->\s*None\s*)?:/.test(syn);
+    if (hasZeroArgInit && Array.isArray(item.parameters) && item.parameters.length > 0) {
+      console.error(`Class "${key}" defines zero-argument __init__(self) -> None in synopsis, but has non-empty parameters array.`);
       errors++;
     }
   }
@@ -365,6 +371,74 @@ if (tagStart === -1) {
             }
           }
           console.log('[PASS] getMagicMethodOperator verified across all special Python operator mappings.');
+        }
+
+        // Validate getMicroVizType helper
+        const getMicroVizType = context.getMicroVizType;
+        if (typeof getMicroVizType !== 'function') {
+          console.error('getMicroVizType is not a function.');
+          errors++;
+        } else {
+          const microVizExpected = {
+            pareto_crowding: [
+              'drugex::training::rewards::ParetoCrowdingDistance',
+              'drugex::utils::pareto::get_Pareto_fronts',
+              'drugex::training::rewards::ParetoRewardScheme',
+              'drugex::training::rewards::RewardScheme',
+              'drugex::training::rewards::WeightedSum'
+            ],
+            pareto_tanimoto: [
+              'drugex::training::rewards::ParetoTanimotoDistance'
+            ],
+            modifier_curve: [
+              'drugex::training::scorers::ScoreModifier',
+              'drugex::training::scorers::SmoothClippedScore',
+              'drugex::training::scorers::ClippedScore',
+              'drugex::training::scorers::MinMaxGaussian',
+              'drugex::training::scorers::modifiers::ThresholdedLinear',
+              'drugex::training::scorers::modifiers::SmoothHump',
+              'drugex::training::scorers::modifiers::Squared',
+              'drugex::training::scorers::modifiers::AbsoluteScore',
+              'drugex::training::scorers::modifiers::Chained',
+              'drugex::training::scorers::Gaussian',
+              'drugex::training::scorers::Linear'
+            ],
+            rl_policy_cycle: [
+              'drugex::training::environment::DrugExEnvironment',
+              'drugex::training::environment::Environment',
+              'drugex::training::explorers::SequenceExplorer',
+              'drugex::training::explorers::FragSequenceExplorer',
+              'drugex::training::explorers::GraphExplorer',
+              'drugex::training::explorers::FragGraphExplorer',
+              'drugex::training::explorers::Explorer',
+              'drugex::training::explorers::FragExplorer',
+              'drugex::training::scorers::SmilesChecker',
+              'drugex::train::Reinforce'
+            ]
+          };
+
+          let microVizTestedCount = 0;
+          for (const [expectedType, symList] of Object.entries(microVizExpected)) {
+            for (const sym of symList) {
+              if (!db[sym]) {
+                console.error(`getMicroVizType test symbol "${sym}" does not exist in DATABASE.`);
+                errors++;
+                continue;
+              }
+              const actualType = getMicroVizType(sym);
+              if (actualType !== expectedType) {
+                console.error(`getMicroVizType("${sym}") expected "${expectedType}", got "${actualType}"`);
+                errors++;
+              } else {
+                microVizTestedCount++;
+              }
+            }
+          }
+          if (getMicroVizType('unknown::key') !== null) {
+            console.error('getMicroVizType("unknown::key") expected null, got non-null.');
+            errors++;
+          }
+          console.log(`[PASS] getMicroVizType verified across ${microVizTestedCount} target symbols with 4 visualization types.`);
         }
       }
     }
