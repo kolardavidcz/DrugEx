@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DrugEx Thesis Time Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090a0f;
+      --card-bg: rgba(22, 27, 34, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --accent: #38bdf8;
+      --accent-purple: #a855f7;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: radial-gradient(circle at 50% 0%, #171d2d, var(--bg) 60%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2.5rem 1.5rem;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2.5rem;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 1.5rem;
+    }
+    .title-group h1 {
+      font-size: 1.875rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      background: linear-gradient(135deg, #fff 30%, var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .title-group p {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-top: 0.25rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .grid-kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2.5rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      backdrop-filter: blur(12px);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+    .kpi-label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    .kpi-val {
+      font-size: 2.25rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .kpi-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+    .progress-bar-container {
+      background: rgba(255,255,255,0.06);
+      border-radius: 8px;
+      height: 8px;
+      overflow: hidden;
+      margin-top: 0.75rem;
+      display: flex;
+    }
+    .progress-fill {
+      height: 100%;
+      transition: width 0.5s ease;
+    }
+    .section-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .table-container {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      overflow-x: auto;
+      margin-bottom: 2.5rem;
+      backdrop-filter: blur(12px);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.85rem;
+    }
+    th {
+      padding: 0.85rem 1.25rem;
+      background: rgba(255,255,255,0.03);
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.7rem;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--card-border);
+    }
+    td {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: #cbd5e1;
+    }
+    tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      background: rgba(255,255,255,0.06);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+    footer {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      margin-top: 3rem;
+      border-top: 1px solid var(--card-border);
+      padding-top: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title-group">
+        <h1>DrugEx Thesis Work & Time Tracker</h1>
+        <p>Continuous automated audit across Tablet, Remote Compute, and LLM Engineering</p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span class="badge">Live Thesis Telemetry</span>
+      </div>
+    </header>
+
+    <div class="grid-kpis">
+      <div class="card" style="border-top: 3px solid var(--accent);">
+        <div class="kpi-label">Grand Total Thesis Effort</div>
+        <div class="kpi-val" style="color: #fff;">53.87 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
+        <div class="kpi-sub">Equivalent to ~1.3 full-time work weeks</div>
+        <div class="progress-bar-container">
+          <div class="progress-fill" style="width: 28.75440876183405%; background: var(--accent-purple);" title="Notewise"></div>
+          <div class="progress-fill" style="width: 48.35715611657695%; background: var(--accent-emerald);" title="Dichtator"></div>
+          <div class="progress-fill" style="width: 22.888435121589012%; background: var(--accent);" title="LLM Workspaces"></div>
+        </div>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--accent-purple);">
+        <div class="kpi-label">Tablet Study & Reading</div>
+        <div class="kpi-val" style="color: var(--accent-purple);">15.49 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
+        <div class="kpi-sub">12.91h raw + 20% reading buffer</div>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--accent-emerald);">
+        <div class="kpi-label">Dichtator / VPN Tunnel</div>
+        <div class="kpi-val" style="color: var(--accent-emerald);">26.05 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
+        <div class="kpi-sub">31 sessions to vpn.vscht.cz</div>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--accent);">
+        <div class="kpi-label">LLM Engineering</div>
+        <div class="kpi-val" style="color: var(--accent);">12.33 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
+        <div class="kpi-sub">9858 steps across 33 workspaces (+10% buffer)</div>
+      </div>
+    </div>
+
+    <div class="section-title">Antigravity Thesis Workspaces & Subagent Sweeps</div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Workspace / Conversation</th>
+            <th>Start (Local)</th>
+            <th>Duration</th>
+            <th>Steps</th>
+            <th>Primary Topics</th>
+            <th>Initial User Request</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>fdf30e45...</code></td>
+            <td>2026-09-24 13:39:49</td>
+            <td>1.4h</td>
+            <td><strong>479</strong></td>
+            <td><code>curriculum/podcast</code> <code>david.py</code> <code>docstrings/types</code> <code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Can we track time, spand on drugex?  <ADDITIONAL_METADATA> The current local time is: 2026-09-24T15:</td>
+          </tr>
+          <tr>
+            <td><code>1d4b6b67...</code></td>
+            <td>2026-09-24 00:21:51</td>
+            <td>0.0h</td>
+            <td><strong>6</strong></td>
+            <td><code>core</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><original_task> **Task**: meanwhile - for some reason i need to manyaly setup diployment version for</td>
+          </tr>
+          <tr>
+            <td><code>b8546d35...</code></td>
+            <td>2026-09-24 00:21:45</td>
+            <td>0.0h</td>
+            <td><strong>10</strong></td>
+            <td><code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">**Task**: meanwhile - for some reason i need to manyaly setup diployment version for this project ea</td>
+          </tr>
+          <tr>
+            <td><code>84599fe5...</code></td>
+            <td>2026-09-24 00:15:36</td>
+            <td>0.1h</td>
+            <td><strong>146</strong></td>
+            <td><code>curriculum/podcast</code> <code>david.py</code> <code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><original_task> **Task**: Streamline Bloated Examples - previously before imrpovement worker - there</td>
+          </tr>
+          <tr>
+            <td><code>d553b959...</code></td>
+            <td>2026-09-24 00:15:28</td>
+            <td>0.0h</td>
+            <td><strong>6</strong></td>
+            <td><code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">**Task**: Streamline Bloated Examples - previously before imrpovement worker - there was a version, </td>
+          </tr>
+          <tr>
+            <td><code>acc0550c...</code></td>
+            <td>2026-09-23 23:59:42</td>
+            <td>0.2h</td>
+            <td><strong>309</strong></td>
+            <td><code>docstrings/types</code> <code>pipelines/schemas</code> <code>curriculum/podcast</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><original_task> **Task**: Contienue becouse of "This conversation grew too large, so the history bef</td>
+          </tr>
+          <tr>
+            <td><code>c85b27d3...</code></td>
+            <td>2026-09-23 23:35:15</td>
+            <td>0.3h</td>
+            <td><strong>234</strong></td>
+            <td><code>docstrings/types</code> <code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Sometimes when i go i need to close my laptop to the bag, but I could keep hotspot on my phone and a</td>
+          </tr>
+          <tr>
+            <td><code>9021d1ff...</code></td>
+            <td>2026-09-23 23:28:37</td>
+            <td>0.5h</td>
+            <td><strong>771</strong></td>
+            <td><code>docstrings/types</code> <code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><original_task> **Task**: Contienue becouse of "This conversation grew too large, so the history bef</td>
+          </tr>
+          <tr>
+            <td><code>2be42967...</code></td>
+            <td>2026-09-23 23:28:31</td>
+            <td>0.2h</td>
+            <td><strong>18</strong></td>
+            <td><code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">**Task**: Contienue becouse of "This conversation grew too large, so the history before this point m</td>
+          </tr>
+          <tr>
+            <td><code>94e450d8...</code></td>
+            <td>2026-09-23 21:19:25</td>
+            <td>0.9h</td>
+            <td><strong>864</strong></td>
+            <td><code>docstrings/types</code> <code>pipelines/schemas</code> <code>curriculum/podcast</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><original_task> **Task**: Sorry i restarted, continue - give agents all the context again (with the </td>
+          </tr>
+          <tr>
+            <td><code>486ae8c5...</code></td>
+            <td>2026-09-23 21:18:40</td>
+            <td>0.6h</td>
+            <td><strong>523</strong></td>
+            <td><code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><original_task> **Task**: Sorry i restarted, continue - give agents all the context again (with the </td>
+          </tr>
+          <tr>
+            <td><code>ed4543ff...</code></td>
+            <td>2026-09-23 20:55:37</td>
+            <td>0.4h</td>
+            <td><strong>203</strong></td>
+            <td><code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><original_task> **Task**: Sorry i restarted, continue - give agents all the context again (with the </td>
+          </tr>
+          <tr>
+            <td><code>6dc64bfd...</code></td>
+            <td>2026-09-23 20:55:35</td>
+            <td>0.4h</td>
+            <td><strong>216</strong></td>
+            <td><code>docstrings/types</code> <code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><original_task> **Task**: Sorry i restarted, continue - give agents all the context again (with the </td>
+          </tr>
+          <tr>
+            <td><code>223d0320...</code></td>
+            <td>2026-09-23 20:55:30</td>
+            <td>0.1h</td>
+            <td><strong>18</strong></td>
+            <td><code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">**Task**: Sorry i restarted, continue - give agents all the context again (with the previous work th</td>
+          </tr>
+          <tr>
+            <td><code>3241e992...</code></td>
+            <td>2026-09-23 20:55:29</td>
+            <td>0.1h</td>
+            <td><strong>18</strong></td>
+            <td><code>pipelines/schemas</code></td>
+            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">**Task**: Sorry i restarted, continue - give agents all the context again (with the previous work th</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Tablet Reading Sessions (Notewise Protobuf Milestones)</div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Start Time</th>
+            <th>Duration</th>
+            <th>Strokes / Notes</th>
+            <th>Pages Touched</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Session 30</td>
+            <td>2026-09-21 23:52:31</td>
+            <td>12.4 min</td>
+            <td><strong>73</strong> annotations</td>
+            <td>2 pages</td>
+          </tr>
+          <tr>
+            <td>Session 29</td>
+            <td>2026-09-21 22:22:54</td>
+            <td>79.3 min</td>
+            <td><strong>490</strong> annotations</td>
+            <td>9 pages</td>
+          </tr>
+          <tr>
+            <td>Session 28</td>
+            <td>2026-09-21 21:07:45</td>
+            <td>45.3 min</td>
+            <td><strong>269</strong> annotations</td>
+            <td>5 pages</td>
+          </tr>
+          <tr>
+            <td>Session 27</td>
+            <td>2026-09-21 20:43:13</td>
+            <td>11.5 min</td>
+            <td><strong>91</strong> annotations</td>
+            <td>2 pages</td>
+          </tr>
+          <tr>
+            <td>Session 26</td>
+            <td>2026-09-21 19:47:01</td>
+            <td>18.8 min</td>
+            <td><strong>175</strong> annotations</td>
+            <td>2 pages</td>
+          </tr>
+          <tr>
+            <td>Session 25</td>
+            <td>2026-09-21 01:44:36</td>
+            <td>18.7 min</td>
+            <td><strong>118</strong> annotations</td>
+            <td>3 pages</td>
+          </tr>
+          <tr>
+            <td>Session 24</td>
+            <td>2026-09-20 16:58:00</td>
+            <td>13.1 min</td>
+            <td><strong>48</strong> annotations</td>
+            <td>2 pages</td>
+          </tr>
+          <tr>
+            <td>Session 23</td>
+            <td>2026-09-20 14:12:28</td>
+            <td>82.7 min</td>
+            <td><strong>479</strong> annotations</td>
+            <td>5 pages</td>
+          </tr>
+          <tr>
+            <td>Session 22</td>
+            <td>2026-09-20 10:45:29</td>
+            <td>9.7 min</td>
+            <td><strong>60</strong> annotations</td>
+            <td>2 pages</td>
+          </tr>
+          <tr>
+            <td>Session 21</td>
+            <td>2026-09-20 00:09:26</td>
+            <td>73.7 min</td>
+            <td><strong>299</strong> annotations</td>
+            <td>4 pages</td>
+          </tr>
+          <tr>
+            <td>Session 20</td>
+            <td>2026-09-19 21:17:51</td>
+            <td>37.5 min</td>
+            <td><strong>237</strong> annotations</td>
+            <td>5 pages</td>
+          </tr>
+          <tr>
+            <td>Session 19</td>
+            <td>2026-09-19 20:40:19</td>
+            <td>2.4 min</td>
+            <td><strong>144</strong> annotations</td>
+            <td>1 pages</td>
+          </tr>
+          <tr>
+            <td>Session 18</td>
+            <td>2026-09-19 19:56:12</td>
+            <td>26.0 min</td>
+            <td><strong>311</strong> annotations</td>
+            <td>3 pages</td>
+          </tr>
+          <tr>
+            <td>Session 17</td>
+            <td>2026-09-19 18:48:39</td>
+            <td>15.0 min</td>
+            <td><strong>136</strong> annotations</td>
+            <td>1 pages</td>
+          </tr>
+          <tr>
+            <td>Session 16</td>
+            <td>2026-09-19 16:52:59</td>
+            <td>6.3 min</td>
+            <td><strong>48</strong> annotations</td>
+            <td>2 pages</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <footer>
+      DrugEx Thesis Automated Tracking System &bull; Single Source of Truth
+    </footer>
+  </div>
+</body>
+</html>

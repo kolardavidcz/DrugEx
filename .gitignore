@@ -1,0 +1,17 @@
+# Environment & deployment
+.env*
+.vercel
+
+# Python cache & venv
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

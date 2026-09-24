@@ -1,0 +1,1111 @@
+{
+  "last_updated": "2026-09-24T17:05:35.175385",
+  "notewise": {
+    "DrugEx.notewise": {
+      "source_file": "C:\\Users\\kolar\\CrossDevice\\Galaxy Tab S10 FE+\\storage\\Download\\DrugEx.notewise",
+      "file_name": "DrugEx.notewise",
+      "last_modified": "2026-09-24T15:41:35",
+      "total_elements": 6184,
+      "total_pages": 56,
+      "attachments": [
+        "DrugEx_Full_Handbook (4)_2x1.pdf",
+        "SequenceTransformer pro chemické sekvence - Google Gemini_2x1.pdf",
+        "DrugEx_Book_2x1 (1).pdf",
+        "DrugEx_Book_2x1.pdf",
+        "DrugEx_Book_Advanced_Continuation_Latest_2x1.pdf"
+      ],
+      "bookmarks": [],
+      "sessions_count": 30,
+      "raw_duration_sec": 46466.924,
+      "raw_duration_hours": 12.91,
+      "buffer_multiplier": 1.2,
+      "effective_duration_sec": 55760.3088,
+      "effective_duration_hours": 15.49,
+      "sessions": [
+        {
+          "start": "2026-09-17T15:13:47.105000",
+          "end": "2026-09-17T15:27:44.951000",
+          "duration_sec": 837.846,
+          "duration_min": 14.0,
+          "elements_count": 935,
+          "pages_touched": 6,
+          "page_ids": [
+            "page/55MuYAbsuHY6xF0bbqhH7Q4s",
+            "page/Q0cHX8mFDFXbG61VPoPjo3rg",
+            "page/cKmUsenyuFPU5MZMI1NxE8hg"
+          ]
+        },
+        {
+          "start": "2026-09-17T16:41:34.487000",
+          "end": "2026-09-17T16:48:47.111000",
+          "duration_sec": 432.624,
+          "duration_min": 7.2,
+          "elements_count": 25,
+          "pages_touched": 1,
+          "page_ids": [
+            "page/hHTv8PLndjaIVUP3po1Jc8vT"
+          ]
+        },
+        {
+          "start": "2026-09-17T17:41:17.838000",
+          "end": "2026-09-17T18:29:49.480000",
+          "duration_sec": 2911.642,
+          "duration_min": 48.5,
+          "elements_count": 359,
+          "pages_touched": 5,
+          "page_ids": [
+            "page/2NehEEnsf2l8Hru-uaMjWosN",
+            "page/dTJ-rKNi3PavnXKMdWCemlWO",
+            "page/escNbhw4zXjslySZYvbv4QWF"
+          ]
+        },
+        {
+          "start": "2026-09-17T18:44:53.614000",
+          "end": "2026-09-17T19:33:05.037000",
+          "duration_sec": 2891.423,
+          "duration_min": 48.2,
+          "elements_count": 250,
+          "pages_touched": 4,
+          "page_ids": [
+            "page/-GEfldCpEmuMdQdYCQ230wBp",
+            "page/2NehEEnsf2l8Hru-uaMjWosN",
+            "page/VIDgO73c21YcJrFjEr7ZAGG3"
+          ]
+        },
+        {
+          "start": "2026-09-17T19:47:54.657000",
+          "end": "2026-09-17T19:58:55.374000",
+          "duration_sec": 660.717,
+          "duration_min": 11.0,
+          "elements_count": 166,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/-GEfldCpEmuMdQdYCQ230wBp",
+            "page/86Q3FXX-T8b6dL9Ok9bjXPLK"
+          ]
+        },
+        {
+          "start": "2026-09-17T20:54:49.698000",
+          "end": "2026-09-17T21:36:01.108000",
+          "duration_sec": 2471.41,
+          "duration_min": 41.2,
+          "elements_count": 396,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/86Q3FXX-T8b6dL9Ok9bjXPLK",
+            "page/QPQk7uq7DjH9LRsmOMToMME6"
+          ]
+        },
+        {
+          "start": "2026-09-17T21:59:38.701000",
+          "end": "2026-09-17T21:59:38.701000",
+          "duration_sec": 60.0,
+          "duration_min": 1.0,
+          "elements_count": 1,
+          "pages_touched": 1,
+          "page_ids": [
+            "page/QPQk7uq7DjH9LRsmOMToMME6"
+          ]
+        },
+        {
+          "start": "2026-09-17T22:12:55.727000",
+          "end": "2026-09-17T22:30:00.894000",
+          "duration_sec": 1025.167,
+          "duration_min": 17.1,
+          "elements_count": 97,
+          "pages_touched": 3,
+          "page_ids": [
+            "page/MYzaIs0jGPD0y6qrREdXZDHt",
+            "page/QPQk7uq7DjH9LRsmOMToMME6",
+            "page/VIDgO73c21YcJrFjEr7ZAGG3"
+          ]
+        },
+        {
+          "start": "2026-09-17T22:45:53.026000",
+          "end": "2026-09-17T23:40:16.809000",
+          "duration_sec": 3263.783,
+          "duration_min": 54.4,
+          "elements_count": 348,
+          "pages_touched": 3,
+          "page_ids": [
+            "page/MYzaIs0jGPD0y6qrREdXZDHt",
+            "page/ONCMdUFRud99cLVW0SRgpEEq",
+            "page/WrX6P4HgeHWQd2FXehGH-MzV"
+          ]
+        },
+        {
+          "start": "2026-09-18T21:19:03.631000",
+          "end": "2026-09-18T21:48:11.704000",
+          "duration_sec": 1748.073,
+          "duration_min": 29.1,
+          "elements_count": 150,
+          "pages_touched": 3,
+          "page_ids": [
+            "page/Ott0LNKhtBeB0o9dRRF3r3Eu",
+            "page/WrX6P4HgeHWQd2FXehGH-MzV",
+            "page/ZoRXpFLi-v02vNNfgcZFL0FU"
+          ]
+        },
+        {
+          "start": "2026-09-18T21:58:42.291000",
+          "end": "2026-09-18T22:03:02.700000",
+          "duration_sec": 260.409,
+          "duration_min": 4.3,
+          "elements_count": 37,
+          "pages_touched": 1,
+          "page_ids": [
+            "page/Ott0LNKhtBeB0o9dRRF3r3Eu"
+          ]
+        },
+        {
+          "start": "2026-09-18T22:20:08.603000",
+          "end": "2026-09-18T22:27:13.630000",
+          "duration_sec": 425.027,
+          "duration_min": 7.1,
+          "elements_count": 12,
+          "pages_touched": 1,
+          "page_ids": [
+            "page/Ott0LNKhtBeB0o9dRRF3r3Eu"
+          ]
+        },
+        {
+          "start": "2026-09-19T13:05:45.728000",
+          "end": "2026-09-19T13:07:57.818000",
+          "duration_sec": 132.09,
+          "duration_min": 2.2,
+          "elements_count": 31,
+          "pages_touched": 1,
+          "page_ids": [
+            "page/Ott0LNKhtBeB0o9dRRF3r3Eu"
+          ]
+        },
+        {
+          "start": "2026-09-19T14:46:57.625000",
+          "end": "2026-09-19T15:14:12.117000",
+          "duration_sec": 1634.492,
+          "duration_min": 27.2,
+          "elements_count": 272,
+          "pages_touched": 3,
+          "page_ids": [
+            "page/2OESNTufNdE6xbv0izASLdH8",
+            "page/MCvx7WtugxrSMs8Xuezdk1oR",
+            "page/Ott0LNKhtBeB0o9dRRF3r3Eu"
+          ]
+        },
+        {
+          "start": "2026-09-19T15:41:07.519000",
+          "end": "2026-09-19T15:50:33.433000",
+          "duration_sec": 565.914,
+          "duration_min": 9.4,
+          "elements_count": 127,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/MCvx7WtugxrSMs8Xuezdk1oR",
+            "page/gnqDhiZ3IfQY-0giwZH-fBVz"
+          ]
+        },
+        {
+          "start": "2026-09-19T16:52:59.120000",
+          "end": "2026-09-19T16:59:19.378000",
+          "duration_sec": 380.258,
+          "duration_min": 6.3,
+          "elements_count": 48,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/MCvx7WtugxrSMs8Xuezdk1oR",
+            "page/gnqDhiZ3IfQY-0giwZH-fBVz"
+          ]
+        },
+        {
+          "start": "2026-09-19T18:48:39.186000",
+          "end": "2026-09-19T19:03:36.431000",
+          "duration_sec": 897.245,
+          "duration_min": 15.0,
+          "elements_count": 136,
+          "pages_touched": 1,
+          "page_ids": [
+            "page/gnqDhiZ3IfQY-0giwZH-fBVz"
+          ]
+        },
+        {
+          "start": "2026-09-19T19:56:12.175000",
+          "end": "2026-09-19T20:22:11.497000",
+          "duration_sec": 1559.322,
+          "duration_min": 26.0,
+          "elements_count": 311,
+          "pages_touched": 3,
+          "page_ids": [
+            "page/KA0PTEWCcgyap4h5NTp-mavr",
+            "page/MCvx7WtugxrSMs8Xuezdk1oR",
+            "page/gnqDhiZ3IfQY-0giwZH-fBVz"
+          ]
+        },
+        {
+          "start": "2026-09-19T20:40:19.538000",
+          "end": "2026-09-19T20:42:46.355000",
+          "duration_sec": 146.817,
+          "duration_min": 2.4,
+          "elements_count": 144,
+          "pages_touched": 1,
+          "page_ids": [
+            "page/gnqDhiZ3IfQY-0giwZH-fBVz"
+          ]
+        },
+        {
+          "start": "2026-09-19T21:17:51.509000",
+          "end": "2026-09-19T21:55:19.127000",
+          "duration_sec": 2247.618,
+          "duration_min": 37.5,
+          "elements_count": 237,
+          "pages_touched": 5,
+          "page_ids": [
+            "page/0jg-aZsM1e1eCahiCSVO7s-q",
+            "page/KA0PTEWCcgyap4h5NTp-mavr",
+            "page/KYwvJxLm2bjG03vCA95YzWR-"
+          ]
+        },
+        {
+          "start": "2026-09-20T00:09:26.807000",
+          "end": "2026-09-20T01:23:08.177000",
+          "duration_sec": 4421.37,
+          "duration_min": 73.7,
+          "elements_count": 299,
+          "pages_touched": 4,
+          "page_ids": [
+            "page/F7GbOr3mU1dywR9SsdxsAvM3",
+            "page/HHwIA3x3zGhQMii1W7uZ9E3e",
+            "page/LQLoKu0QnzvZLu8gQAy8M57J"
+          ]
+        },
+        {
+          "start": "2026-09-20T10:45:29.146000",
+          "end": "2026-09-20T10:55:12.365000",
+          "duration_sec": 583.219,
+          "duration_min": 9.7,
+          "elements_count": 60,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/Av9OZPL5W66DNdfI0v4ibrKb",
+            "page/LQLoKu0QnzvZLu8gQAy8M57J"
+          ]
+        },
+        {
+          "start": "2026-09-20T14:12:28.547000",
+          "end": "2026-09-20T15:35:10.948000",
+          "duration_sec": 4962.401,
+          "duration_min": 82.7,
+          "elements_count": 479,
+          "pages_touched": 5,
+          "page_ids": [
+            "page/Av9OZPL5W66DNdfI0v4ibrKb",
+            "page/TACg3c7XkiBVB8weePQpaVcK",
+            "page/XxiO1l95Uqp20ukrNpN6iuZ0"
+          ]
+        },
+        {
+          "start": "2026-09-20T16:58:00.656000",
+          "end": "2026-09-20T17:11:04.307000",
+          "duration_sec": 783.651,
+          "duration_min": 13.1,
+          "elements_count": 48,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/94MRcx-7EqxxPJY57bapvqAY",
+            "page/whPJpmugp0XWMc4bVuoOm7Vh"
+          ]
+        },
+        {
+          "start": "2026-09-21T01:44:36.939000",
+          "end": "2026-09-21T02:03:16.670000",
+          "duration_sec": 1119.731,
+          "duration_min": 18.7,
+          "elements_count": 118,
+          "pages_touched": 3,
+          "page_ids": [
+            "page/CaJqrAmobKPgA1iv-5IhdFtG",
+            "page/T8schM7ZCq184F8eOkZUAlWI",
+            "page/n5FQ41uzfHwej-geI26pA3pE"
+          ]
+        },
+        {
+          "start": "2026-09-21T19:47:01.655000",
+          "end": "2026-09-21T20:05:51.018000",
+          "duration_sec": 1129.363,
+          "duration_min": 18.8,
+          "elements_count": 175,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/lm64k0NKqQYZMi6s0JcHYtVk",
+            "page/n5FQ41uzfHwej-geI26pA3pE"
+          ]
+        },
+        {
+          "start": "2026-09-21T20:43:13.058000",
+          "end": "2026-09-21T20:54:43.512000",
+          "duration_sec": 690.454,
+          "duration_min": 11.5,
+          "elements_count": 91,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/kPvtuyeNSVP-ARHnLdpTy8ne",
+            "page/lm64k0NKqQYZMi6s0JcHYtVk"
+          ]
+        },
+        {
+          "start": "2026-09-21T21:07:45.656000",
+          "end": "2026-09-21T21:53:06.121000",
+          "duration_sec": 2720.465,
+          "duration_min": 45.3,
+          "elements_count": 269,
+          "pages_touched": 5,
+          "page_ids": [
+            "page/C1LYA5zCMbprTUx9FGMfadrP",
+            "page/Or1cLLCVeFZ3r6nhWWg5RjL1",
+            "page/TACg3c7XkiBVB8weePQpaVcK"
+          ]
+        },
+        {
+          "start": "2026-09-21T22:22:54.951000",
+          "end": "2026-09-21T23:42:13.157000",
+          "duration_sec": 4758.206,
+          "duration_min": 79.3,
+          "elements_count": 490,
+          "pages_touched": 9,
+          "page_ids": [
+            "page/CRy3AOtuY-ZMbysiQotBXwXX",
+            "page/L6VZHeDFWwFnG-uQbJG3NICh",
+            "page/WCdc0SHkk6gUQLcxVZWn26J1"
+          ]
+        },
+        {
+          "start": "2026-09-21T23:52:31.645000",
+          "end": "2026-09-22T00:04:57.832000",
+          "duration_sec": 746.187,
+          "duration_min": 12.4,
+          "elements_count": 73,
+          "pages_touched": 2,
+          "page_ids": [
+            "page/fznMQtDt0GrtJFWhTG3scgSK",
+            "page/hgypE2IMVcQODBsEczyy3yGw"
+          ]
+        }
+      ]
+    }
+  },
+  "dichtator": {
+    "sessions_count": 31,
+    "total_duration_sec": 93789.629142,
+    "total_duration_hours": 26.05,
+    "sessions": [
+      {
+        "start": "2026-09-16T13:59:45.954591+02:00",
+        "end": "2026-09-16T14:02:01.801200+02:00",
+        "duration_sec": 135.846609,
+        "duration_hours": 0.04,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-16T14:03:27.390579+02:00",
+        "end": "2026-09-16T14:03:38.201930+02:00",
+        "duration_sec": 10.811351,
+        "duration_hours": 0.0,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-16T14:10:27.117677+02:00",
+        "end": "2026-09-16T17:01:35.601789+02:00",
+        "duration_sec": 10268.484112,
+        "duration_hours": 2.85,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-16T18:08:54.923557+02:00",
+        "end": "2026-09-16T19:53:15.054873+02:00",
+        "duration_sec": 6260.131316,
+        "duration_hours": 1.74,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-16T21:20:37.109855+02:00",
+        "end": "2026-09-16T21:58:18.962090+02:00",
+        "duration_sec": 2261.852235,
+        "duration_hours": 0.63,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-17T01:18:36.754885+02:00",
+        "end": "2026-09-17T02:40:34.853889+02:00",
+        "duration_sec": 4918.099004,
+        "duration_hours": 1.37,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-17T18:57:19.277540+02:00",
+        "end": "2026-09-17T19:34:44.269797+02:00",
+        "duration_sec": 2244.992257,
+        "duration_hours": 0.62,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-17T19:45:28.014218+02:00",
+        "end": "2026-09-17T19:46:16.865969+02:00",
+        "duration_sec": 48.851751,
+        "duration_hours": 0.01,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-21T01:35:39.711443+02:00",
+        "end": "2026-09-21T01:50:44.334276+02:00",
+        "duration_sec": 904.622833,
+        "duration_hours": 0.25,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-21T12:40:26.394440+02:00",
+        "end": "2026-09-21T12:46:55.803647+02:00",
+        "duration_sec": 389.409207,
+        "duration_hours": 0.11,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-22T18:11:00.291562+02:00",
+        "end": "2026-09-22T18:34:11.401345+02:00",
+        "duration_sec": 1391.109783,
+        "duration_hours": 0.39,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T00:08:24.985104+02:00",
+        "end": "2026-09-23T08:48:33.582730+02:00",
+        "duration_sec": 31208.597626,
+        "duration_hours": 8.67,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T12:09:14.347321+02:00",
+        "end": "2026-09-23T15:56:50.614753+02:00",
+        "duration_sec": 13656.267432,
+        "duration_hours": 3.79,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:00:39.650709+02:00",
+        "end": "2026-09-23T18:00:51.409215+02:00",
+        "duration_sec": 11.758506,
+        "duration_hours": 0.0,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:01:26.231196+02:00",
+        "end": "2026-09-23T18:02:15.583831+02:00",
+        "duration_sec": 49.352635,
+        "duration_hours": 0.01,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:04:41.041258+02:00",
+        "end": "2026-09-23T18:05:11.323601+02:00",
+        "duration_sec": 30.282343,
+        "duration_hours": 0.01,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:05:39.334807+02:00",
+        "end": "2026-09-23T18:06:35.885744+02:00",
+        "duration_sec": 56.550937,
+        "duration_hours": 0.02,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:06:59.694227+02:00",
+        "end": "2026-09-23T18:07:17.866575+02:00",
+        "duration_sec": 18.172348,
+        "duration_hours": 0.01,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:07:28.296000+02:00",
+        "end": "2026-09-23T18:08:22.108604+02:00",
+        "duration_sec": 53.812604,
+        "duration_hours": 0.01,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:08:33.523602+02:00",
+        "end": "2026-09-23T18:08:44.052792+02:00",
+        "duration_sec": 10.52919,
+        "duration_hours": 0.0,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:08:54.249507+02:00",
+        "end": "2026-09-23T18:09:05.935336+02:00",
+        "duration_sec": 11.685829,
+        "duration_hours": 0.0,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:09:14.230383+02:00",
+        "end": "2026-09-23T18:09:26.162131+02:00",
+        "duration_sec": 11.931748,
+        "duration_hours": 0.0,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:09:37.948678+02:00",
+        "end": "2026-09-23T18:09:49.763223+02:00",
+        "duration_sec": 11.814545,
+        "duration_hours": 0.0,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T18:09:58.381910+02:00",
+        "end": "2026-09-23T18:10:10.754679+02:00",
+        "duration_sec": 12.372769,
+        "duration_hours": 0.0,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T22:34:10.186488+02:00",
+        "end": "2026-09-23T23:45:09.082548+02:00",
+        "duration_sec": 4258.89606,
+        "duration_hours": 1.18,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-23T23:51:15.375326+02:00",
+        "end": "2026-09-24T00:08:51.648639+02:00",
+        "duration_sec": 1056.273313,
+        "duration_hours": 0.29,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-24T01:29:18.751731+02:00",
+        "end": "2026-09-24T01:48:51.114208+02:00",
+        "duration_sec": 1172.362477,
+        "duration_hours": 0.33,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-24T01:48:57.287985+02:00",
+        "end": "2026-09-24T01:49:14.967241+02:00",
+        "duration_sec": 17.679256,
+        "duration_hours": 0.0,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-24T01:55:55.170754+02:00",
+        "end": "2026-09-24T03:16:12.906915+02:00",
+        "duration_sec": 4817.736161,
+        "duration_hours": 1.34,
+        "network": "vscht.cz",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-24T14:40:04.409464+02:00",
+        "end": "2026-09-24T15:30:47.425275+02:00",
+        "duration_sec": 3043.015811,
+        "duration_hours": 0.85,
+        "network": "vscht",
+        "type": "NetworkProfile (VPN/Campus)"
+      },
+      {
+        "start": "2026-09-24T15:34:32.206313+02:00",
+        "end": "2026-09-24T17:05:18.533407+02:00",
+        "duration_sec": 5446.327094,
+        "duration_hours": 1.51,
+        "network": "vscht.cz",
+        "type": "Active Session"
+      }
+    ]
+  },
+  "antigravity": {
+    "conversations_count": 33,
+    "total_steps": 9858,
+    "net_wall_clock_sec": 40346.0,
+    "net_wall_clock_hours": 11.21,
+    "buffer_multiplier": 1.1,
+    "effective_duration_sec": 44380.600000000006,
+    "effective_duration_hours": 12.33,
+    "conversations": [
+      {
+        "cid": "6448b537-4054-4f53-ac19-795735f0e741",
+        "start": "2026-08-06T22:46:22+00:00",
+        "end": "2026-08-06T22:48:26+00:00",
+        "raw_duration_sec": 124.0,
+        "raw_duration_hours": 0.03,
+        "steps": 74,
+        "sessions_count": 1,
+        "prompt": "Read scratch/batch_2.json. Evaluate each of the 4 presentations: 1) Decide if it should be re-added ",
+        "topics": [
+          "docstrings/types",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "b2a3d308-f762-4552-b5b7-0df91493a628",
+        "start": "2026-08-06T22:47:20+00:00",
+        "end": "2026-08-06T22:48:48+00:00",
+        "raw_duration_sec": 88.0,
+        "raw_duration_hours": 0.02,
+        "steps": 42,
+        "sessions_count": 1,
+        "prompt": "Read scratch/batch_14.json. Evaluate each of the 2 presentations: 1) Decide if it should be re-added",
+        "topics": []
+      },
+      {
+        "cid": "96c7d2ef-ada4-463d-86c9-6ef5e62c176b",
+        "start": "2026-08-06T22:48:29+00:00",
+        "end": "2026-08-06T22:48:45+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 28,
+        "sessions_count": 1,
+        "prompt": "Read scratch/batch_3.json. Evaluate each presentation in detail: 1) Decide if it should be re-added ",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "0be0114b-3e1e-462c-9813-fceeb2d134c3",
+        "start": "2026-08-08T23:03:21+00:00",
+        "end": "2026-08-08T23:03:24+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 8,
+        "sessions_count": 1,
+        "prompt": "You are Subagent W7 generating End-of-Presentation Quiz / Takeaways Test questions for Week 7 presen",
+        "topics": []
+      },
+      {
+        "cid": "88223655-7094-4422-8dee-be4179ebc3e4",
+        "start": "2026-08-08T23:19:26+00:00",
+        "end": "2026-08-08T23:19:31+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 11,
+        "sessions_count": 1,
+        "prompt": "You are Subagent W5 generating FRESH, high-pedagogical-quality End-of-Presentation Quiz / Takeaways ",
+        "topics": []
+      },
+      {
+        "cid": "72ab0f86-49b1-4258-82d5-96870783a816",
+        "start": "2026-08-09T11:55:26+00:00",
+        "end": "2026-08-09T12:01:28+00:00",
+        "raw_duration_sec": 362.0,
+        "raw_duration_hours": 0.1,
+        "steps": 163,
+        "sessions_count": 1,
+        "prompt": "You are QuizAuthorSubagent generating FRESH, high-pedagogical-quality End-of-Presentation Quiz / Tak",
+        "topics": [
+          "curriculum/podcast"
+        ]
+      },
+      {
+        "cid": "c8f45078-bde3-4bdc-8450-245fb4a7070d",
+        "start": "2026-08-31T17:29:58+00:00",
+        "end": "2026-08-31T17:30:00+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 3,
+        "sessions_count": 1,
+        "prompt": "Maka a HUGE plan, how to construnt these page (in HUGE session steps - taht are based on norme steps",
+        "topics": []
+      },
+      {
+        "cid": "bf276af9-f70f-4f0c-89f6-3205a8840118",
+        "start": "2026-09-14T21:34:13+00:00",
+        "end": "2026-09-23T21:28:57+00:00",
+        "raw_duration_sec": 10489.0,
+        "raw_duration_hours": 2.91,
+        "steps": 2151,
+        "sessions_count": 8,
+        "prompt": "Test and check security of this source code   <ADDITIONAL_METADATA> The current local time is: 2026-",
+        "topics": [
+          "docstrings/types",
+          "pipelines/schemas",
+          "curriculum/podcast"
+        ]
+      },
+      {
+        "cid": "dd40aa4d-708d-4ff6-9cb2-59ab0bfac183",
+        "start": "2026-09-22T22:00:51+00:00",
+        "end": "2026-09-23T12:36:19+00:00",
+        "raw_duration_sec": 1993.0,
+        "raw_duration_hours": 0.55,
+        "steps": 290,
+        "sessions_count": 3,
+        "prompt": "In project: C:\\WINDOWS\\system32\\wscript.exe \"c:\\Users\\kolar\\Desktop\\windows_native_projects\\develope",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "d62fb3cf-bf4a-4be2-b2ff-3ccc4243611d",
+        "start": "2026-09-23T10:40:44+00:00",
+        "end": "2026-09-23T10:40:50+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 2,
+        "sessions_count": 1,
+        "prompt": "This is a side question from the user. You MUST answer directly in a single response. Your tools are",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "ba042aba-35e2-47d8-8d20-51982143897f",
+        "start": "2026-09-23T12:02:47+00:00",
+        "end": "2026-09-24T11:28:44+00:00",
+        "raw_duration_sec": 15895.0,
+        "raw_duration_hours": 4.42,
+        "steps": 1979,
+        "sessions_count": 11,
+        "prompt": "Your task is to fix this folder and its git - podcast - just local old files (you can add to agent/r",
+        "topics": [
+          "david.py",
+          "curriculum/podcast",
+          "docstrings/types",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "5eecfb04-8886-4040-8e16-c181c7b6bb60",
+        "start": "2026-09-23T12:15:15+00:00",
+        "end": "2026-09-24T14:06:07+00:00",
+        "raw_duration_sec": 8004.0,
+        "raw_duration_hours": 2.22,
+        "steps": 603,
+        "sessions_count": 6,
+        "prompt": "/wsl-first  crate in this drugex foler readme, instructing how to get to /drugex-dichtator , and not",
+        "topics": [
+          "docstrings/types",
+          "david.py",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "807d1e97-39bf-4833-8e7a-15568d86fe30",
+        "start": "2026-09-23T19:58:44+00:00",
+        "end": "2026-09-23T20:52:08+00:00",
+        "raw_duration_sec": 120.0,
+        "raw_duration_hours": 0.03,
+        "steps": 13,
+        "sessions_count": 2,
+        "prompt": "**Task**: Imrpove\"Executable Example\" seccion - if possibale non of the showcase soule be  \"\"\" from ",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "5d83598c-677e-4cd7-9459-82cbd5deb1d7",
+        "start": "2026-09-23T19:58:49+00:00",
+        "end": "2026-09-23T20:40:36+00:00",
+        "raw_duration_sec": 2507.0,
+        "raw_duration_hours": 0.7,
+        "steps": 395,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Imrpove\"Executable Example\" seccion - if possibale non of the showcase sou",
+        "topics": [
+          "curriculum/podcast",
+          "docstrings/types",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "c9ac26a8-1598-48ea-9986-4e39e04856c6",
+        "start": "2026-09-23T20:17:11+00:00",
+        "end": "2026-09-23T20:52:21+00:00",
+        "raw_duration_sec": 853.0,
+        "raw_duration_hours": 0.24,
+        "steps": 22,
+        "sessions_count": 2,
+        "prompt": "**Task**: Meanwhile make a subagent that will - make pages for schemas of basic pipline/method that ",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "0f115cff-948c-42af-9cda-7b767a05b4a0",
+        "start": "2026-09-23T20:17:18+00:00",
+        "end": "2026-09-23T20:39:11+00:00",
+        "raw_duration_sec": 1313.0,
+        "raw_duration_hours": 0.36,
+        "steps": 221,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Meanwhile make a subagent that will - make pages for schemas of basic pipl",
+        "topics": [
+          "curriculum/podcast",
+          "docstrings/types",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "a7db5a91-2ed5-4795-b84e-571d5a3dfb1a",
+        "start": "2026-09-23T20:39:25+00:00",
+        "end": "2026-09-23T20:40:10+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 16,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Meanwhile make a subagent that will - make pages for schemas of basic pipl",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "7e3e90f3-0337-4534-b7b0-0880c2795b9c",
+        "start": "2026-09-23T20:52:08+00:00",
+        "end": "2026-09-23T20:52:49+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 16,
+        "sessions_count": 1,
+        "prompt": "<original_task> The server was restarted. Please resume and complete your task to improve all remain",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "3241e992-b5e5-4226-918a-c309f2a72837",
+        "start": "2026-09-23T20:55:29+00:00",
+        "end": "2026-09-23T23:25:19+00:00",
+        "raw_duration_sec": 180.0,
+        "raw_duration_hours": 0.05,
+        "steps": 18,
+        "sessions_count": 3,
+        "prompt": "**Task**: Sorry i restarted, continue - give agents all the context again (with the previous work th",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "223d0320-4d31-4b9c-9658-7262fd235536",
+        "start": "2026-09-23T20:55:30+00:00",
+        "end": "2026-09-23T21:53:00+00:00",
+        "raw_duration_sec": 180.0,
+        "raw_duration_hours": 0.05,
+        "steps": 18,
+        "sessions_count": 3,
+        "prompt": "**Task**: Sorry i restarted, continue - give agents all the context again (with the previous work th",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "6dc64bfd-de91-4cb8-9700-4cdcd6b69bce",
+        "start": "2026-09-23T20:55:35+00:00",
+        "end": "2026-09-23T21:19:13+00:00",
+        "raw_duration_sec": 1418.0,
+        "raw_duration_hours": 0.39,
+        "steps": 216,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Sorry i restarted, continue - give agents all the context again (with the ",
+        "topics": [
+          "docstrings/types",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "ed4543ff-8c39-4872-bc51-cc31783934a4",
+        "start": "2026-09-23T20:55:37+00:00",
+        "end": "2026-09-23T21:18:29+00:00",
+        "raw_duration_sec": 1372.0,
+        "raw_duration_hours": 0.38,
+        "steps": 203,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Sorry i restarted, continue - give agents all the context again (with the ",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "486ae8c5-2934-468a-82db-f7cb8a670b94",
+        "start": "2026-09-23T21:18:40+00:00",
+        "end": "2026-09-23T21:52:44+00:00",
+        "raw_duration_sec": 2044.0,
+        "raw_duration_hours": 0.57,
+        "steps": 523,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Sorry i restarted, continue - give agents all the context again (with the ",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "94e450d8-fb07-4f2e-b0f2-0f3981a043e8",
+        "start": "2026-09-23T21:19:25+00:00",
+        "end": "2026-09-23T23:25:11+00:00",
+        "raw_duration_sec": 3126.0,
+        "raw_duration_hours": 0.87,
+        "steps": 864,
+        "sessions_count": 2,
+        "prompt": "<original_task> **Task**: Sorry i restarted, continue - give agents all the context again (with the ",
+        "topics": [
+          "docstrings/types",
+          "pipelines/schemas",
+          "curriculum/podcast"
+        ]
+      },
+      {
+        "cid": "2be42967-2303-4f02-813f-7cef2627d707",
+        "start": "2026-09-23T23:28:31+00:00",
+        "end": "2026-09-24T00:12:39+00:00",
+        "raw_duration_sec": 849.0,
+        "raw_duration_hours": 0.24,
+        "steps": 18,
+        "sessions_count": 2,
+        "prompt": "**Task**: Contienue becouse of \"This conversation grew too large, so the history before this point m",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "9021d1ff-ba61-4cd3-adc1-c1a0edad4019",
+        "start": "2026-09-23T23:28:37+00:00",
+        "end": "2026-09-23T23:59:30+00:00",
+        "raw_duration_sec": 1853.0,
+        "raw_duration_hours": 0.51,
+        "steps": 771,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Contienue becouse of \"This conversation grew too large, so the history bef",
+        "topics": [
+          "docstrings/types",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "c85b27d3-f215-4bf0-873f-7ecb1fb14274",
+        "start": "2026-09-23T23:35:15+00:00",
+        "end": "2026-09-23T23:56:06+00:00",
+        "raw_duration_sec": 1251.0,
+        "raw_duration_hours": 0.35,
+        "steps": 234,
+        "sessions_count": 1,
+        "prompt": "Sometimes when i go i need to close my laptop to the bag, but I could keep hotspot on my phone and a",
+        "topics": [
+          "docstrings/types",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "acc0550c-be8d-449a-82d2-a686bf85f2a0",
+        "start": "2026-09-23T23:59:42+00:00",
+        "end": "2026-09-24T00:12:32+00:00",
+        "raw_duration_sec": 770.0,
+        "raw_duration_hours": 0.21,
+        "steps": 309,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Contienue becouse of \"This conversation grew too large, so the history bef",
+        "topics": [
+          "docstrings/types",
+          "pipelines/schemas",
+          "curriculum/podcast"
+        ]
+      },
+      {
+        "cid": "d553b959-027e-430f-8763-166c372d74cf",
+        "start": "2026-09-24T00:15:28+00:00",
+        "end": "2026-09-24T00:15:36+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 6,
+        "sessions_count": 1,
+        "prompt": "**Task**: Streamline Bloated Examples - previously before imrpovement worker - there was a version, ",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "84599fe5-1611-438d-9c0e-0e166a5f6146",
+        "start": "2026-09-24T00:15:36+00:00",
+        "end": "2026-09-24T00:22:40+00:00",
+        "raw_duration_sec": 424.0,
+        "raw_duration_hours": 0.12,
+        "steps": 146,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: Streamline Bloated Examples - previously before imrpovement worker - there",
+        "topics": [
+          "curriculum/podcast",
+          "david.py",
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "b8546d35-b981-47e1-8021-b2b486c9d218",
+        "start": "2026-09-24T00:21:45+00:00",
+        "end": "2026-09-24T00:22:41+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 10,
+        "sessions_count": 1,
+        "prompt": "**Task**: meanwhile - for some reason i need to manyaly setup diployment version for this project ea",
+        "topics": [
+          "pipelines/schemas"
+        ]
+      },
+      {
+        "cid": "1d4b6b67-50dc-454d-8095-74340be348eb",
+        "start": "2026-09-24T00:21:51+00:00",
+        "end": "2026-09-24T00:22:46+00:00",
+        "raw_duration_sec": 60.0,
+        "raw_duration_hours": 0.02,
+        "steps": 6,
+        "sessions_count": 1,
+        "prompt": "<original_task> **Task**: meanwhile - for some reason i need to manyaly setup diployment version for",
+        "topics": []
+      },
+      {
+        "cid": "fdf30e45-2928-4fc9-845f-a38d3d830b18",
+        "start": "2026-09-24T13:39:49+00:00",
+        "end": "2026-09-24T15:05:30+00:00",
+        "raw_duration_sec": 5141.0,
+        "raw_duration_hours": 1.43,
+        "steps": 479,
+        "sessions_count": 1,
+        "prompt": "Can we track time, spand on drugex?  <ADDITIONAL_METADATA> The current local time is: 2026-09-24T15:",
+        "topics": [
+          "curriculum/podcast",
+          "david.py",
+          "docstrings/types",
+          "pipelines/schemas"
+        ]
+      }
+    ]
+  },
+  "totals": {
+    "grand_total_hours": 53.87,
+    "notewise_reading_effective_hours": 15.49,
+    "dichtator_tunnel_hours": 26.05,
+    "antigravity_llm_effective_hours": 12.33,
+    "total_steps": 9858
+  }
+}
