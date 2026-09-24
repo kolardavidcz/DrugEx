@@ -83,10 +83,10 @@ class ALL_METHODS():
     N_PROCESSES = 12  # number of CPU cores to use
     CHUNK_SIZE = 1000  # largest chunk per CPU core (regulates RAM usage)
 
-    HYPERPARAMETERS_TL: dict[str, float] = {
+    HYPERPARAMETERS_TL: dict[str, int | float] = {
         # --- Transfer Learning (MY_TRANSFER_LEARNING) ---
         "EPOCHS": 20,
-        "MIN_BATCH_SIZE": 10,  # based on accessible molecules + desired epochs
+        "BATCH_SIZE": 32,  # Recommended: 32 (balanced gradient stability for 100-250 molecules)
         "LOSS_TOLERANCE": 0.02,
     }
     HYPERPARAMETERS_RL: dict[str, int | float | dict[str, float]] = {
@@ -240,7 +240,7 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
         self.PRETRAINED = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)  # is_lstm = MORE PARAMETERS
         self.PRETRAINED.loadStatesFromFile(self.MODEL_PRETRAINED / "Papyrus05.5_smiles_rnn_PT.pkg")
 
-    def __receptor_similar_molecules_get_SMILES(self, molecule_smile : str) -> tuple[list[Any], int]:
+    def __receptor_similar_molecules_get_SMILES(self, molecule_smile : str) -> list[Any]:
 
         #TODO Physicochemical profile + 2D Pharmocophore/Morgan Tanimato similarity ranking
 
@@ -257,12 +257,9 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
         result: DataFrame = pipline.run(molecule_smile, max_molecules).molecules
 
         epochs = int(self.HYPERPARAMETERS_TL["EPOCHS"])
-        n_molecules = len(result)
 
-        if n_molecules == 0:
+        if len(result) == 0:
             raise MY_ERROR("No molecules found across Papyrus query.")
-
-        BATCH_SIZE = max(min_batch, min(32, n_molecules // 5))
 
 
         smiles: Series = result["SMILES"]
@@ -277,7 +274,7 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
                 self.MODEL / "training_ligands.tsv", sep="\t", index=False
             )
 
-        return smiles_paralel, BATCH_SIZE
+        return smiles_paralel
 
     def __tokenization(self, smiles_train : list[Any] ) -> tuple[datasets.SmilesDataSet, processing.CorpusEncoder]:
 
@@ -298,7 +295,9 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
 
         return data_collector, encoder
 
-    def __make_test_dataset(self, data_collector : datasets.SmilesDataSet, BATCH_SIZE : int) -> tuple[DataLoader, DataLoader]:
+    def __make_test_dataset(self, data_collector : datasets.SmilesDataSet) -> tuple[DataLoader, DataLoader]:
+
+        batch_size: int = int(self.HYPERPARAMETERS_TL["BATCH_SIZE"])
 
         if SAVE_PROOF:
             splitter = processing.RandomTrainTestSplitter(0.1, 10000)
@@ -313,13 +312,13 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
 
             self.VOC.toFile(self.OUTPUT_DIR / "pretrained.vocab")
             
-            train_loader = datasets.SmilesDataSet.dataToLoader(train, batch_size=BATCH_SIZE, vocabulary=self.VOC)
-            valid_loader = datasets.SmilesDataSet.dataToLoader(test, batch_size=BATCH_SIZE, vocabulary=self.VOC)
+            train_loader = datasets.SmilesDataSet.dataToLoader(train, batch_size=batch_size, vocabulary=self.VOC)
+            valid_loader = datasets.SmilesDataSet.dataToLoader(test, batch_size=batch_size, vocabulary=self.VOC)
             return train_loader, valid_loader
         ########
 
         loaders = data_collector.asDataLoader(
-            batch_size=BATCH_SIZE,
+            batch_size=batch_size,
             splitter=processing.RandomTrainTestSplitter(0.1, 10000),
         )
         if (not isinstance(loaders, (list, tuple))) or len(loaders) != 2:
@@ -359,11 +358,11 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
 
     def TRANSFER_LEARNING(self, my_molecule) -> tuple[generators.SequenceRNN, DataFrame, Path]:
         
-        smiles_train, BATCH_SIZE = self.__receptor_similar_molecules_get_SMILES(my_molecule)
+        smiles_train = self.__receptor_similar_molecules_get_SMILES(my_molecule)
 
         data_collector, encoder = self.__tokenization(smiles_train)
         
-        train_loader, valid_loader = self.__make_test_dataset(data_collector, BATCH_SIZE)
+        train_loader, valid_loader = self.__make_test_dataset(data_collector)
 
         model_prefix = self.MODEL / "david_finetuned" #wil be added ""_SOMETING.tsv" to the end
         finetuned: generators.SequenceRNN = self.__transfer_learning(train_loader, valid_loader, model_prefix)
