@@ -1106,7 +1106,7 @@ class MoleculeBioactivityPipeline:
         max_bertz: Optional[float] = None,
         hard_filter: bool = False,
         allow_chembl_fallback: Optional[bool] = None,
-        auto_relax: bool = False,
+        auto_relax: bool = True,
         min_relax_paffinity: float = 5.0,
         min_ligands_threshold: int = 50,
         deduplicate: bool = True,
@@ -1146,7 +1146,7 @@ class MoleculeBioactivityPipeline:
         allow_chembl_fallback : bool, optional
             Whether to allow remote ChEMBL target query if not in Papyrus (default: False).
         auto_relax : bool, optional
-            Whether to relax pAffinity if fewer than min_ligands_threshold candidates found (default: False).
+            Whether to relax pAffinity if fewer than min_ligands_threshold candidates found (default: True).
         min_relax_paffinity : float, optional
             Floor limit for affinity relaxation (default: 5.0).
         min_ligands_threshold : int, optional
