@@ -37,7 +37,7 @@ cd testing/clitest
 bash -c "${RUN_CMD} && ./test.sh"
 
 echo "Installing tutorial dependencies..."
-bash -c "${RUN_CMD} && pip install papyrus_structure_pipeline git+https://github.com/martin-sicho/papyrus-scaffold-visualizer.git@main mols2grid jupyterlab"
+bash -c "${RUN_CMD} && pip install papyrus_structure_pipeline git+https://github.com/martin-sicho/papyrus-scaffold-visualizer.git@v0.7.3 mols2grid jupyterlab"
 bash -c "${RUN_CMD} && pip install git+${QSPRPRED_REPO}@${QSPRPRED_REVISION}" # ensure version
 
 echo "Running tutorials..."
