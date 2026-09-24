@@ -295,10 +295,35 @@ if (tagStart === -1) {
         } else {
           console.log(`[PASS] isAbstractSymbol verified: exactly ${totalAbstract} abstract base classes identified.`);
         }
+
+        // Validate getEffectiveMembers helper
+        const getEffectiveMembers = context.getEffectiveMembers;
+        if (typeof getEffectiveMembers !== 'function') {
+          console.error('getEffectiveMembers is not a function.');
+          errors++;
+        } else {
+          let classesWithoutInit = 0;
+          let totalClasses = 0;
+          for (const k of keys) {
+            const item = db[k];
+            if (item.kind === 'class') {
+              totalClasses++;
+              const eff = getEffectiveMembers(item);
+              if (!eff.some(m => m.name.startsWith('__init__'))) {
+                console.error(`Class "${k}" missing __init__ constructor in getEffectiveMembers.`);
+                classesWithoutInit++;
+                errors++;
+              }
+            }
+          }
+          if (classesWithoutInit === 0) {
+            console.log(`[PASS] getEffectiveMembers verified: 100% of classes (${totalClasses}/${totalClasses}) include __init__ constructors.`);
+          }
+        }
       }
     }
   } catch (err) {
-    console.error('Error evaluating getSymbolTag / isAbstractSymbol:', err);
+    console.error('Error evaluating getSymbolTag / isAbstractSymbol / getEffectiveMembers:', err);
     errors++;
   }
 }
