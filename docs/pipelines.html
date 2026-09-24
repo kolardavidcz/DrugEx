@@ -708,6 +708,19 @@
       text-decoration: underline;
     }
 
+    .symbol-chip-link.is-abstract-chip {
+      background: rgba(100, 116, 139, 0.1);
+      color: #64748b;
+      border-color: rgba(100, 116, 139, 0.28);
+      font-style: italic;
+    }
+
+    [data-theme="dark"] .symbol-chip-link.is-abstract-chip {
+      background: rgba(148, 163, 184, 0.14);
+      color: #94a3b8;
+      border-color: rgba(148, 163, 184, 0.28);
+    }
+
     .param-pill-list {
       list-style: none;
       margin: 8px 0 0 0;
@@ -1898,6 +1911,39 @@
       return STEP_CODE_SNIPPETS[pipelineId]?.[stepLabel] || `# Step ${stepLabel} in ${pipelineId}`;
     }
 
+    const ABSTRACT_SYMBOLS = new Set([
+      "drugex::training::environment::Environment",
+      "drugex::training::rewards::RewardScheme",
+      "drugex::training::rewards::ParetoRewardScheme",
+      "drugex::training::generators::Generator",
+      "drugex::training::generators::FragGenerator",
+      "drugex::training::explorers::Explorer",
+      "drugex::training::explorers::FragExplorer",
+      "drugex::training::scorers::Scorer",
+      "drugex::training::scorers::ScoreModifier",
+      "drugex::training::scorers::conformer_generators::ConformerGenerator",
+      "drugex::training::interfaces::Model",
+      "drugex::training::interfaces::ModelEvaluator",
+      "drugex::training::interfaces::ModelProvider",
+      "drugex::training::interfaces::TrainingMonitor",
+      "drugex::data::corpus::interfaces::Corpus",
+      "drugex::data::interfaces::DataSet",
+      "drugex::data::interfaces::FragmentPairEncoder",
+      "drugex::data::corpus::interfaces::Vocabulary",
+      "drugex::data::corpus::interfaces::SequenceVocabulary",
+      "drugex::data::interfaces::DataSplitter",
+      "drugex::data::interfaces::DataToLoader",
+      "drugex::molecules::interfaces::Molecule",
+      "drugex::molecules::interfaces::MolSupplier",
+      "drugex::molecules::interfaces::BaseMolSupplier",
+      "drugex::molecules::converters::MolConverter",
+      "drugex::parallel::ParallelProcessor",
+      "drugex::parallel::interfaces::ResultCollector",
+      "drugex::parallel::interfaces::ListCollector",
+      "drugex::train::DataPreparation",
+      "qsprpred::models::QSPRModel"
+    ]);
+
     function PipelineSchemasView({ pipelineId, onSelectPipeline, onSelectSymbol, onGoToMain }) {
       const [selectedNodeIdx, setSelectedNodeIdx] = useState(0);
       const [copiedSpec, setCopiedSpec] = useState(false);
@@ -2361,16 +2407,19 @@
                       DrugEx / Ecosystem Classes:
                     </div>
                     <div className="symbols-list">
-                      {selectedNode.drugexSymbols.map(sym => (
-                        <a
-                          key={sym}
-                          href={`index.html#${sym}`}
-                          className="symbol-chip-link"
-                          title={`Open reference documentation for ${sym}`}
-                        >
-                          {sym.split("::").pop()}
-                        </a>
-                      ))}
+                      {selectedNode.drugexSymbols.map(sym => {
+                        const isSymAbstract = ABSTRACT_SYMBOLS.has(sym);
+                        return (
+                          <a
+                            key={sym}
+                            href={`index.html#${sym}`}
+                            className={`symbol-chip-link ${isSymAbstract ? "is-abstract-chip" : ""}`}
+                            title={`Open reference documentation for ${sym}${isSymAbstract ? " [Abstract Base Class]" : ""}`}
+                          >
+                            {sym.split("::").pop()}
+                          </a>
+                        );
+                      })}
                     </div>
 
                     <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: "16px" }}>

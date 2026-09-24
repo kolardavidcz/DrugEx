@@ -254,9 +254,51 @@ if (tagStart === -1) {
         }
       }
       console.log('[PASS] getSymbolTag verified for core badges (60D, 4D, RDKit, GPU, v3.4).');
+
+      // Validate isAbstractSymbol helper
+      const isAbstractSymbol = context.isAbstractSymbol;
+      if (typeof isAbstractSymbol !== 'function') {
+        console.error('isAbstractSymbol is not a function.');
+        errors++;
+      } else {
+        const absTrueTests = [
+          'drugex::training::environment::Environment',
+          'drugex::training::scorers::Scorer',
+          'drugex::training::generators::Generator',
+          'drugex::training::explorers::Explorer',
+          'drugex::training::rewards::RewardScheme',
+          'drugex::data::corpus::interfaces::Vocabulary'
+        ];
+        const absFalseTests = [
+          'drugex::training::environment::DrugExEnvironment',
+          'drugex::training::generators::SequenceRNN',
+          'drugex::training::explorers::SequenceExplorer',
+          'drugex::training::rewards::ParetoCrowdingDistance',
+          'drugex::molecules::converters::ConversionException'
+        ];
+        for (const k of absTrueTests) {
+          if (!isAbstractSymbol(k, db[k])) {
+            console.error(`isAbstractSymbol("${k}") expected true, got false`);
+            errors++;
+          }
+        }
+        for (const k of absFalseTests) {
+          if (isAbstractSymbol(k, db[k])) {
+            console.error(`isAbstractSymbol("${k}") expected false, got true`);
+            errors++;
+          }
+        }
+        const totalAbstract = Object.keys(db).filter(k => isAbstractSymbol(k, db[k])).length;
+        if (totalAbstract !== 30) {
+          console.error(`Expected exactly 30 abstract classes in database, found ${totalAbstract}`);
+          errors++;
+        } else {
+          console.log(`[PASS] isAbstractSymbol verified: exactly ${totalAbstract} abstract base classes identified.`);
+        }
+      }
     }
   } catch (err) {
-    console.error('Error evaluating getSymbolTag:', err);
+    console.error('Error evaluating getSymbolTag / isAbstractSymbol:', err);
     errors++;
   }
 }

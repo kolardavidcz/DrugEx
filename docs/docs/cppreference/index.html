@@ -447,6 +447,45 @@
       font-weight: 600;
     }
 
+    /* Abstract base classes and interfaces in sidebar rendered in gray italics */
+    .sidebar-item.is-abstract {
+      color: #64748b;
+      font-style: italic;
+    }
+
+    [data-theme="dark"] .sidebar-item.is-abstract {
+      color: #94a3b8;
+      font-style: italic;
+    }
+
+    .sidebar-item.is-abstract:hover {
+      color: var(--text-main);
+    }
+
+    .sidebar-item.is-abstract.active {
+      color: var(--accent-cyan);
+      font-style: normal;
+    }
+
+    .sidebar-abstract-badge {
+      font-size: 9px;
+      font-family: var(--font-mono);
+      font-style: normal;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(100, 116, 139, 0.12);
+      color: #64748b;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    [data-theme="dark"] .sidebar-abstract-badge {
+      background: rgba(148, 163, 184, 0.16);
+      color: #94a3b8;
+    }
+
     /* Responsive Drawer <= 1024px */
     @media (max-width: 1024px) {
       .sidebar {
@@ -524,12 +563,36 @@
     .pill-purple { background: rgba(124, 58, 237, 0.1); color: #7c3aed; border-color: rgba(124, 58, 237, 0.25); }
     .pill-rose { background: rgba(225, 29, 72, 0.1); color: #e11d48; border-color: rgba(225, 29, 72, 0.25); }
     .pill-emerald { background: rgba(22, 163, 74, 0.1); color: #16a34a; border-color: rgba(22, 163, 74, 0.25); }
+    .pill-gray { background: rgba(100, 116, 139, 0.12); color: #475569; border-color: rgba(100, 116, 139, 0.28); }
 
     [data-theme="dark"] .pill-cyan { color: #38bdf8; }
     [data-theme="dark"] .pill-teal { color: #2dd4bf; }
     [data-theme="dark"] .pill-purple { color: #c084fc; }
     [data-theme="dark"] .pill-rose { color: #fb7185; }
     [data-theme="dark"] .pill-emerald { color: #34d399; }
+    [data-theme="dark"] .pill-gray { color: #94a3b8; border-color: rgba(148, 163, 184, 0.28); }
+
+    .entry-abstract-tag {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 1px 7px;
+      margin-left: 8px;
+      border-radius: 3px;
+      background: rgba(100, 116, 139, 0.12);
+      color: #64748b;
+      border: 1px solid rgba(100, 116, 139, 0.25);
+      vertical-align: middle;
+    }
+
+    [data-theme="dark"] .entry-abstract-tag {
+      background: rgba(148, 163, 184, 0.15);
+      color: #94a3b8;
+      border-color: rgba(148, 163, 184, 0.25);
+    }
 
     /* cppreference Synopsis Box */
     .synopsis-box {
@@ -941,6 +1004,26 @@
       color: #93c5fd;
     }
 
+    /* Abstract base classes and interfaces rendered in distinguished gray styling */
+    .cpp-sym-link.is-abstract {
+      color: #64748b;
+      font-style: italic;
+    }
+
+    .cpp-sym-link.is-abstract:hover {
+      color: #334155;
+      text-decoration: underline;
+    }
+
+    [data-theme="dark"] .cpp-sym-link.is-abstract {
+      color: #94a3b8;
+      font-style: italic;
+    }
+
+    [data-theme="dark"] .cpp-sym-link.is-abstract:hover {
+      color: #cbd5e1;
+    }
+
     .cpp-sym-sep {
       color: #64748b;
       font-size: 10px;
@@ -964,6 +1047,17 @@
 
     [data-theme="dark"] .cpp-sym-badge {
       color: #4ade80;
+    }
+
+    .cpp-sym-badge.cpp-sym-badge-abstract {
+      color: #64748b !important;
+      font-style: italic;
+      font-size: 0.82em;
+      opacity: 0.9;
+    }
+
+    [data-theme="dark"] .cpp-sym-badge.cpp-sym-badge-abstract {
+      color: #94a3b8 !important;
     }
 
     /* Prism.js Syntax Tokens (GitHub Light default & VS Code Dark+) */
@@ -1534,6 +1628,40 @@
       border-color: var(--border-accent);
       color: var(--text-link-hover);
       text-decoration: underline;
+    }
+
+    .symbol-chip-link.is-abstract-chip {
+      background: rgba(100, 116, 139, 0.1);
+      color: #64748b;
+      border-color: rgba(100, 116, 139, 0.28);
+      font-style: italic;
+    }
+
+    [data-theme="dark"] .symbol-chip-link.is-abstract-chip {
+      background: rgba(148, 163, 184, 0.14);
+      color: #94a3b8;
+      border-color: rgba(148, 163, 184, 0.28);
+    }
+
+    .is-abstract-link {
+      color: #64748b !important;
+      font-style: italic;
+    }
+
+    [data-theme="dark"] .is-abstract-link {
+      color: #94a3b8 !important;
+      font-style: italic;
+    }
+
+    .see-also-abstract-badge {
+      font-size: 10.5px;
+      color: #64748b;
+      font-style: italic;
+      margin-left: 6px;
+    }
+
+    [data-theme="dark"] .see-also-abstract-badge {
+      color: #94a3b8;
     }
 
     .param-pill-list {
@@ -14737,6 +14865,32 @@ for idx, smi in enumerate(items, 1):
       return null;
     }
 
+    // Helper to determine if a symbol is an abstract base class or contract interface
+    function isAbstractSymbol(key, item) {
+      if (!item && typeof DATABASE !== "undefined") item = DATABASE[key];
+      if (!item || item.kind !== "class") return false;
+      if (item.isAbstract === true) return true;
+      if (item.badges && item.badges.some(b => {
+        const l = b.toLowerCase();
+        return l.includes("abstract") || l.includes("interface") || l.includes("protocol");
+      })) {
+        if (key.includes("Exception") || item.title.includes("Exception")) return false;
+        return true;
+      }
+      if (item.synopsis && (item.synopsis.includes("@abstractmethod") || /\bABC\b/.test(item.synopsis) || item.synopsis.includes("ABCMeta"))) {
+        return true;
+      }
+      if (item.description && (
+        item.description.toLowerCase().startsWith("abstract") ||
+        item.description.toLowerCase().includes("root abstract") ||
+        item.description.toLowerCase().includes("abstract base") ||
+        item.description.toLowerCase().includes("abstract contract")
+      )) {
+        return true;
+      }
+      return false;
+    }
+
     // Main React Application Component
     function App() {
       const [theme, setTheme] = useState("light");
@@ -15011,19 +15165,24 @@ for idx, smi in enumerate(items, 1):
                   {sub.keys.map((k, idx) => {
                     const item = DATABASE[k];
                     if (!item) return null;
+                    const isAbstract = isAbstractSymbol(k, item);
                     const tag = getSymbolTag(k, item);
                     return (
                       <React.Fragment key={k}>
                         {idx > 0 && <span className="cpp-sym-sep">–</span>}
                         <a 
                           href={`#${k}`}
-                          className="cpp-sym-link"
+                          className={`cpp-sym-link ${isAbstract ? "is-abstract" : ""}`}
                           onClick={(e) => { e.preventDefault(); selectItem(k); }}
-                          title={`${item.title} (${item.module})`}
+                          title={`${item.title} (${item.module})${isAbstract ? " [Abstract Base Class]" : ""}`}
                         >
                           {item.title}
                         </a>
-                        {tag && <span className="cpp-sym-badge">({tag})</span>}
+                        {isAbstract ? (
+                          <span className="cpp-sym-badge cpp-sym-badge-abstract">(abstract)</span>
+                        ) : (
+                          tag && <span className="cpp-sym-badge">({tag})</span>
+                        )}
                       </React.Fragment>
                     );
                   })}
@@ -15238,6 +15397,9 @@ for idx, smi in enumerate(items, 1):
                   <span style={{ color: "var(--text-main)", fontWeight: 500 }}>
                     Multi-Objective De Novo Drug Design &amp; 3D Chemoinformatics Standard Library
                   </span>
+                  <span style={{ color: "var(--text-muted)", fontSize: "11px", marginLeft: "8px", fontStyle: "italic" }}>
+                    • Abstract base classes &amp; interfaces highlighted in <span style={{ color: "#64748b", fontWeight: 600 }}>gray</span>
+                  </span>
                 </div>
                 <hr className="cpp-header-divider" />
 
@@ -15369,14 +15531,16 @@ for idx, smi in enumerate(items, 1):
                                   const item = DATABASE[k];
                                   if (!item) return null;
                                   const isActive = k === selectedKey;
+                                  const isAbstract = isAbstractSymbol(k, item);
                                   return (
                                     <div 
                                       key={k} 
-                                      className={`sidebar-item ${isActive ? "active" : ""}`}
+                                      className={`sidebar-item ${isActive ? "active" : ""} ${isAbstract ? "is-abstract" : ""}`}
                                       onClick={() => selectItem(k)}
-                                      title={`${item.title} (${item.module})`}
+                                      title={`${item.title} (${item.module})${isAbstract ? " [Abstract Base Class]" : ""}`}
                                     >
                                       <span>{item.title}</span>
+                                      {isAbstract && <span className="sidebar-abstract-badge">abstract</span>}
                                     </div>
                                   );
                                 })}
@@ -15405,7 +15569,12 @@ for idx, smi in enumerate(items, 1):
               <main className="content-area">
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "8px" }}>
                   <div>
-                    <div className="entry-namespace">{currentItem.module}</div>
+                    <div className="entry-namespace">
+                      {currentItem.module}
+                      {isAbstractSymbol(selectedKey, currentItem) && (
+                        <span className="entry-abstract-tag">abstract base class</span>
+                      )}
+                    </div>
                     <h1 className="entry-title" style={{ margin: "2px 0 0 0" }}>{currentItem.title}</h1>
                   </div>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -15430,8 +15599,9 @@ for idx, smi in enumerate(items, 1):
 
                 <div className="entry-badge-row">
                   {currentItem.badges.map((badge, idx) => {
+                    const isAbsBadge = badge.toLowerCase().includes("abstract") || badge.toLowerCase().includes("interface") || badge.toLowerCase().includes("protocol");
                     const colors = ["pill-cyan", "pill-teal", "pill-purple", "pill-rose", "pill-emerald"];
-                    const colorClass = colors[idx % colors.length];
+                    const colorClass = isAbsBadge ? "pill-gray" : colors[idx % colors.length];
                     return (
                       <span key={badge} className={`pill-badge ${colorClass}`}>
                         {badge}
@@ -15560,12 +15730,19 @@ for idx, smi in enumerate(items, 1):
                       <tbody>
                         {currentItem.seeAlso.map(sa => {
                           const target = DATABASE[sa];
+                          const isTargetAbstract = isAbstractSymbol(sa, target);
                           return (
                             <tr key={sa}>
                               <td className="code-cell">
-                                <a href={`#${sa}`} onClick={(e) => { e.preventDefault(); selectItem(sa); }}>
+                                <a 
+                                  href={`#${sa}`} 
+                                  className={isTargetAbstract ? "is-abstract-link" : ""}
+                                  onClick={(e) => { e.preventDefault(); selectItem(sa); }}
+                                  title={isTargetAbstract ? `${target ? target.title : sa} [Abstract Base Class]` : undefined}
+                                >
                                   {target ? target.title : sa}
                                 </a>
+                                {isTargetAbstract && <span className="see-also-abstract-badge">(abstract)</span>}
                               </td>
                               <td>{target ? `${target.category.toUpperCase()} - ${target.description.slice(0, 70)}...` : sa}</td>
                             </tr>
@@ -17079,20 +17256,23 @@ for idx, smi in enumerate(items, 1):
                       DrugEx / Ecosystem Classes:
                     </div>
                     <div className="symbols-list">
-                      {selectedNode.drugexSymbols.map(sym => (
-                        <a
-                          key={sym}
-                          href={`#${sym}`}
-                          className="symbol-chip-link"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            onSelectSymbol(sym);
-                          }}
-                          title={`Open reference documentation for ${sym}`}
-                        >
-                          {sym.split("::").pop()}
-                        </a>
-                      ))}
+                      {selectedNode.drugexSymbols.map(sym => {
+                        const isSymAbstract = isAbstractSymbol(sym, DATABASE[sym]);
+                        return (
+                          <a
+                            key={sym}
+                            href={`#${sym}`}
+                            className={`symbol-chip-link ${isSymAbstract ? "is-abstract-chip" : ""}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onSelectSymbol(sym);
+                            }}
+                            title={`Open reference documentation for ${sym}${isSymAbstract ? " [Abstract Base Class]" : ""}`}
+                          >
+                            {sym.split("::").pop()}
+                          </a>
+                        );
+                      })}
                     </div>
 
                     <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: "16px" }}>
