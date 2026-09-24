@@ -11,6 +11,10 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Prism Syntax Highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
   
   <style>
     :root {
@@ -341,6 +345,82 @@
       padding: 12px 16px;
       margin-bottom: 20px;
     }
+
+    .diagram-equation-bar {
+      background: var(--bg-code);
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+
+    .equation-bar-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    .equation-bar-terms {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .eq-pill {
+      background: var(--bg-card);
+      border: 1px solid var(--border-main);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .eq-pill:hover {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    .eq-pill.active {
+      border-color: var(--accent-cyan);
+      background: rgba(2, 132, 199, 0.12);
+      color: var(--accent-cyan);
+      box-shadow: 0 0 0 1px var(--accent-cyan);
+    }
+
+    /* Prism.js Syntax Tokens (GitHub Light default & VS Code Dark+) */
+    .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #6e7781; font-style: italic; }
+    .token.punctuation { color: #24292f; }
+    .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #0550ae; }
+    .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: #0a3069; }
+    .token.operator, .token.entity, .token.url { color: #24292f; }
+    .token.atrule, .token.attr-value, .token.keyword { color: #cf222e; font-weight: 600; }
+    .token.function { color: #8250df; }
+    .token.class-name { color: #953800; font-weight: 600; }
+    .token.regex, .token.important, .token.variable { color: #24292f; }
+
+    [data-theme="dark"] .token.comment, [data-theme="dark"] .token.prolog, [data-theme="dark"] .token.doctype, [data-theme="dark"] .token.cdata { color: #6a9955; font-style: italic; }
+    [data-theme="dark"] .token.punctuation { color: #d4d4d4; }
+    [data-theme="dark"] .token.property, [data-theme="dark"] .token.tag, [data-theme="dark"] .token.boolean, [data-theme="dark"] .token.number, [data-theme="dark"] .token.constant, [data-theme="dark"] .token.symbol { color: #b5cea8; }
+    [data-theme="dark"] .token.selector, [data-theme="dark"] .token.attr-name, [data-theme="dark"] .token.string, [data-theme="dark"] .token.char, [data-theme="dark"] .token.builtin { color: #ce9178; }
+    [data-theme="dark"] .token.operator, [data-theme="dark"] .token.entity, [data-theme="dark"] .token.url { color: #d4d4d4; }
+    [data-theme="dark"] .token.atrule, [data-theme="dark"] .token.attr-value, [data-theme="dark"] .token.keyword { color: #569cd6; font-weight: 500; }
+    [data-theme="dark"] .token.function { color: #dcdcaa; }
+    [data-theme="dark"] .token.class-name { color: #4ec9b0; }
+    [data-theme="dark"] .token.regex, [data-theme="dark"] .token.important, [data-theme="dark"] .token.variable { color: #9cdcfe; }
 
     .equation-chain-label {
       font-size: 10.5px;
@@ -1763,9 +1843,67 @@
       return str.length > max ? str.slice(0, max - 1) + "..." : str;
     }
 
+    const STEP_CODE_SNIPPETS = {
+      morl: {
+        "01": `from drugex.training.generators import SequenceRNN, SequenceTransformer\n\n# Causal autoregressive policy network parameterizing pi_theta\nagent = SequenceTransformer(\n    voc=voc,\n    d_model=256,\n    nhead=8,\n    num_decoder_layers=6,\n    dim_feedforward=1024\n).to(device)`,
+        "02": `# Frozen base prior pi_0 acts as regularizing anchor\nprior = SequenceTransformer.load(voc=voc, path="models/base_prior.pkg").to(device)\nprior.eval()\nfor param in prior.parameters():\n    param.requires_grad = False`,
+        "03": `from drugex.data.corpus.vocabulary import VocSmiles\nfrom drugex.training.scorers import SmilesChecker\n\n# Rollout exploratory candidate batch from agent\ntokens = agent.sample(batch_size=512, temperature=0.8)\nsmiles_batch = [voc.decode(t) for t in tokens]\nvalid_mols = [s for s in smiles_batch if SmilesChecker.checkSmiles(s)]`,
+        "04": `from drugex.training.scorers import Property, RDKitROCSScorer\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\nscorers = [\n    Property("MW"),\n    Property("logP"),\n    QSPRPredScorer(model_path="models/target_qsar.json"),\n    RDKitROCSScorer(ref_mol="data/reference_ligand.sdf")\n]\nraw_scores = [scorer(valid_mols) for scorer in scorers]`,
+        "05": `from drugex.training.scorers import SmoothClippedScore, ClippedScore\n\nmodifiers = [\n    ClippedScore(lower_x=150.0, upper_x=500.0, high=True),\n    ClippedScore(lower_x=0.5, upper_x=3.5, high=True),\n    SmoothClippedScore(lower_x=6.5, upper_x=8.5, high=True),\n    SmoothClippedScore(lower_x=1.2, upper_x=1.6, high=True)\n]\ndesirability = [mod(score) for mod, score in zip(modifiers, raw_scores)]`,
+        "06": `from drugex.training.environment import DrugExEnvironment\n\nenv = DrugExEnvironment(\n    scorers=scorers,\n    modifiers=modifiers,\n    thresholds=[0.75, 0.70, 0.80, 0.65],\n    scheme="ParetoCrowdingDistance"\n)\nrewards = env.getRewards(valid_mols)`,
+        "07": `# Multi-objective Pareto non-dominated ranking & crowding distance\nfrom drugex.training.environment import DrugExEnvironment\n\n# Partitions candidates into Pareto fronts F_1, F_2, ...\n# Crowding distance scalarizes rewards to preserve chemical diversity\npareto_rewards = env.calculateParetoRewards(desirability_matrix)`,
+        "08": `from drugex.training.explorers import SequenceExplorer\n\nexplorer = SequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    crover=None,\n    epsilon=0.1,\n    beta=0.05\n)\nexplorer.fit(train_loader, epochs=100)`
+      },
+      training: {
+        "01": `from drugex.data.corpus.vocabulary import VocSmiles\nfrom drugex.molecules.converters import DefaultStandardizer\n\n# Ingest and clean Papyrus ~1.5M bioactive molecule corpus\nstandardizer = DefaultStandardizer(canonicalize=True, drop_salts=True)\nclean_smiles = [standardizer(s) for s in raw_papyrus_corpus if s]`,
+        "02": `from drugex.data.corpus.vocabulary import VocSmiles\n\n# Construct vocabulary over Papyrus dataset\nvoc = VocSmiles.fromFile("data/vocab.txt", encode_frags=False)\ntoken_tensor = voc.encode(["CC(=O)Oc1ccccc1C(=O)O"])\nprint("Encoded token shape:", token_tensor.shape)`,
+        "03": `from drugex.train import Pretrain\nfrom drugex.training.generators import SequenceTransformer\n\nmodel = SequenceTransformer(voc=voc, d_model=256, nhead=8, num_decoder_layers=6)\npretrainer = Pretrain(model=model, train_loader=corpus_loader, lr=1e-3)\npretrainer.fit(epochs=50)\nmodel.save("models/pretrained_papyrus.pkg")`,
+        "04": `# Permanently freeze pre-trained base model weights as reference anchor pi_0\nprior = SequenceTransformer.load(voc=voc, path="models/pretrained_papyrus.pkg")\nfor p in prior.parameters():\n    p.requires_grad = False\nprior.eval()`,
+        "05": `import pandas as pd\n\n# Filter active ligand series for biological target (e.g. Kinase / GPCR)\ndf = pd.read_csv("data/target_bioactivity.csv")\nactives = df[df["pIC50"] >= 6.5]["canonical_smiles"].unique()\nprint(f"Curated {len(actives)} target-specific active ligands.")`,
+        "06": `from drugex.train import Finetune\n\n# Target transfer learning: bias base distribution onto active series\nagent = SequenceTransformer.load(voc=voc, path="models/pretrained_papyrus.pkg")\nfinetuner = Finetune(model=agent, train_loader=actives_loader, lr=5e-5)\nfinetuner.fit(epochs=20)\nagent.save("models/finetuned_target.pkg")`,
+        "07": `from drugex.training.explorers import SequenceExplorer\nfrom drugex.training.environment import DrugExEnvironment\n\n# Reinforcement learning fine-tuning with multi-objective environment\nexplorer = SequenceExplorer(agent=agent, env=env, mutate=prior, epsilon=0.1)\nexplorer.fit(train_loader=actives_loader, epochs=100)`,
+        "08": `# High-volume lead library sampling and Pareto filtration\ncandidates = explorer.sample(n_samples=10000, temperature=0.75)\nleads = env.filterParetoDominant(candidates)\nprint(f"Extracted {len(leads)} top-priority de novo lead candidates.")`
+      },
+      rocs: {
+        "01": `# Generate candidate SMILES batch during exploration rollout\nsmiles_batch = agent.sample(batch_size=128, temperature=0.8)\nprint(f"Batch rollout size: {len(smiles_batch)}")`,
+        "02": `from drugex.training.scorers import SmilesChecker\n\n# Deduplicate candidate batch and verify chemical valence\nunique_smiles = list(set([s for s in smiles_batch if SmilesChecker.checkSmiles(s)]))\nprint(f"Unique valid topologies: {len(unique_smiles)} / {len(smiles_batch)}")`,
+        "03": `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator\n\n# Generate 3D conformer ensembles using experimental-torsion distance geometry\nconf_gen = RDKitConformerGenerator(n_conf=20, prune_rms=0.5)\nconformers = {s: conf_gen(s) for s in unique_smiles}`,
+        "04": `from rdkit import Chem\n\n# Load experimental bioactive co-crystal ligand pose\nref_supplier = Chem.SDMolSupplier("data/co_crystal_ligand.sdf")\nref_mol = next(ref_supplier)\nprint("Reference query heavy atoms:", ref_mol.GetNumAtoms())`,
+        "05": `from rdkit.Chem.rdShapeAlign import AlignMol\n\n# Rigid inertial PMI alignment followed by smooth Gaussian volume overlap\nrmsd, shape_tanimoto = AlignMol(ref_mol, candidate_conformer)`,
+        "06": `from drugex.training.scorers import RDKitROCSScorer\n\n# Calculate steric volume overlap and pharmacophoric color feature overlap\nrocs_scorer = RDKitROCSScorer(ref_mol="data/co_crystal_ligand.sdf", color_scheme="default")\nshape_overlap, color_overlap = rocs_scorer.calculateOverlaps(conformers)`,
+        "07": `# TanimotoCombo = Shape Tanimoto (ST) + Color Tanimoto (CT) in [0, 2.0]\ntanimoto_combo = shape_overlap + color_overlap\nprint("Mean TanimotoCombo:", tanimoto_combo.mean())`,
+        "08": `from drugex.training.scorers import SmoothClippedScore\n\n# Transform TanimotoCombo into continuous sigmoidal [0, 1] desirability\nmod = SmoothClippedScore(lower_x=1.0, upper_x=1.6, high=True)\ndesirability = [mod(tc) for tc in tanimoto_combo]`
+      },
+      fragment: {
+        "01": `from rdkit import Chem\n\n# Input crystallographic fragment hits or bioactive patent series\nmols = [Chem.MolFromSmiles(s) for s in ["c1c(c2ccccc2)ncn1CC(=O)N3CCNCC3"]]`,
+        "02": `from rdkit.Chem.BRICS import BRICSDecompose\n\n# Retrosynthetic cleavage across 16 BRICS cleavage rules (L1 to L16)\nfragments = BRICSDecompose(mols[0], returnMols=True)\nprint(f"Decomposed into {len(fragments)} retrosynthetic synthons.")`,
+        "03": `from drugex.data.fragments import FragmentCorpusEncoder\n\n# Tag allowable growth vectors with isotopic dummy attachments [1*] to [16*]\nencoder = FragmentCorpusEncoder()\ntagged_synthons = encoder.tagAttachmentVectors(fragments)\nprint("Tagged synthon cores:", tagged_synthons)`,
+        "04": `from drugex.data.corpus.vocabulary import VocSmiles\n\n# Condition sequence transformer prompt with fixed scaffold prefix\nvoc = VocSmiles.fromFile("data/vocab.txt", encode_frags=True)\nconditioned_tokens = voc.encodeFragmentPrompt(tagged_synthons[0])`,
+        "05": `from drugex.training.explorers import FragSequenceExplorer\n\n# Conditionally elaborate fragment scaffolds via reinforcement learning\nexplorer = FragSequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    frags=tagged_synthons,\n    epsilon=0.1\n)\nexplorer.fit(train_loader, epochs=50)`,
+        "06": `# GraphTransformer dynamic valence masking at each bond creation step\n# Masks chemically forbidden valencies (e.g. pentavalent carbon) with -inf\nlogits = graph_transformer(mol_state)\nmasked_logits = logits + dynamic_valence_mask(mol_state)\naction = torch.argmax(masked_logits, dim=-1)`,
+        "07": `from rdkit.Chem.BRICS import BRICSBuild\n\n# Verify synthetic compatibility between synthon exit vectors and linkers\ncompatible_pairs = [p for p in candidate_pairs if is_brics_compatible(p[0], p[1])]`,
+        "08": `from drugex.training.scorers import LigandEfficiency, LipophilicEfficiency\n\n# Score reassembled drug candidates for Ligand Efficiency (LE / LipE)\nle_scorer = LigandEfficiency(qsar_scorer=target_qsar)\nlipe_scorer = LipophilicEfficiency(qsar_scorer=target_qsar)\nle_scores = le_scorer(assembled_mols)`
+      },
+      telemetry: {
+        "01": `# Rollout fresh candidate batch from policy network\nbatch_smiles = agent.sample(batch_size=1024, temperature=0.8)\nprint(f"Sampled rollout batch size: {len(batch_smiles)}")`,
+        "02": `from drugex.training.scorers import SmilesChecker\n\n# Q1 Filter: Chemical and syntactic valency verification (V >= 95%)\nvalid_smiles = [s for s in batch_smiles if SmilesChecker.checkSmiles(s)]\nvalidity_rate = len(valid_smiles) / len(batch_smiles)\nassert validity_rate >= 0.95, f"Validity dropped: {validity_rate:.2%}"`,
+        "03": `# Q2 Filter: Batch and historical uniqueness to prevent mode collapse (U >= 85%)\nunique_smiles = set(valid_smiles)\nuniqueness_rate = len(unique_smiles) / len(valid_smiles)\nassert uniqueness_rate >= 0.85, f"Mode collapse warning: {uniqueness_rate:.2%}"`,
+        "04": `from drugex.training.scorers import SAScore, RingSizePenalizer\n\n# Q3 Filter: Screen synthetic accessibility (SA <= 3.5) and strained rings\nsa_scorer = SAScore()\nsa_scores = sa_scorer(list(unique_smiles))\nfeasible_synthesis = [s for s, sa in zip(unique_smiles, sa_scores) if sa <= 3.5]`,
+        "05": `# Q4 Filter: Desired Ratio (percentage of molecules meeting all objectives)\npassed_mols = env.getDesiredMolecules(feasible_synthesis)\ndesired_ratio = len(passed_mols) / len(feasible_synthesis)\nprint(f"Desired Ratio (Dr%): {desired_ratio:.2%}")`,
+        "06": `from drugex.training.environment import DrugExEnvironment\n\n# Q5 Metric: Pairwise internal Tanimoto diversity of the candidate batch\ndiversity = env.calculateBatchDiversity(passed_mols)\nprint(f"Population internal diversity: {diversity:.3f}")`,
+        "07": `from drugex.training.monitors import FileMonitor\n\n# Real-time epoch telemetry logging\nmonitor = FileMonitor(log_dir="experiments/run_01")\nmonitor.logEpoch(epoch=epoch, validity=validity_rate, uniqueness=uniqueness_rate, dr=desired_ratio)`,
+        "08": `# Adaptive exploration: boost mutation probability epsilon if diversity falls\nif uniqueness_rate < 0.80:\n    explorer.epsilon = min(0.3, explorer.epsilon * 1.25)\n    print("Telemetry alert: Increased exploration epsilon to", explorer.epsilon)`
+      }
+    };
+
+    function getStepCodeSnippet(pipelineId, stepLabel) {
+      return STEP_CODE_SNIPPETS[pipelineId]?.[stepLabel] || `# Step ${stepLabel} in ${pipelineId}`;
+    }
+
     function PipelineSchemasView({ pipelineId, onSelectPipeline, onSelectSymbol, onGoToMain }) {
       const [selectedNodeIdx, setSelectedNodeIdx] = useState(0);
       const [copiedSpec, setCopiedSpec] = useState(false);
+      const [copiedSnippet, setCopiedSnippet] = useState(false);
       const [activeSubTab, setActiveSubTab] = useState("diagram");
 
       const pipeline = useMemo(() => {
@@ -1776,6 +1914,12 @@
         setSelectedNodeIdx(0);
       }, [pipelineId]);
 
+      useEffect(() => {
+        if (window.Prism) {
+          setTimeout(() => window.Prism.highlightAll(), 50);
+        }
+      }, [selectedNodeIdx, pipelineId, activeSubTab]);
+
       const selectedNode = pipeline.nodes[selectedNodeIdx] || pipeline.nodes[0];
 
       const copyPipelineSpec = () => {
@@ -1784,6 +1928,12 @@
         navigator.clipboard.writeText(text);
         setCopiedSpec(true);
         setTimeout(() => setCopiedSpec(false), 2000);
+      };
+
+      const copySnippet = (codeText) => {
+        navigator.clipboard.writeText(codeText);
+        setCopiedSnippet(true);
+        setTimeout(() => setCopiedSnippet(false), 2000);
       };
 
       return (
@@ -1820,7 +1970,7 @@
             </div>
             <p className="schemas-subtitle">{pipeline.summary}</p>
 
-            <div className="schemas-tabs">
+            <div className="schemas-tabs" style={{ marginBottom: 0, borderBottom: "none", paddingBottom: 0 }}>
               {PIPELINE_SCHEMAS.map((p, idx) => {
                 const isActive = p.id === pipeline.id;
                 return (
@@ -1835,36 +1985,6 @@
                   </button>
                 );
               })}
-            </div>
-
-            <div className="equation-chain-card">
-              <div className="equation-chain-label">
-                <span>Algebraic Chaining Expression (Click any term to inspect component)</span>
-                <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--accent-cyan)" }}>
-                  Step {selectedNodeIdx + 1} of {pipeline.nodes.length} Active
-                </span>
-              </div>
-              <div className="equation-chain-scroll">
-                {pipeline.equation.map((item, eIdx) => {
-                  if (item.type === "op") {
-                    return <span key={eIdx} className="eq-op">{item.text}</span>;
-                  }
-                  const isSelected = item.nodeIdx === selectedNodeIdx;
-                  return (
-                    <button
-                      key={eIdx}
-                      className={`eq-chip ${isSelected ? "active" : ""}`}
-                      onClick={() => setSelectedNodeIdx(item.nodeIdx)}
-                      title={`Inspect Step ${item.nodeIdx + 1}: ${item.text}`}
-                    >
-                      <span className={`eq-chip-tag eq-tag-${item.tag || "agent"}`}>
-                        {(item.tag || "node").toUpperCase()}
-                      </span>
-                      <span>{item.text}</span>
-                    </button>
-                  );
-                })}
-              </div>
             </div>
           </div>
 
@@ -1904,6 +2024,32 @@
                   </div>
                 </div>
 
+                {/* Sleek Algebraic Chaining Expression Bar */}
+                <div className="diagram-equation-bar">
+                  <span className="equation-bar-label">Algebraic Chain:</span>
+                  <div className="equation-bar-terms">
+                    {pipeline.equation.map((item, eIdx) => {
+                      if (item.type === "op") {
+                        return <span key={eIdx} className="eq-op">{item.text}</span>;
+                      }
+                      const isSelected = item.nodeIdx === selectedNodeIdx;
+                      return (
+                        <button
+                          key={eIdx}
+                          className={`eq-pill ${isSelected ? "active" : ""}`}
+                          onClick={() => setSelectedNodeIdx(item.nodeIdx)}
+                          title={`Step ${item.nodeIdx + 1}: ${item.text}`}
+                        >
+                          <span className={`eq-chip-tag eq-tag-${item.tag || "agent"}`}>
+                            {pipeline.nodes[item.nodeIdx].stepLabel}
+                          </span>
+                          <span>{item.text}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="diagram-svg-wrap">
                   <svg className="diagram-svg" viewBox="0 0 1130 355" xmlns="http://www.w3.org/2000/svg">
                     <defs>
@@ -1927,7 +2073,6 @@
                       </marker>
                     </defs>
 
-                    {/* Connecting Arrows (drawn first) */}
                     {pipeline.connectors.map((c, cIdx) => {
                       const marker = c.color === "#d97706" ? "url(#arrow-amber)" :
                                      c.color === "#7c3aed" ? "url(#arrow-purple)" :
@@ -1949,7 +2094,6 @@
                       );
                     })}
 
-                    {/* Optional Feedback Loop Arrow */}
                     {pipeline.feedbackLoop && (
                       <g>
                         <path
@@ -1963,7 +2107,6 @@
                       </g>
                     )}
 
-                    {/* Nodes Rendering */}
                     {pipeline.nodes.map((n, idx) => {
                       const isSelected = idx === selectedNodeIdx;
                       const stageColor = getStageColor(n.stageType);
@@ -1973,7 +2116,6 @@
                           className={`svg-node ${isSelected ? "selected" : ""}`}
                           onClick={() => setSelectedNodeIdx(idx)}
                         >
-                          {/* Node Box Outer */}
                           <rect
                             className="node-box"
                             x={n.x}
@@ -1986,7 +2128,6 @@
                             stroke={isSelected ? "var(--accent-cyan)" : "var(--border-main)"}
                             strokeWidth={isSelected ? "2.5" : "1.2"}
                           />
-                          {/* Top Stage Bar */}
                           <rect
                             x={n.x}
                             y={n.y}
@@ -2003,7 +2144,6 @@
                             height="6"
                             fill={stageColor}
                           />
-                          {/* Step Badge */}
                           <text
                             x={n.x + 8}
                             y={n.y + 16}
@@ -2014,7 +2154,6 @@
                           >
                             [{n.stepLabel}]
                           </text>
-                          {/* Stage Name */}
                           <text
                             x={n.x + 212}
                             y={n.y + 16}
@@ -2027,7 +2166,6 @@
                           >
                             {n.stage.toUpperCase()}
                           </text>
-                          {/* Node Title */}
                           <text
                             x={n.x + 10}
                             y={n.y + 44}
@@ -2038,7 +2176,6 @@
                           >
                             {truncateStr(n.label, 26)}
                           </text>
-                          {/* Node Subtitle */}
                           <text
                             x={n.x + 10}
                             y={n.y + 59}
@@ -2048,7 +2185,6 @@
                           >
                             {truncateStr(n.sublabel, 30)}
                           </text>
-                          {/* Formula Box */}
                           <rect
                             x={n.x + 8}
                             y={n.y + 68}
@@ -2074,7 +2210,6 @@
                       );
                     })}
 
-                    {/* Connector Labels (rendered on top of lines and nodes) */}
                     {pipeline.connectors.map((c, cIdx) => {
                       if (!c.label) return null;
                       const midX = (c.fromX + c.toX) / 2;
@@ -2108,7 +2243,6 @@
                       );
                     })}
 
-                    {/* Feedback Loop Label */}
                     {pipeline.feedbackLoop && pipeline.feedbackLoop.label && (
                       <g>
                         <rect
@@ -2139,31 +2273,9 @@
                 </div>
               </div>
 
-              <div className="flow-steps-rail">
-                {pipeline.nodes.map((n, idx) => {
-                  const isSelected = idx === selectedNodeIdx;
-                  return (
-                    <div
-                      key={idx}
-                      className={`flow-step-card ${isSelected ? "active" : ""}`}
-                      onClick={() => setSelectedNodeIdx(idx)}
-                      title={`Click to inspect step ${n.stepLabel}`}
-                    >
-                      <div>
-                        <div className="flow-step-card-header">
-                          <span className="flow-step-num">Step {n.stepLabel}</span>
-                          <span className={`eq-chip-tag eq-tag-${n.stageType}`}>{n.stage}</span>
-                        </div>
-                        <div className="flow-step-title">{n.label}</div>
-                        <div className="flow-step-formula">{n.formula}</div>
-                      </div>
-                      <div className="flow-step-desc">{n.description}</div>
-                    </div>
-                  );
-                })}
-              </div>
-
+              {/* Selected Node Deep Inspector Grid */}
               <div className="node-inspector-grid">
+                {/* Left Card: Core Logic, Contracts & Executable Python Implementation */}
                 <div className="inspector-card">
                   <div className="inspector-header">
                     <div>
@@ -2204,7 +2316,7 @@
                     </div>
 
                     <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                      Component Behavior:
+                      Component Behavior &amp; Execution Semantics:
                     </div>
                     <p style={{ fontSize: "13px", lineHeight: "1.55", color: "var(--text-main)", margin: 0 }}>
                       {selectedNode.description}
@@ -2212,16 +2324,39 @@
 
                     {selectedNode.diagnostics && (
                       <div className="diag-notes-box">
-                        <strong>Engineering & Diagnostics Note:</strong> {selectedNode.diagnostics}
+                        <strong>Engineering &amp; Diagnostics Note:</strong> {selectedNode.diagnostics}
                       </div>
                     )}
+
+                    {/* Concrete Python Implementation Demonstration */}
+                    <div style={{ marginTop: "16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Executable Python Implementation:
+                        </span>
+                        <button
+                          className="copy-btn"
+                          onClick={() => copySnippet(getStepCodeSnippet(pipeline.id, selectedNode.stepLabel))}
+                          title="Copy Python code snippet"
+                          style={{ padding: "3px 9px", fontSize: "11px" }}
+                        >
+                          {copiedSnippet ? "Copied Snippet!" : "Copy Code"}
+                        </button>
+                      </div>
+                      <pre className="code-content language-python" style={{ margin: 0, padding: "12px 14px", borderRadius: "4px", fontSize: "11.5px", background: "var(--bg-code)", border: "1px solid var(--border-main)", overflowX: "auto" }}>
+                        <code className="language-python">
+                          {getStepCodeSnippet(pipeline.id, selectedNode.stepLabel)}
+                        </code>
+                      </pre>
+                    </div>
                   </div>
                 </div>
 
+                {/* Right Card: DrugEx Symbols, Hyperparameters & Pager */}
                 <div className="inspector-card">
                   <div className="inspector-header">
                     <strong style={{ fontSize: "12.5px", color: "var(--text-main)" }}>
-                      Implementation & Symbols
+                      Implementation &amp; Symbols
                     </strong>
                     <span style={{ fontSize: "11px", color: "var(--accent-cyan)", fontFamily: "var(--font-mono)" }}>
                       v3.4 APIs
@@ -2255,6 +2390,31 @@
                         </li>
                       ))}
                     </ul>
+
+                    {/* Sequential Step Pager */}
+                    <div style={{ marginTop: "20px", paddingTop: "14px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+                      <button
+                        className="back-to-index-btn"
+                        disabled={selectedNodeIdx === 0}
+                        onClick={() => setSelectedNodeIdx(i => Math.max(0, i - 1))}
+                        style={{ opacity: selectedNodeIdx === 0 ? 0.4 : 1, cursor: selectedNodeIdx === 0 ? "not-allowed" : "pointer", padding: "4px 10px" }}
+                        title="Navigate to previous pipeline step"
+                      >
+                        ← Step {pipeline.nodes[Math.max(0, selectedNodeIdx - 1)].stepLabel}
+                      </button>
+                      <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                        Step {selectedNodeIdx + 1} / {pipeline.nodes.length}
+                      </span>
+                      <button
+                        className="back-to-index-btn"
+                        disabled={selectedNodeIdx === pipeline.nodes.length - 1}
+                        onClick={() => setSelectedNodeIdx(i => Math.min(pipeline.nodes.length - 1, i + 1))}
+                        style={{ opacity: selectedNodeIdx === pipeline.nodes.length - 1 ? 0.4 : 1, cursor: selectedNodeIdx === pipeline.nodes.length - 1 ? "not-allowed" : "pointer", padding: "4px 10px" }}
+                        title="Navigate to next pipeline step"
+                      >
+                        Step {pipeline.nodes[Math.min(pipeline.nodes.length - 1, selectedNodeIdx + 1)].stepLabel} →
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
