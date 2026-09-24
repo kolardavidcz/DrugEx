@@ -1961,6 +1961,173 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
+
+    /* Collapsible Micro-Visualizations (Interactive SVG Panels) */
+    .micro-viz-panel {
+      margin: 16px 0 20px 0;
+      border: 1px solid var(--border-main);
+      border-radius: 6px;
+      background: var(--bg-card);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .micro-viz-panel[open] {
+      border-color: var(--accent-cyan);
+      box-shadow: var(--shadow-md);
+    }
+    .micro-viz-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 14px;
+      background: var(--bg-sidebar);
+      cursor: pointer;
+      user-select: none;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-main);
+      border-bottom: 1px solid transparent;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .micro-viz-panel[open] .micro-viz-summary {
+      border-bottom-color: var(--border-subtle);
+      background: rgba(2, 132, 199, 0.08);
+      color: var(--accent-cyan);
+    }
+    .micro-viz-summary:hover {
+      background: rgba(2, 132, 199, 0.12);
+    }
+    .micro-viz-summary-left {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex-wrap: wrap;
+    }
+    .micro-viz-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: var(--accent-cyan);
+      color: #ffffff;
+    }
+    .micro-viz-title {
+      font-weight: 600;
+    }
+    .micro-viz-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+      font-family: var(--font-mono);
+    }
+    .micro-viz-body {
+      padding: 14px 16px;
+      background: var(--bg-card);
+    }
+    .micro-viz-svg-wrap {
+      width: 100%;
+      background: var(--bg-code);
+      border: 1px solid var(--border-subtle);
+      border-radius: 5px;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      position: relative;
+    }
+    .micro-viz-svg {
+      width: 100%;
+      max-width: 680px;
+      height: auto;
+      display: block;
+    }
+    .micro-viz-legend {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 10px;
+      padding: 6px 10px;
+      background: var(--bg-sidebar);
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+    .micro-viz-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .micro-viz-legend-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .micro-viz-readout {
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      background: var(--table-header);
+      border-left: 3px solid var(--accent-cyan);
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .micro-viz-readout-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .micro-viz-readout-label {
+      font-weight: 700;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .micro-viz-readout-val {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--accent-cyan);
+    }
+    .micro-viz-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .micro-viz-tab-btn {
+      padding: 3px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--border-main);
+      background: var(--bg-sidebar);
+      color: var(--text-main);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .micro-viz-tab-btn.active {
+      background: var(--accent-cyan);
+      border-color: var(--accent-cyan);
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .micro-viz-tab-btn:hover:not(.active) {
+      background: rgba(2, 132, 199, 0.15);
+      border-color: var(--accent-cyan);
+    }
   </style>
 </head>
 <body>
@@ -2525,15 +2692,19 @@
         scorers: List[Scorer],
         thresholds: Optional[List[float]] = None,
         reward_scheme: Optional[RewardScheme] = None
-    ) -> None`,
+    ) -> None: ...
+    def getScores(self, smiles: List[str], frags: Optional[List[str]] = None, no_multifrag_smiles: bool = True) -> pd.DataFrame: ...
+    def getUnmodifiedScores(self, smiles: List[str]) -> pd.DataFrame: ...
+    def getRewards(self, smiles: List[str], frags: Optional[List[str]] = None) -> np.ndarray: ...
+    def getScorerKeys(self) -> List[str]: ...
+    def __call__(self, smiles: List[str], frags: Optional[List[str]] = None) -> pd.DataFrame: ...`,
         description: "The primary Multi-Objective Reinforcement Learning (MORL) environment class in DrugEx. Aggregates arbitrary physical, biological (ROCS/QSAR), and physicochemical scoring objectives, normalizes outputs through modifiers, evaluates desirability thresholds, and computes multi-objective ranking rewards via Pareto Crowding Distance or Weighted Sum schemes.",
         members: [
-          { name: "__init__(scorers, thresholds=None, reward_scheme=None)", desc: "Constructs and initializes the multi-objective evaluation environment with specified scorers and reward scheme." },
-          { name: "__call__(smiles, frags=None)", desc: "Shorthand for getScores; evaluates validity, runs scorers, and calculates Desired status." },
-          { name: "getScores(smiles, frags=None)", desc: "Evaluates SMILES validity via SmilesChecker, runs all scorers, zeroes invalid molecules, and marks desirability." },
-          { name: "getUnmodifiedScores(smiles)", desc: "Evaluates and returns raw, un-normalized scorer values (bypassing modifiers) for telemetric logging." },
-          { name: "getRewards(smiles, frags=None)", desc: "Calculates scalarized policy gradient rewards (shape: [N, 1]) via the configured RewardScheme." },
-          { name: "getScorerKeys()", desc: "Flattens and returns list of string identifier keys for all active scoring objectives." }
+          { name: "getScores(smiles, frags=None, no_multifrag_smiles=True)", desc: "Evaluates SMILES validity via SmilesChecker, runs all active scorers, zeroes invalid molecules across all objectives, and calculates binary Desired flag. Returns pd.DataFrame of shape (N, M + 4)." },
+          { name: "getUnmodifiedScores(smiles)", desc: "Evaluates and returns raw, un-modified physical property values of shape (N, M) bypassing desirability modifiers." },
+          { name: "getRewards(smiles, frags=None)", desc: "Calculates scalarized policy gradient rewards of shape (N, 1) in [0.0, 1.0] via configured RewardScheme. If no molecules are valid, returns zeros array np.zeros((N, 1))." },
+          { name: "getScorerKeys()", desc: "Flattens and returns list of string identifier keys for all active scoring objectives (length M)." },
+          { name: "__call__(smiles, frags=None)", desc: "Callable alias for getScores(smiles, frags); evaluates validity and returns scores DataFrame." }
         ],
         variables: [
           { name: "scorers", type: "List[Scorer]", desc: "Collection of active objective evaluators (ROCS, QSAR, Property, etc.)." },
@@ -2543,10 +2714,10 @@
         ],
         parameters: [
           { name: "scorers", type: "List[Scorer]", desc: "List of instantiated Scorer objects (must implement getScores)." },
-          { name: "thresholds", type: "Optional[List[float]]", desc: "Desirability criteria per score key. If None, defaults to 0.99." },
-          { name: "reward_scheme", type: "Optional[RewardScheme]", desc: "Strategy for multi-objective scalarization (e.g. ParetoCrowdingDistance)." }
+          { name: "thresholds", type: "Optional[List[float]]", desc: "Desirability criteria vector of length M matching total scorer keys. If None, defaults to 0.99 for all objectives." },
+          { name: "reward_scheme", type: "Optional[RewardScheme]", desc: "Strategy for multi-objective scalarization (e.g. ParetoCrowdingDistance, WeightedSum). Defaults to DefaultRewardScheme." }
         ],
-        notes: "Scores of syntactically invalid molecules or molecules with fragmented valences are strictly assigned 0.0 across all objectives before reward ranking. Desired status is 1 only if all objectives meet or exceed their respective thresholds.",
+        notes: "Scores of syntactically invalid molecules or molecules with fragmented valences are strictly assigned 0.0 across all M objectives before reward ranking. Desired status is binary integer (1 iff every objective meets or exceeds threshold: (scores[keys] < thresholds).sum(axis=1) == 0; 0 otherwise). In getRewards, if no molecules are valid, returns np.zeros((N, 1)) with a logger warning. Valid molecules are scored and mapped back to their original indices in rewards[valid_idx].",
         example: {
           code: `from drugex.training.environment import DrugExEnvironment
 from drugex.training.scorers.properties import Property
@@ -2592,21 +2763,32 @@ Rewards:
         kind: "class",
         badges: ["DrugEx 3.4+", "Abstract Base", "RL Contract"],
         synopsis: `class Environment(ModelEvaluator, ABC):
+    def __init__(self, scorers: List[Scorer], thresholds: Optional[List[float]] = None, reward_scheme: Optional[RewardScheme] = None) -> None: ...
     @abstractmethod
-    def getScores(self, smiles: List[str], frags: Optional[List[str]] = None) -> pd.DataFrame:
-        ...
+    def getScores(self, smiles: List[str], frags: Optional[List[str]] = None, no_multifrag_smiles: bool = True) -> pd.DataFrame: ...
     @abstractmethod
-    def getRewards(self, smiles: List[str], frags: Optional[List[str]] = None) -> np.ndarray:
-        ...`,
+    def getUnmodifiedScores(self, smiles: List[str]) -> pd.DataFrame: ...
+    def getRewards(self, smiles: List[str], frags: Optional[List[str]] = None) -> np.ndarray: ...
+    def getScorerKeys(self) -> List[str]: ...
+    def __call__(self, smiles: List[str], frags: Optional[List[str]] = None) -> pd.DataFrame: ...`,
         description: "Abstract base contract defining the environment in which DrugEx generators and explorers interact. Inherits from ModelEvaluator to standardise the evaluation pipeline across policy gradient iterations.",
         members: [
-          { name: "getScores(smiles, frags=None)", desc: "Abstract method to evaluate molecules and return scores DataFrame." },
-          { name: "getRewards(smiles, frags=None)", desc: "Abstract method returning 1D/2D numpy array of scalar rewards." }
+          { name: "getScores(smiles, frags=None, no_multifrag_smiles=True)", desc: "Abstract method to calculate scores across all objectives per molecule and qualify generated molecules (Valid, Accurate, Desired). Returns pd.DataFrame of shape (N, M + 4)." },
+          { name: "getUnmodifiedScores(smiles)", desc: "Abstract method to calculate scores without applying modifiers. Returns pd.DataFrame of shape (N, M)." },
+          { name: "getRewards(smiles, frags=None)", desc: "Calculates single scalarized reward per molecule of shape (N, 1) in [0.0, 1.0] for reinforcement learning policy gradient optimization." },
+          { name: "getScorerKeys()", desc: "Extracts and returns flattened list of string identifier keys across all active scorers." },
+          { name: "__call__(smiles, frags=None)", desc: "Evaluates molecules and returns evaluation DataFrame with scores and qualification flags." }
         ],
         variables: [
-          { name: "scorers", type: "List[Scorer]", desc: "List of underlying Scorer instances." }
+          { name: "scorers", type: "List[Scorer]", desc: "List of underlying Scorer instances." },
+          { name: "thresholds", type: "List[float]", desc: "Desirability threshold cutoffs of length M." },
+          { name: "rewardScheme", type: "Optional[RewardScheme]", desc: "Active reward scheme instance." }
         ],
-        parameters: [],
+        parameters: [
+          { name: "scorers", type: "List[Scorer]", desc: "List of objective functions to use for scoring candidate molecules." },
+          { name: "thresholds", type: "Optional[List[float]]", desc: "List of desirability thresholds for the objective functions (length M). If None, defaults to 0.99 for all objectives." },
+          { name: "reward_scheme", type: "Optional[RewardScheme]", desc: "The reward scheme to use for ranking solutions. If None, the DefaultRewardScheme is used." }
+        ],
         notes: "All custom environments should extend this base class to ensure seamless plug-and-play with SequenceExplorer and FragSequenceExplorer.",
         example: {
           code: `from drugex.training.environment import Environment
@@ -2784,16 +2966,24 @@ Normalized reward values:
         kind: "class",
         badges: ["DrugEx 3.4+", "NSGA-II Crowding", "Diversity Preservation"],
         synopsis: `class ParetoCrowdingDistance(ParetoRewardScheme):
-    def getMoleculeRank(self, fronts: List[np.ndarray], smiles: Optional[List[str]] = None, scores: Optional[np.ndarray] = None) -> np.ndarray: ...`,
-        description: "Gold-standard multi-objective ranking scheme in DrugEx based on NSGA-II non-dominated sorting and normalized crowding distance. Ranks molecules within each Pareto front based on isolation in objective space, preventing mode collapse during reinforcement learning.",
+    def __init__(self) -> None: ...
+    def getParetoFronts(self, scores: np.ndarray) -> List[np.ndarray]: ...
+    def getMoleculeRank(self, fronts: List[np.ndarray], smiles: Optional[List[str]] = None, scores: Optional[np.ndarray] = None) -> np.ndarray: ...
+    def __call__(self, smiles: List[str], scores: np.ndarray, thresholds: Optional[List[float]] = None) -> np.ndarray: ...`,
+        description: "Gold-standard multi-objective ranking scheme in DrugEx based on NSGA-II non-dominated sorting and normalized crowding distance. Partitions the candidate population into non-dominated Pareto tiers and ranks molecules within each front based on cuboid isolation in objective space, preventing generator mode collapse during reinforcement learning.",
         members: [
-          { name: "getMoleculeRank(fronts, smiles, scores)", desc: "Calculates normalized objective crowding distances and returns ranked index array from worst to best." },
-          { name: "getParetoFronts(scores)", desc: "Inherited from ParetoRewardScheme; extracts non-dominated frontiers." },
-          { name: "__call__(smiles, scores, thresholds)", desc: "Inherited; returns normalized scalar rewards for candidate SMILES." }
+          { name: "getMoleculeRank(fronts, smiles=None, scores=None)", desc: "Calculates normalized objective crowding distances d_i for each front and returns a 1D index array of shape (N,) ordered from worst (rank 0) to best (rank N-1). Boundary solutions receive d_i = inf." },
+          { name: "getParetoFronts(scores)", desc: "Inherited from ParetoRewardScheme; partitions score matrix of shape (N, M) into sequential non-dominated Pareto front index arrays [F_0, F_1, ...]." },
+          { name: "__call__(smiles, scores, thresholds=None)", desc: "Computes normalized scalar policy gradient rewards of shape (N, 1) in [0.0, 1.0]: rewards[ranks[i], 0] = i / N." }
         ],
         variables: [],
-        parameters: [],
-        notes: "Boundary solutions with minimum and maximum values for each objective receive infinite crowding distance to preserve edge exploration.",
+        parameters: [
+          { name: "fronts", type: "List[np.ndarray]", desc: "List of 1D integer index arrays, where fronts[k] contains candidate indices on Pareto front k." },
+          { name: "smiles", type: "Optional[List[str]]", desc: "List of N candidate SMILES strings (accepted for interface compatibility)." },
+          { name: "scores", type: "Optional[np.ndarray]", desc: "Float matrix of shape (N, M) containing M objective desirability scores for N molecules." },
+          { name: "thresholds", type: "Optional[List[float]]", desc: "Desirability threshold vector of length M (accepted for interface compatibility)." }
+        ],
+        notes: "Boundary solutions with minimum and maximum values for each objective receive infinite crowding distance (d = inf) to guarantee frontier edge exploration. For interior solutions, crowding distance accumulates normalized neighbor spans: d_i += (s_{i+1,m} - s_{i-1,m}) / (s_{max,m} - s_{min,m}). Dimensions with zero range are skipped. Returns rewards of shape (N, 1).",
         example: {
           code: `import numpy as np
 from drugex.training.rewards import ParetoCrowdingDistance
@@ -2814,7 +3004,8 @@ print("NSGA-II Crowding Rewards:\\n", np.round(rewards.flatten(), 3))`,
         seeAlso: [
           "drugex::training::environment::DrugExEnvironment",
           "drugex::training::rewards::ParetoRewardScheme",
-          "drugex::training::rewards::ParetoTanimotoDistance"
+          "drugex::training::rewards::ParetoTanimotoDistance",
+          "drugex::utils::pareto::get_Pareto_fronts"
         ]
       },
 
@@ -2829,20 +3020,23 @@ print("NSGA-II Crowding Rewards:\\n", np.round(rewards.flatten(), 3))`,
     @staticmethod
     def calc_fps(mols: List[Chem.Mol], fp_type: str = 'ECFP6') -> List[Optional[ExplicitBitVect]]: ...
     def getFPs(self, smiles: List[str]) -> List[Optional[ExplicitBitVect]]: ...
-    def getMoleculeRank(self, fronts: List[np.ndarray], smiles: Optional[List[str]] = None, scores: Optional[np.ndarray] = None) -> List[int]: ...`,
+    def getMoleculeRank(self, fronts: List[np.ndarray], smiles: Optional[List[str]] = None, scores: Optional[np.ndarray] = None) -> List[int]: ...
+    def __call__(self, smiles: List[str], scores: np.ndarray, thresholds: Optional[List[float]] = None) -> np.ndarray: ...`,
         description: "Specialized Pareto ranking scheme that breaks ties within Pareto fronts using chemical structural diversity. Measures pairwise Tanimoto distances between molecular fingerprints (default: ECFP6) to reward novel chemical scaffolds over redundant analogues.",
         members: [
-          { name: "calc_fps(mols, fp_type='ECFP6')", desc: "Static helper computing RDKit fingerprints with error handling returning None for corrupted molecules." },
-          { name: "getFPs(smiles)", desc: "Parses SMILES and calculates corresponding fingerprint bit vectors." },
-          { name: "getMoleculeRank(fronts, smiles, scores)", desc: "Ranks molecules within fronts based on distance metric ('min', 'mean', or 'mutual')." }
+          { name: "calc_fps(mols, fp_type='ECFP6')", desc: "Static helper computing RDKit fingerprints of length N; corrupted or unparseable molecules return None without raising exceptions." },
+          { name: "getFPs(smiles)", desc: "Parses N SMILES strings into RDKit molecules and computes ECFP6 fingerprint bit vectors." },
+          { name: "getMoleculeRank(fronts, smiles, scores=None)", desc: "Ranks molecules within each front based on chemical diversity distance (1 - Tanimoto) and returns list of N indices from worst to best." },
+          { name: "getParetoFronts(scores)", desc: "Inherited from ParetoRewardScheme; extracts non-dominated frontiers." },
+          { name: "__call__(smiles, scores, thresholds=None)", desc: "Evaluates Pareto fronts and chemical fingerprint ranks, returning scalar rewards of shape (N, 1) in [0.0, 1.0]." }
         ],
         variables: [
           { name: "distance_metric", type: "str", desc: "Similarity aggregation metric ('min', 'mean', or 'mutual')." }
         ],
         parameters: [
-          { name: "distance_metric", type: "str", desc: "Method for comparing front similarities: 'min' (nearest neighbor distance), 'mean' (centroid distance), or 'mutual' (crowded similarity distance)." }
+          { name: "distance_metric", type: "str", desc: "Method for comparing intra-front similarities: 'min' (nearest neighbor distance), 'mean' (centroid distance), or 'mutual' (crowded similarity distance in fingerprint space)." }
         ],
-        notes: "'mutual' metric emulates NSGA-II crowding distance in fingerprint space using cumulative crowded similarity distance scores.",
+        notes: "Calculates pairwise Tanimoto distances: D_T(A, B) = 1 - T_c(A, B) = 1 - (|A & B| / |A | B|). If a front contains <= 2 molecules or any invalid molecule (None fingerprint), intra-front ranking is skipped and original order preserved with a logger warning.",
         example: {
           code: `import numpy as np
 from drugex.training.rewards import ParetoTanimotoDistance
@@ -3045,40 +3239,50 @@ for idx, (scaff, mol) in enumerate(zip(scaffold_prompts, elaborations)):
         synopsis: `class SequenceRNN(Generator):
     def __init__(
         self,
-        voc: Vocabulary,
+        voc: VocSmiles,
+        embed_size: int = 128,
+        hidden_size: int = 512,
         is_lstm: bool = True,
-        hl: int = 512,
-        num_layers: int = 3,
-        dropout: float = 0.2
+        lr: float = 1e-3,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None`,
-        description: "Multi-layer recurrent neural network (LSTM or GRU) for autoregressive SMILES sequence generation. Computes next-token probability distributions conditioned on preceding tokens, trained via cross-entropy loss against large-scale chemical libraries (e.g. ChEMBL).",
+        description: "Multi-layer recurrent neural network (LSTM or GRU) for autoregressive SMILES sequence generation. Maps input token sequences through an embedding layer and 3-layer recurrent cells to vocabulary logits, generating SMILES token-by-token and computing exact sequence log-likelihoods for policy gradient updates.",
         members: [
-          { name: "__init__(voc, is_lstm=True, hl=512, num_layers=3, dropout=0.2)", desc: "Constructs and initializes the SequenceRNN recurrent generative model." },
-          { name: "fit(train_loader, valid_loader=None, epochs=100, monitor=None, patience=50)", desc: "Trains the recurrent network via maximum-likelihood teacher forcing cross-entropy loss." },
-          { name: "generate(num_samples=100, batch_size=128, drop_duplicates=True, raw=False)", desc: "Autoregressively generates batches of SMILES strings, returning clean molecules or token lists." },
-          { name: "sample(batch_size)", desc: "Generates sequences step-by-step using categorical multinomial sampling from recurrent logits." },
-          { name: "evolve(batch_size, epsilon=0.0, crover=None, mutate=None)", desc: "Samples candidate SMILES with epsilon-greedy mutation and crossover policy mixing for RL exploration." },
-          { name: "forward(x, h=None)", desc: "Computes forward pass token logits and updated recurrent hidden state." },
-          { name: "init_h(batch_size=64)", desc: "Initializes zero-filled recurrent hidden and cell state tensors on active device." },
-          { name: "likelihood(target)", desc: "Calculates negative log-likelihood cross-entropy loss for sequence batch target." },
-          { name: "trainNet(loader, epoch, epochs)", desc: "Executes single training epoch through DataLoader with teacher forcing loss backpropagation." },
+          { name: "fit(train_loader, valid_loader=None, epochs=100, monitor=None, patience=50)", desc: "Trains the recurrent network via maximum-likelihood teacher forcing cross-entropy loss with early stopping." },
+          { name: "forward(input, h)", desc: "Executes a single recurrent generation step. Input token tensor of shape (batch_size,) or (batch_size, 1), recurrent hidden state h of shape (3, batch_size, hidden_size) (or (h, c) tuple for LSTM). Returns next-token logits of shape (batch_size, voc.size) and updated recurrent state tuple h_out." },
+          { name: "likelihood(target)", desc: "Calculates summed log-likelihood per sequence across target tokens. Input target LongTensor of shape (batch_size, seq_len). Returns log-likelihood tensor of shape (batch_size,)." },
+          { name: "sample(batch_size)", desc: "Autoregressively samples complete SMILES strings from GO token up to voc.max_len steps via categorical multinomial sampling, terminating upon EOS. Returns list[str] of decoded SMILES." },
+          { name: "evolve(batch_size, epsilon=0.01, crover=None, mutate=None)", desc: "Samples candidate SMILES with epsilon-greedy mutation and crossover policy mixing for RL exploration, returning LongTensor of shape (batch_size, voc.max_len)." },
+          { name: "init_h(batch_size, labels=None)", desc: "Initializes randomized recurrent hidden states of shape (3, batch_size, hidden_size) on active device." },
+          { name: "generate(num_samples=100, batch_size=128, drop_duplicates=True, raw=False)", desc: "Batched SMILES generation returning list of clean SMILES strings or raw token index lists." },
+          { name: "trainNet(loader, epoch, epochs)", desc: "Executes single training epoch through DataLoader with teacher forcing cross-entropy loss backpropagation." },
           { name: "validateNet(loader, monitor=None)", desc: "Evaluates validation DataLoader perplexity loss without updating network weights." },
           { name: "loadStatesFromFile(path)", desc: "Restores saved model weights and architecture state dict from .pkg file." },
           { name: "loadStates(state_dict, strict=True)", desc: "Loads model weights directly from an in-memory PyTorch state dictionary." },
           { name: "saveStatesToFile(path)", desc: "Serializes current network weights and hyperparameter state dict to .pkg file." },
-          { name: "getModel()", desc: "Extracts and returns the model parameter state dictionary." },
-          { name: "attachToGPUs(gpus)", desc: "Binds model layers across specified CUDA devices using PyTorch DataParallel." }
+          { name: "getModel()", desc: "Extracts and returns deep copy of model parameter state dictionary." },
+          { name: "attachToGPUs(gpus)", desc: "Binds model layers to primary CUDA hardware device." }
         ],
         variables: [
-          { name: "rnn", type: "nn.LSTM | nn.GRU", desc: "PyTorch recurrent layer stack." },
-          { name: "embedding", type: "nn.Embedding", desc: "Token embedding matrix mapping discrete indices to continuous vectors." }
+          { name: "voc", type: "VocSmiles", desc: "Active SMILES vocabulary mapping tokens to indices." },
+          { name: "embed_size", type: "int", desc: "Dimensionality of continuous dense token embedding space (default: 128)." },
+          { name: "hidden_size", type: "int", desc: "Hidden state dimensionality across recurrent layers (default: 512)." },
+          { name: "output_size", type: "int", desc: "Total token vocabulary size (voc.size)." },
+          { name: "embed", type: "nn.Embedding", desc: "Embedding layer mapping vocabulary tokens to dense vectors." },
+          { name: "is_lstm", type: "bool", desc: "If True, uses 3-layer LSTM cells; otherwise uses 3-layer GRU cells." },
+          { name: "rnn", type: "nn.LSTM | nn.GRU", desc: "Three-layer PyTorch recurrent network stack with batch_first=True." },
+          { name: "linear", type: "nn.Linear", desc: "Output projection mapping hidden states (hidden_size) to vocabulary logits (voc.size)." },
+          { name: "optim", type: "torch.optim.Adam", desc: "Adam optimizer initialized on model parameters with initial learning rate." }
         ],
         parameters: [
-          { name: "voc", type: "Vocabulary", desc: "Vocabulary instance containing SMILES token mapping." },
-          { name: "is_lstm", type: "bool", desc: "If True, uses LSTM cells; otherwise uses GRU cells (default: True)." },
-          { name: "hl", type: "int", desc: "Hidden state dimensionality per recurrent layer (default: 512)." },
-          { name: "num_layers", type: "int", desc: "Number of stacked recurrent layers (default: 3)." },
-          { name: "dropout", type: "float", desc: "Dropout probability applied between recurrent layers (default: 0.2)." }
+          { name: "voc", type: "VocSmiles", desc: "Vocabulary mapping SMILES tokens to numerical indices and defining special control tokens." },
+          { name: "embed_size", type: "int", desc: "Dimensionality of dense token embedding space (default: 128)." },
+          { name: "hidden_size", type: "int", desc: "Dimensionality of recurrent hidden states across layers (default: 512)." },
+          { name: "is_lstm", type: "bool", desc: "If True, uses 3-layer LSTM cells; if False, uses 3-layer GRU cells (default: True)." },
+          { name: "lr", type: "float", desc: "Initial learning rate for Adam optimizer (default: 1e-3)." },
+          { name: "device", type: "Union[torch.device, str]", desc: "Hardware execution device (default: DEFAULT_DEVICE)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "CUDA GPU indices available for computation (default: DEFAULT_GPUS)." }
         ],
         notes: "SequenceRNN uses .fit(...) for model optimization and .generate(...) or .sample(...) for autoregressive sequence sampling. It does not implement a .run(...) method (pipeline execution via .run() or .fit() belongs to high-level orchestrators such as drugex.train.Pretrain, drugex.train.Finetune, or drugex.train.Reinforce). Generating large sample sets benefits heavily from batch sampling with batch sizes between 256 and 512.",
         example: {
@@ -3124,20 +3328,22 @@ print(f"  Mean negative log-lik   : {(-log_likelihoods.mean()).item():.3f}")`,
         synopsis: `class SequenceTransformer(FragGenerator):
     def __init__(
         self,
-        voc: Vocabulary,
-        d_model: int = 256,
-        nhead: int = 8,
-        num_layers: int = 6,
-        dim_feedforward: int = 1024,
-        dropout: float = 0.1
+        voc_trg: SequenceVocabulary,
+        d_emb: int = 512,
+        d_model: int = 512,
+        n_head: int = 8,
+        d_inner: int = 1024,
+        n_layer: int = 12,
+        pad_idx: int = 0,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None`,
         description: "GPT-2 style decoder-only self-attention transformer for causal SMILES sequence generation and fragment-to-lead elaboration. Utilizes multi-head causal attention masks to allow parallelized pre-training across entire sequences without recurrent bottlenecks.",
         members: [
-          { name: "__init__(voc, d_model=256, nhead=8, num_layers=6, dim_feedforward=1024, dropout=0.1)", desc: "Constructs and initializes the causal self-attention transformer generator." },
           { name: "fit(train_loader, valid_loader=None, epochs=100, monitor=None, patience=50)", desc: "Trains transformer decoder using causal masked cross-entropy teacher forcing." },
+          { name: "forward(src, trg=None)", desc: "Forward pass for training loss computation or autoregressive generation. If trg is provided (shape [B, trg_len]), computes token prediction log-probabilities conditioned on source fragments src (shape [B, src_len]), returning tensor of shape (B, trg_len). If trg is None, autoregressively samples continuation tokens step-by-step up to voc_trg.max_len steps, returning decoded token sequences of shape (B, voc_trg.max_len)." },
           { name: "generate(frags, num_samples=128, batch_size=128, drop_duplicates=True)", desc: "Autoregressively generates SMILES continuations conditioned on input fragment prompts." },
           { name: "sample(batch_size)", desc: "Samples unconditional SMILES sequences using causal self-attention decoding." },
-          { name: "forward(src, tgt=None)", desc: "Forward pass through self-attention layers with causal lower-triangular attention mask." },
           { name: "trainNet(loader, epoch, epochs)", desc: "Executes single training epoch over causal sequence batches." },
           { name: "validateNet(loader, monitor=None)", desc: "Evaluates cross-entropy loss over validation fragment-molecule pairs." },
           { name: "loadStatesFromFile(path)", desc: "Restores transformer weights and positional embedding states from .pkg file." },
@@ -3147,14 +3353,22 @@ print(f"  Mean negative log-lik   : {(-log_likelihoods.mean()).item():.3f}")`,
           { name: "attachToGPUs(gpus)", desc: "Distributes multi-head attention layers across specified GPU device IDs." }
         ],
         variables: [
-          { name: "layers", type: "nn.ModuleList", desc: "Stack of multi-head self-attention and feedforward transformer blocks." },
-          { name: "pos_encoder", type: "nn.Module", desc: "Sinusoidal or learned absolute positional embedding layer." }
+          { name: "mol_type", type: "str", desc: "Representation format indicator ('smiles')." },
+          { name: "voc_trg", type: "SequenceVocabulary", desc: "Target token vocabulary for decoding and encoding SMILES." },
+          { name: "pad_idx", type: "int", desc: "Padding token index (default: 0)." },
+          { name: "gpt2", type: "GPT2Layer", desc: "Stacked causal GPT-2 decoder layers with sinusoidal positional embeddings and multi-head attention blocks." },
+          { name: "optim", type: "ScheduledOptim", desc: "Scheduled optimizer wrapping Adam with warmup and inverse-square-root decay." }
         ],
         parameters: [
-          { name: "voc", type: "Vocabulary", desc: "Vocabulary instance." },
-          { name: "d_model", type: "int", desc: "Transformer hidden feature dimensionality (default: 256)." },
-          { name: "nhead", type: "int", desc: "Number of parallel attention heads (default: 8)." },
-          { name: "num_layers", type: "int", desc: "Number of stacked transformer layers (default: 6)." }
+          { name: "voc_trg", type: "SequenceVocabulary", desc: "Target token vocabulary for decoding and encoding SMILES sequences." },
+          { name: "d_emb", type: "int", desc: "Embedding vector dimensionality (default: 512)." },
+          { name: "d_model", type: "int", desc: "Model hidden feature dimensionality across transformer blocks (default: 512)." },
+          { name: "n_head", type: "int", desc: "Number of parallel attention heads (default: 8)." },
+          { name: "d_inner", type: "int", desc: "Inner feed-forward layer dimension (default: 1024)." },
+          { name: "n_layer", type: "int", desc: "Number of stacked transformer layers (default: 12)." },
+          { name: "pad_idx", type: "int", desc: "Padding token index in vocabulary (default: 0)." },
+          { name: "device", type: "Union[torch.device, str]", desc: "Hardware compute device (default: DEFAULT_DEVICE)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "Tuple of CUDA GPU indices (default: DEFAULT_GPUS)." }
         ],
         notes: "Transformers require significantly more memory during autoregressive generation due to key-value caching. For low VRAM devices, reduce batch_size to 64.",
         example: {
@@ -3166,17 +3380,16 @@ voc = VocSmiles(encode_frags=True)
 transformer = SequenceTransformer(
     voc,
     d_model=256,
-    nhead=8,
-    num_layers=6,
-    dim_feedforward=1024,
-    dropout=0.1
+    n_head=8,
+    n_layer=6,
+    d_inner=1024
 )
 transformer.eval()
 
 # Simulated token input sequence: [batch_size=2, seq_len=16]
 token_input = torch.randint(low=1, high=len(voc.words), size=(2, 16))
 with torch.no_grad():
-    logits = transformer(token_input)
+    logits = transformer.gpt2(token_input.transpose(0, 1))
 
 param_count = sum(p.numel() for p in transformer.parameters())
 
@@ -3185,14 +3398,14 @@ print(f"  Transformer depth       : 6 decoder blocks (8 heads each)")
 print(f"  Hidden dimension        : 256 (feedforward: 1024)")
 print(f"  Total model parameters  : {param_count:,}")
 print(f"  Input sequence tensor   : {token_input.shape}")
-print(f"  Logits output tensor    : {logits.shape} (batch, seq, vocab)")
+print(f"  Logits output tensor    : {logits.shape} (seq, batch, vocab)")
 print(f"  Vocabulary projection   : {logits.shape[-1]} tokens")`,
           output: `SequenceTransformer GPT-2 causal language model:
   Transformer depth       : 6 decoder blocks (8 heads each)
   Hidden dimension        : 256 (feedforward: 1024)
   Total model parameters  : 4,809,303
   Input sequence tensor   : torch.Size([2, 16])
-  Logits output tensor    : torch.Size([2, 16, 87]) (batch, seq, vocab)
+  Logits output tensor    : torch.Size([16, 2, 87]) (seq, batch, vocab)
   Vocabulary projection   : 87 tokens`
         },
         seeAlso: [
@@ -3210,18 +3423,22 @@ print(f"  Vocabulary projection   : {logits.shape[-1]} tokens")`,
         synopsis: `class GraphTransformer(FragGenerator):
     def __init__(
         self,
-        voc_graph: VocGraph,
-        d_model: int = 256,
-        nhead: int = 8,
-        num_layers: int = 6
+        voc_trg: VocGraph,
+        d_emb: int = 512,
+        d_model: int = 512,
+        n_head: int = 8,
+        d_inner: int = 1024,
+        n_layer: int = 12,
+        pad_idx: int = 0,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None`,
-        description: "Direct molecular graph generation architecture. Generates atom feature matrices (element, formal charge, implicit hydrogens) and bond adjacency tensors directly, eliminating linearization syntax errors inherent in string-based SMILES representations.",
+        description: "Autoregressive Graph Transformer for fragment-conditioned molecular graph generation. Generates molecular graphs by sequentially growing atoms, bonds, and ring-closure connections onto input fragment scaffolds, predicting 4-tuple graph actions: (atom_type, current_locus, previous_locus, bond_type) under valence-satisfaction constraints.",
         members: [
-          { name: "__init__(voc_graph, d_model=256, nhead=8, num_layers=6)", desc: "Constructs and initializes the 2D direct molecular graph transformer generator." },
           { name: "fit(train_loader, valid_loader=None, epochs=100, monitor=None, patience=50)", desc: "Trains graph attention layers on molecular node feature and bond connectivity tensors." },
+          { name: "forward(src, trg=None)", desc: "Processes input graph representation src of shape (batch_size, 80, 5) representing 80 grow steps with feature channels. In inference mode, sequentially decodes valid graph construction actions up to n_grows=80 steps with valence masking. Returns output graph action tensor of shape (batch_size, 80, 5)." },
           { name: "generate(frags, num_samples=128, batch_size=128)", desc: "Generates molecular graphs conditioned on input fragment subgraphs." },
           { name: "sample(num_samples)", desc: "Samples valid 2D molecular graphs with valence and ring-closure constraints." },
-          { name: "forward(nodes, edges)", desc: "Processes node feature vectors and bond matrices through graph self-attention." },
           { name: "trainNet(loader, epoch, epochs)", desc: "Runs single training pass optimizing atom-type and bond-type classification losses." },
           { name: "validateNet(loader, monitor=None)", desc: "Calculates validation loss across molecular graph test batches." },
           { name: "loadStatesFromFile(path)", desc: "Restores trained graph transformer weights from .pkg file." },
@@ -3231,12 +3448,28 @@ print(f"  Vocabulary projection   : {logits.shape[-1]} tokens")`,
           { name: "attachToGPUs(gpus)", desc: "Binds model layers across specified CUDA devices using PyTorch DataParallel." }
         ],
         variables: [
-          { name: "atom_layer", type: "nn.Module", desc: "Atomic node classification projection head." },
-          { name: "edge_layer", type: "nn.Module", desc: "Bilinear bond type adjacency prediction head." }
+          { name: "mol_type", type: "str", desc: "Representation format indicator ('graph')." },
+          { name: "voc_trg", type: "VocGraph", desc: "Target graph vocabulary specifying atom types, bond types, and valences." },
+          { name: "n_grows", type: "int", desc: "Maximum number of atom addition steps (80)." },
+          { name: "n_frags", type: "int", desc: "Maximum number of fragment linking steps." },
+          { name: "emb_word", type: "nn.Embedding", desc: "Embedding for combined atom/bond tokens." },
+          { name: "emb_atom", type: "nn.Embedding", desc: "Embedding for atom element types." },
+          { name: "emb_loci", type: "nn.Embedding", desc: "Embedding for graph node positions / connection loci." },
+          { name: "emb_site", type: "PositionalEncoding", desc: "Sinusoidal positional encoding for connection sites." },
+          { name: "attn", type: "AtomLayer", desc: "Multi-head attention transformer stack for processing sequential graph construction steps." },
+          { name: "rnn", type: "nn.GRUCell", desc: "Recurrent transition cell for step-wise graph action decoding." },
+          { name: "optim", type: "ScheduledOptim", desc: "Scheduled optimizer wrapping Adam with warmup and learning rate scheduling." }
         ],
         parameters: [
-          { name: "voc_graph", type: "VocGraph", desc: "Graph vocabulary specifying supported atom and bond types." },
-          { name: "d_model", type: "int", desc: "Graph transformer embedding dimension (default: 256)." }
+          { name: "voc_trg", type: "VocGraph", desc: "Graph vocabulary specifying supported atom and bond types." },
+          { name: "d_emb", type: "int", desc: "Embedding vector dimensionality for atom words and loci (default: 512)." },
+          { name: "d_model", type: "int", desc: "Hidden feature dimension across attention and GRU layers (default: 512)." },
+          { name: "n_head", type: "int", desc: "Number of attention heads in AtomLayer (default: 8)." },
+          { name: "d_inner", type: "int", desc: "Feed-forward inner dimension (default: 1024)." },
+          { name: "n_layer", type: "int", desc: "Number of stacked transformer layers (default: 12)." },
+          { name: "pad_idx", type: "int", desc: "Padding token index (default: 0)." },
+          { name: "device", type: "Union[torch.device, str]", desc: "Target hardware execution device (default: DEFAULT_DEVICE)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "CUDA GPU indices available for training (default: DEFAULT_GPUS)." }
         ],
         notes: "Guarantees 100% syntactically valid graph topologies by applying dynamic valence checks during edge addition.",
         example: {
@@ -3389,24 +3622,49 @@ print(f"  Recurrent step status   : Next hidden state shape = {h_next.shape}")`,
         env: Environment,
         mutate: Optional[Generator] = None,
         crover: Optional[Generator] = None,
+        no_multifrag_smiles: bool = True,
         batch_size: int = 128,
         epsilon: float = 0.1,
-        sigma: float = 0.0
+        beta: float = 0.0,
+        n_samples: int = -1,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None`,
-        description: "Abstract base reinforcement learning explorer in DrugEx. Coordinates policy gradient updates (REINFORCE) between a generative agent, an environment evaluation oracle, and optional genetic operators (mutation and crossover networks).",
+        description: "Abstract base reinforcement learning explorer in DrugEx. Coordinates policy gradient updates (REINFORCE) between a generative agent, an environment evaluation oracle, and optional genetic operators (mutation and crossover networks). Defines standard evaluation metrics, state checkpointing, and GPU binding protocols.",
         members: [
-          { name: "fit(epochs, monitor=None)", desc: "Executes the main RL loop across specified epochs, updating agent policy weights." },
-          { name: "policy_gradient_loss(rewards, log_probs)", desc: "Computes policy gradient objective with baseline subtraction." }
+          { name: "fit(train_loader, valid_loader=None, epochs=1000, patience=50, criteria='desired_ratio', min_epochs=100, monitor=None)", desc: "Abstract RL training loop updating agent policy weights across iterations until early stopping or epoch exhaustion." },
+          { name: "policy_gradient(*args, **kwargs)", desc: "Abstract REINFORCE policy gradient optimization step using environment feedback." },
+          { name: "getNovelMoleculeMetrics(scores)", desc: "Computes evaluation metrics dictionary from environment scores DataFrame: valid_ratio, accurate_ratio (if fragments present), unique_ratio, desired_ratio, avg_amean, and avg_gmean." },
+          { name: "saveBestState(value, epoch, it)", desc: "Persists best model checkpoint state dictionary (self.bestState = self.getModel()), updates best_value tracker, and triggers monitor.saveModel(self)." },
+          { name: "logPerformanceAndCompounds(epoch, metrics, scores)", desc: "Packages epoch performance dictionary and compound score table, dispatching telemetry to monitor.savePerformanceInfo and monitor.endStep." },
+          { name: "getModel()", desc: "Extracts and returns deep copy of the agent model parameter state dictionary (deepcopy(self.agent.state_dict()))." },
+          { name: "attachToGPUs(gpus)", desc: "Distributes agent, mutate, and crover networks across specified CUDA hardware devices." }
         ],
         variables: [
           { name: "agent", type: "Generator", desc: "Active generative model being optimized by policy gradient." },
           { name: "env", type: "Environment", desc: "Multi-objective reward environment providing feedback signals." },
-          { name: "optim", type: "torch.optim.Optimizer", desc: "Optimizer updating agent parameters (typically Adam with lr=1e-4)." }
+          { name: "mutate", type: "Optional[Generator]", desc: "Frozen pre-trained generative model providing exploratory novelty." },
+          { name: "crover", type: "Optional[Generator]", desc: "Iteratively updated generative model promoting exploitation." },
+          { name: "batchSize", type: "int", desc: "Batch size for generation rollouts and policy gradient updates (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Exploration rate controlling probability of routing generation through mutate network (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Reward baseline offset for variance reduction in REINFORCE gradient (default: 0.0)." },
+          { name: "nSamples", type: "int", desc: "Number of candidate molecules to generate per iteration (-1 = full loader)." },
+          { name: "no_multifrag_smiles", type: "bool", desc: "If True, molecules containing disconnected dot notation '.' receive 0 reward." },
+          { name: "bestState", type: "Optional[dict[str, torch.Tensor]]", desc: "Saved parameter state dictionary of best model checkpoint." },
+          { name: "best_value", type: "float", desc: "Highest achieved selection criteria metric score across training history." }
         ],
         parameters: [
-          { name: "agent", type: "Generator", desc: "Trained prior generative model to be fine-tuned." },
-          { name: "env", type: "Environment", desc: "Evaluator computing multi-objective desirability rewards." },
-          { name: "batch_size", type: "int", desc: "Number of molecules sampled per RL iteration (default: 128)." }
+          { name: "agent", type: "Generator", desc: "The generative agent network optimized by the policy gradient explorer." },
+          { name: "env", type: "Environment", desc: "Evaluation environment supplying multi-objective desirability and Pareto dominance rewards." },
+          { name: "mutate", type: "Optional[Generator]", desc: "Pre-trained frozen network used to maintain chemical diversity and prevent mode collapse." },
+          { name: "crover", type: "Optional[Generator]", desc: "Iteratively updated network that exploits favorable regions of chemical space." },
+          { name: "no_multifrag_smiles", type: "bool", desc: "If True, disjoint structures containing multiple fragments are assigned 0 reward (default: True)." },
+          { name: "batch_size", type: "int", desc: "Number of molecules sampled per RL batch rollout and policy update (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Probability of querying the mutation network during autoregressive sampling (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Baseline subtracted from reward signal to reduce REINFORCE variance: (R - beta) (default: 0.0)." },
+          { name: "n_samples", type: "int", desc: "Number of molecules generated per RL iteration. If -1, full dataset loader is consumed (default: -1)." },
+          { name: "device", type: "Union[torch.device, str]", desc: "Hardware compute device for policy updates (default: DEFAULT_DEVICE)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "Tuple of CUDA GPU device indices for DataParallel acceleration (default: DEFAULT_GPUS)." }
         ],
         notes: "Always maintain an frozen copy of the pre-trained prior to compute KL-divergence penalties if preventing policy drift.",
         example: {
@@ -3444,16 +3702,42 @@ Model parameter tensors in state dict: 12`
         kind: "class",
         badges: ["DrugEx 3.4+", "Fragment Guided", "Scaffold Decoration"],
         synopsis: `class FragExplorer(Explorer, ABC):
-    def __init__(self, agent: FragGenerator, env: Environment, frags: List[str], **kwargs) -> None`,
-        description: "Abstract base explorer specialized in scaffold-based and fragment-conditioned reinforcement learning. Samples target fragments and drives elaboration toward high affinity and favorable ADMET space.",
+    def __init__(
+        self,
+        agent: FragGenerator,
+        env: Environment,
+        mutate: Optional[FragGenerator] = None,
+        crover: Optional[FragGenerator] = None,
+        no_multifrag_smiles: bool = True,
+        batch_size: int = 128,
+        epsilon: float = 0.1,
+        beta: float = 0.0,
+        n_samples: int = -1,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS
+    ) -> None`,
+        description: "Abstract base explorer specialized in scaffold-based and fragment-conditioned reinforcement learning. Samples target fragments and drives elaboration toward high affinity and favorable ADMET space, enforcing strict preservation of input core fragments.",
         members: [
-          { name: "sample_frags(n)", desc: "Selects a batch of fragments from the active training scaffold set." }
+          { name: "fit(train_loader, valid_loader=None, epochs=1000, patience=50, criteria='desired_ratio', min_epochs=100, monitor=None)", desc: "Executes fragment elaboration training loop with early stopping patience and performance logging." },
+          { name: "policy_gradient(loader)", desc: "Iterates DataLoader fragment batches, calculates REINFORCE loss L = -mean(loss * (R - beta)), zeroes multi-fragment rewards if no_multifrag_smiles=True, and updates generator parameters." },
+          { name: "getBatchOutputs(net, src)", desc: "Abstract method returning decoded tuple (frags, smiles, loss) for a mini-batch of fragments-molecule pairs." },
+          { name: "sample_input(loader, is_test=False)", desc: "Abstract method sampling a batch of fragment-molecule pairs from training or validation loader." },
+          { name: "sampleEncodedPairsToLoader(net, loader)", desc: "Abstract method sampling newly generated fragment-molecule pairs and packing them into an evaluation DataLoader." }
         ],
         variables: [
-          { name: "frags", type: "List[str]", desc: "Library of core fragments to be elaborated during RL training." }
+          { name: "agent", type: "FragGenerator", desc: "Fragment-conditioned generative network (SequenceTransformer or GraphTransformer)." },
+          { name: "env", type: "Environment", desc: "Evaluation environment scoring generated molecules under fragment retention constraints." }
         ],
         parameters: [
-          { name: "frags", type: "List[str]", desc: "List of SMILES fragments." }
+          { name: "agent", type: "FragGenerator", desc: "Fragment-based generative model." },
+          { name: "env", type: "Environment", desc: "Scoring environment evaluating elaborated molecules." },
+          { name: "mutate", type: "Optional[FragGenerator]", desc: "Exploration prior for fragment elaboration." },
+          { name: "crover", type: "Optional[FragGenerator]", desc: "Exploitation network for scaffold decoration." },
+          { name: "no_multifrag_smiles", type: "bool", desc: "If True, multi-fragment SMILES are penalized with 0 reward (default: True)." },
+          { name: "batch_size", type: "int", desc: "Batch size for DataLoader and policy updates (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Probability of using mutate network during generation (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Reward baseline offset (default: 0.0)." },
+          { name: "n_samples", type: "int", desc: "Number of molecules per iteration (-1 = all samples in loader)." }
         ],
         notes: "Ensures that generated molecules strictly contain the preserved input scaffold in their molecular graphs.",
         example: {
@@ -3494,27 +3778,53 @@ Active batch size for elaboration: 32`
         env: Environment,
         mutate: Optional[SequenceRNN] = None,
         crover: Optional[SequenceRNN] = None,
+        no_multifrag_smiles: bool = True,
         batch_size: int = 128,
         epsilon: float = 0.1,
-        sigma: float = 0.0
+        beta: float = 0.0,
+        n_samples: int = 1000,
+        optim: Optional[torch.optim.Optimizer] = None,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None`,
-        description: "De novo sequence reinforcement learning explorer for optimizing SequenceRNN models. Samples SMILES batches, collects multi-objective rewards from DrugExEnvironment, and performs policy gradient updates with reward-weighted likelihood loss.",
+        description: "De novo sequence reinforcement learning explorer for optimizing SequenceRNN models under multi-objective reward feedback. Samples SMILES batches, collects scalarized desirability and Pareto dominance rewards from DrugExEnvironment, and performs policy gradient updates (REINFORCE) with reward-weighted sequence likelihood loss.",
         members: [
-          { name: "__init__(agent, env, mutate=None, crover=None, batch_size=128, epsilon=0.1, sigma=0.0)", desc: "Constructs and initializes the sequence-based reinforcement learning explorer." },
-          { name: "fit(train_loader=None, valid_loader=None, monitor=None, epochs=1000, patience=50, reload_interval=50, criteria='desired_ratio', min_epochs=100)", desc: "Runs the complete RL exploration trajectory across specified epochs, updating agent policy weights." },
-          { name: "forward()", desc: "Generates candidate molecule batch using agent and mutation prior, returning decoded SMILES and sequence tensors." },
-          { name: "policy_gradient(smiles=None, seqs=None, epoch=None, epochs=None)", desc: "Executes REINFORCE policy gradient step using environment rewards with baseline subtraction." },
-          { name: "getNovelMoleculeMetrics(scores)", desc: "Computes validity ratio, uniqueness ratio, desired ratio, and mean objective scores for generated batch." },
-          { name: "saveBestState(value, epoch, it)", desc: "Persists best model checkpoint based on chosen early stopping criteria." }
+          { name: "fit(train_loader=None, valid_loader=None, monitor=None, epochs=1000, patience=50, reload_interval=50, criteria='desired_ratio', min_epochs=100)", desc: "Executes complete RL training loop across epochs, generating candidates, updating policy gradients, tracking validation metrics, and periodically resetting weights to best checkpoint every reload_interval epochs." },
+          { name: "forward()", desc: "Autoregressively generates nSamples candidate SMILES sequences, concatenates into LongTensor of shape (nSamples, L), decodes to canonical SMILES via agent.voc.decode, filters duplicate structures using unique(), and returns tuple[np.ndarray, torch.LongTensor] of shapes (U,) unique SMILES and (U, L) sequence tokens." },
+          { name: "policy_gradient(smiles=None, seqs=None, epoch=None, epochs=None)", desc: "Evaluates candidate rewards R(S) via env.getRewards(smiles) of shape (U, 1), builds TensorDataset and DataLoader(batch_size=128, shuffle=True), evaluates per-token cross-entropy log-likelihood log P(S_i) via agent.likelihood(seq) of shape (B,), scales by baseline-adjusted reward (R_i - beta), minimizes REINFORCE objective L = -mean(loss * (R - beta)), steps optimizer, streams batch progress to monitor, and returns scalar float loss." },
+          { name: "getNovelMoleculeMetrics(scores)", desc: "Computes evaluation metrics dictionary from environment scores DataFrame: valid_ratio, accurate_ratio, unique_ratio, desired_ratio, avg_amean, and avg_gmean." },
+          { name: "saveBestState(value, epoch, it)", desc: "Persists best model checkpoint state dictionary (self.bestState = self.getModel()), updates best_value tracker, and triggers monitor.saveModel(self)." },
+          { name: "logPerformanceAndCompounds(epoch, metrics, scores)", desc: "Packages epoch performance dictionary and compound score table, dispatching telemetry to monitor.savePerformanceInfo and monitor.endStep." },
+          { name: "getModel()", desc: "Extracts and returns deep copy of the agent model parameter state dictionary (deepcopy(self.agent.state_dict()))." },
+          { name: "attachToGPUs(gpus)", desc: "Distributes agent, mutate, and crover networks across specified CUDA hardware devices." }
         ],
         variables: [
-          { name: "agent", type: "SequenceRNN", desc: "Active generative network." },
-          { name: "env", type: "Environment", desc: "Scoring environment." }
+          { name: "agent", type: "SequenceRNN", desc: "Active generative network being optimized by policy gradient." },
+          { name: "env", type: "Environment", desc: "Multi-objective reward environment providing feedback signals." },
+          { name: "mutate", type: "Optional[SequenceRNN]", desc: "Frozen pre-trained network used for mutation policy exploration." },
+          { name: "crover", type: "Optional[SequenceRNN]", desc: "Iteratively updated crossover network promoting exploitation." },
+          { name: "batchSize", type: "int", desc: "Batch size for generation rollouts and policy gradient updates (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Exploration rate controlling probability of routing generation through mutate network (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Reward baseline offset for variance reduction in REINFORCE gradient (default: 0.0)." },
+          { name: "nSamples", type: "int", desc: "Number of candidate molecules to generate per iteration (default: 1000)." },
+          { name: "no_multifrag_smiles", type: "bool", desc: "If True, molecules containing disconnected dot notation '.' receive 0 reward (default: True)." },
+          { name: "optim", type: "torch.optim.Optimizer", desc: "Active optimizer updating agent parameters (defaults to Adam with lr=1e-3)." },
+          { name: "bestState", type: "Optional[dict[str, torch.Tensor]]", desc: "Saved parameter state dictionary of best model checkpoint." },
+          { name: "best_value", type: "float", desc: "Highest achieved selection criteria metric score across training history." }
         ],
         parameters: [
-          { name: "agent", type: "SequenceRNN", desc: "Pre-trained SMILES RNN generator." },
-          { name: "env", type: "Environment", desc: "Evaluation environment." },
-          { name: "epsilon", type: "float", desc: "Exploration rate for mutation policy mixing (default: 0.1)." }
+          { name: "agent", type: "SequenceRNN", desc: "The pre-trained SMILES RNN generator optimized by the explorer." },
+          { name: "env", type: "Environment", desc: "Evaluation environment supplying multi-objective desirability and Pareto dominance rewards." },
+          { name: "mutate", type: "Optional[SequenceRNN]", desc: "Pre-trained frozen network used to maintain chemical diversity and prevent mode collapse (default: None)." },
+          { name: "crover", type: "Optional[SequenceRNN]", desc: "Iteratively updated network that exploits favorable regions of chemical space (default: None)." },
+          { name: "no_multifrag_smiles", type: "bool", desc: "If True, disjoint structures containing multiple fragments are assigned 0 reward (default: True)." },
+          { name: "batch_size", type: "int", desc: "Batch size for policy gradient mini-batches and token decoding (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Probability of querying the mutation network during autoregressive sampling (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Baseline subtracted from reward signal to reduce REINFORCE variance: (R - beta) (default: 0.0)." },
+          { name: "n_samples", type: "int", desc: "Number of molecules generated per RL iteration (default: 1000)." },
+          { name: "optim", type: "Optional[torch.optim.Optimizer]", desc: "PyTorch optimizer instance (defaults to Adam(agent.parameters(), lr=1e-3))." },
+          { name: "device", type: "Union[torch.device, str]", desc: "Hardware compute device for policy updates (default: DEFAULT_DEVICE)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "Tuple of CUDA GPU device indices for DataParallel acceleration (default: DEFAULT_GPUS)." }
         ],
         notes: "To avoid mode collapse, initialize epsilon around 0.1 and combine with a diversity penalty like ParetoCrowdingDistance.",
         example: {
@@ -3551,22 +3861,50 @@ Agent architecture: SequenceRNN`
     def __init__(
         self,
         agent: SequenceTransformer,
-        env: Environment,
-        frags: List[str],
+        env: Optional[Environment] = None,
+        crover: Optional[SequenceTransformer] = None,
+        mutate: Optional[SequenceTransformer] = None,
         batch_size: int = 128,
-        epsilon: float = 0.1
+        epsilon: float = 0.1,
+        beta: float = 0.0,
+        n_samples: int = -1,
+        optim: Optional[torch.optim.Optimizer] = None,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS,
+        no_multifrag_smiles: bool = True
     ) -> None`,
-        description: "Reinforcement learning explorer tailored for fragment-conditioned sequence transformers. Samples seed fragments from a predefined library, prompts the transformer to elaborate them, and optimizes parameters toward multi-objective drug-likeness.",
+        description: "Fragment-conditioned sequence reinforcement learning explorer optimizing SequenceTransformer (causal GPT-2) agents. Elaborates predefined seed fragment scaffolds into complete drug-like molecules, computing policy gradient loss against multi-objective environment feedback and enforcing fragment retention.",
         members: [
-          { name: "__init__(agent, env, frags, batch_size=128, epsilon=0.1)", desc: "Constructs and initializes the fragment-conditioned sequence transformer explorer." },
-          { name: "fit(epochs, monitor=None)", desc: "Runs fragment elaboration RL loop, saving best checkpoints based on validity and reward." }
+          { name: "fit(train_loader, valid_loader=None, epochs=1000, patience=50, criteria='desired_ratio', min_epochs=100, monitor=None)", desc: "Runs fragment elaboration RL loop, saving best checkpoints based on validity, desired ratio, and Pareto rewards." },
+          { name: "forward(src)", desc: "Autoregressively generates sequence continuations conditioned on input fragment prompts src of shape (B, S). Applies causal triangular and key padding masks, sampling tokens step-by-step with random mutation/crossover routing according to epsilon. Returns elaborated token tensor out of shape (B, L)." },
+          { name: "policy_gradient(loader)", desc: "Iterates DataLoader fragment batches, decodes fragments and SMILES via getBatchOutputs, queries environment rewards R(S, F) of shape (B, 1), zeroes multi-fragment rewards if no_multifrag_smiles=True, minimizes REINFORCE objective L = -mean(loss * (R - beta)), and updates network weights via ScheduledOptim." },
+          { name: "getBatchOutputs(net, src)", desc: "Evaluates DataParallel model forward pass for fragment batch, returning tuple (frags, smiles, loss) where loss is per-sequence token cross-entropy tensor of shape (B,)." },
+          { name: "sample_input(loader, is_test=False)", desc: "Samples a mini-batch of fragment-molecule pairs from the training or validation DataLoader." },
+          { name: "sampleEncodedPairsToLoader(net, loader)", desc: "Samples newly generated fragment-molecule pairs and encapsulates them into an evaluation DataLoader." }
         ],
         variables: [
-          { name: "agent", type: "SequenceTransformer", desc: "Underlying transformer generator." }
+          { name: "agent", type: "SequenceTransformer", desc: "Underlying causal GPT-2 transformer generator being fine-tuned." },
+          { name: "env", type: "Environment", desc: "Multi-objective scoring environment validating fragment preservation and physicochemical desirability." },
+          { name: "mutate", type: "Optional[SequenceTransformer]", desc: "Pre-trained prior network increasing exploration of chemical space." },
+          { name: "crover", type: "Optional[SequenceTransformer]", desc: "Iteratively updated network increasing exploitation." },
+          { name: "batchSize", type: "int", desc: "Batch size for generation rollouts and policy updates (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Probability of querying the mutate network during token sampling (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Reward baseline offset for REINFORCE gradient variance reduction (default: 0.0)." },
+          { name: "optim", type: "ScheduledOptim", desc: "Scheduled optimizer wrapping Adam with warmup and inverse-square-root learning rate decay." }
         ],
         parameters: [
-          { name: "agent", type: "SequenceTransformer", desc: "Transformer model." },
-          { name: "frags", type: "List[str]", desc: "Seed scaffold SMILES strings." }
+          { name: "agent", type: "SequenceTransformer", desc: "The fragment-conditioned SequenceTransformer model to optimize." },
+          { name: "env", type: "Optional[Environment]", desc: "Evaluation environment computing multi-objective desirability and fragment preservation." },
+          { name: "crover", type: "Optional[SequenceTransformer]", desc: "Exploitation network for scaffold decoration (default: None)." },
+          { name: "mutate", type: "Optional[SequenceTransformer]", desc: "Exploration prior network providing diverse fragment continuations (default: None)." },
+          { name: "batch_size", type: "int", desc: "Batch size for DataLoader and policy updates (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Exploration rate controlling probability of using mutate network (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Baseline subtracted from reward signal to reduce REINFORCE variance (default: 0.0)." },
+          { name: "n_samples", type: "int", desc: "Number of molecules generated per epoch (-1 = full loader)." },
+          { name: "optim", type: "Optional[torch.optim.Optimizer]", desc: "Custom optimizer (defaults to ScheduledOptim(Adam, 1.0, 512))." },
+          { name: "device", type: "Union[torch.device, str]", desc: "Hardware execution device (default: DEFAULT_DEVICE)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "Tuple of CUDA GPU device indices for training (default: DEFAULT_GPUS)." },
+          { name: "no_multifrag_smiles", type: "bool", desc: "If True, multi-fragment molecules containing '.' receive 0 reward (default: True)." }
         ],
         notes: "If the input fragment is very large (> 25 heavy atoms), the transformer has less remaining sequence length for elaboration; monitor token budget accordingly.",
         example: {
@@ -3605,20 +3943,49 @@ Exploration epsilon: 0.1`
     def __init__(
         self,
         agent: GraphTransformer,
-        env: Environment,
-        frags: List[str],
-        batch_size: int = 128
+        env: Optional[Environment] = None,
+        mutate: Optional[GraphTransformer] = None,
+        crover: Optional[GraphTransformer] = None,
+        batch_size: int = 128,
+        epsilon: float = 0.1,
+        beta: float = 0.0,
+        n_samples: int = -1,
+        optim: Optional[torch.optim.Optimizer] = None,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS,
+        no_multifrag_smiles: bool = True
     ) -> None`,
-        description: "Reinforcement learning explorer optimizing 2D molecular graphs directly from seed fragments. Uses actor-critic policy gradients to reward graph additions that maximize physical binding affinity and pharmacophore overlap.",
+        description: "Graph-based fragment reinforcement learning explorer optimizing GraphTransformer models. Decorates seed scaffolds directly in 2D molecular graph space, generating atom additions, connection loci, and bond orders under rigorous valence-satisfaction constraints.",
         members: [
-          { name: "__init__(agent, env, frags, batch_size=128)", desc: "Constructs and initializes the fragment-conditioned 2D graph transformer explorer." },
-          { name: "fit(epochs, monitor=None)", desc: "Optimizes GraphTransformer parameters via graph policy gradients." }
+          { name: "fit(train_loader, valid_loader=None, epochs=1000, patience=50, criteria='desired_ratio', min_epochs=100, monitor=None)", desc: "Optimizes GraphTransformer parameters via graph policy gradients with early stopping and monitor logging." },
+          { name: "forward(src)", desc: "Forward graph elaboration pass. Input tensor src of shape (batch_size, 80, 5) representing 80 grow steps with 5 feature channels (atom type, formal charge, locus, bond order, mask). Sequentially selects graph extension actions governed by epsilon-greedy exploration between agent, mutation prior, and crossover network. Returns output graph action tensor of shape (batch_size, 80, 5)." },
+          { name: "policy_gradient(loader)", desc: "Calculates graph REINFORCE policy gradients, scoring generated graphs against environment objectives and backpropagating reward-weighted action-log-probability loss." },
+          { name: "getBatchOutputs(net, src)", desc: "Decodes graph tensors to SMILES and computes graph reconstruction cross-entropy loss tensor." },
+          { name: "sample_input(loader, is_test=False)", desc: "Samples a mini-batch of graph fragments from the input DataLoader." },
+          { name: "sampleEncodedPairsToLoader(net, loader)", desc: "Generates novel graph molecules from fragment seeds and packages into DataLoader for validation." }
         ],
         variables: [
-          { name: "agent", type: "GraphTransformer", desc: "Graph generative model." }
+          { name: "agent", type: "GraphTransformer", desc: "Graph generative model being optimized by policy gradient." },
+          { name: "env", type: "Environment", desc: "Multi-objective reward environment providing feedback signals." },
+          { name: "voc_trg", type: "VocGraph", desc: "Target graph vocabulary specifying atom types, bond types, and valences." },
+          { name: "optim", type: "ScheduledOptim", desc: "Scheduled optimizer wrapping Adam with warmup and inverse-square-root decay." },
+          { name: "batchSize", type: "int", desc: "Batch size for graph mini-batches (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Exploration rate controlling mutate network sampling probability (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Reward baseline offset for policy gradient variance reduction (default: 0.0)." }
         ],
         parameters: [
-          { name: "agent", type: "GraphTransformer", desc: "GraphTransformer instance." }
+          { name: "agent", type: "GraphTransformer", desc: "The GraphTransformer model optimized by the explorer." },
+          { name: "env", type: "Optional[Environment]", desc: "Multi-objective scoring environment." },
+          { name: "mutate", type: "Optional[GraphTransformer]", desc: "Pre-trained graph transformer prior network for diversity." },
+          { name: "crover", type: "Optional[GraphTransformer]", desc: "Crossover graph transformer for exploitation (default: None)." },
+          { name: "batch_size", type: "int", desc: "Batch size for training and graph rollout (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Probability of querying mutate network during graph growth (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Reward baseline offset (default: 0.0)." },
+          { name: "n_samples", type: "int", desc: "Number of molecules per iteration (-1 = all samples in loader)." },
+          { name: "optim", type: "Optional[torch.optim.Optimizer]", desc: "Scheduled optimizer wrapper (defaults to ScheduledOptim(Adam, 1.0, 512))." },
+          { name: "device", type: "Union[torch.device, str]", desc: "Compute device (default: DEFAULT_DEVICE)." },
+          { name: "use_gpus", type: "Sequence[int]", desc: "CUDA GPU indices (default: DEFAULT_GPUS)." },
+          { name: "no_multifrag_smiles", type: "bool", desc: "If True, multi-fragment molecules receive 0 reward (default: True)." }
         ],
         notes: "Valence checking is performed at every action step; invalid actions that would create pentavalent carbons receive zero probability mask.",
         example: {
@@ -3654,16 +4021,48 @@ Valence-constrained action space initialized: True`
         kind: "class",
         badges: ["DrugEx 3.4+", "De Novo Graph", "Actor-Critic"],
         synopsis: `class GraphExplorer(Explorer):
-    def __init__(self, agent: GraphTransformer, env: Environment, **kwargs) -> None`,
+    def __init__(
+        self,
+        agent: GraphTransformer,
+        env: Environment,
+        mutate: Optional[GraphTransformer] = None,
+        crover: Optional[GraphTransformer] = None,
+        no_multifrag_smiles: bool = True,
+        batch_size: int = 128,
+        epsilon: float = 0.1,
+        beta: float = 0.0,
+        n_samples: int = 1000,
+        optim: Optional[torch.optim.Optimizer] = None,
+        device: Union[torch.device, str] = DEFAULT_DEVICE,
+        use_gpus: Sequence[int] = DEFAULT_GPUS
+    ) -> None`,
         description: "De novo graph-based reinforcement learning explorer. Synthesizes complete molecules from scratch as atomic feature matrices and edge connectivity tensors without relying on seed fragments.",
         members: [
-          { name: "fit(epochs, monitor=None)", desc: "Iterates de novo graph policy gradient training." }
+          { name: "fit(train_loader=None, valid_loader=None, monitor=None, epochs=1000, patience=50, reload_interval=50, criteria='desired_ratio', min_epochs=100)", desc: "Executes de novo graph policy gradient training loop across epochs, saving best checkpoints based on early stopping criteria." },
+          { name: "forward()", desc: "Autoregressively generates batches of complete molecular graphs from scratch using GraphTransformer action policy with epsilon-greedy mutation mixing." },
+          { name: "policy_gradient(smiles=None, seqs=None, epoch=None, epochs=None)", desc: "Performs REINFORCE policy gradient update on graph generator parameters weighted by multi-objective rewards." },
+          { name: "getNovelMoleculeMetrics(scores)", desc: "Computes validity, uniqueness, and desired ratio metrics for generated molecular graph batches." }
         ],
         variables: [
-          { name: "agent", type: "GraphTransformer", desc: "De novo graph transformer agent." }
+          { name: "agent", type: "GraphTransformer", desc: "De novo graph transformer agent network." },
+          { name: "env", type: "Environment", desc: "Multi-objective reward environment providing feedback signals." },
+          { name: "mutate", type: "Optional[GraphTransformer]", desc: "Frozen prior graph network for exploration." },
+          { name: "crover", type: "Optional[GraphTransformer]", desc: "Crossover graph network for exploitation." },
+          { name: "batchSize", type: "int", desc: "Batch size for generation rollouts and policy gradient updates (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Probability of querying mutate prior network during graph generation (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Reward baseline offset for REINFORCE variance reduction (default: 0.0)." }
         ],
         parameters: [
-          { name: "agent", type: "GraphTransformer", desc: "GraphTransformer model." }
+          { name: "agent", type: "GraphTransformer", desc: "GraphTransformer model to be trained." },
+          { name: "env", type: "Environment", desc: "Evaluation environment computing multi-objective rewards." },
+          { name: "mutate", type: "Optional[GraphTransformer]", desc: "Pre-trained prior network for exploratory diversity (default: None)." },
+          { name: "crover", type: "Optional[GraphTransformer]", desc: "Crossover network for chemical space exploitation (default: None)." },
+          { name: "no_multifrag_smiles", type: "bool", desc: "If True, multi-fragment molecules receive 0 reward (default: True)." },
+          { name: "batch_size", type: "int", desc: "Mini-batch size for policy gradient training (default: 128)." },
+          { name: "epsilon", type: "float", desc: "Mutation prior routing probability (default: 0.1)." },
+          { name: "beta", type: "float", desc: "Baseline reward subtracted from environment feedback (default: 0.0)." },
+          { name: "n_samples", type: "int", desc: "Number of molecules sampled per epoch (default: 1000)." },
+          { name: "optim", type: "Optional[torch.optim.Optimizer]", desc: "Custom optimizer (defaults to Adam with lr=1e-3)." }
         ],
         notes: "Requires careful learning rate scheduling (e.g. cosine annealing with warmup) to prevent early convergence to trivial graph structures.",
         example: {
@@ -3839,32 +4238,45 @@ for val, s in zip(test_vals, scores):
 
       "drugex::training::scorers::SmoothClippedScore": {
         category: "core",
-        module: "drugex.training.scorers",
+        module: "drugex.training.scorers.modifiers",
         title: "SmoothClippedScore",
         kind: "class",
         badges: ["DrugEx 3.4+", "Sigmoid Desirability", "Smooth Gradient"],
         synopsis: `class SmoothClippedScore(ScoreModifier):
-    def __init__(self, lower_x: float, upper_x: float) -> None`,
-        description: "Smooth sigmoidal modifier mapping values between lower_x and upper_x using a logistic curve. Ensures non-zero gradients even outside nominal bounds, avoiding gradient vanishing during reinforcement learning.",
+    def __init__(
+        self,
+        upper_x: float,
+        lower_x: float = 0.0,
+        high_score: float = 1.0,
+        low_score: float = 0.0
+    ) -> None`,
+        description: "Smooth sigmoidal modifier mapping values between lower_x and upper_x using a logistic curve. Ensures non-zero gradients across the entire real number line (-inf, +inf), eliminating vanishing gradients during reinforcement learning.",
         members: [
-          { name: "__call__(x)", desc: "Applies 1 / (1 + exp(-k * (x - x0))) transformation scaled between lower_x and upper_x." }
+          { name: "__call__(x)", desc: "Applies logistic transformation f(x) = low_score + (high_score - low_score) / (1 + exp(-k * (x - middle_x))) where k = 4 / (upper_x - lower_x). Evaluates element-wise across float scalars or np.ndarray tensors of shape (N,) or (N, M)." }
         ],
         variables: [
-          { name: "lower_x", type: "float", desc: "Lower inflection anchor point." },
-          { name: "upper_x", type: "float", desc: "Upper inflection anchor point." }
+          { name: "upper_x", type: "float", desc: "Input x-value where score approaches high_score." },
+          { name: "lower_x", type: "float", desc: "Input x-value where score approaches low_score (default: 0.0)." },
+          { name: "high_score", type: "float", desc: "Upper asymptotic desirability bound (default: 1.0)." },
+          { name: "low_score", type: "float", desc: "Lower asymptotic desirability bound (default: 0.0)." },
+          { name: "k", type: "float", desc: "Logistic steepness coefficient: k = 4.0 / (upper_x - lower_x)." },
+          { name: "middle_x", type: "float", desc: "Logistic inflection midpoint: middle_x = (upper_x + lower_x) / 2.0." },
+          { name: "L", type: "float", desc: "Dynamic range amplitude: L = high_score - low_score." }
         ],
         parameters: [
-          { name: "lower_x", type: "float", desc: "Value corresponding to 10% desirability." },
-          { name: "upper_x", type: "float", desc: "Value corresponding to 90% desirability." }
+          { name: "upper_x", type: "float", desc: "Transition boundary where score reaches approximately high_score (or inflection end)." },
+          { name: "lower_x", type: "float", desc: "Transition boundary where score reaches approximately low_score (default: 0.0)." },
+          { name: "high_score", type: "float", desc: "Maximum asymptote of the sigmoid curve (default: 1.0)." },
+          { name: "low_score", type: "float", desc: "Minimum asymptote of the sigmoid curve (default: 0.0)." }
         ],
-        notes: "If lower_x > upper_x, the curve acts as a descending desirability penalty (e.g. penalizing high molecular weight or high rotatable bonds).",
+        notes: "Formula: f(x) = low_score + L / (1 + exp(-k * (x - middle_x))), where k = 4 / (upper_x - lower_x), middle_x = (upper_x + lower_x) / 2, and L = high_score - low_score. The first derivative df/dx = L * k * sigma(z) * (1 - sigma(z)) is strictly positive everywhere for upper_x > lower_x, ensuring continuous policy gradient backpropagation without dead zones. If upper_x < lower_x, k is negative and the curve acts as a descending desirability penalty.",
         example: {
           code: `from drugex.training.scorers.modifiers import SmoothClippedScore
 import numpy as np
 
 # Ascending sigmoidal desirability for target kinase bioactivity (pIC50)
 # Maps pIC50 from 4.0 (lower anchor) to 8.0 (upper anchor)
-pic50_modifier = SmoothClippedScore(lower_x=4.0, upper_x=8.0)
+pic50_modifier = SmoothClippedScore(upper_x=8.0, lower_x=4.0)
 
 candidate_pic50 = {
     "Compound_A (Weak)": 3.5,
@@ -3903,32 +4315,44 @@ Candidate evaluations:
 
       "drugex::training::scorers::ClippedScore": {
         category: "core",
-        module: "drugex.training.scorers",
+        module: "drugex.training.scorers.modifiers",
         title: "ClippedScore",
         kind: "class",
         badges: ["DrugEx 3.4+", "Piecewise Linear", "Hard Threshold"],
         synopsis: `class ClippedScore(ScoreModifier):
-    def __init__(self, lower_x: float, upper_x: float) -> None`,
-        description: "Piecewise linear ramp score modifier. Linearly scales input values between lower_x (0.0) and upper_x (1.0), clipping values below lower_x to 0.0 and above upper_x to 1.0.",
+    def __init__(
+        self,
+        upper_x: float,
+        lower_x: float = 0.0,
+        high_score: float = 1.0,
+        low_score: float = 0.0
+    ) -> None`,
+        description: "Piecewise linear ramp score modifier with hard clamping bounds. Linearly interpolates values between lower_x and upper_x, clipping values below lower_x to low_score and above upper_x to high_score.",
         members: [
-          { name: "__call__(x)", desc: "Clips and normalizes input array x." }
+          { name: "__call__(x)", desc: "Linearly maps inputs via y = slope * x + intercept and clamps output to [low_score, high_score] using np.clip. Evaluates element-wise on float scalars or np.ndarray of shape (N,)." }
         ],
         variables: [
-          { name: "lower_x", type: "float", desc: "Minimum threshold cutoff." },
-          { name: "upper_x", type: "float", desc: "Maximum saturation ceiling." }
+          { name: "upper_x", type: "float", desc: "High threshold for linear ramp." },
+          { name: "lower_x", type: "float", desc: "Low threshold for linear ramp (default: 0.0)." },
+          { name: "high_score", type: "float", desc: "Ceiling score (default: 1.0)." },
+          { name: "low_score", type: "float", desc: "Floor score (default: 0.0)." },
+          { name: "slope", type: "float", desc: "Linear slope: (high_score - low_score) / (upper_x - lower_x)." },
+          { name: "intercept", type: "float", desc: "Linear intercept: high_score - slope * upper_x." }
         ],
         parameters: [
-          { name: "lower_x", type: "float", desc: "Lower bound." },
-          { name: "upper_x", type: "float", desc: "Upper bound." }
+          { name: "upper_x", type: "float", desc: "High threshold where output reaches high_score." },
+          { name: "lower_x", type: "float", desc: "Low threshold where output reaches low_score (default: 0.0)." },
+          { name: "high_score", type: "float", desc: "Maximum clipped score (default: 1.0)." },
+          { name: "low_score", type: "float", desc: "Minimum clipped score (default: 0.0)." }
         ],
-        notes: "Values strictly outside [lower_x, upper_x] have zero gradient. For neural policy gradients, SmoothClippedScore is preferred.",
+        notes: "Values strictly outside [min(lower_x, upper_x), max(lower_x, upper_x)] have zero gradient (df/dx = 0). In RL policy gradient exploration, this creates gradient dead zones where the agent receives zero directional learning signal. Use SmoothClippedScore when fine-tuning neural networks via REINFORCE.",
         example: {
           code: `from drugex.training.scorers.modifiers import ClippedScore
 import numpy as np
 
 # Piecewise linear ramp desirability for oral bioactivity LogP window
 # Linearly maps LogP from 1.0 (0.0 desirability) to 4.0 (1.0 desirability)
-logp_ramp = ClippedScore(lower_x=1.0, upper_x=4.0)
+logp_ramp = ClippedScore(upper_x=4.0, lower_x=1.0)
 
 candidate_logp = {
     "Glycine": -3.2,
@@ -3965,47 +4389,52 @@ Candidate evaluations:
 
       "drugex::training::scorers::MinMaxGaussian": {
         category: "core",
-        module: "drugex.training.scorers",
+        module: "drugex.training.scorers.modifiers",
         title: "MinMaxGaussian",
         kind: "class",
-        badges: ["DrugEx 3.4+", "Plateau Gaussian", "Window Target"],
+        badges: ["DrugEx 3.4+", "Half-Gaussian", "Directional Threshold"],
         synopsis: `class MinMaxGaussian(ScoreModifier):
-    def __init__(self, min_val: float, max_val: float, sigma: float = 1.0) -> None`,
-        description: "Windowed desirability modifier. Yields 1.0 for values within the optimal plateau [min_val, max_val], and decays exponentially via half-Gaussian wings outside the interval.",
+    def __init__(
+        self,
+        mu: float,
+        sigma: float,
+        minimize: bool = False
+    ) -> None`,
+        description: "One-sided half-Gaussian score modifier for directional optimization. Evaluates to 1.0 on the optimal side of the boundary mu, and decays exponentially as a half-Gaussian curve on the penalized side.",
         members: [
-          { name: "__call__(x)", desc: "Evaluates plateau or Gaussian decay based on interval bounds." }
+          { name: "__call__(x)", desc: "Evaluates half-Gaussian decay on input scalar or np.ndarray array of shape (N,). If minimize=True, scores x <= mu as 1.0 and penalizes x > mu; if minimize=False, scores x >= mu as 1.0 and penalizes x < mu." }
         ],
         variables: [
-          { name: "min_val", type: "float", desc: "Lower bound of optimal plateau." },
-          { name: "max_val", type: "float", desc: "Upper bound of optimal plateau." },
-          { name: "sigma", type: "float", desc: "Standard deviation controlling decay rate outside plateau." }
+          { name: "mu", type: "float", desc: "Threshold boundary where full desirability (1.0) begins or ends." },
+          { name: "sigma", type: "float", desc: "Gaussian standard deviation controlling decay bandwidth on the penalized side." },
+          { name: "minimize", type: "bool", desc: "If True, penalizes values above mu (minimization); if False, penalizes values below mu (maximization)." }
         ],
         parameters: [
-          { name: "min_val", type: "float", desc: "Plateau start." },
-          { name: "max_val", type: "float", desc: "Plateau end." },
-          { name: "sigma", type: "float", desc: "Gaussian decay bandwidth." }
+          { name: "mu", type: "float", desc: "Threshold cutoff where half-Gaussian decay initiates." },
+          { name: "sigma", type: "float", desc: "Standard deviation width controlling penalty decay slope." },
+          { name: "minimize", type: "bool", desc: "Whether to penalize larger values (True) or smaller values (False, default)." }
         ],
-        notes: "Ideal for properties with strict sweet spots, such as logP (e.g. 2.0 to 3.5 for CNS or oral bioavailability).",
+        notes: "Formula: For minimize=True, f(x) = exp(-0.5 * (max(x, mu) - mu)^2 / sigma^2). For minimize=False, f(x) = exp(-0.5 * (min(x, mu) - mu)^2 / sigma^2). DrugEx provides MinGaussian (minimize=True) and MaxGaussian (minimize=False) convenience aliases.",
         example: {
           code: `import numpy as np
 from drugex.training.scorers.modifiers import MinMaxGaussian
 
-# Optimal logP target window between 2.0 and 3.5 with sigma=0.8 Gaussian decay wings
-mod = MinMaxGaussian(min_val=2.0, max_val=3.5, sigma=0.8)
-logp_candidates = np.array([0.5, 1.5, 2.5, 3.2, 4.5, 5.5])
-scores = mod(logp_candidates)
+# Penalize molecular weights exceeding 450 Da with sigma=50 Da decay tail
+mod = MinMaxGaussian(mu=450.0, sigma=50.0, minimize=True)
+candidate_mws = np.array([320.0, 420.0, 450.0, 480.0, 520.0, 600.0])
+scores = mod(candidate_mws)
 
-print("Candidate LogP values:", logp_candidates)
-for val, score in zip(logp_candidates, scores):
-    status = "Plateau (Optimal)" if 2.0 <= val <= 3.5 else "Decaying Wing"
-    print(f"  LogP: {val:4.1f} -> Desirability: {score:.4f} ({status})")`,
-          output: `Candidate LogP values: [0.5 1.5 2.5 3.2 4.5 5.5]
-  LogP:  0.5 -> Desirability: 0.1726 (Decaying Wing)
-  LogP:  1.5 -> Desirability: 0.8228 (Decaying Wing)
-  LogP:  2.5 -> Desirability: 1.0000 (Plateau (Optimal))
-  LogP:  3.2 -> Desirability: 1.0000 (Plateau (Optimal))
-  LogP:  4.5 -> Desirability: 0.4579 (Decaying Wing)
-  LogP:  5.5 -> Desirability: 0.0439 (Decaying Wing)`
+print(f"MinMaxGaussian threshold: mu={mod.mu} Da, sigma={mod.sigma} Da (minimize={mod.minimize})")
+for val, score in zip(candidate_mws, scores):
+    status = "Optimal Plateau (1.0)" if val <= 450.0 else "Decaying Tail"
+    print(f"  MW: {val:5.1f} Da -> Desirability: {score:.4f} ({status})")`,
+          output: `MinMaxGaussian threshold: mu=450.0 Da, sigma=50.0 Da (minimize=True)
+  MW: 320.0 Da -> Desirability: 1.0000 (Optimal Plateau (1.0))
+  MW: 420.0 Da -> Desirability: 1.0000 (Optimal Plateau (1.0))
+  MW: 450.0 Da -> Desirability: 1.0000 (Optimal Plateau (1.0))
+  MW: 480.0 Da -> Desirability: 0.8353 (Decaying Tail)
+  MW: 520.0 Da -> Desirability: 0.3753 (Decaying Tail)
+  MW: 600.0 Da -> Desirability: 0.0111 (Decaying Tail)`
         },
         seeAlso: [
           "drugex::training::scorers::Gaussian",
@@ -4176,25 +4605,18 @@ Candidate evaluations:
         kind: "class",
         badges: ["DrugEx 3.4+", "Linear Ramp", "Piecewise Desirability"],
         synopsis: `class ThresholdedLinear(ScoreModifier):
-    def __init__(
-        self,
-        threshold: float,
-        slope: float = 1.0,
-        high: bool = True
-    ) -> None`,
-        description: "Piecewise linear threshold score modifier. Enforces zero desirability below (or above if high=False) a critical threshold, transitioning linearly toward 1.0 above the threshold.",
+    def __init__(self, threshold: float) -> None`,
+        description: "Linear score modifier with an upper saturation cap at threshold. Maps inputs linearly from 0.0 up to threshold (where score reaches 1.0), and saturates at 1.0 for all values exceeding threshold.",
         members: [
-          { name: "__call__(x)", desc: "Calculates piecewise thresholded linear score." }
+          { name: "__call__(x)", desc: "Calculates piecewise thresholded linear score: f(x) = min(x, threshold) / threshold. Evaluates element-wise across float scalars or np.ndarray tensors of shape (N,)." }
         ],
         variables: [
-          { name: "threshold", type: "float", desc: "Cutoff boundary below which score is clipped." },
-          { name: "high", type: "bool", desc: "If True, higher values above threshold are favored." }
+          { name: "threshold", type: "float", desc: "Saturation threshold where score reaches 1.0." }
         ],
         parameters: [
-          { name: "threshold", type: "float", desc: "Activation boundary value." },
-          { name: "slope", type: "float", desc: "Linear steepness." }
+          { name: "threshold", type: "float", desc: "Saturation boundary value where desirability achieves 1.0." }
         ],
-        notes: "Useful for hard physical cutoffs such as ensuring molecular weight remains strictly above fragment size (> 200 Da).",
+        notes: "Formula: f(x) = np.minimum(x, self.threshold) / self.threshold. Ideal for desirable continuous metrics that provide diminishing marginal returns once a threshold standard is satisfied (e.g. QED, target bioactivity, or novel scaffold diversity).",
         example: {
           code: `import numpy as np
 from drugex.training.scorers.modifiers import ThresholdedLinear
@@ -4377,22 +4799,25 @@ for pIC50, s in zip(test_pchembl, pipeline_scores):
         synopsis: `class Property(Scorer):
     def __init__(
         self,
-        prop: str,
+        prop: str = "MW",
         modifier: Optional[ScoreModifier] = None
     ) -> None`,
-        description: "Computes 2D physicochemical properties and drug-likeness metrics using RDKit Descriptors. Supported properties include Molecular Weight ('MW'), Crippen logP ('logP'), Hydrogen Bond Donors ('HBD'), Hydrogen Bond Acceptors ('HBA'), Topological Polar Surface Area ('TPSA'), Rotatable Bonds ('RotatableBonds'), and Quantitative Estimate of Drug-likeness ('QED').",
+        description: "Calculates standard 2D physicochemical properties and molecular complexity metrics using RDKit Descriptors. Evaluates batches of SMILES strings or RDKit Mol objects and applies an optional ScoreModifier to produce normalized desirability scores.",
         members: [
-          { name: "getScores(mols, frags=None)", desc: "Parses SMILES and evaluates requested descriptor via RDKit." },
-          { name: "getKey()", desc: "Returns property identifier name (e.g. 'MW')." }
+          { name: "getScores(mols, frags=None)", desc: "Calculates raw or modified property scores for a batch of molecules (Sequence[str | Chem.Mol]), returning a 1D NumPy array of shape (N,). Invalid molecules evaluate to 0.0 or modifier(0.0)." },
+          { name: "getKey()", desc: "Returns unique property identifier name (e.g. 'MW', 'logP', 'TPSA', 'QED')." },
+          { name: "setModifier(modifier)", desc: "Attaches a new ScoreModifier instance to transform raw property metrics into normalized desirability." }
         ],
         variables: [
-          { name: "prop", type: "str", desc: "Name of target molecular descriptor." }
+          { name: "prop", type: "str", desc: "Identifier of the target physicochemical descriptor." },
+          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Desirability modifier instance transforming raw values to [0, 1]." },
+          { name: "prop_dict", type: "Dict[str, Callable[[Chem.Mol], float]]", desc: "Registry of 22 RDKit calculation functions mapping Mol objects to numerical values." }
         ],
         parameters: [
-          { name: "prop", type: "str", desc: "Target property keyword ('MW', 'logP', 'HBD', 'HBA', 'TPSA', 'RotatableBonds', 'QED')." },
-          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Desirability modifier." }
+          { name: "prop", type: "str", desc: "Target property key to compute (default: 'MW'). Supported keys: 'MW' (molecular weight), 'logP' (Wildman-Crippen partition coefficient), 'HBA' (Lipinski H-bond acceptors), 'HBD' (Lipinski H-bond donors), 'Rotable' (rotatable bond count), 'Amide' (amide bond count), 'Bridge' (bridgehead atoms), 'Hetero' (heteroatom count), 'Heavy' (heavy atom count), 'Spiro' (spiro atoms), 'FCSP3' (fraction of sp3 carbons), 'Ring' (total rings), 'Aliphatic' (aliphatic rings), 'Aromatic' (aromatic rings), 'Saturated' (saturated rings), 'HeteroR' (heterocycles), 'TPSA' (topological polar surface area), 'Valence' (valence electrons), 'MR' (molar refractivity), 'QED' (quantitative estimate of drug-likeness), 'SA' (synthetic accessibility score), 'Bertz' (Bertz topological complexity)." },
+          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Score modifier applied to transform raw calculated values into [0, 1] desirability scores (default: None)." }
         ],
-        notes: "Calculations run natively on CPU. Parsing errors on malformed SMILES return NaN before modifier evaluation.",
+        notes: "Calculations run natively on CPU. Parsing errors on malformed SMILES return 0.0 or modifier(0.0) without raising unhandled exceptions.",
         example: {
           code: `from drugex.training.scorers.properties import Property
 from drugex.training.scorers.modifiers import ClippedScore
@@ -4977,21 +5402,21 @@ Benzene Fragment   |    0.8 |   0.2 |          0.180 | Minimal Substructure`
         synopsis: `class SmilesChecker:
     @staticmethod
     def checkSmiles(
-        smiles: List[str],
-        frags: Optional[List[str]] = None,
+        smiles: Sequence[str | None],
+        frags: Optional[Sequence[str | None]] = None,
         no_multifrag_smiles: bool = True
     ) -> pd.DataFrame: ...`,
-        description: "Fast valence, ring-closure, and syntax validation filter used internally across all DrugEx environments. Sanitizes SMILES strings, percepts implicit/explicit valences, catches RDKit parser exceptions, and optionally checks for the retention of required seed fragments.",
+        description: "Static utility class validating SMILES chemical syntax and verifying fragment substructure retention. Serves as the primary validation gate across all DrugEx reinforcement learning environments, penalizing invalid valences, ring-closure errors, and disconnected components.",
         members: [
-            { name: "checkSmiles(smiles, frags=None, no_multifrag_smiles=True)", desc: "Validates SMILES batch, returning DataFrame with 'Valid' and 'Accurate' boolean columns." }
+            { name: "checkSmiles(smiles, frags=None, no_multifrag_smiles=True)", desc: "Validates a batch of candidate SMILES strings against RDKit parsing rules and fragment retention constraints. Returns pd.DataFrame of shape (N, 2) containing integer boolean columns 'Valid' and 'Accurate'." }
         ],
         variables: [],
         parameters: [
-            { name: "smiles", type: "List[str]", desc: "List of SMILES strings to evaluate." },
-            { name: "frags", type: "Optional[List[str]]", desc: "List of fragment SMILES strings to verify substructure match." },
-            { name: "no_multifrag_smiles", type: "bool", desc: "If True, marks SMILES with disconnection dots as invalid." }
+            { name: "smiles", type: "Sequence[str | None]", desc: "List or sequence of SMILES strings to evaluate." },
+            { name: "frags", type: "Optional[Sequence[str | None]]", desc: "Corresponding list of fragment SMILES (dot-separated for multiple fragments) that each generated molecule must contain (default: None)." },
+            { name: "no_multifrag_smiles", type: "bool", desc: "If True, SMILES strings containing disconnected dot notation '.' are marked with Valid=0 (default: True)." }
         ],
-        notes: "Invalid molecules identified by SmilesChecker are immediately zeroed out across all objectives in DrugExEnvironment.",
+        notes: "Invalid molecules identified by SmilesChecker (Valid=0) are immediately zeroed out across all objectives in DrugExEnvironment, preventing non-physical structures from polluting Pareto fronts. Malformed, empty, or None strings return Valid=0 without raising exceptions.",
         example: {
             code: `import pandas as pd
 from drugex.training.scorers.smiles import SmilesChecker
@@ -6191,24 +6616,48 @@ Maximum sequence length constraint: 60`
         kind: "class",
         badges: ["DrugEx 3.4+", "SMILES Regex", "Main Tokenizer"],
         synopsis: `class VocSmiles(SequenceVocabulary):
-    defaultWords = ('#', '%', '(', ')', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '=',
-                    'B', 'C', 'F', 'I', 'N', 'O', 'P', 'S', '[N+]', '[O-]', '[nH]', 'c', 'n', 'o', 's', ...)
-    def __init__(self, encode_frags: bool = False, words: tuple = defaultWords, max_len: int = 100) -> None`,
-        description: "The primary SMILES sequence tokenizer for DrugEx RNN and GPT-2 models. Uses regex-based tokenization to parse multi-character atoms ('Cl', 'Br'), formal charges ('[N+]', '[O-]'), aromatic elements ('c', 'n', 'o', 's'), branch parentheses, and ring closure digits.",
+    defaultWords: Tuple[str, ...] = (
+        '#', '%', '(', ')', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        '=', 'B', 'C', 'F', 'I', 'L', 'N', 'O', 'P', 'R', 'S', '[Ag-3]', '[As+]',
+        '[As]', '[B-]', '[BH-]', '[BH2-]', '[BH3-]', '[B]', '[C+]', '[C-]', '[CH-]',
+        '[CH2]', '[CH]', '[I+]', '[IH2]', '[N+]', '[N-]', '[NH+]', '[NH-]', '[NH2+]',
+        '[N]', '[O+]', '[O-]', '[OH+]', '[O]', '[P+]', '[PH]', '[S+]', '[S-]', '[SH+]',
+        '[SH2]', '[SH]', '[Se+]', '[SeH]', '[Se]', '[SiH2]', '[SiH]', '[Si]', '[Te]',
+        '[b-]', '[c+]', '[c-]', '[cH-]', '[n+]', '[n-]', '[nH+]', '[nH]', '[o+]',
+        '[s+]', '[se+]', '[se]', '[te+]', '[te]', 'b', 'c', 'n', 'o', 'p', 's'
+    )
+    def __init__(
+        self,
+        encode_frags: bool = False,
+        words: Sequence[str] = defaultWords,
+        max_len: int = 100,
+        min_len: int = 10
+    ) -> None`,
+        description: "The primary SMILES sequence tokenizer for DrugEx RNN and GPT-2 models. Uses regex-based chemical tokenization to parse multi-character halogens ('Cl' -> 'L', 'Br' -> 'R'), formal charges ('[N+]', '[O-]'), aromatic elements ('c', 'n', 'o', 's'), branch parentheses, and ring closure digits, converting sequences into padded numeric tensors.",
         members: [
-            { name: "__init__(encode_frags=False, words=defaultWords, max_len=100)", desc: "Constructs and initializes the VocSmiles tokenizer with token vocabulary and sequence budget." },
-            { name: "__len__()", desc: "Returns total number of unique tokens in the vocabulary, used for neural embedding sizing." },
-            { name: "__getitem__(key)", desc: "Subscript indexing: returns integer token ID for string token or token string for integer index." },
-            { name: "__contains__(key)", desc: "Checks whether a given chemical token or character string exists within vocabulary." },
-            { name: "splitSequence(seq)", desc: "Splits a SMILES string into a list of chemical tokens via compiled regular expressions." },
-            { name: "encode(tokens, frags=None)", desc: "Converts token list into a LongTensor of shape [N, max_len]." },
-            { name: "decode(tensor, is_tk=True, is_smiles=True)", desc: "Decodes LongTensor back into canonical SMILES string." }
+            { name: "splitSequence(seq)", desc: "Splits a SMILES string into a list of chemical tokens via compiled regular expressions, handling bracketed atoms and halogen replacements." },
+            { name: "encode(tokens, frags=None)", desc: "Encodes a batch of token sequences into a 2D LongTensor of shape (len(tokens), max_len) padded with index 0." },
+            { name: "decode(representation, is_tk=False)", desc: "Decodes integer token tensors of shape (L,) or (N, L) back into canonical SMILES string(s)." },
+            { name: "__len__()", desc: "Returns total number of unique tokens in vocabulary (self.size), determining neural embedding dimensions." },
+            { name: "__getitem__(key)", desc: "Subscript indexing: maps string token to integer ID (tk2ix) or integer index to token string (ix2tk)." },
+            { name: "__contains__(key)", desc: "Checks whether a chemical token or character string exists within vocabulary wordSet." }
         ],
         variables: [
-            { name: "defaultWords", type: "tuple[str, ...]", desc: "Standard 84-token organic chemistry vocabulary." }
+            { name: "defaultWords", type: "Tuple[str, ...]", desc: "Standard 84-token organic chemistry vocabulary." },
+            { name: "control", type: "Tuple[str, ...]", desc: "Control token tuple: ('_', 'GO', 'EOS') if encode_frags=True else ('GO', 'EOS')." },
+            { name: "special", type: "List[str]", desc: "Full special tokens list including fragment delimiters and control markers." },
+            { name: "wordSet", type: "Set[str]", desc: "Set of active chemical tokens excluding special control markers." },
+            { name: "tk2ix", type: "Dict[str, int]", desc: "Token-to-index mapping dictionary." },
+            { name: "ix2tk", type: "Dict[int, str]", desc: "Index-to-token inverse lookup dictionary." },
+            { name: "size", type: "int", desc: "Total token vocabulary cardinality (len(words) + len(special))." },
+            { name: "max_len", type: "int", desc: "Maximum allowable sequence length in tokens (default: 100)." },
+            { name: "min_len", type: "int", desc: "Minimum allowable sequence length in tokens (default: 10)." }
         ],
         parameters: [
-            { name: "encode_frags", type: "bool", desc: "Allow fragment separator tokens for conditional generation." }
+            { name: "encode_frags", type: "bool", desc: "If True, includes fragment separation control tokens ('_') for fragment-conditioned models (default: False)." },
+            { name: "words", type: "Sequence[str]", desc: "Tokens included in vocabulary (defaults to defaultWords)." },
+            { name: "max_len", type: "int", desc: "Maximum allowable sequence length in tokens (default: 100)." },
+            { name: "min_len", type: "int", desc: "Minimum allowable sequence length in tokens (default: 10)." }
         ],
         notes: "Unrecognized tokens outside defaultWords will be ignored or trigger an Out-Of-Vocabulary warning unless update_voc=True is used during corpus initialization.",
         example: {
@@ -6410,19 +6859,29 @@ for smi, enc in zip(smiles_input[:3], [e for e in encoded_mols if e is not None]
         kind: "class",
         badges: ["DrugEx 3.4+", "PyTorch Dataset", "SMILES Tensors"],
         synopsis: `class SmilesDataSet(DataSet):
-    def __init__(self, data_path: str, voc_path: Optional[str] = None) -> None`,
-        description: "Memory-mapped and disk-backed PyTorch Dataset orchestrating tokenized SMILES sequences. Prepares batches with custom collation, padding masks, and target labels for next-token cross-entropy training.",
+    columns: Tuple[str, str] = ('Smiles', 'Token')
+    def __init__(
+        self,
+        path: Union[str, Path],
+        voc: Optional[VocSmiles] = None,
+        rewrite: bool = False
+    ) -> None`,
+        description: "Encoded SMILES dataset for single-network sequence-based DrugEx models (SequenceRNN). Holds tokenized and integer-encoded SMILES representations for recurrent neural network training, mapping chemical tokens to vocabulary indices and converting arrays into PyTorch DataLoaders.",
         members: [
-          { name: "__init__(data_path, voc_path=None)", desc: "Constructs and initializes the disk-backed SMILES PyTorch dataset." },
+          { name: "dataToLoader(data, batch_size, vocabulary)", desc: "Static method converting 2D NumPy array of token indices of shape (n_samples, max_len) into PyTorch DataLoader yielding LongTensor mini-batches of shape (batch_size, max_len)." },
+          { name: "getColumns()", desc: "Generates TSV column header names corresponding to sequence positions (['C0', 'C1', ..., 'C{max_len-1}']) for storage serialization." },
+          { name: "readVocs(paths, voc_class, *args, **kwargs)", desc: "Reads and combines vocabulary files from specified file paths into active VocSmiles instance." },
           { name: "__len__()", desc: "Returns total number of encoded sequences in dataset." },
-          { name: "__getitem__(idx)", desc: "Retrieves single (input_tokens, target_tokens) tuple." },
-          { name: "dataToLoader(batch_size=128, shuffle=True)", desc: "Creates and returns a configured PyTorch DataLoader." }
+          { name: "__getitem__(idx)", desc: "Retrieves single encoded sequence LongTensor at specified index." }
         ],
         variables: [
-          { name: "data", type: "np.ndarray", desc: "Encoded 2D token matrix of shape [N, max_len]." }
+          { name: "columns", type: "Tuple[str, str]", desc: "Standard DataFrame column tuple: ('Smiles', 'Token')." },
+          { name: "voc", type: "VocSmiles", desc: "Active VocSmiles instance defining sequence dimensions and token indices." }
         ],
         parameters: [
-          { name: "data_path", type: "str", desc: "Path to .tsv or .pkg file containing preprocessed token data." }
+          { name: "path", type: "Union[str, Path]", desc: "Filesystem path to the dataset storage file." },
+          { name: "voc", type: "Optional[VocSmiles]", desc: "Vocabulary mapping SMILES tokens to indices (defaults to VocSmiles(False))." },
+          { name: "rewrite", type: "bool", desc: "Whether to overwrite existing dataset files at destination path (default: False)." }
         ],
         notes: "Supports out-of-core streaming from disk for multi-million molecule datasets to avoid RAM exhaustion.",
         example: {
@@ -9317,9 +9776,9 @@ for step in milestone_steps:
         members: [],
         variables: [],
         parameters: [
-          { name: "scores", type: "np.ndarray", desc: "2D numpy array of shape (N_molecules, N_objectives)." }
+          { name: "scores", type: "np.ndarray", desc: "2D float numpy array of shape (N_molecules, N_objectives) where each element scores[i, m] represents the evaluated desirability for molecule i under objective m (higher is strictly superior)." }
         ],
-        notes: "Forms the mathematical core of ParetoCrowdingDistance and ParetoTanimotoDistance reward calculations in MORL.",
+        notes: "Forms the mathematical core of ParetoCrowdingDistance and ParetoTanimotoDistance reward calculations in MORL. A solution j dominates i (j > i) iff for all objectives m, scores[j, m] >= scores[i, m] and for at least one objective m, scores[j, m] > scores[i, m]. Returns empty list [] if population_size is 0. Successively extracts Front 0, filters it from the candidate pool, and repeats until all points are partitioned.",
         example: {
           code: `import numpy as np
 from drugex.utils.pareto import get_Pareto_fronts
@@ -16024,6 +16483,14 @@ for idx, smi in enumerate(items, 1):
                   </div>
                 )}
 
+                {/* Interactive Collapsible Micro-Visualization Panel */}
+                {(() => {
+                  const vizType = getMicroVizType(selectedKey);
+                  return vizType ? (
+                    <MicroVizPanel symbolKey={selectedKey} vizType={vizType} item={currentItem} theme={theme} />
+                  ) : null;
+                })()}
+
                 {/* Parameters Table */}
                 {currentItem.parameters && currentItem.parameters.length > 0 && (
                   <div>
@@ -17777,6 +18244,832 @@ for idx, smi in enumerate(items, 1):
               </div>
             </div>
           )}
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // Micro-Visualizations Engine & Interactive SVG Components
+    // =========================================================================
+
+    function getMicroVizType(key) {
+      if (!key) return null;
+      if (
+        key === "drugex::training::rewards::ParetoCrowdingDistance" ||
+        key === "drugex::utils::pareto::get_Pareto_fronts" ||
+        key === "drugex::training::rewards::ParetoRewardScheme"
+      ) {
+        return "pareto_crowding";
+      }
+      if (key === "drugex::training::rewards::ParetoTanimotoDistance") {
+        return "pareto_tanimoto";
+      }
+      if (
+        key === "drugex::training::scorers::SmoothClippedScore" ||
+        key === "drugex::training::scorers::ClippedScore" ||
+        key === "drugex::training::scorers::MinMaxGaussian" ||
+        key === "drugex::training::scorers::modifiers::ThresholdedLinear" ||
+        key === "drugex::training::scorers::modifiers::SmoothHump" ||
+        key === "drugex::training::scorers::Gaussian" ||
+        key === "drugex::training::scorers::Linear"
+      ) {
+        return "modifier_curve";
+      }
+      if (
+        key === "drugex::training::environment::DrugExEnvironment" ||
+        key === "drugex::training::environment::Environment" ||
+        key === "drugex::training::explorers::SequenceExplorer" ||
+        key === "drugex::training::explorers::FragSequenceExplorer" ||
+        key === "drugex::training::explorers::FragGraphExplorer" ||
+        key === "drugex::training::explorers::Explorer" ||
+        key === "drugex::training::explorers::FragExplorer"
+      ) {
+        return "rl_policy_cycle";
+      }
+      return null;
+    }
+
+    function MicroVizPanel({ symbolKey, vizType, item, theme }) {
+      const titles = {
+        pareto_crowding: {
+          title: "Pareto Frontier & NSGA-II Crowding Distance (2D Objective Space)",
+          hint: "Interactive Non-Dominated Sorting & Isolation Cuboid Mechanics"
+        },
+        pareto_tanimoto: {
+          title: "Chemical Diversity Tie-Breaking via Fingerprint Distance",
+          hint: "Pairwise ECFP6 Tanimoto Dissimilarity for Non-Dominated Solutions"
+        },
+        modifier_curve: {
+          title: "Continuous Desirability Transfer Function Curve: f(x) -> [0, 1]",
+          hint: "Sigmoidal Logistic vs Piecewise Linear Gradients and Threshold Anchors"
+        },
+        rl_policy_cycle: {
+          title: "RL Policy Gradient Actor-Prior Feedback Cycle",
+          hint: "Sequence/Graph Rollout, Frozen Prior Mixing, SmilesChecker Gate, and REINFORCE Loss"
+        }
+      };
+
+      const meta = titles[vizType] || { title: "Visual Intuition", hint: "Interactive Mechanics" };
+
+      return (
+        <details className="micro-viz-panel">
+          <summary className="micro-viz-summary">
+            <div className="micro-viz-summary-left">
+              <span className="micro-viz-badge">Visual Intuition</span>
+              <span className="micro-viz-title">{meta.title}</span>
+            </div>
+            <span className="micro-viz-hint">[Click to explore interactive diagram]</span>
+          </summary>
+          <div className="micro-viz-body">
+            {vizType === "pareto_crowding" && <ParetoCrowdingViz theme={theme} symbolKey={symbolKey} />}
+            {vizType === "pareto_tanimoto" && <ParetoTanimotoViz theme={theme} symbolKey={symbolKey} />}
+            {vizType === "modifier_curve" && <ModifierCurvesViz theme={theme} symbolKey={symbolKey} />}
+            {vizType === "rl_policy_cycle" && <RLPolicyCycleViz theme={theme} symbolKey={symbolKey} />}
+          </div>
+        </details>
+      );
+    }
+
+    function ParetoCrowdingViz({ theme, symbolKey }) {
+      const [activePointId, setActivePointId] = useState("B");
+
+      const points = [
+        { id: "A", name: "Candidate A (Potency Extremum)", f1: 0.94, f2: 0.35, front: 0, d: "inf (Boundary)", rank: "Rank 4 (Front 0)", reward: 0.800, note: "Boundary solution with maximal f1 potency. Assigned infinite crowding distance (d = inf) to guarantee frontier edge preservation." },
+        { id: "B", name: "Candidate B (Isolated Lead)", f1: 0.78, f2: 0.70, front: 0, d: "1.428 (High)", rank: "Rank 5 (Front 0)", reward: 1.000, note: "Interior point flanked by Cand A and Cand C. Spans large bounding cuboid [0.58, 0.94] x [0.35, 0.84]. Top reward awarded to isolated diversity." },
+        { id: "C", name: "Candidate C (Crowded Analog 1)", f1: 0.58, f2: 0.84, front: 0, d: "0.245 (Low)", rank: "Rank 2 (Front 0)", reward: 0.400, note: "Closely packs with Cand D in objective space. Cuboid is tightly constrained; crowding distance penalty reduces reward." },
+        { id: "D", name: "Candidate D (Crowded Analog 2)", f1: 0.52, f2: 0.87, front: 0, d: "0.210 (Low)", rank: "Rank 1 (Front 0)", reward: 0.200, note: "Redundant cluster solution adjacent to Cand C. Demoted in ranking to discourage mode collapse into identical profiles." },
+        { id: "E", name: "Candidate E (QED Extremum)", f1: 0.32, f2: 0.95, front: 0, d: "inf (Boundary)", rank: "Rank 3 (Front 0)", reward: 0.600, note: "Boundary solution with maximal f2 QED drug-likeness. Assigned infinite crowding distance (d = inf)." },
+        { id: "F", name: "Candidate F (Dominated Sub-lead)", f1: 0.68, f2: 0.52, front: 1, d: "0.850", rank: "Rank 2 (Front 1)", reward: 0.125, note: "Dominated by Candidate B (0.78 > 0.68 and 0.70 > 0.52). Partitioned into secondary Pareto Front 1." },
+        { id: "G", name: "Candidate G (Dominated Moderate)", f1: 0.44, f2: 0.68, front: 1, d: "0.620", rank: "Rank 1 (Front 1)", reward: 0.062, note: "Dominated by Candidate C and Candidate D. Partitioned into secondary Pareto Front 1." },
+        { id: "H", name: "Candidate H (Sub-optimal Baseline)", f1: 0.25, f2: 0.40, front: 2, d: "inf", rank: "Rank 1 (Front 2)", reward: 0.000, note: "Dominated across all objectives by multiple candidates. Partitioned into Front 2; receives zero reward." }
+      ];
+
+      const activePoint = points.find(p => p.id === activePointId) || points[1];
+
+      // Coordinate mapping: 680 x 260 canvas
+      // X: 70 -> 610 (540 px for [0.0, 1.0])
+      // Y: 220 -> 40 (180 px for [0.0, 1.0])
+      const mapX = (f1) => 70 + f1 * 540;
+      const mapY = (f2) => 220 - f2 * 180;
+
+      // Front 0 curve path: E -> D -> C -> B -> A
+      const f0Path = `M ${mapX(0.32)} ${mapY(0.95)} L ${mapX(0.52)} ${mapY(0.87)} L ${mapX(0.58)} ${mapY(0.84)} L ${mapX(0.78)} ${mapY(0.70)} L ${mapX(0.94)} ${mapY(0.35)}`;
+      // Front 1 curve path: G -> F
+      const f1Path = `M ${mapX(0.44)} ${mapY(0.68)} L ${mapX(0.68)} ${mapY(0.52)}`;
+
+      // Cuboid for Point B: neighbors C (0.58, 0.84) and A (0.94, 0.35)
+      const cuboidBX = mapX(0.58);
+      const cuboidBW = mapX(0.94) - mapX(0.58);
+      const cuboidBY = mapY(0.84);
+      const cuboidBH = mapY(0.35) - mapY(0.84);
+
+      // Tiny cuboid for Point C/D: between D (0.52, 0.87) and B (0.78, 0.70)
+      const cuboidCDX = mapX(0.52);
+      const cuboidCDW = mapX(0.78) - mapX(0.52);
+      const cuboidCDY = mapY(0.87);
+      const cuboidCDH = mapY(0.70) - mapY(0.87);
+
+      const isDark = theme === "dark";
+      const axisColor = isDark ? "#475569" : "#cbd5e1";
+      const gridColor = isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
+      const textColor = isDark ? "#94a3b8" : "#64748b";
+
+      return (
+        <div>
+          <div className="micro-viz-svg-wrap">
+            <svg className="micro-viz-svg" viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="front0Grad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#0284c7" stopOpacity="0.25" />
+                  <stop offset="100%" stopColor="#0d9488" stopOpacity="0.05" />
+                </linearGradient>
+              </defs>
+
+              {/* Grid Lines */}
+              {[0.2, 0.4, 0.6, 0.8, 1.0].map(v => (
+                <g key={`grid-${v}`}>
+                  <line x1={mapX(v)} y1={40} x2={mapX(v)} y2={220} stroke={gridColor} strokeWidth="1" strokeDasharray="3,3" />
+                  <line x1={70} y1={mapY(v)} x2={610} y2={mapY(v)} stroke={gridColor} strokeWidth="1" strokeDasharray="3,3" />
+                  <text x={mapX(v)} y={235} fill={textColor} fontSize="10" fontFamily="var(--font-mono)" textAnchor="middle">{v.toFixed(1)}</text>
+                  <text x={62} y={mapY(v) + 3} fill={textColor} fontSize="10" fontFamily="var(--font-mono)" textAnchor="end">{v.toFixed(1)}</text>
+                </g>
+              ))}
+
+              {/* Axes */}
+              <line x1={70} y1={220} x2={615} y2={220} stroke={axisColor} strokeWidth="1.5" />
+              <line x1={70} y1={220} x2={70} y2={35} stroke={axisColor} strokeWidth="1.5" />
+              <text x={340} y={252} fill="var(--text-main)" fontSize="11" fontWeight="600" textAnchor="middle">Objective f1: Target Potency / Activity (pIC50 Desirability)</text>
+              <text x={18} y={130} fill="var(--text-main)" fontSize="11" fontWeight="600" textAnchor="middle" transform="rotate(-90, 18, 130)">Objective f2: Drug-Likeness (QED Desirability)</text>
+
+              {/* Highlight Cuboid around Isolated Point B */}
+              <rect
+                x={cuboidBX}
+                y={cuboidBY}
+                width={cuboidBW}
+                height={cuboidBH}
+                fill="rgba(2, 132, 199, 0.12)"
+                stroke="#0284c7"
+                strokeWidth="1.5"
+                strokeDasharray="4,3"
+                rx="4"
+              />
+              <text x={cuboidBX + 6} y={cuboidBY + 14} fill="#0284c7" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)">
+                Cuboid d_B (Isolation Box)
+              </text>
+
+              {/* Highlight Cuboid around Crowded Points C/D */}
+              <rect
+                x={cuboidCDX}
+                y={cuboidCDY}
+                width={cuboidCDW}
+                height={cuboidCDH}
+                fill="rgba(245, 158, 11, 0.10)"
+                stroke="#d97706"
+                strokeWidth="1"
+                strokeDasharray="3,2"
+                rx="3"
+              />
+              <text x={cuboidCDX + 4} y={cuboidCDY + 12} fill="#d97706" fontSize="9" fontWeight="600" fontFamily="var(--font-mono)">
+                Crowded d_C,D
+              </text>
+
+              {/* Front 0 Curve */}
+              <path d={f0Path} fill="none" stroke="#0284c7" strokeWidth="2.5" />
+              <text x={mapX(0.35)} y={mapY(0.96) - 8} fill="#0284c7" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
+                Front 0 (Optimal Frontier)
+              </text>
+
+              {/* Front 1 Dashed Curve */}
+              <path d={f1Path} fill="none" stroke="#fb7185" strokeWidth="1.8" strokeDasharray="5,4" />
+              <text x={mapX(0.46)} y={mapY(0.70) + 16} fill="#fb7185" fontSize="10.5" fontWeight="600" fontFamily="var(--font-mono)">
+                Front 1 (Dominated Tier)
+              </text>
+
+              {/* Candidate Points */}
+              {points.map(p => {
+                const px = mapX(p.f1);
+                const py = mapY(p.f2);
+                const isActive = p.id === activePointId;
+                const isF0 = p.front === 0;
+                const isF1 = p.front === 1;
+                const dotColor = isF0 ? "#0284c7" : isF1 ? "#fb7185" : "#64748b";
+
+                return (
+                  <g
+                    key={p.id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => setActivePointId(p.id)}
+                    onMouseEnter={() => setActivePointId(p.id)}
+                  >
+                    {isActive && (
+                      <circle cx={px} cy={py} r="11" fill="none" stroke={dotColor} strokeWidth="2" strokeDasharray="2,2" opacity="0.8" />
+                    )}
+                    <circle
+                      cx={px}
+                      cy={py}
+                      r={isActive ? "6.5" : "5"}
+                      fill={dotColor}
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
+                    />
+                    <text
+                      x={px}
+                      y={py - 8}
+                      fill={isActive ? "var(--text-main)" : textColor}
+                      fontSize={isActive ? "11" : "10"}
+                      fontWeight={isActive ? "700" : "500"}
+                      fontFamily="var(--font-mono)"
+                      textAnchor="middle"
+                    >
+                      {p.id}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+
+          <div className="micro-viz-legend">
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#0284c7" }}></span>
+              Front 0 (Non-Dominated Optimal)
+            </span>
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#fb7185" }}></span>
+              Front 1 (Dominated Tier)
+            </span>
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#64748b" }}></span>
+              Front 2 (Sub-optimal)
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
+              Hover any candidate point for coordinates and crowding metrics
+            </span>
+          </div>
+
+          <div className="micro-viz-readout">
+            <div className="micro-viz-readout-row">
+              <span className="micro-viz-readout-label">Selected:</span>
+              <span className="micro-viz-readout-val" style={{ color: "var(--text-main)" }}>{activePoint.name}</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Coordinates:</span>
+              <span className="micro-viz-readout-val">f1={activePoint.f1.toFixed(2)}, f2={activePoint.f2.toFixed(2)}</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Tier:</span>
+              <span className="micro-viz-readout-val" style={{ color: activePoint.front === 0 ? "var(--accent-cyan)" : "var(--accent-rose)" }}>
+                Pareto Front {activePoint.front}
+              </span>
+            </div>
+            <div className="micro-viz-readout-row">
+              <span className="micro-viz-readout-label">NSGA-II Crowding Distance (d_i):</span>
+              <span className="micro-viz-readout-val">{activePoint.d}</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Policy Reward:</span>
+              <span className="micro-viz-readout-val">R = {activePoint.reward.toFixed(3)} ({activePoint.rank})</span>
+            </div>
+            <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+              {activePoint.note}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ParetoTanimotoViz({ theme, symbolKey }) {
+      const [activeMolId, setActiveMolId] = useState("macro");
+
+      const candidates = [
+        { id: "macro", name: "Macrocyclic Lactam", core: "12-membered Lactam Core", f1: 0.80, f2: 0.86, dist: 0.89, sim: 0.11, rank: 5, reward: 1.000, color: "#10b981", status: "Top Structural Novelty", desc: "Highest average fingerprint dissimilarity (1 - Tc = 0.89) to all other front members. Expands chemical series into novel structural space; awarded top RL reward." },
+        { id: "spiro", name: "Spiro Indane", core: "Spiro[piperidine-indane]", f1: 0.82, f2: 0.84, dist: 0.85, sim: 0.15, rank: 4, reward: 0.800, color: "#06b6d4", status: "Novel 3D Scaffold", desc: "Rigid three-dimensional spiro scaffold. High structural diversity distance (1 - Tc = 0.85); prioritized for multi-target exploration." },
+        { id: "indole", name: "Indole Lead", core: "Indole-3-carboxamide", f1: 0.85, f2: 0.80, dist: 0.82, sim: 0.18, rank: 3, reward: 0.600, color: "#3b82f6", status: "Distinct Series", desc: "Established planar heteroaromatic core, structurally distant from quinazoline analogues. Maintains medium-high reward rank." },
+        { id: "quin1", name: "Quinazoline Analog A", core: "Quinazoline-4-amino", f1: 0.86, f2: 0.81, dist: 0.11, sim: 0.89, rank: 2, reward: 0.400, color: "#f59e0b", status: "Redundant Cluster", desc: "High pairwise similarity (Tc = 0.89) with Quinazoline Analog B. Intra-front Tanimoto tie-breaking demotes the second cluster member to penalize duplicate exploration." },
+        { id: "quin2", name: "Quinazoline Analog B", core: "Quinazoline-4-chloro", f1: 0.84, f2: 0.82, dist: 0.11, sim: 0.89, rank: 1, reward: 0.200, color: "#ef4444", status: "Redundant Cluster (Demoted)", desc: "Lowest intra-front diversity distance (1 - Tc = 0.11). Heavily penalized by ParetoTanimotoDistance to prevent generator mode collapse into a single chemotype." }
+      ];
+
+      const active = candidates.find(c => c.id === activeMolId) || candidates[0];
+
+      // Node coordinates for 680 x 250 canvas
+      const nodePositions = {
+        macro:  { x: 120, y: 70 },
+        spiro:  { x: 260, y: 55 },
+        indole: { x: 90,  y: 180 },
+        quin1:  { x: 240, y: 175 },
+        quin2:  { x: 370, y: 175 }
+      };
+
+      const isDark = theme === "dark";
+      const edgeRed = isDark ? "#f87171" : "#ef4444";
+      const edgeGreen = isDark ? "#34d399" : "#10b981";
+
+      return (
+        <div>
+          <div className="micro-viz-svg-wrap">
+            <svg className="micro-viz-svg" viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+              {/* Diversity Network Connectors */}
+              <line
+                x1={nodePositions.quin1.x}
+                y1={nodePositions.quin1.y}
+                x2={nodePositions.quin2.x}
+                y2={nodePositions.quin2.y}
+                stroke={edgeRed}
+                strokeWidth="3.5"
+                strokeDasharray="5,3"
+              />
+              <rect x="270" y="160" width="70" height="18" fill="var(--bg-card)" rx="3" stroke={edgeRed} strokeWidth="1" />
+              <text x="305" y="172" fill={edgeRed} fontSize="9" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                Tc = 0.89
+              </text>
+
+              {/* Diverse Scaffold Connections */}
+              <line x1={nodePositions.macro.x} y1={nodePositions.macro.y} x2={nodePositions.spiro.x} y2={nodePositions.spiro.y} stroke={edgeGreen} strokeWidth="1.2" strokeDasharray="3,3" opacity="0.6" />
+              <line x1={nodePositions.macro.x} y1={nodePositions.macro.y} x2={nodePositions.indole.x} y2={nodePositions.indole.y} stroke={edgeGreen} strokeWidth="1.2" strokeDasharray="3,3" opacity="0.6" />
+              <line x1={nodePositions.spiro.x} y1={nodePositions.spiro.y} x2={nodePositions.quin1.x} y2={nodePositions.quin1.y} stroke={edgeGreen} strokeWidth="1.2" strokeDasharray="3,3" opacity="0.6" />
+
+              {/* Network Boundary Box on Left */}
+              <rect x="20" y="20" width="410" height="210" fill="none" stroke="var(--border-subtle)" strokeWidth="1" rx="6" />
+              <text x="35" y="40" fill="var(--text-muted)" fontSize="10.5" fontWeight="700" fontFamily="var(--font-mono)">
+                CHEMICAL SCAFFOLD SPACE (ECFP6 FINGERPRINTS)
+              </text>
+
+              {/* Network Nodes */}
+              {candidates.map(c => {
+                const pos = nodePositions[c.id];
+                const isSelected = c.id === activeMolId;
+
+                return (
+                  <g
+                    key={c.id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => setActiveMolId(c.id)}
+                    onMouseEnter={() => setActiveMolId(c.id)}
+                  >
+                    {isSelected && (
+                      <circle cx={pos.x} cy={pos.y} r="22" fill="none" stroke={c.color} strokeWidth="2.5" strokeDasharray="3,2" opacity="0.8" />
+                    )}
+                    <circle cx={pos.x} cy={pos.y} r="16" fill={c.color} stroke="#ffffff" strokeWidth="2" />
+                    <text x={pos.x} y={pos.y + 4} fill="#ffffff" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                      {c.rank}
+                    </text>
+                    <text x={pos.x} y={pos.y + 32} fill="var(--text-main)" fontSize="10.5" fontWeight={isSelected ? "700" : "500"} textAnchor="middle">
+                      {c.name}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Reward Ranking Ladder on Right */}
+              <rect x="450" y="20" width="210" height="210" fill="var(--table-header)" stroke="var(--border-subtle)" strokeWidth="1" rx="6" />
+              <text x="465" y="40" fill="var(--text-muted)" fontSize="10.5" fontWeight="700" fontFamily="var(--font-mono)">
+                TANIMOTO TIE-BREAK LADDER
+              </text>
+
+              {candidates.map((c, idx) => {
+                const rowY = 56 + idx * 34;
+                const isSelected = c.id === activeMolId;
+
+                return (
+                  <g
+                    key={`ladder-${c.id}`}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => setActiveMolId(c.id)}
+                    onMouseEnter={() => setActiveMolId(c.id)}
+                  >
+                    <rect
+                      x="460"
+                      y={rowY}
+                      width="190"
+                      height="26"
+                      rx="4"
+                      fill={isSelected ? "rgba(2, 132, 199, 0.15)" : "transparent"}
+                      stroke={isSelected ? "var(--accent-cyan)" : "transparent"}
+                      strokeWidth="1"
+                    />
+                    <circle cx="475" cy={rowY + 13} r="6" fill={c.color} />
+                    <text x="490" y={rowY + 17} fill="var(--text-main)" fontSize="11" fontWeight={isSelected ? "700" : "500"}>
+                      {c.name.split(" ")[0]}
+                    </text>
+                    <text x="635" y={rowY + 17} fill={c.color} fontSize="10.5" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="end">
+                      R = {c.reward.toFixed(2)}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+
+          <div className="micro-viz-legend">
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#10b981" }}></span>
+              High Diversity Novelty (R = 1.00)
+            </span>
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#3b82f6" }}></span>
+              Distinct Chemotype (R = 0.60)
+            </span>
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#ef4444" }}></span>
+              Redundant Cluster Demoted (R = 0.20)
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
+              Click any scaffold or ladder rank to inspect pairwise metrics
+            </span>
+          </div>
+
+          <div className="micro-viz-readout">
+            <div className="micro-viz-readout-row">
+              <span className="micro-viz-readout-label">Scaffold:</span>
+              <span className="micro-viz-readout-val" style={{ color: "var(--text-main)" }}>{active.name} ({active.core})</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Status:</span>
+              <span className="micro-viz-readout-val" style={{ color: active.color }}>{active.status}</span>
+            </div>
+            <div className="micro-viz-readout-row">
+              <span className="micro-viz-readout-label">Pairwise Distance (1 - Tc):</span>
+              <span className="micro-viz-readout-val">{active.dist.toFixed(2)}</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Nearest Tc:</span>
+              <span className="micro-viz-readout-val">{active.sim.toFixed(2)}</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Scalar Reward:</span>
+              <span className="micro-viz-readout-val">R = {active.reward.toFixed(3)} (Rank {active.rank} of 5)</span>
+            </div>
+            <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+              {active.desc}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ModifierCurvesViz({ theme, symbolKey }) {
+      const getInitialTab = () => {
+        if (symbolKey && symbolKey.includes("ClippedScore") && !symbolKey.includes("Smooth")) return "clipped";
+        if (symbolKey && (symbolKey.includes("MinMaxGaussian") || symbolKey.includes("Gaussian"))) return "gaussian";
+        if (symbolKey && (symbolKey.includes("ThresholdedLinear") || symbolKey.includes("Linear"))) return "thresholded";
+        return "smooth";
+      };
+
+      const [activeTab, setActiveTab] = useState(getInitialTab);
+      const [cursorX, setCursorX] = useState(6.0);
+
+      // Canvas: 680 x 240. Map x: 70 -> 610 (540px width). Map y: 200 -> 40 (160px height).
+      const mapX = (x) => 70 + (x / 10.0) * 540;
+      const mapY = (y) => 200 - y * 160;
+
+      // Function evaluations
+      const evalCurve = (x, type) => {
+        if (type === "smooth") {
+          const k = 1.0;
+          const x0 = 6.0;
+          const d = 1.0 / (1.0 + Math.exp(-k * (x - x0)));
+          const grad = k * d * (1.0 - d);
+          return { d, grad, formula: "d(x) = 1 / (1 + exp(-(x - 6.0)))", status: "Continuous Non-Zero Gradient" };
+        } else if (type === "clipped") {
+          let d = (x - 4.0) / 4.0;
+          d = Math.max(0.0, Math.min(1.0, d));
+          const grad = (x >= 4.0 && x <= 8.0) ? 0.25 : 0.0;
+          const status = (x < 4.0 || x > 8.0) ? "Vanished Gradient (df/dx = 0)" : "Active Linear Ramp (df/dx = 0.25)";
+          return { d, grad, formula: "d(x) = clip((x - 4.0) / 4.0, 0, 1)", status };
+        } else if (type === "gaussian") {
+          let d = 1.0;
+          let grad = 0.0;
+          if (x < 3.0) {
+            d = Math.exp(-0.5 * Math.pow((x - 3.0) / 1.2, 2));
+            grad = -((x - 3.0) / 1.44) * d;
+          } else if (x > 6.0) {
+            d = Math.exp(-0.5 * Math.pow((x - 6.0) / 1.2, 2));
+            grad = -((x - 6.0) / 1.44) * d;
+          }
+          const status = (x >= 3.0 && x <= 6.0) ? "Optimal Plateau (d = 1.0)" : "Gaussian Exponential Roll-off";
+          return { d, grad, formula: "d(x) = exp(-0.5 * ((x - mu) / 1.2)^2)", status };
+        } else {
+          const d = Math.min(x, 6.0) / 6.0;
+          const grad = x <= 6.0 ? (1.0 / 6.0) : 0.0;
+          const status = x > 6.0 ? "Saturated Ceiling (df/dx = 0)" : "Linear Scaling (df/dx = 0.167)";
+          return { d, grad, formula: "d(x) = min(x, 6.0) / 6.0", status };
+        }
+      };
+
+      const generatePath = (type) => {
+        const steps = 100;
+        let dStr = "";
+        for (let i = 0; i <= steps; i++) {
+          const xVal = (i / steps) * 10.0;
+          const yVal = evalCurve(xVal, type).d;
+          const px = mapX(xVal);
+          const py = mapY(yVal);
+          dStr += `${i === 0 ? "M" : "L"} ${px.toFixed(1)} ${py.toFixed(1)} `;
+        }
+        return dStr;
+      };
+
+      const activeEval = evalCurve(cursorX, activeTab);
+      const isDark = theme === "dark";
+      const axisColor = isDark ? "#475569" : "#cbd5e1";
+      const gridColor = isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
+      const textColor = isDark ? "#94a3b8" : "#64748b";
+
+      const handleSvgMouseMove = (e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const clientX = e.clientX - rect.left;
+        const norm = (clientX / rect.width) * 680;
+        const xVal = ((norm - 70) / 540) * 10.0;
+        const clamped = Math.max(0.0, Math.min(10.0, xVal));
+        setCursorX(clamped);
+      };
+
+      return (
+        <div>
+          <div className="micro-viz-tabs">
+            <button
+              className={`micro-viz-tab-btn ${activeTab === "smooth" ? "active" : ""}`}
+              onClick={() => setActiveTab("smooth")}
+            >
+              SmoothClippedScore (Sigmoid)
+            </button>
+            <button
+              className={`micro-viz-tab-btn ${activeTab === "clipped" ? "active" : ""}`}
+              onClick={() => setActiveTab("clipped")}
+            >
+              ClippedScore (Piecewise)
+            </button>
+            <button
+              className={`micro-viz-tab-btn ${activeTab === "gaussian" ? "active" : ""}`}
+              onClick={() => setActiveTab("gaussian")}
+            >
+              MinMaxGaussian (Plateau)
+            </button>
+            <button
+              className={`micro-viz-tab-btn ${activeTab === "thresholded" ? "active" : ""}`}
+              onClick={() => setActiveTab("thresholded")}
+            >
+              ThresholdedLinear (Ramp)
+            </button>
+          </div>
+
+          <div className="micro-viz-svg-wrap">
+            <svg
+              className="micro-viz-svg"
+              viewBox="0 0 680 240"
+              xmlns="http://www.w3.org/2000/svg"
+              onMouseMove={handleSvgMouseMove}
+              style={{ cursor: "crosshair" }}
+            >
+              {activeTab === "clipped" && (
+                <g>
+                  <rect x={mapX(0)} y={mapY(1.0)} width={mapX(4.0) - mapX(0)} height={160} fill="rgba(239, 68, 68, 0.08)" />
+                  <rect x={mapX(8.0)} y={mapY(1.0)} width={mapX(10.0) - mapX(8.0)} height={160} fill="rgba(239, 68, 68, 0.08)" />
+                  <text x={mapX(2.0)} y={120} fill="#ef4444" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    VANISHED GRADIENT (0.0)
+                  </text>
+                  <text x={mapX(9.0)} y={120} fill="#ef4444" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)" textAnchor="middle">
+                    SATURATED (0.0)
+                  </text>
+                </g>
+              )}
+
+              {/* Grid Lines */}
+              {[0, 2, 4, 6, 8, 10].map(v => (
+                <g key={`x-grid-${v}`}>
+                  <line x1={mapX(v)} y1={40} x2={mapX(v)} y2={200} stroke={gridColor} strokeWidth="1" strokeDasharray="3,3" />
+                  <text x={mapX(v)} y={215} fill={textColor} fontSize="10" fontFamily="var(--font-mono)" textAnchor="middle">{v}</text>
+                </g>
+              ))}
+              {[0.0, 0.25, 0.5, 0.75, 1.0].map(v => (
+                <g key={`y-grid-${v}`}>
+                  <line x1={70} y1={mapY(v)} x2={610} y2={mapY(v)} stroke={gridColor} strokeWidth="1" strokeDasharray="3,3" />
+                  <text x={62} y={mapY(v) + 3} fill={textColor} fontSize="10" fontFamily="var(--font-mono)" textAnchor="end">{v.toFixed(2)}</text>
+                </g>
+              ))}
+
+              {/* Axes */}
+              <line x1={70} y1={200} x2={615} y2={200} stroke={axisColor} strokeWidth="1.5" />
+              <line x1={70} y1={200} x2={70} y2={35} stroke={axisColor} strokeWidth="1.5" />
+              <text x={340} y={232} fill="var(--text-main)" fontSize="11" fontWeight="600" textAnchor="middle">Raw Physical Property x (e.g. pIC50, MW / 100, LogP + 2)</text>
+              <text x={18} y={120} fill="var(--text-main)" fontSize="11" fontWeight="600" textAnchor="middle" transform="rotate(-90, 18, 120)">Desirability d(x)</text>
+
+              {activeTab === "smooth" && (
+                <path d={generatePath("clipped")} fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeDasharray="4,4" opacity="0.6" />
+              )}
+
+              {/* Main Active Curve */}
+              <path d={generatePath(activeTab)} fill="none" stroke="#0284c7" strokeWidth="3" />
+
+              {/* Interactive Cursor Indicator */}
+              <line
+                x1={mapX(cursorX)}
+                y1={40}
+                x2={mapX(cursorX)}
+                y2={200}
+                stroke="#0284c7"
+                strokeWidth="1.5"
+                strokeDasharray="2,2"
+              />
+              <circle
+                cx={mapX(cursorX)}
+                cy={mapY(activeEval.d)}
+                r="6"
+                fill="#0284c7"
+                stroke="#ffffff"
+                strokeWidth="2"
+              />
+            </svg>
+          </div>
+
+          <div className="micro-viz-legend">
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#0284c7" }}></span>
+              Active Modifier Transfer Curve
+            </span>
+            {activeTab === "smooth" && (
+              <span className="micro-viz-legend-item">
+                <span className="micro-viz-legend-dot" style={{ background: "var(--text-muted)" }}></span>
+                Piecewise ClippedScore (Contrast)
+              </span>
+            )}
+            <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
+              Move mouse over graph to probe property coordinates and policy gradient
+            </span>
+          </div>
+
+          <div className="micro-viz-readout">
+            <div className="micro-viz-readout-row">
+              <span className="micro-viz-readout-label">Input Property x:</span>
+              <span className="micro-viz-readout-val">{cursorX.toFixed(2)}</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Desirability d(x):</span>
+              <span className="micro-viz-readout-val">{activeEval.d.toFixed(4)}</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>First Derivative:</span>
+              <span className="micro-viz-readout-val" style={{ color: activeEval.grad === 0 ? "#ef4444" : "var(--accent-emerald)" }}>
+                df/dx = {activeEval.grad.toFixed(4)}
+              </span>
+            </div>
+            <div className="micro-viz-readout-row">
+              <span className="micro-viz-readout-label">Formula:</span>
+              <span className="micro-viz-readout-val" style={{ fontFamily: "var(--font-mono)", color: "var(--text-main)" }}>{activeEval.formula}</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>RL Signal:</span>
+              <span className="micro-viz-readout-val" style={{ color: activeEval.grad === 0 ? "#ef4444" : "var(--accent-emerald)" }}>{activeEval.status}</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function RLPolicyCycleViz({ theme, symbolKey }) {
+      const [activeStepIdx, setActiveStepIdx] = useState(3);
+
+      const steps = [
+        {
+          id: "agent",
+          step: "Step 01",
+          name: "Agent Policy pi_theta",
+          sub: "SequenceRNN / Transformer",
+          shape: "Out: [B, L] tensor & [B] SMILES",
+          math: "a_t ~ pi_theta(a_t | s_t)",
+          note: "Active generative model rollout; samples batches of token sequences under current policy parameters."
+        },
+        {
+          id: "prior",
+          step: "Step 02",
+          name: "Frozen Prior pi_0",
+          sub: "Mutate Regularizer (epsilon=0.1)",
+          shape: "Mix: epsilon * pi_0 + (1 - epsilon) * pi_theta",
+          math: "x_t ~ (1 - eps) * pi_theta + eps * pi_0",
+          note: "Maintains chemical validity and syntactic rules learned during pre-training; penalizes mode collapse."
+        },
+        {
+          id: "smiles_checker",
+          step: "Step 03",
+          name: "SmilesChecker Gate",
+          sub: "Valence & Sanity Filter",
+          shape: "Mask: [B] binary Valid & Accurate",
+          math: "Valid = 1 if RDKit(smi) else 0",
+          note: "Syntactically invalid SMILES or fragmented valences are zeroed out (score = 0.0) before scoring."
+        },
+        {
+          id: "env",
+          step: "Step 04",
+          name: "DrugExEnvironment",
+          sub: "Scorers + Modifiers",
+          shape: "Scores: [B, M] matrix & [B] Desired",
+          math: "s_{i,m} = f_m(metric_{i,m}); Desired = prod(s_m >= th_m)",
+          note: "Evaluates parallel objectives (ROCS, QSAR, SA, MW) through desirability modifiers into [0, 1]."
+        },
+        {
+          id: "reward",
+          step: "Step 05",
+          name: "RewardScheme (MORL)",
+          sub: "ParetoCrowdingDistance",
+          shape: "Rewards: [B, 1] normalized scalars",
+          math: "R = rank(F_0, F_1, ..., crowding_d) / B",
+          note: "Partitions candidates into non-dominated Pareto tiers and calculates NSGA-II crowding distance."
+        },
+        {
+          id: "reinforce",
+          step: "Step 06",
+          name: "REINFORCE Update",
+          sub: "Policy Gradient Step",
+          shape: "Loss: scalar float -> grad theta",
+          math: "L(theta) = - E[(R - beta) * sum_t log pi_theta(a_t)]",
+          note: "Backpropagates reward-weighted log-likelihood loss with baseline subtraction beta to update agent."
+        }
+      ];
+
+      const active = steps[activeStepIdx] || steps[3];
+
+      const blockCoords = [
+        { x: 30,  y: 25, w: 180, h: 75 },
+        { x: 250, y: 25, w: 180, h: 75 },
+        { x: 470, y: 25, w: 180, h: 75 },
+        { x: 470, y: 135, w: 180, h: 75 },
+        { x: 250, y: 135, w: 180, h: 75 },
+        { x: 30,  y: 135, w: 180, h: 75 }
+      ];
+
+      return (
+        <div>
+          <div className="micro-viz-svg-wrap">
+            <svg className="micro-viz-svg" viewBox="0 0 680 240" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 8 5 L 0 9 z" fill="#0284c7" />
+                </marker>
+              </defs>
+
+              {/* Connecting Flow Arrows */}
+              <line x1={210} y1={62} x2={244} y2={62} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
+              <line x1={430} y1={62} x2={464} y2={62} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
+              <path d="M 560 100 L 560 129" fill="none" stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
+              <line x1={470} y1={172} x2={436} y2={172} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
+              <line x1={250} y1={172} x2={216} y2={172} stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
+              <path d="M 120 135 L 120 106" fill="none" stroke="#0284c7" strokeWidth="2" markerEnd="url(#arrow)" />
+
+              {/* Step Blocks */}
+              {steps.map((s, idx) => {
+                const c = blockCoords[idx];
+                const isSelected = idx === activeStepIdx;
+
+                return (
+                  <g
+                    key={s.id}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => setActiveStepIdx(idx)}
+                    onMouseEnter={() => setActiveStepIdx(idx)}
+                  >
+                    <rect
+                      x={c.x}
+                      y={c.y}
+                      width={c.w}
+                      height={c.h}
+                      rx="6"
+                      fill={isSelected ? "rgba(2, 132, 199, 0.15)" : "var(--bg-card)"}
+                      stroke={isSelected ? "#0284c7" : "var(--border-main)"}
+                      strokeWidth={isSelected ? "2" : "1"}
+                    />
+                    <text x={c.x + 10} y={c.y + 18} fill="#0284c7" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)">
+                      {s.step}
+                    </text>
+                    <text x={c.x + 10} y={c.y + 36} fill="var(--text-main)" fontSize="11" fontWeight="700">
+                      {s.name}
+                    </text>
+                    <text x={c.x + 10} y={c.y + 52} fill="var(--text-muted)" fontSize="9.5" fontFamily="var(--font-sans)">
+                      {s.sub}
+                    </text>
+                    <text x={c.x + 10} y={c.y + 68} fill="#0d9488" fontSize="8.5" fontFamily="var(--font-mono)" fontWeight="600">
+                      {s.shape.split(":")[0]}: {s.shape.split(":")[1]?.slice(0, 16)}...
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+
+          <div className="micro-viz-legend">
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#0284c7" }}></span>
+              Forward Trajectory Generation (01 -&gt; 02 -&gt; 03)
+            </span>
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#0d9488" }}></span>
+              Multi-Objective Evaluation &amp; Reward (04 -&gt; 05)
+            </span>
+            <span className="micro-viz-legend-item">
+              <span className="micro-viz-legend-dot" style={{ background: "#7c3aed" }}></span>
+              REINFORCE Policy Gradient Update (06 -&gt; 01)
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
+              Hover any pipeline stage to inspect tensor shapes and operations
+            </span>
+          </div>
+
+          <div className="micro-viz-readout">
+            <div className="micro-viz-readout-row">
+              <span className="micro-viz-readout-label">{active.step}:</span>
+              <span className="micro-viz-readout-val" style={{ color: "var(--text-main)" }}>{active.name} ({active.sub})</span>
+              <span className="micro-viz-readout-label" style={{ marginLeft: "12px" }}>Tensors / Arrays:</span>
+              <span className="micro-viz-readout-val">{active.shape}</span>
+            </div>
+            <div className="micro-viz-readout-row">
+              <span className="micro-viz-readout-label">Mathematical Operation:</span>
+              <span className="micro-viz-readout-val" style={{ fontFamily: "var(--font-mono)" }}>{active.math}</span>
+            </div>
+            <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+              {active.note}
+            </div>
+          </div>
         </div>
       );
     }
