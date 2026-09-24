@@ -15591,934 +15591,932 @@ for idx, smi in enumerate(items, 1):
         id: "morl",
         title: "Multi-Objective Reinforcement Learning (MORL) Pipeline",
         shortTitle: "MORL Pipeline",
-        tagline: "Agent (pi_theta) vs Prior (pi_0) -> Batch Rollout -> Scorer Array -> Modifiers -> DrugExEnvironment -> Pareto Scheme -> Policy Gradient (nabla_theta J)",
-        summary: "Coordinates an active generative policy network (pi_theta) with regularized prior exploration (pi_0, epsilon-greedy mutations). Sampled candidate trajectories are decoded into molecular batches, evaluated across parallel property, QSAR, and 3D shape scorers, normalized via continuous desirability modifiers (SmoothClipped / Clipped), and screened against feasibility thresholds in the DrugExEnvironment. Multi-objective Pareto non-dominated sorting with crowding distance scalarizes rewards to drive REINFORCE policy gradient updates without mode collapse.",
-        formulaText: "Agent (pi_theta) vs Prior (pi_0, eps) -> Batch Rollout & Sanitization -> Scorer Array (Props, QSAR, 3D) -> Desirability Modifiers -> DrugExEnvironment -> Pareto Crowding Reward -> Policy Gradient Update (nabla_theta J)",
+        tagline: "ScoreModifier (modifier=) -> Scorer Array (scorers=) + Thresholds (thresholds=) + RewardScheme (reward_scheme=) -> DrugExEnvironment (env=) + Agent Policy (agent=) + Prior Policy (mutate=) -> SequenceExplorer",
+        summary: "Component assembly and initialization dependency graph for DrugEx multi-objective reinforcement learning. Illustrates how continuous Desirability Modifiers parameterize objective Scorers, which assemble alongside Feasibility Thresholds and a RewardScheme (ParetoCrowdingDistance) into DrugExEnvironment. This environment is then wired directly into SequenceExplorer alongside the generative Agent Policy and regularizing Prior Policy to drive REINFORCE policy optimization.",
+        formulaText: "ScoreModifier (modifier=) -> Scorer Array (scorers=) + Thresholds (thresholds=) + RewardScheme (reward_scheme=) -> DrugExEnvironment (env=) + Agent Policy (agent=) + Prior Policy (mutate=) -> SequenceExplorer",
         equation: [
-          { type: "term", text: "Agent Policy (pi_theta)", nodeIdx: 0, tag: "agent" },
+          { type: "term", text: "ScoreModifiers", nodeIdx: 0, tag: "modifier" },
+          { type: "op", text: "->" },
+          { type: "term", text: "Scorer Array (modifier=)", nodeIdx: 1, tag: "scorer" },
           { type: "op", text: "+" },
-          { type: "term", text: "Prior Regularizer (pi_0, eps)", nodeIdx: 1, tag: "input" },
+          { type: "term", text: "Thresholds (thresholds=)", nodeIdx: 2, tag: "env" },
+          { type: "op", text: "+" },
+          { type: "term", text: "RewardScheme (reward_scheme=)", nodeIdx: 3, tag: "pareto" },
           { type: "op", text: "->" },
-          { type: "term", text: "Batch Rollout & Sanitization", nodeIdx: 2, tag: "input" },
+          { type: "term", text: "DrugExEnvironment (env=)", nodeIdx: 4, tag: "env" },
+          { type: "op", text: "+" },
+          { type: "term", text: "Agent Policy (agent=)", nodeIdx: 5, tag: "agent" },
+          { type: "op", text: "+" },
+          { type: "term", text: "Prior Policy (mutate=)", nodeIdx: 6, tag: "agent" },
           { type: "op", text: "->" },
-          { type: "term", text: "Scorer Array (Props, QSAR, 3D)", nodeIdx: 3, tag: "scorer" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Desirability Modifiers (SmoothClipped)", nodeIdx: 4, tag: "modifier" },
-          { type: "op", text: "->" },
-          { type: "term", text: "DrugExEnvironment & Thresholds", nodeIdx: 5, tag: "env" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Reward Scheme (Pareto Crowding)", nodeIdx: 6, tag: "pareto" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Policy Gradient Update (nabla_theta J)", nodeIdx: 7, tag: "output" }
+          { type: "term", text: "SequenceExplorer & .fit()", nodeIdx: 7, tag: "output" }
         ],
         nodes: [
           {
             stepLabel: "01",
-            stage: "Agent Policy",
-            stageType: "agent",
-            label: "Agent Policy Network (pi_theta)",
-            sublabel: "Autoregressive Causal Policy",
-            formula: "P_theta(x_t | x_{<t}) = softmax(W_o h_t)",
-            inputContract: "Context tokens x_{<t} and hidden state h_{t-1}",
-            outputContract: "Action probability distribution over vocabulary V",
-            description: "Active generative agent (SequenceRNN or SequenceTransformer) that models chemical sequence grammar and parameterizes the exploration policy pi_theta.",
-            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::training::generators::SequenceTransformer", "drugex::training::explorers::SequenceExplorer"],
+            stage: "Modifier",
+            stageType: "modifier",
+            label: "Desirability Modifiers",
+            sublabel: "Passed as: modifier= -> Scorer",
+            formula: "SmoothClippedScore(lower, upper)",
+            inputContract: "Continuous raw metrics X in R (MW, logP, pIC50, 3D shape)",
+            outputContract: "ScoreModifier instance passed to Scorer(modifier=...)",
+            description: "Continuous non-linear desirability transformation functions (SmoothClippedScore, ClippedScore) that map heterogeneous physical dimensions into normalized [0, 1] desirability scores with continuous gradients for RL.",
+            drugexSymbols: ["drugex::training::scorers::SmoothClippedScore", "drugex::training::scorers::ClippedScore", "drugex::training::scorers::modifiers::ThresholdedLinear"],
             keyParameters: [
-              { name: "d_model / hidden_size", desc: "Transformer or RNN hidden feature dimension (256-512)" },
-              { name: "temperature", desc: "Softmax sampling temperature (0.7-1.0)" }
+              { name: "lower_x / upper_x", desc: "Desirability transition boundary thresholds" },
+              { name: "high", desc: "Boolean: True if higher raw metric is more desirable" }
             ],
-            diagnostics: "Lower temperature (<0.7) sharpens exploitation but reduces diversity; higher (>1.0) increases invalid chemical structures.",
+            diagnostics: "SmoothClippedScore provides continuous non-zero gradients across transition zones, avoiding sharp zero-gradient cutoffs during policy optimization.",
             x: 20, y: 22
           },
           {
             stepLabel: "02",
-            stage: "Exploration",
-            stageType: "input",
-            label: "Prior Exploration (pi_0, eps)",
-            sublabel: "Epsilon-Greedy Prior Mixture",
-            formula: "a_t ~ (1 - eps) pi_theta(a|s) + eps pi_0(a|s)",
-            inputContract: "Agent policy logits, frozen prior weights theta_0, mutation rate eps",
-            outputContract: "Exploratory action tokens balanced between exploit and explore",
-            description: "Regularizes generation by interpolating between the active agent pi_theta and mutations drawn from the frozen base prior pi_0, preventing mode collapse.",
-            drugexSymbols: ["drugex::training::explorers::SequenceExplorer", "drugex::train::Reinforce"],
+            stage: "Scorers",
+            stageType: "scorer",
+            label: "Parallel Scorer Array",
+            sublabel: "Needs: modifier=; Out: scorers=",
+            formula: "scorers = [Property, QSPRPred, ROCS]",
+            inputContract: "List of instantiated objective Scorers with attached modifiers",
+            outputContract: "List[Scorer] passed as scorers= to DrugExEnvironment",
+            description: "Collection of objective evaluation functions assessing physicochemical properties (Property), bioactivity against targets (QSPRPredScorer), and 3D shape similarity (RDKitROCSScorer).",
+            drugexSymbols: ["drugex::training::scorers::Scorer", "drugex::training::scorers::Property", "drugex::training::scorers::qsprpred::QSPRPredScorer", "drugex::training::scorers::RDKitROCSScorer"],
             keyParameters: [
-              { name: "epsilon", desc: "Exploration mutation rate from prior network (0.1 default)" },
-              { name: "beta", desc: "Prior KL divergence penalty multiplier (0.01-0.1)" }
+              { name: "scorers", desc: "List of instantiated Scorer instances" },
+              { name: "n_workers", desc: "Worker processes for parallel evaluation" }
             ],
-            diagnostics: "If population uniqueness drops below 80%, increase epsilon or beta to force broader exploration.",
+            diagnostics: "Ensure every Scorer has a calibrated modifier attached, and that the number of scorers matches the thresholds vector exactly.",
             x: 310, y: 22
           },
           {
             stepLabel: "03",
-            stage: "Rollout",
-            stageType: "input",
-            label: "Candidate Batch Rollout",
-            sublabel: "SMILES Decoding & Sanitization",
-            formula: "M = {m_1, ..., m_B} ~ pi_{theta, eps}, B=512",
-            inputContract: "Exploratory token batches from SequenceExplorer",
-            outputContract: "Canonical sanitized SMILES batch M = {m_1, ..., m_B}",
-            description: "Decodes generated token sequences into chemical structures using VocSmiles, applies SmilesChecker validation, and removes redundant conformer candidates.",
-            drugexSymbols: ["drugex::data::corpus::vocabulary::VocSmiles", "drugex::training::scorers::SmilesChecker", "drugex::molecules::converters::DefaultStandardizer"],
+            stage: "Thresholds",
+            stageType: "env",
+            label: "Feasibility Thresholds",
+            sublabel: "Passed as: thresholds= -> Env",
+            formula: "thresholds = [0.75, 0.70, 0.80]",
+            inputContract: "List of float cutoffs tau_k in (0, 1) per objective",
+            outputContract: "thresholds passed as thresholds= to DrugExEnvironment",
+            description: "Cutoff vector defining the minimum acceptable desirability per objective. A molecule is marked desirable only when s_k >= tau_k across all objectives simultaneously.",
+            drugexSymbols: ["drugex::training::environment::DrugExEnvironment"],
             keyParameters: [
-              { name: "batch_size", desc: "Rollout candidate batch size per epoch (64-512)" },
-              { name: "drop_duplicates", desc: "Deduplicates molecules within batch to conserve scoring compute" }
+              { name: "thresholds", desc: "List of float cutoffs (must match length of scorers)" }
             ],
-            diagnostics: "Molecules failing valence or aromaticity checks are flagged early so scoring workers skip expensive 3D or neural inference.",
-            x: 600, y: 22
+            diagnostics: "Setting thresholds too aggressively during early epochs causes zero-reward collapse; calibrate initial thresholds to match baseline prior distributions.",
+            x: 20, y: 222
           },
           {
             stepLabel: "04",
-            stage: "Scorers",
-            stageType: "scorer",
-            label: "Parallel Scorer Array",
-            sublabel: "Props, QSAR, 3D ROCS Evaluation",
-            formula: "x_{i,k} = f_k(m_i),  k in {1..K}",
-            inputContract: "Canonical candidate molecules M",
-            outputContract: "Raw continuous property matrix X in R^{B x K}",
-            description: "Dispatches candidates across parallel scoring workers evaluating biological activity (QSPRPredScorer), 3D shape similarity (RDKitROCSScorer), and physicochemical properties (Property).",
-            drugexSymbols: ["drugex::training::scorers::Scorer", "drugex::training::scorers::Property", "drugex::training::scorers::qsprpred::QSPRPredScorer", "drugex::training::scorers::RDKitROCSScorer"],
-            keyParameters: [
-              { name: "n_workers", desc: "Worker processes for parallel evaluation" },
-              { name: "device", desc: "Compute device for neural network predictors (CUDA/CPU)" }
-            ],
-            diagnostics: "Use surrogate QSAR models or pre-calculated grids for complex objectives to prevent scoring worker bottlenecks.",
-            x: 890, y: 22
-          },
-          {
-            stepLabel: "05",
-            stage: "Modifiers",
-            stageType: "modifier",
-            label: "Desirability Modifiers",
-            sublabel: "SmoothClipped & Clipped Functions",
-            formula: "s_{i,k} = M_k(x_{i,k}; alpha, beta) in [0, 1]",
-            inputContract: "Raw continuous metrics X in R^{B x K}",
-            outputContract: "Normalized desirability matrix S in [0, 1]^{B x K}",
-            description: "Maps heterogeneous physical dimensions (pIC50, Daltons, Angstroms) into normalized [0, 1] desirability scores with continuous gradients for RL policy optimization.",
-            drugexSymbols: ["drugex::training::scorers::SmoothClippedScore", "drugex::training::scorers::ClippedScore", "drugex::training::scorers::modifiers::ThresholdedLinear"],
-            keyParameters: [
-              { name: "lower_x / upper_x", desc: "Desirability transition boundary thresholds" },
-              { name: "high", desc: "Directionality boolean: True if higher metric is more desirable" }
-            ],
-            diagnostics: "SmoothClippedScore provides continuous non-zero gradients across transition zones, outperforming sharp step cutoffs during RL.",
-            x: 890, y: 222
-          },
-          {
-            stepLabel: "06",
-            stage: "Environment",
-            stageType: "env",
-            label: "DrugExEnvironment Gate",
-            sublabel: "Multi-Objective Coordination & Tau",
-            formula: "S_valid = S * prod_k I(s_k >= tau_k)",
-            inputContract: "Desirability matrix S in [0, 1]^{B x K} and threshold vector tau",
-            outputContract: "Feasibility-filtered objective score matrix",
-            description: "Central RL environment coordination. Aggregates multi-objective scores, validates feasibility thresholds tau_k, and enforces essential criteria before reward scalarization.",
-            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::scorers::ScoreModifier"],
-            keyParameters: [
-              { name: "thresholds", desc: "Minimum acceptable desirability cutoff per goal (typically 0.5-0.8)" },
-              { name: "weights", desc: "Objective weighting coefficients for scalarized benchmarks" }
-            ],
-            diagnostics: "Setting thresholds too high during early training causes zero-reward collapse; calibrate initial thresholds to match the baseline prior.",
-            x: 600, y: 222
-          },
-          {
-            stepLabel: "07",
             stage: "Reward Scheme",
             stageType: "pareto",
-            label: "Pareto Crowding Reward",
-            sublabel: "Non-Dominated Sorting & Crowding",
-            formula: "R(m_i) = f_rank(F_r) + d_crowding(m_i; F_r)",
-            inputContract: "Multi-objective desirability matrix from DrugExEnvironment",
-            outputContract: "Scalarized multi-objective reward vector R in [0, 1]^B",
-            description: "Partitions candidates into non-dominated Pareto fronts. Calculates crowding distances in objective space to reward molecules that expand the Pareto frontier without clustering.",
-            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::explorers::SequenceExplorer", "drugex::train::Reinforce"],
+            label: "Reward Scheme Strategy",
+            sublabel: "Passed as: reward_scheme= -> Env",
+            formula: "ParetoCrowdingDistance(thresholds)",
+            inputContract: "Thresholds vector and ranking configuration",
+            outputContract: "RewardScheme instance passed to DrugExEnvironment",
+            description: "Multi-objective scalarization strategy. Partitions candidate solutions into Pareto fronts F_1, F_2, ... and assigns crowding distances to preserve population chemical diversity.",
+            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::train::Reinforce"],
             keyParameters: [
-              { name: "scheme", desc: "ParetoCrowdingDistance or WeightedSum scalarization" },
-              { name: "thresholds", desc: "Multi-objective desirability cutoff vector" }
+              { name: "scheme", desc: "ParetoCrowdingDistance or WeightedSum scalarization" }
             ],
-            diagnostics: "Crowding distance preservation ensures the agent discovers multiple chemically distinct lead series rather than collapsing onto a single trivial optimum.",
+            diagnostics: "ParetoCrowdingDistance discovers diverse chemical series; WeightedSum tends to exploit whichever single objective is easiest to optimize.",
             x: 310, y: 222
           },
           {
-            stepLabel: "08",
-            stage: "Policy Update",
-            stageType: "output",
-            label: "Policy Gradient Update",
-            sublabel: "REINFORCE Parameter Evolution (nabla_theta J)",
-            formula: "Delta theta = eta * (R - b - beta * log(pi_theta/pi_0)) grad log pi_theta",
-            inputContract: "Action log-probabilities, scalar reward vector R, moving baseline b",
-            outputContract: "Updated policy model weights theta <- theta + Delta theta",
-            description: "Computes REINFORCE policy gradient loss with moving average baseline subtraction and prior KL penalty. Steps Adam optimizer to increase probability of high-reward actions.",
-            drugexSymbols: ["drugex::training::explorers::SequenceExplorer", "drugex::training::generators::SequenceRNN", "drugex::training::monitors::FileMonitor"],
+            stepLabel: "05",
+            stage: "Environment",
+            stageType: "env",
+            label: "DrugExEnvironment",
+            sublabel: "Needs: scorers, thresholds, scheme",
+            formula: "DrugExEnvironment(scorers, ths, scheme)",
+            inputContract: "scorers: List[Scorer], thresholds: List[float], reward_scheme: RewardScheme",
+            outputContract: "DrugExEnvironment instance passed as env= to SequenceExplorer",
+            description: "Central multi-objective RL environment. Coordinates parallel scoring of candidate SMILES, enforces chemical validity (SmilesChecker), applies feasibility thresholds, and scalarizes Pareto rewards.",
+            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::scorers::ScoreModifier"],
             keyParameters: [
-              { name: "lr", desc: "Policy learning rate (1e-4 default with Adam)" },
-              { name: "baseline", desc: "Exponential moving average baseline to reduce policy gradient variance" }
+              { name: "scorers", desc: "List of objective functions" },
+              { name: "thresholds", desc: "Cutoff desirability thresholds" },
+              { name: "reward_scheme", desc: "ParetoCrowdingDistance or WeightedSum" }
             ],
-            diagnostics: "Gradual learning rate decay (cosine annealing) prevents late-stage destabilization of policy parameters.",
-            x: 20, y: 222
+            diagnostics: "DrugExEnvironment raises AssertionError if len(scorers) != len(thresholds). Ensure multi-task scorers have a threshold per task.",
+            x: 600, y: 222
+          },
+          {
+            stepLabel: "06",
+            stage: "Agent Policy",
+            stageType: "agent",
+            label: "Agent Policy Network",
+            sublabel: "Passed as: agent= -> Explorer",
+            formula: "SequenceRNN(voc=voc, is_lstm=True)",
+            inputContract: "VocSmiles chemical token vocabulary",
+            outputContract: "SequenceRNN instance passed as agent= to SequenceExplorer",
+            description: "Active generative policy network (SequenceRNN or SequenceTransformer) initialized with chemical grammar and updated by policy gradient to maximize multi-objective rewards.",
+            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::training::generators::SequenceTransformer"],
+            keyParameters: [
+              { name: "voc", desc: "Chemical token vocabulary (VocSmiles)" },
+              { name: "is_lstm", desc: "True for LSTM, False for GRU architecture" }
+            ],
+            diagnostics: "Agent model parameters theta receive gradient updates during reinforcement learning; must remain unfrozen.",
+            x: 600, y: 22
+          },
+          {
+            stepLabel: "07",
+            stage: "Prior Policy",
+            stageType: "agent",
+            label: "Exploration Prior Policy",
+            sublabel: "Passed as: mutate= -> Explorer",
+            formula: "prior = SequenceRNN.loadStates(path)",
+            inputContract: "Pretrained model checkpoint path and VocSmiles",
+            outputContract: "Frozen SequenceRNN passed as mutate= to SequenceExplorer",
+            description: "Frozen reference network representing the pre-trained chemical space distribution. Sampled during epsilon-greedy exploration to regularize the active agent and prevent mode collapse.",
+            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::training::explorers::SequenceExplorer"],
+            keyParameters: [
+              { name: "mutate", desc: "Frozen prior network used for exploration mutations" },
+              { name: "epsilon", desc: "Mutation probability from prior (0.1 default)" }
+            ],
+            diagnostics: "Never train or update prior network weights during RL; keeping prior frozen maintains chemical validity benchmarks.",
+            x: 890, y: 22
+          },
+          {
+            stepLabel: "08",
+            stage: "Explorer",
+            stageType: "output",
+            label: "SequenceExplorer Assembler",
+            sublabel: "Needs: agent, env, mutate, beta, eps",
+            formula: "SequenceExplorer(agent, env, mutate)",
+            inputContract: "agent: SequenceRNN, env: DrugExEnvironment, mutate: SequenceRNN, epsilon: float",
+            outputContract: "Initialized SequenceExplorer orchestrator ready for .fit(loader, monitor)",
+            description: "Top-level RL orchestrator. Assembles the generative agent, multi-objective environment, and exploration prior. Implements the rollout, scoring, Pareto ranking, and REINFORCE policy gradient loop.",
+            drugexSymbols: ["drugex::training::explorers::SequenceExplorer", "drugex::train::Reinforce", "drugex::training::monitors::FileMonitor"],
+            keyParameters: [
+              { name: "agent", desc: "Active generative agent network" },
+              { name: "env", desc: "DrugExEnvironment instance" },
+              { name: "mutate", desc: "Frozen prior network" },
+              { name: "epsilon", desc: "Mutation rate (0.1)" },
+              { name: "beta", desc: "Reward baseline (0.01-0.05)" }
+            ],
+            diagnostics: "Attach FileMonitor before calling .fit() to stream real-time validity, uniqueness, and Pareto objective metrics.",
+            x: 890, y: 222
           }
         ],
         connectors: [
-          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "Logits", color: "#0284c7" },
-          { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "Eps-Mix", color: "#0284c7" },
-          { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "SMILES", color: "#0d9488" },
-          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "Raw X", color: "#d97706" },
-          { fromX: 890, fromY: 271, toX: 820, toY: 271, label: "Scores S", color: "#7c3aed" },
-          { fromX: 600, fromY: 271, toX: 530, toY: 271, label: "Feasible", color: "#16a34a" },
-          { fromX: 310, fromY: 271, toX: 240, toY: 271, label: "Reward R", color: "#e11d48" }
+          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "modifier=", color: "#7c3aed" },
+          { fromX: 530, fromY: 71, toX: 630, toY: 222, label: "scorers=", color: "#d97706" },
+          { fromX: 240, fromY: 271, toX: 310, toY: 271, label: "thresholds=", color: "#16a34a" },
+          { fromX: 530, fromY: 271, toX: 600, toY: 271, label: "reward_scheme=", color: "#e11d48" },
+          { fromX: 820, fromY: 271, toX: 890, toY: 271, label: "env=", color: "#16a34a" },
+          { fromX: 820, fromY: 71, toX: 890, toY: 245, label: "agent=", color: "#0284c7" },
+          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "mutate=", color: "#0284c7" }
         ],
-        feedbackLoop: { fromX: 130, fromY: 222, toX: 130, toY: 120, label: "Updated Policy Weights theta", color: "#0284c7" },
+        feedbackLoop: { fromX: 1000, fromY: 320, toX: 710, toY: 22, label: ".fit(loader, monitor) -> Pareto Loop", color: "#0284c7" },
         matrixRows: [
-          { step: "01", component: "Agent Policy", input: "Token sequence context x_{<t}", operation: "Autoregressive conditional decoding: P_theta(x_t | x_{<t})", output: "Action distribution", classes: "SequenceRNN, SequenceTransformer" },
-          { step: "02", component: "Prior Exploration", input: "Policy logits, prior pi_0", operation: "Epsilon-greedy prior mixture: (1-eps) pi_theta + eps pi_0", output: "Exploration tokens", classes: "SequenceExplorer, Reinforce" },
-          { step: "03", component: "Batch Rollout", input: "Sampled token sequences", operation: "VocSmiles decoding, valence verification, deduplication", output: "Canonical SMILES batch", classes: "VocSmiles, SmilesChecker, DefaultStandardizer" },
-          { step: "04", component: "Scorer Array", input: "Candidate molecules M", operation: "Parallel property, QSAR, and 3D ROCS evaluation: x_k = f_k(m)", output: "Raw metric matrix X", classes: "Scorer, Property, QSPRPredScorer, RDKitROCSScorer" },
-          { step: "05", component: "Desirability Modifiers", input: "Raw continuous metrics X", operation: "Continuous sigmoidal desirability mapping: s_k = M_k(x_k) in [0,1]", output: "Normalized score matrix S", classes: "SmoothClippedScore, ClippedScore, ThresholdedLinear" },
-          { step: "06", component: "DrugExEnvironment", input: "Desirability matrix S, thresholds", operation: "Multi-objective aggregation, threshold screening (s_k >= tau_k)", output: "Feasible objective state", classes: "DrugExEnvironment, ScoreModifier" },
-          { step: "07", component: "Reward Scheme", input: "Feasible objective matrix", operation: "Non-dominated sorting & objective crowding distance scalarization", output: "Scalar reward vector R", classes: "DrugExEnvironment, SequenceExplorer, Reinforce" },
-          { step: "08", component: "Policy Gradient", input: "Reward R, moving baseline b", operation: "REINFORCE gradient optimization: theta <- theta + Delta theta", output: "Updated weights theta", classes: "SequenceExplorer, SequenceRNN, FileMonitor" }
+          { step: "01", component: "Desirability Modifiers", input: "Raw metrics X", operation: "Sigmoidal continuous mapping: SmoothClippedScore(lower, upper)", output: "ScoreModifier", classes: "SmoothClippedScore, ClippedScore" },
+          { step: "02", component: "Scorer Array", input: "modifier=ScoreModifier", operation: "Instantiate parallel evaluators: Property, QSPRPred, ROCS", output: "List[Scorer]", classes: "Scorer, Property, QSPRPredScorer, RDKitROCSScorer" },
+          { step: "03", component: "Feasibility Thresholds", input: "Domain cutoffs", operation: "Define minimum desirability cutoffs [tau_1..tau_K]", output: "List[float]", classes: "DrugExEnvironment" },
+          { step: "04", component: "Reward Scheme", input: "thresholds=List[float]", operation: "Configure ParetoCrowdingDistance ranking strategy", output: "RewardScheme", classes: "DrugExEnvironment, Reinforce" },
+          { step: "05", component: "DrugExEnvironment", input: "scorers, thresholds, reward_scheme", operation: "Assemble multi-objective environment: DrugExEnvironment(scorers, ths, scheme)", output: "DrugExEnvironment instance", classes: "DrugExEnvironment, ScoreModifier" },
+          { step: "06", component: "Agent Policy", input: "voc=VocSmiles", operation: "Construct active generative policy: SequenceRNN(voc, is_lstm=True)", output: "SequenceRNN (agent)", classes: "SequenceRNN, SequenceTransformer" },
+          { step: "07", component: "Exploration Prior", input: "Pretrained checkpoint", operation: "Load frozen exploration baseline: prior.loadStates(path)", output: "SequenceRNN (mutate)", classes: "SequenceRNN, SequenceExplorer" },
+          { step: "08", component: "SequenceExplorer Assembler", input: "agent, env, mutate, beta, eps", operation: "Assemble RL loop: SequenceExplorer(agent, env, mutate).fit(loader)", output: "Pareto Lead Candidates", classes: "SequenceExplorer, Reinforce, FileMonitor" }
         ]
       },
       {
         id: "training",
         title: "End-to-End Generative Training Pipeline",
         shortTitle: "Generative Training",
-        tagline: "Corpus pre-training (Papyrus ~1.5M) -> Target fine-tuning (actives) -> MORL fine-tuning (environment + explorers) -> Lead sampling",
-        summary: "Spans the complete DrugEx generative model lifecycle: unsupervised language modeling of causal sequence or graph architectures on millions of general chemical compounds (Papyrus dataset ~1.5M molecules), transfer-learning fine-tuning on a target-active ligand subset, freezing of the base prior network (pi_0), and MORL fine-tuning with DrugExEnvironment and Explorers to generate candidate libraries for experimental synthesis.",
-        formulaText: "Corpus Pre-training (Papyrus dataset ~1.5M, SequenceRNN/Transformer) -> Target Fine-Tuning (active ligand subset) -> MORL Fine-Tuning (Environment + Explorers) -> Candidate Sampling & Generation",
+        tagline: "Corpus (words=) -> VocSmiles (voc=) -> DataLoader (train_loader=) -> Base Prior -> Fine-Tuned Agent + DrugExEnvironment -> SequenceExplorer",
+        summary: "Component assembly and initialization dependency graph for end-to-end DrugEx generative model training. Illustrates how a general SMILES corpus constructs VocSmiles, which tokenizes a SmilesDataSet to pre-train a base SequenceRNN prior. The pre-trained weights initialize a target-specific fine-tuned agent, which together with the frozen prior and an initialized DrugExEnvironment assemble into SequenceExplorer for RL lead discovery.",
+        formulaText: "Corpus (words=) -> VocSmiles (voc=) -> DataLoader (train_loader=) -> Base Prior (prior_weights) -> Fine-Tuned Agent (agent=) + DrugExEnvironment (env=) + Prior (mutate=) -> SequenceExplorer",
         equation: [
-          { type: "term", text: "Corpus Curation (~1.5M Papyrus)", nodeIdx: 0, tag: "input" },
+          { type: "term", text: "Corpus (~1.5M SMILES)", nodeIdx: 0, tag: "input" },
+          { type: "op", text: "->" },
+          { type: "term", text: "VocSmiles (words=)", nodeIdx: 1, tag: "input" },
+          { type: "op", text: "->" },
+          { type: "term", text: "SmilesDataSet (voc=)", nodeIdx: 2, tag: "input" },
+          { type: "op", text: "->" },
+          { type: "term", text: "Base Prior Model", nodeIdx: 3, tag: "agent" },
           { type: "op", text: "+" },
-          { type: "term", text: "Tokenizer (VocSmiles/Graph)", nodeIdx: 1, tag: "input" },
+          { type: "term", text: "Target Actives Subset", nodeIdx: 4, tag: "input" },
           { type: "op", text: "->" },
-          { type: "term", text: "MLE Pre-Training (RNN/Transformer)", nodeIdx: 2, tag: "agent" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Frozen Base Prior (pi_0)", nodeIdx: 3, tag: "input" },
+          { type: "term", text: "Fine-Tuned Agent (agent=)", nodeIdx: 5, tag: "agent" },
           { type: "op", text: "+" },
-          { type: "term", text: "Target Actives Subset (100-2k)", nodeIdx: 4, tag: "input" },
+          { type: "term", text: "DrugExEnvironment (env=)", nodeIdx: 6, tag: "env" },
           { type: "op", text: "->" },
-          { type: "term", text: "Target Fine-Tuning (pi_init)", nodeIdx: 5, tag: "agent" },
-          { type: "op", text: "->" },
-          { type: "term", text: "MORL Fine-Tuning (Env + Explorers)", nodeIdx: 6, tag: "env" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Candidate Sampling & Triage", nodeIdx: 7, tag: "output" }
+          { type: "term", text: "SequenceExplorer & .fit()", nodeIdx: 7, tag: "output" }
         ],
         nodes: [
           {
             stepLabel: "01",
-            stage: "Data Corpus",
+            stage: "Corpus",
             stageType: "input",
-            label: "Corpus Pre-training (~1.5M)",
-            sublabel: "Papyrus / ChEMBL Dataset Curation",
-            formula: "C = {s_1, ..., s_N},  N ~ 1,500,000 molecules",
-            inputContract: "Raw chemical database entries (Papyrus, ChEMBL, ZINC)",
-            outputContract: "Standardized, desalted, canonical SMILES corpus",
-            description: "Ingestion and curation of the Papyrus bioactive dataset (~1.5M molecules). Standardizes tautomers, strips inorganic salts, neutralizes charge, and canonicalizes SMILES.",
-            drugexSymbols: ["drugex::data::corpus::vocabulary::VocSmiles", "drugex::data::corpus::vocabulary::VocGraph", "drugex::train::Pretrain"],
+            label: "Pre-training SMILES Corpus",
+            sublabel: "Passed as: words= -> VocSmiles",
+            formula: "corpus = pd.read_csv('papyrus.tsv')",
+            inputContract: "Raw SMILES corpus file (Papyrus / ChEMBL / ZINC)",
+            outputContract: "Standardized, canonical SMILES strings",
+            description: "General chemical database (~1.5M molecules) used to learn valid organic grammar and chemical bond topology.",
+            drugexSymbols: ["drugex::data::corpus::vocabulary::VocSmiles", "drugex::data::datasets::SmilesDataSet"],
             keyParameters: [
-              { name: "canonicalize", desc: "Enforce strict canonical RDKit SMILES ordering" },
-              { name: "max_len", desc: "Maximum sequence length cutoff (default 100 tokens)" }
+              { name: "corpus_path", desc: "Path to tab-separated SMILES corpus" }
             ],
-            diagnostics: "Failing to canonicalize training SMILES increases vocabulary entropy and doubles pre-training convergence time.",
+            diagnostics: "Always run DefaultStandardizer to strip salts, normalize tautomers, and canonicalize SMILES before vocabulary extraction.",
             x: 20, y: 22
           },
           {
             stepLabel: "02",
-            stage: "Tokenization",
+            stage: "Vocabulary",
             stageType: "input",
-            label: "Tokenizer & Grammar",
-            sublabel: "VocSmiles / VocGraph Tokenization",
-            formula: "x = [t_1, t_2, ..., t_L],  t_i in V",
-            inputContract: "Standardized canonical SMILES or molecular graphs",
-            outputContract: "Integer token tensor indices [B, L] or node/edge feature matrices",
-            description: "Encodes chemical tokens for sequence models or graph representations. Handles start-of-sequence, end-of-sequence, and padding tokens.",
-            drugexSymbols: ["drugex::data::corpus::vocabulary::VocSmiles", "drugex::data::corpus::vocabulary::VocGraph"],
+            label: "VocSmiles Vocabulary",
+            sublabel: "Needs: words; Out: voc=",
+            formula: "voc = VocSmiles.fromFile('vocab.txt')",
+            inputContract: "Character/token frequencies from SMILES corpus",
+            outputContract: "VocSmiles instance passed to SmilesDataSet & models",
+            description: "Maps chemical SMILES tokens (atoms, bonds, brackets, branch markers) to integer indices for neural sequence modeling.",
+            drugexSymbols: ["drugex::data::corpus::vocabulary::VocSmiles", "drugex::data::datasets::SmilesDataSet"],
             keyParameters: [
-              { name: "encode_frags", desc: "Enables prefix separation for fragment-based tasks" },
-              { name: "vocab_size", desc: "Distinct atom/token classes in chemical grammar (60-120)" }
+              { name: "words", desc: "Token vocabulary list or file path" }
             ],
-            diagnostics: "Ensure vocabulary is derived over the union of pre-training and target datasets to prevent unknown token runtime errors.",
+            diagnostics: "Vocabulary must include all tokens present in both pre-training and downstream fine-tuning active sets to avoid out-of-vocabulary crashes.",
             x: 310, y: 22
           },
           {
             stepLabel: "03",
-            stage: "Language Model",
-            stageType: "agent",
-            label: "MLE Pre-Training Phase",
-            sublabel: "Autoregressive Causal Modeling",
-            formula: "L_MLE = - sum_t log P_theta(x_t | x_{<t})",
-            inputContract: "Batched token sequences [B, L] from general corpus",
-            outputContract: "Trained generative base model with > 98% validity",
-            description: "Unsupervised autoregressive language modeling across Papyrus dataset using SequenceRNN or SequenceTransformer to master chemical valency and aromaticity.",
-            drugexSymbols: ["drugex::training::generators::SequenceTransformer", "drugex::training::generators::SequenceRNN", "drugex::train::Pretrain"],
+            stage: "DataLoader",
+            stageType: "input",
+            label: "SmilesDataSet & Loader",
+            sublabel: "Needs: data, voc=; Out: loader",
+            formula: "dataset = SmilesDataSet(data, voc)",
+            inputContract: "SMILES list and instantiated VocSmiles vocabulary",
+            outputContract: "PyTorch DataLoader yielding batched token tensors",
+            description: "Encodes SMILES strings into padded integer tensors with start/end tokens, batching data for autoregressive language model training.",
+            drugexSymbols: ["drugex::data::datasets::SmilesDataSet", "drugex::data::corpus::vocabulary::VocSmiles"],
             keyParameters: [
-              { name: "d_model / n_head", desc: "Transformer embedding dimension and attention heads (256/8)" },
-              { name: "n_layer", desc: "Number of causal decoder layers (typically 6-12)" }
+              { name: "batch_size", desc: "Mini-batch size for model updates (128-512)" }
             ],
-            diagnostics: "Pre-training should achieve > 95% syntactic validity before initiating target transfer learning.",
+            diagnostics: "Use pinned memory and multi-worker loading to prevent GPU starvation during large corpus language modeling.",
             x: 600, y: 22
           },
           {
             stepLabel: "04",
-            stage: "Frozen Prior",
-            stageType: "input",
-            label: "Base Prior Model (pi_0)",
-            sublabel: "Locked Reference Checkpoint",
-            formula: "theta_0 = detach(theta_pre),  grad theta_0 = 0",
-            inputContract: "Pre-trained checkpoint weights",
-            outputContract: "Immutable reference prior network",
-            description: "Weights are permanently frozen. Serves as the anchor distribution during reinforcement learning to compute KL penalties and mutation proposals.",
-            drugexSymbols: ["drugex::training::explorers::SequenceExplorer", "drugex::train::Pretrain"],
+            stage: "Base Prior",
+            stageType: "agent",
+            label: "SequenceRNN (Base Prior)",
+            sublabel: "Needs: voc=; Out: prior_weights",
+            formula: "prior = SequenceRNN(voc=voc, is_lstm=True)",
+            inputContract: "VocSmiles instance and architecture dimensions (d_model=512)",
+            outputContract: "Pre-trained checkpoint weights saved to disk",
+            description: "Autoregressive neural language model pre-trained via maximum likelihood estimation (MLE) over the general corpus. Captures broad chemical valid space.",
+            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::training::generators::SequenceTransformer"],
             keyParameters: [
-              { name: "device", desc: "Evaluation device for prior inference (can share GPU or CPU)" }
+              { name: "is_lstm", desc: "Use LSTM architecture (True) or GRU (False)" }
             ],
-            diagnostics: "Never update prior weights during RL; backpropagation into pi_0 eliminates regularizing anchor effects.",
+            diagnostics: "Freeze base prior weights permanently before using as mutate= regularizer in reinforcement learning.",
             x: 890, y: 22
           },
           {
             stepLabel: "05",
-            stage: "Target Data",
+            stage: "Actives",
             stageType: "input",
-            label: "Target Actives Subset",
-            sublabel: "Bioactive Hit Series (n=100-2k)",
-            formula: "D_target = {(m_1, y_1), ..., (m_K, y_K)},  y_i >= 6.5",
-            inputContract: "Validated target-specific ligands with binding affinities (e.g. pIC50 >= 6.5)",
-            outputContract: "Tokenized target active batches",
-            description: "Known active compounds binding the biological target of interest. Acts as the seed dataset to bias the generative prior towards target pharmacophoric space.",
-            drugexSymbols: ["drugex::data::corpus::vocabulary::VocSmiles", "drugex::train::Finetune"],
+            label: "Target Actives Dataset",
+            sublabel: "Passed as: actives_loader -> Agent",
+            formula: "actives_loader = DataLoader(actives, 64)",
+            inputContract: "Curated target bioactivity subset (pIC50 >= 6.5)",
+            outputContract: "Target DataLoader for transfer learning",
+            description: "Sub-population of known active molecules for the therapeutic target (e.g. A2AR, kinase, GPCR), used for transfer learning.",
+            drugexSymbols: ["drugex::data::datasets::SmilesDataSet", "drugex::data::corpus::vocabulary::VocSmiles"],
             keyParameters: [
-              { name: "affinity_cutoff", desc: "Threshold defining active compounds (pIC50 >= 6.5 default)" }
+              { name: "pIC50_cutoff", desc: "Bioactivity threshold defining active ligands (typically >= 6.5)" }
             ],
-            diagnostics: "If active series is small (< 50 molecules), utilize randomized SMILES augmentation to prevent early overfitting.",
-            x: 890, y: 222
+            diagnostics: "Ensure actives are encoded with the exact same VocSmiles instance as the base model.",
+            x: 20, y: 222
           },
           {
             stepLabel: "06",
             stage: "Fine-Tuning",
             stageType: "agent",
-            label: "Target Fine-Tuning (pi_init)",
-            sublabel: "Target Focused Transfer Learning",
-            formula: "theta_init = argmin_theta L_CE(D_target; theta_0)",
-            inputContract: "Target actives batch, pre-trained base model weights",
-            outputContract: "Warm-started initial policy model biased to target binding site",
-            description: "Transfer learning fine-tunes the base generative model on target actives for 10-30 epochs with low learning rate, focusing the prior distribution onto active scaffolds.",
-            drugexSymbols: ["drugex::training::generators::SequenceTransformer", "drugex::train::Finetune"],
+            label: "Fine-Tuned Agent Policy",
+            sublabel: "Needs: prior_weights + actives",
+            formula: "agent = SequenceRNN(voc).loadStates(...)",
+            inputContract: "Pre-trained prior weights and target actives loader",
+            outputContract: "SequenceRNN instance passed as agent= to SequenceExplorer",
+            description: "Biases the generative probability distribution toward target-specific bioactivity scaffolds through short transfer learning (10-30 epochs at low LR).",
+            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::training::explorers::SequenceExplorer"],
             keyParameters: [
-              { name: "epochs", desc: "Fine-tuning iterations (typically 10-25 epochs)" },
-              { name: "lr", desc: "Transfer learning rate (5e-5 to 1e-4)" }
+              { name: "lr", desc: "Fine-tuning learning rate (5e-5 to 1e-4)" }
             ],
-            diagnostics: "Stop fine-tuning when validation loss plateaus; over-training causes the model to memorize ligands verbatim.",
-            x: 600, y: 222
-          },
-          {
-            stepLabel: "07",
-            stage: "MORL Loop",
-            stageType: "env",
-            label: "MORL Fine-Tuning",
-            sublabel: "Environment + Explorers",
-            formula: "pi_theta <- MORL_Step(pi_theta, pi_0, Env, eps, eta)",
-            inputContract: "Warm-started policy pi_init, DrugExEnvironment, frozen prior pi_0",
-            outputContract: "Trained specialized de novo generator pi*",
-            description: "SequenceExplorer coordinates multi-objective exploration: sampling batches, evaluating through scorers, computing Pareto rewards, and updating weights.",
-            drugexSymbols: ["drugex::training::explorers::SequenceExplorer", "drugex::training::environment::DrugExEnvironment", "drugex::train::Reinforce"],
-            keyParameters: [
-              { name: "epochs", desc: "Reinforcement learning epochs (50-200)" },
-              { name: "epsilon", desc: "Exploration mutation probability (0.1)" }
-            ],
-            diagnostics: "Track moving Desired Ratio (DR%) and Uniqueness (U%). If U% drops below 30%, increase epsilon or prior KL beta.",
+            diagnostics: "Use early stopping to prevent over-fitting to the small active training set before RL exploration.",
             x: 310, y: 222
           },
           {
-            stepLabel: "08",
-            stage: "Lead Extraction",
-            stageType: "output",
-            label: "Candidate Sampling",
-            sublabel: "De Novo Leads for Synthesis",
-            formula: "M_leads = ParetoFilter(Sampling(pi*, N >= 10,000))",
-            inputContract: "Converged policy network pi*",
-            outputContract: "Top non-dominated lead candidates satisfying bioactivity and ADMET criteria",
-            description: "Generates high-volume candidate libraries (10,000+ molecules), removes duplicates, filters via Pareto dominance, and ranks candidates for experimental synthesis.",
-            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::monitors::FileMonitor"],
+            stepLabel: "07",
+            stage: "Environment",
+            stageType: "env",
+            label: "DrugExEnvironment",
+            sublabel: "Needs: scorers, thresholds, scheme",
+            formula: "env = DrugExEnvironment(scorers, ths, scheme)",
+            inputContract: "scorers: List[Scorer], thresholds: List[float], reward_scheme",
+            outputContract: "DrugExEnvironment instance passed as env= to SequenceExplorer",
+            description: "Assembled multi-objective evaluation environment assessing target binding affinity, selectivity, and drug-likeness.",
+            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::scorers::Scorer"],
             keyParameters: [
-              { name: "temperature", desc: "Inference sampling temperature (0.7-0.8 recommended)" },
-              { name: "n_samples", desc: "Total de novo molecules sampled for lead triage (10k+)" }
+              { name: "scorers", desc: "Parallel target QSAR and property scoring functions" }
             ],
-            diagnostics: "Perform post-hoc clustering and visual scaffold inspection to ensure chemical diversity among top-ranked candidates.",
-            x: 20, y: 222
+            diagnostics: "Calibrate thresholds to the fine-tuned agent's initial score distribution to avoid zero reward feedback.",
+            x: 600, y: 222
+          },
+          {
+            stepLabel: "08",
+            stage: "Explorer",
+            stageType: "output",
+            label: "SequenceExplorer Assembler",
+            sublabel: "Needs: agent, env, mutate=prior",
+            formula: "SequenceExplorer(agent, env, mutate=prior)",
+            inputContract: "agent: SequenceRNN, env: DrugExEnvironment, mutate: SequenceRNN",
+            outputContract: ".fit() execution generating novel bioactive lead candidates",
+            description: "Top-level orchestrator executing reinforcement learning, sampling candidate batches, evaluating through DrugExEnvironment, and applying policy gradients.",
+            drugexSymbols: ["drugex::training::explorers::SequenceExplorer", "drugex::train::Reinforce", "drugex::training::monitors::FileMonitor"],
+            keyParameters: [
+              { name: "epsilon", desc: "Exploration mutation rate from prior (0.1)" }
+            ],
+            diagnostics: "Monitor validity, uniqueness, and desired ratio curves in FileMonitor to confirm healthy policy evolution.",
+            x: 890, y: 222
           }
         ],
         connectors: [
-          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "~1.5M Mols", color: "#0d9488" },
-          { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "Tokens X", color: "#0284c7" },
-          { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "theta_pre", color: "#0284c7" },
-          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "Freeze pi_0", color: "#0d9488" },
-          { fromX: 890, fromY: 271, toX: 820, toY: 271, label: "Actives", color: "#0284c7" },
-          { fromX: 600, fromY: 271, toX: 530, toY: 271, label: "pi_init", color: "#0284c7" },
-          { fromX: 310, fromY: 271, toX: 240, toY: 271, label: "Trained pi*", color: "#16a34a" }
+          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "words=", color: "#0d9488" },
+          { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "voc=", color: "#0d9488" },
+          { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "train_loader=", color: "#0284c7" },
+          { fromX: 240, fromY: 271, toX: 310, toY: 271, label: "actives_loader=", color: "#0d9488" },
+          { fromX: 890, fromY: 100, toX: 450, toY: 222, label: "prior_weights", color: "#0284c7" },
+          { fromX: 530, fromY: 271, toX: 890, toY: 240, label: "agent=", color: "#0284c7" },
+          { fromX: 820, fromY: 271, toX: 890, toY: 271, label: "env=", color: "#16a34a" },
+          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "mutate=prior", color: "#0284c7" }
         ],
-        feedbackLoop: null,
+        feedbackLoop: { fromX: 1000, fromY: 320, toX: 710, toY: 22, label: ".fit() -> Pareto Generation", color: "#0284c7" },
         matrixRows: [
-          { step: "01", component: "Corpus Ingestion", input: "Papyrus/ChEMBL (~1.5M molecules)", operation: "Standardization, desalting, neutralization, canonicalization", output: "Cleaned SMILES corpus", classes: "VocSmiles, VocGraph, Pretrain" },
-          { step: "02", component: "Vocabulary", input: "Canonical SMILES strings", operation: "Token indexing, special token insertion, vocab dictionary", output: "Integer token matrices", classes: "VocSmiles, VocGraph" },
-          { step: "03", component: "Pre-Training", input: "Token batches from corpus", operation: "Unsupervised autoregressive MLE language modeling", output: "Base generative checkpoint", classes: "SequenceTransformer, SequenceRNN, Pretrain" },
-          { step: "04", component: "Prior Freezing", input: "Base model checkpoint", operation: "Lock weights, detach gradient graph: grad theta_0 = 0", output: "Frozen reference prior pi_0", classes: "SequenceExplorer, Pretrain" },
-          { step: "05", component: "Actives Curation", input: "Target bioactivity assays", operation: "Affinity threshold filtering (pIC50 >= 6.5)", output: "Target actives dataset", classes: "VocSmiles, Finetune" },
-          { step: "06", component: "Target Fine-Tuning", input: "Target actives + base weights", operation: "Transfer learning fine-tuning: 10-30 epochs at low LR", output: "Initial policy pi_init", classes: "SequenceTransformer, Finetune" },
-          { step: "07", component: "MORL Fine-Tuning", input: "pi_init, pi_0, DrugExEnvironment", operation: "Iterative REINFORCE policy search with Pareto reward", output: "Converged agent pi*", classes: "SequenceExplorer, DrugExEnvironment, Reinforce" },
-          { step: "08", component: "Lead Extraction", input: "Trained agent pi*", operation: "High-volume generation (N>=10k), Pareto front extraction", output: "Validated lead candidates", classes: "DrugExEnvironment, FileMonitor" }
+          { step: "01", component: "Corpus Ingestion", input: "Papyrus/ChEMBL (~1.5M SMILES)", operation: "Standardize, desalt, and tokenize chemical corpus", output: "Cleaned SMILES corpus", classes: "VocSmiles, SmilesDataSet" },
+          { step: "02", component: "Vocabulary", input: "Corpus token frequencies", operation: "Construct chemical token index dictionary: VocSmiles", output: "VocSmiles vocabulary", classes: "VocSmiles, SmilesDataSet" },
+          { step: "03", component: "DataLoader", input: "Corpus + VocSmiles", operation: "Encode into batched integer tensors: SmilesDataSet", output: "DataLoader (train_loader=)", classes: "SmilesDataSet, VocSmiles" },
+          { step: "04", component: "Base Prior", input: "voc=VocSmiles, train_loader", operation: "MLE autoregressive language modeling: SequenceRNN", output: "Pre-trained prior weights", classes: "SequenceRNN, SequenceTransformer" },
+          { step: "05", component: "Target Actives", input: "Target bioactivity assays", operation: "Curate active target ligands (pIC50 >= 6.5)", output: "actives_loader", classes: "SmilesDataSet, VocSmiles" },
+          { step: "06", component: "Fine-Tuned Agent", input: "prior_weights + actives_loader", operation: "Transfer learning fine-tuning: SequenceRNN(voc).loadStates(...)", output: "SequenceRNN (agent=)", classes: "SequenceRNN, SequenceExplorer" },
+          { step: "07", component: "DrugExEnvironment", input: "scorers, thresholds, reward_scheme", operation: "Assemble multi-objective judge: DrugExEnvironment(scorers, ths, scheme)", output: "DrugExEnvironment (env=)", classes: "DrugExEnvironment, Scorer" },
+          { step: "08", component: "SequenceExplorer Assembler", input: "agent, env, mutate=prior", operation: "Orchestrate RL search: SequenceExplorer(agent, env, mutate).fit(...)", output: "Novel Bioactive Leads", classes: "SequenceExplorer, Reinforce, FileMonitor" }
         ]
       },
       {
         id: "rocs",
         title: "3D ROCS Shape-Matching Scoring Pipeline",
         shortTitle: "3D ROCS Shape",
-        tagline: "Candidate SMILES -> SMILES deduplication -> Conformer generator -> 3D alignment -> Shape + Color overlap -> TanimotoCombo -> SmoothClipped modifier -> Desirability score",
-        summary: "Assesses 3D bio-isosterism between generated molecules and a bioactive reference pose. Incoming SMILES are deduplicated to conserve compute, expanded into 3D conformer ensembles using ETKDGv3, OMEGA, or ConfGen, minimized with MMFF94 force-field relaxation, and rigidly aligned against a reference SDF co-crystal pose. Computes Shape Tanimoto (ST) and Color Tanimoto (CT) metrics, summed into TanimotoCombo and transformed by SmoothClippedScore into [0, 1] desirability feedback.",
-        formulaText: "Candidate SMILES -> SMILES Deduplication -> Conformer Generator (ETKDGv3 / OMEGA / ConfGen) -> 3D Alignment (Ref SDF / Consensus) -> Shape Overlap V(A,B) + Color Feature Overlap -> TanimotoCombo (T_shape + T_color) -> SmoothClipped Modifier -> Desirability Score",
+        tagline: "Reference SDF (target=) + Conformer Gen (confgen=) + SmoothClipped (modifier=) -> RDKitROCSScorer (scorers=) -> DrugExEnvironment -> SequenceExplorer",
+        summary: "Component assembly and initialization dependency graph for 3D ROCS shape-matching multi-objective reinforcement learning. Illustrates how a crystallographic Reference SDF, a 3D Conformer Generator, and a SmoothClippedScore desirability modifier configure RDKitROCSScorer. The scorer is packaged alongside target QSAR predictors and feasibility thresholds into DrugExEnvironment, which is passed as env= to SequenceExplorer to drive 3D shape-guided de novo design.",
+        formulaText: "Reference SDF (target=) + Conformer Generator (confgen=) + SmoothClipped (modifier=) -> RDKitROCSScorer (scorers=) + QSAR Scorers -> DrugExEnvironment (env=) + Agent Policy (agent=) -> SequenceExplorer",
         equation: [
-          { type: "term", text: "Candidate SMILES", nodeIdx: 0, tag: "input" },
-          { type: "op", text: "->" },
-          { type: "term", text: "SMILES Deduplication", nodeIdx: 1, tag: "filter" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Conformer Gen (ETKDGv3/OMEGA/ConfGen)", nodeIdx: 2, tag: "agent" },
+          { type: "term", text: "Reference SDF (target=)", nodeIdx: 0, tag: "input" },
           { type: "op", text: "+" },
-          { type: "term", text: "Reference SDF / Consensus", nodeIdx: 3, tag: "input" },
+          { type: "term", text: "Conformer Generator (confgen=)", nodeIdx: 1, tag: "input" },
+          { type: "op", text: "+" },
+          { type: "term", text: "SmoothClipped (modifier=)", nodeIdx: 2, tag: "modifier" },
           { type: "op", text: "->" },
-          { type: "term", text: "3D Rigid Alignment", nodeIdx: 4, tag: "scorer" },
+          { type: "term", text: "RDKitROCSScorer (scorers=)", nodeIdx: 3, tag: "scorer" },
+          { type: "op", text: "+" },
+          { type: "term", text: "QSAR / Property Scorers", nodeIdx: 4, tag: "scorer" },
           { type: "op", text: "->" },
-          { type: "term", text: "Shape V(A,B) + Color Overlap", nodeIdx: 5, tag: "scorer" },
+          { type: "term", text: "DrugExEnvironment (env=)", nodeIdx: 5, tag: "env" },
+          { type: "op", text: "+" },
+          { type: "term", text: "Agent & Prior (agent=, mutate=)", nodeIdx: 6, tag: "agent" },
           { type: "op", text: "->" },
-          { type: "term", text: "TanimotoCombo (T_shape + T_color)", nodeIdx: 6, tag: "scorer" },
-          { type: "op", text: "->" },
-          { type: "term", text: "SmoothClipped Modifier -> Desirability", nodeIdx: 7, tag: "modifier" }
+          { type: "term", text: "SequenceExplorer & .fit()", nodeIdx: 7, tag: "output" }
         ],
         nodes: [
           {
             stepLabel: "01",
-            stage: "Rollout",
+            stage: "Target SDF",
             stageType: "input",
-            label: "Candidate SMILES Batch",
-            sublabel: "Policy Agent 1D/2D Output",
-            formula: "B = {SMILES_1, ..., SMILES_B}, B in [64, 512]",
-            inputContract: "Raw SMILES token sequences from DrugEx generator",
-            outputContract: "Batch of SMILES strings",
-            description: "The generative policy produces a batch of SMILES strings during the exploration epoch. These represent candidate chemical topologies needing 3D conformational evaluation.",
-            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::training::generators::SequenceTransformer"],
+            label: "Reference Ligand / SDF",
+            sublabel: "Passed as: target= -> ROCS",
+            formula: "target = Chem.MolFromMolFile('ref.sdf')",
+            inputContract: "High-resolution crystal ligand coordinates (.sdf / .mol2)",
+            outputContract: "Reference Mol object passed as target= to RDKitROCSScorer",
+            description: "Experimental bioactive conformation of known co-crystallized inhibitor. Serves as ground-truth 3D shape and pharmacophoric query.",
+            drugexSymbols: ["drugex::training::scorers::RDKitROCSScorer"],
             keyParameters: [
-              { name: "batch_size", desc: "Batch size for conformer worker dispatch (64-256)" }
+              { name: "target", desc: "Reference molecule object in bioactive conformation" }
             ],
-            diagnostics: "Pass raw strings to deduplication first; running conformer generation on duplicate molecules in the same batch wastes 20-40% of compute time.",
+            diagnostics: "Ensure reference ligand hydrogen atoms are correctly explicit and ionized before calculating color pharmacophore feature overlaps.",
             x: 20, y: 22
           },
           {
             stepLabel: "02",
-            stage: "Filter",
-            stageType: "filter",
-            label: "SMILES Deduplication",
-            sublabel: "Unique Molecular Topology",
-            formula: "U = Unique(Sanitize(B)),  |U| <= |B|",
-            inputContract: "Raw SMILES string batch",
-            outputContract: "Unique canonical 2D molecular structures",
-            description: "Deduplicates molecules within the batch and checks basic valencies. Invalid structures are caught early and assigned zero score without triggering costly 3D geometry solvers.",
-            drugexSymbols: ["drugex::training::scorers::SmilesChecker", "drugex::molecules::converters::DefaultStandardizer"],
+            stage: "Conformers",
+            stageType: "input",
+            label: "Conformer Generator",
+            sublabel: "Passed as: confgen= -> ROCS",
+            formula: "confgen = ConfGenerator(max_confs=50)",
+            inputContract: "Unique 2D molecular graphs",
+            outputContract: "Conformer generator passed as confgen= to RDKitROCSScorer",
+            description: "Generates realistic 3D atomic coordinates using experimental-torsion distance geometry (ETKDGv3) and MMFF94 force-field relaxation.",
+            drugexSymbols: ["drugex::training::scorers::conformer_generators::RDKitConformerGenerator", "drugex::training::scorers::conformer_generators::OmegaConformerGenerator"],
             keyParameters: [
-              { name: "sanitize", desc: "Standardize aromaticity, kekulize, check valence" }
+              { name: "max_confs", desc: "Maximum conformers generated per molecule (10-50 recommended)" }
             ],
-            diagnostics: "Track in-batch uniqueness percentage; a sharp drop indicates early mode collapse in the generative agent.",
+            diagnostics: "If ETKDGv3 fails to embed a candidate within 50 attempts, relax distance constraints or fallback to random coordinate initialization.",
             x: 310, y: 22
           },
           {
             stepLabel: "03",
-            stage: "Conformation",
-            stageType: "agent",
-            label: "Conformer Generator",
-            sublabel: "ETKDGv3 / OMEGA / ConfGen",
-            formula: "X_i in R^{A x 3},  K conformers per molecule",
-            inputContract: "Unique 2D molecular graphs",
-            outputContract: "3D atomic coordinate conformer ensemble {C_1, ..., C_K}",
-            description: "Generates realistic 3D atomic coordinates using experimental-torsion knowledge distance geometry (RDKit ETKDGv3), OpenEye OMEGA, or CDPKit ConfGen.",
-            drugexSymbols: ["drugex::training::scorers::conformer_generators::RDKitConformerGenerator", "drugex::training::scorers::conformer_generators::OmegaConformerGenerator", "drugex::training::scorers::conformer_generators::CDPKitConformerGenerator"],
+            stage: "Modifier",
+            stageType: "modifier",
+            label: "SmoothClippedScore Modifier",
+            sublabel: "Passed as: modifier= -> ROCS",
+            formula: "mod = SmoothClippedScore(1.0, 1.6)",
+            inputContract: "Raw continuous TanimotoCombo scores in [0, 2.0]",
+            outputContract: "ScoreModifier passed as modifier= to RDKitROCSScorer",
+            description: "Sigmoidal continuous mapping converting discrete TanimotoCombo values into [0, 1] desirability scores with smooth policy gradients.",
+            drugexSymbols: ["drugex::training::scorers::SmoothClippedScore", "drugex::training::scorers::ClippedScore"],
             keyParameters: [
-              { name: "n_conf", desc: "Conformers generated per molecule (10-50 recommended)" },
-              { name: "prune_rms", desc: "RMSD threshold to discard redundant conformers (0.5 A)" }
+              { name: "lower_x / upper_x", desc: "Desirability boundaries (1.0 to 1.6 typical for TanimotoCombo)" }
             ],
-            diagnostics: "If ETKDGv3 fails to embed a molecule within 50 attempts, relax distance constraints or fallback to random coordinate initialization.",
-            x: 600, y: 22
+            diagnostics: "Setting the upper ceiling too low (< 1.2) causes policy saturation; setting it too high (> 1.8) prevents meaningful gradient feedback.",
+            x: 20, y: 222
           },
           {
             stepLabel: "04",
-            stage: "Template",
-            stageType: "input",
-            label: "Reference SDF / Consensus",
-            sublabel: "Bioactive Co-Crystal Supermolecule",
-            formula: "Q_ref in R^{M x 3} (Co-crystal bioactive query)",
-            inputContract: "High-resolution crystal ligand coordinates (.sdf / .mol2)",
-            outputContract: "Fixed target shape volume density rho_ref(r) and color pharmacophore points",
-            description: "The experimental bioactive conformation of a known co-crystallized inhibitor or consensus pharmacophore supermolecule serving as ground-truth query.",
-            drugexSymbols: ["rdkit::Chem::rdShapeAlign::AlignMol", "cdpkit::CDPL::Shape::PharmacophoreAlignment"],
+            stage: "ROCS Scorer",
+            stageType: "scorer",
+            label: "RDKitROCSScorer",
+            sublabel: "Needs: target, modifier, confgen",
+            formula: "RDKitROCSScorer(target, modifier, confgen)",
+            inputContract: "target: Mol, modifier: ScoreModifier, confgen: ConfGenerator",
+            outputContract: "RDKitROCSScorer instance passed into scorers list",
+            description: "Rigidly aligns candidate conformers to reference target via PMI and Gaussian overlap, returning continuous Shape + Color TanimotoCombo desirability.",
+            drugexSymbols: ["drugex::training::scorers::RDKitROCSScorer", "drugex::training::scorers::Scorer"],
             keyParameters: [
-              { name: "ref_file", desc: "Path to crystallized reference ligand in bioactive conformation" }
+              { name: "score_type", desc: "Shape Tanimoto (ST), Color Tanimoto (CT), or TanimotoCombo" }
             ],
-            diagnostics: "Ensure reference ligand hydrogen atoms are correctly explicit and ionized before calculating color pharmacophore feature overlaps.",
-            x: 890, y: 22
+            diagnostics: "TanimotoCombo evaluates both steric shape envelope and electrostatic feature points simultaneously.",
+            x: 310, y: 222
           },
           {
             stepLabel: "05",
-            stage: "Superposition",
+            stage: "QSAR Scorers",
             stageType: "scorer",
-            label: "3D Rigid Alignment",
-            sublabel: "Inertial Moments & Volume Superposition",
-            formula: "R*, t* = argmax_{R,t} integral rho_ref(r) rho_{conf}(R r + t) dr",
-            inputContract: "Relaxed conformer ensemble + Reference template",
-            outputContract: "Optimal 3D rotation matrix R and translation vector t",
-            description: "Pre-aligns candidate conformers onto the reference template using Principal Moments of Inertia (PMI), followed by smooth Gaussian volume overlap maximization.",
-            drugexSymbols: ["rdkit::Chem::rdShapeAlign::AlignMol", "drugex::training::scorers::RDKitROCSScorer", "drugex::training::scorers::CDPKitROCSScorer"],
+            label: "QSAR & Property Scorers",
+            sublabel: "Passed as: scorers=[..., qsar]",
+            formula: "qsar = QSPRPredScorer(model, mod)",
+            inputContract: "Machine learning predictor models and property calculators",
+            outputContract: "List of supplementary objective scorers for DrugExEnvironment",
+            description: "Surrogate biological activity predictors and physicochemical property evaluators complementing the 3D ROCS objective.",
+            drugexSymbols: ["drugex::training::scorers::qsprpred::QSPRPredScorer", "drugex::training::scorers::Property"],
             keyParameters: [
-              { name: "alignment_engine", desc: "RDKit ShapeAlign, CDPKit Biomol, or OpenEye ROCS" }
+              { name: "model_path", desc: "Trained QSAR model checkpoint path" }
             ],
-            diagnostics: "Evaluate multiple starting orientations (typically 4 PMI permutations) to prevent conjugate gradient convergence into local sub-optimal overlap minima.",
-            x: 890, y: 222
+            diagnostics: "Surrogate QSAR predictors run rapidly on CPU/GPU, ensuring scoring throughput is not throttled during RL.",
+            x: 600, y: 22
           },
           {
             stepLabel: "06",
-            stage: "Overlap",
-            stageType: "scorer",
-            label: "Shape V(A,B) + Color Overlap",
-            sublabel: "Steric Volume & Feature Matching",
-            formula: "V(A,B) = int rho_A rho_B dr, C(A,B) = sum_f w_f int rho_{A,f} rho_{B,f} dr",
-            inputContract: "Optimally aligned 3D coordinate overlays",
-            outputContract: "Volume overlap V(A,B) and pharmacophoric color feature overlap C(A,B)",
-            description: "Calculates hard steric van der Waals volume overlap V(A,B) alongside chemical color feature overlaps (donors, acceptors, rings, hydrophobes).",
-            drugexSymbols: ["rdkit::Chem::rdShapeAlign::AlignMol", "cdpkit::CDPL::Shape::ShapeOverlap", "drugex::training::scorers::RDKitROCSScorer"],
+            stage: "Environment",
+            stageType: "env",
+            label: "DrugExEnvironment",
+            sublabel: "Needs: scorers=[rocs, qsar], ths",
+            formula: "env = DrugExEnvironment(scorers, ths, scheme)",
+            inputContract: "scorers: [rocs_scorer, qsar_scorer], thresholds: [0.7, 0.65]",
+            outputContract: "DrugExEnvironment instance passed as env= to SequenceExplorer",
+            description: "Multi-objective RL environment evaluating 3D shape resemblance, target binding affinity, and chemical feasibility simultaneously.",
+            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::scorers::RDKitROCSScorer"],
             keyParameters: [
-              { name: "color_scheme", desc: "Implicit hydrogen pharmacophore feature definition" }
+              { name: "thresholds", desc: "Cutoff desirability thresholds for ROCS and QSAR objectives" }
             ],
-            diagnostics: "A candidate may achieve high Shape Tanimoto through non-specific bulk while lacking key Color Tanimoto interactions; evaluate both metrics simultaneously.",
+            diagnostics: "Verify that ROCS and QSAR scorers are assigned individual thresholds in the thresholds vector.",
             x: 600, y: 222
           },
           {
             stepLabel: "07",
-            stage: "Metrics",
-            stageType: "scorer",
-            label: "TanimotoCombo (ST + CT)",
-            sublabel: "Dual Overlap in [0, 2.0]",
-            formula: "TanimotoCombo = T_shape + T_color in [0, 2.0]",
-            inputContract: "Volume overlap and color feature matrices",
-            outputContract: "Shape Tanimoto (T_shape in [0,1]), Color Tanimoto (T_color in [0,1]), TanimotoCombo",
-            description: "Combines steric shape overlap and chemical feature matching into standard TanimotoCombo metric where values >= 1.4 denote strong bio-isosteric resemblance.",
-            drugexSymbols: ["rdkit::Chem::rdShapeAlign::AlignMol", "cdpkit::CDPL::Shape::ShapeOverlap", "drugex::training::scorers::CDPKitROCSScorer"],
+            stage: "Models",
+            stageType: "agent",
+            label: "Agent & Prior Models",
+            sublabel: "Passed as: agent=, mutate= -> Explorer",
+            formula: "agent = SequenceRNN(voc); mutate = SequenceRNN(voc)",
+            inputContract: "VocSmiles vocabulary and pre-trained checkpoint weights",
+            outputContract: "Active agent and frozen prior networks for SequenceExplorer",
+            description: "Generative policy network exploring chemical sequence space alongside a frozen prior providing exploratory mutations.",
+            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::training::explorers::SequenceExplorer"],
             keyParameters: [
-              { name: "combo_threshold", desc: "TanimotoCombo >= 1.4 typically denotes strong bio-isosteric match" }
+              { name: "temperature", desc: "Softmax sampling temperature (0.75-0.85)" }
             ],
-            diagnostics: "TanimotoCombo captures both geometric fit and electrostatic complementarity in a single normalized metric.",
-            x: 310, y: 222
+            diagnostics: "The prior network must remain frozen to ensure chemical validity while the agent updates toward high 3D ROCS overlap.",
+            x: 890, y: 22
           },
           {
             stepLabel: "08",
-            stage: "Reward",
-            stageType: "modifier",
-            label: "SmoothClipped -> Desirability",
-            sublabel: "Continuous Gradient Signal",
-            formula: "s_ROCS = SmoothClipped(TanimotoCombo; low=1.0, high=1.6) in [0, 1]",
-            inputContract: "Raw TanimotoCombo score in [0, 2.0]",
-            outputContract: "Normalized gradient-friendly reward s_ROCS in [0, 1]",
-            description: "Transforms discrete TanimotoCombo into a smooth sigmoidal reward between 0 and 1, delivering continuous policy gradient signals back to the DrugExEnvironment.",
-            drugexSymbols: ["drugex::training::scorers::SmoothClippedScore", "drugex::training::environment::DrugExEnvironment"],
+            stage: "Explorer",
+            stageType: "output",
+            label: "SequenceExplorer Assembler",
+            sublabel: "Needs: agent, env, mutate",
+            formula: "SequenceExplorer(agent, env, mutate)",
+            inputContract: "agent: SequenceRNN, env: DrugExEnvironment, mutate: SequenceRNN",
+            outputContract: ".fit() execution generating 3D-aligned bioactive leads",
+            description: "Orchestrates multi-objective 3D shape-guided exploration. Generates SMILES batches, triggers conformer alignment, and applies policy gradients.",
+            drugexSymbols: ["drugex::training::explorers::SequenceExplorer", "drugex::train::Reinforce", "drugex::training::scorers::RDKitROCSScorer"],
             keyParameters: [
-              { name: "lower", desc: "Baseline threshold below which reward is 0.0 (1.0 default)" },
-              { name: "upper", desc: "Excellence ceiling where reward saturates to 1.0 (1.6 default)" }
+              { name: "epsilon", desc: "Prior mutation rate (0.1)" },
+              { name: "batch_size", desc: "Rollout batch size (64-128)" }
             ],
-            diagnostics: "Setting the upper ceiling too low (< 1.2) causes policy saturation; setting it too high (> 1.8) prevents the agent from receiving meaningful gradient feedback.",
-            x: 20, y: 222
+            diagnostics: "Monitor moving TanimotoCombo scores to verify the generator converges toward reference ligand shape overlays.",
+            x: 890, y: 222
           }
         ],
         connectors: [
-          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "SMILES", color: "#0284c7" },
-          { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "Unique 2D", color: "#0284c7" },
-          { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "3D Ensmbl", color: "#0284c7" },
-          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "Ref SDF", color: "#0d9488" },
-          { fromX: 890, fromY: 271, toX: 820, toY: 271, label: "Aligned", color: "#d97706" },
-          { fromX: 600, fromY: 271, toX: 530, toY: 271, label: "V + Color", color: "#d97706" },
-          { fromX: 310, fromY: 271, toX: 240, toY: 271, label: "T_combo", color: "#7c3aed" }
+          { fromX: 240, fromY: 71, toX: 350, toY: 222, label: "target=", color: "#0d9488" },
+          { fromX: 420, fromY: 120, toX: 420, toY: 222, label: "confgen=", color: "#0d9488" },
+          { fromX: 240, fromY: 271, toX: 310, toY: 271, label: "modifier=", color: "#7c3aed" },
+          { fromX: 530, fromY: 271, toX: 600, toY: 271, label: "scorers=[rocs]", color: "#d97706" },
+          { fromX: 710, fromY: 120, toX: 710, toY: 222, label: "scorers=[qsar]", color: "#d97706" },
+          { fromX: 820, fromY: 271, toX: 890, toY: 271, label: "env=", color: "#16a34a" },
+          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "agent, mutate", color: "#0284c7" }
         ],
-        feedbackLoop: null,
+        feedbackLoop: { fromX: 1000, fromY: 320, toX: 710, toY: 22, label: ".fit() -> 3D Aligned Leads", color: "#0284c7" },
         matrixRows: [
-          { step: "01", component: "Candidate SMILES", input: "Policy action sequence", operation: "Autoregressive token generation: 1D chemical strings", output: "Batch SMILES", classes: "SequenceRNN, SequenceTransformer" },
-          { step: "02", component: "SMILES Deduplication", input: "Raw SMILES batch", operation: "Unique set extraction & structure sanitization", output: "Unique 2D Mol list", classes: "SmilesChecker, DefaultStandardizer" },
-          { step: "03", component: "Conformer Generator", input: "Unique 2D molecules", operation: "ETKDGv3 / OMEGA / ConfGen distance geometry 3D generation", output: "Conformer ensemble", classes: "RDKitConformerGenerator, OmegaConformerGenerator, CDPKitConformerGenerator" },
-          { step: "04", component: "Reference Pose", input: "PDB / Co-crystal SDF", operation: "Active query density rho_ref(r) and color feature mapping", output: "Query template", classes: "AlignMol, PharmacophoreAlignment" },
-          { step: "05", component: "3D Rigid Alignment", input: "Relaxed conformer + template", operation: "Inertial PMI pre-alignment & Gaussian volume maximization", output: "Aligned 3D pose", classes: "AlignMol, RDKitROCSScorer, CDPKitROCSScorer" },
-          { step: "06", component: "Shape & Color Overlap", input: "Aligned 3D pose overlay", operation: "Volume overlap V(A,B) + pharmacophoric color feature overlap", output: "V(A,B) and C(A,B)", classes: "AlignMol, ShapeOverlap, RDKitROCSScorer" },
-          { step: "07", component: "TanimotoCombo", input: "Shape & color overlaps", operation: "TanimotoCombo = T_shape + T_color in [0, 2.0]", output: "Combo score in [0,2]", classes: "AlignMol, ShapeOverlap, CDPKitROCSScorer" },
-          { step: "08", component: "SmoothClipped Modifier", input: "TanimotoCombo score", operation: "Smooth sigmoidal reward scaling: SmoothClippedScore", output: "Reward s_ROCS in [0,1]", classes: "SmoothClippedScore, DrugExEnvironment" }
+          { step: "01", component: "Reference Pose", input: "Crystallographic co-crystal SDF", operation: "Load query ligand coordinates: Chem.MolFromMolFile(sdf)", output: "target= Mol object", classes: "RDKitROCSScorer" },
+          { step: "02", component: "Conformer Generator", input: "ETKDGv3 settings", operation: "Configure 3D conformer generation: ConfGenerator(max_confs=50)", output: "confgen= instance", classes: "RDKitConformerGenerator, OmegaConformerGenerator" },
+          { step: "03", component: "Desirability Modifier", input: "Continuous TanimotoCombo metric", operation: "Sigmoidal reward scaling: SmoothClippedScore(1.0, 1.6)", output: "modifier= instance", classes: "SmoothClippedScore, ClippedScore" },
+          { step: "04", component: "RDKitROCSScorer", input: "target, modifier, confgen", operation: "Instantiate 3D scorer: RDKitROCSScorer(target, mod, confgen)", output: "rocs_scorer instance", classes: "RDKitROCSScorer, Scorer" },
+          { step: "05", component: "QSAR Scorers", input: "QSAR model + modifier", operation: "Instantiate affinity predictor: QSPRPredScorer(model, mod)", output: "qsar_scorer instance", classes: "QSPRPredScorer, Property" },
+          { step: "06", component: "DrugExEnvironment", input: "scorers=[rocs, qsar], thresholds", operation: "Assemble 3D environment: DrugExEnvironment(scorers, ths)", output: "env= instance", classes: "DrugExEnvironment, RDKitROCSScorer" },
+          { step: "07", component: "Agent & Prior Models", input: "VocSmiles + pre-trained weights", operation: "Instantiate active SequenceRNN and frozen base prior", output: "agent=, mutate= models", classes: "SequenceRNN, SequenceExplorer" },
+          { step: "08", component: "SequenceExplorer Assembler", input: "agent, env, mutate", operation: "Orchestrate 3D RL search: SequenceExplorer(agent, env, mutate).fit()", output: "3D Aligned Lead Candidates", classes: "SequenceExplorer, Reinforce" }
         ]
       },
       {
         id: "fragment",
         title: "Fragment-Based Synthon Assembly (BRICS / Scaffold Hopping)",
         shortTitle: "Fragment Synthon Assembly",
-        tagline: "Bioactive molecules -> Retrosynthetic cleavage (Rules L1-L16, isotopes [1*]-[16*]) -> Synthon pools -> FragSequenceExplorer / FragGraphExplorer -> Exit-vector matching -> Molecule re-assembly",
-        summary: "Enables scaffold-based lead optimization, fragment growing, and linker design. Active compound series are retrosynthetically cleaved into synthons across 16 BRICS cleavage rules (L1 to L16) tagged with isotopic dummy attachment vectors ([1*] to [16*]). FragSequenceExplorer or FragGraphExplorer conditionally generates elaborations from active vectors with dynamic valence masking, verifies exit-vector compatibility, and reassembles intact drug candidates scored for Ligand Efficiency.",
-        formulaText: "Bioactive Molecules -> Retrosynthetic Cleavage (Rules L1-L16, isotopes [1*]-[16*]) -> Synthon Pools -> FragSequenceExplorer / FragGraphExplorer -> Exit-Vector Matching -> Molecule Re-assembly",
+        tagline: "Bioactive Mols (mols=) -> Fragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN -> FragSequenceExplorer(fragment=scaffold, env=) -> Reassembly",
+        summary: "Component assembly and initialization dependency graph for fragment-based de novo synthon assembly. Illustrates how active chemical series are cleaved by BRICSFragmenter, compiled into FragDataSet with exit vectors [1*]-[16*], and used to initialize FragSequenceRNN models. The core scaffold is passed as fragment= into FragSequenceExplorer alongside DrugExEnvironment to conditionally elaborate fragments into high-affinity candidates.",
+        formulaText: "Bioactive Mols (mols=) -> BRICSFragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN (agent=, mutate=) + Scaffold (fragment=) + DrugExEnvironment (env=) -> FragSequenceExplorer",
         equation: [
-          { type: "term", text: "Bioactive Molecules", nodeIdx: 0, tag: "input" },
+          { type: "term", text: "Bioactive Compounds", nodeIdx: 0, tag: "input" },
           { type: "op", text: "->" },
-          { type: "term", text: "Retrosynthetic Cleavage (Rules L1-L16)", nodeIdx: 1, tag: "agent" },
+          { type: "term", text: "BRICSFragmenter (mols=)", nodeIdx: 1, tag: "input" },
           { type: "op", text: "->" },
-          { type: "term", text: "Synthon Pools (isotopes [1*]-[16*])", nodeIdx: 2, tag: "input" },
+          { type: "term", text: "FragDataSet & VocFrag (frags=)", nodeIdx: 2, tag: "input" },
           { type: "op", text: "->" },
-          { type: "term", text: "VocSmiles Fragment Conditioning", nodeIdx: 3, tag: "input" },
+          { type: "term", text: "FragSequenceRNN (voc=)", nodeIdx: 3, tag: "agent" },
+          { type: "op", text: "+" },
+          { type: "term", text: "Target Scaffold (fragment=)", nodeIdx: 4, tag: "input" },
+          { type: "op", text: "+" },
+          { type: "term", text: "Scorer Array (scorers=)", nodeIdx: 5, tag: "scorer" },
           { type: "op", text: "->" },
-          { type: "term", text: "FragSequence / FragGraphExplorer", nodeIdx: 4, tag: "agent" },
+          { type: "term", text: "DrugExEnvironment (env=)", nodeIdx: 6, tag: "env" },
           { type: "op", text: "->" },
-          { type: "term", text: "Dynamic Valence-Constrained Mask", nodeIdx: 5, tag: "filter" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Exit-Vector Matching & Assembly", nodeIdx: 6, tag: "output" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Ligand Efficiency Evaluation", nodeIdx: 7, tag: "modifier" }
+          { type: "term", text: "FragSequenceExplorer & .fit()", nodeIdx: 7, tag: "output" }
         ],
         nodes: [
           {
             stepLabel: "01",
-            stage: "Input Hits",
+            stage: "Actives",
             stageType: "input",
-            label: "Bioactive Molecules",
-            sublabel: "Bioactive Series / Fragment Hits",
-            formula: "A = {m_1, ..., m_A},  m_i in DrugSpace",
-            inputContract: "Validated active compounds, crystallographic fragment hits, or patent series",
-            outputContract: "Initial chemical series molecules",
-            description: "Known active molecules containing desirable binding cores (e.g. hinge binders, allosteric fragments) slated for scaffold decoration, fragment merging, or linker growing.",
-            drugexSymbols: ["drugex::data::fragments::FragmentCorpusEncoder"],
+            label: "Bioactive Active Compounds",
+            sublabel: "Passed as: mols= -> Fragmenter",
+            formula: "actives = ['Cc1ccc(nc1)c2ccccc2', ...]",
+            inputContract: "Target-specific bioactive molecules or fragment hit series",
+            outputContract: "Standardized SMILES list passed as mols= to BRICSFragmenter",
+            description: "Known active compounds containing core pharmacophores slated for retrosynthetic cleavage, scaffold hopping, or fragment elaboration.",
+            drugexSymbols: ["drugex::molecules::converters::DefaultStandardizer"],
             keyParameters: [
-              { name: "min_hac", desc: "Minimum heavy atom count for starting fragments (8-16)" }
+              { name: "min_hac", desc: "Minimum heavy atom count for starting actives (12-25)" }
             ],
-            diagnostics: "Confirm starting fragment binding pose from X-ray crystallography or confident docking before defining fixed core atoms.",
+            diagnostics: "Confirm bioactive binding conformations from crystallographic data before selecting fragments for elaboration.",
             x: 20, y: 22
           },
           {
             stepLabel: "02",
-            stage: "Cleavage",
-            stageType: "agent",
-            label: "Retrosynthetic Cleavage",
-            sublabel: "BRICS Rules L1 to L16",
-            formula: "m -> {synthon_1, synthon_2, ...}, Rules L1-L16",
-            inputContract: "Full active molecular graphs",
-            outputContract: "Cleaved fragment synthons with labeled attachment bonds",
-            description: "Cleaves molecules across 16 retrosynthetically verifiable bond types (BRICS Rules L1 to L16), stripping peripheral decorations while preserving core ring scaffolds.",
-            drugexSymbols: ["rdkit::Chem::BRICS::BRICSDecompose", "rdkit::Chem::Scaffolds::MurckoScaffold::MakeScaffoldGeneric"],
+            stage: "Fragmenter",
+            stageType: "input",
+            label: "BRICS / Murcko Fragmenter",
+            sublabel: "Needs: mols; Out: frags=",
+            formula: "fragmenter = BRICSFragmenter()",
+            inputContract: "Bioactive molecules list",
+            outputContract: "Retrosynthetically cleaved fragments passed as frags= to FragDataSet",
+            description: "Cleaves bioactive compounds across 16 retrosynthetic rule types (BRICS L1 to L16), generating synthetically accessible building block synthons.",
+            drugexSymbols: ["drugex::data::fragments::FragmentCorpusEncoder", "drugex::data::fragments::Fragmenter"],
             keyParameters: [
               { name: "brics_rules", desc: "16 retrosynthetic cleavage rules ensuring synthetic feasibility" }
             ],
-            diagnostics: "Do not cleave chemically unstable bonds (e.g. acetals, peroxide links); BRICS enforces validated synthetic coupling chemistries.",
+            diagnostics: "BRICS enforces validated coupling chemistries, guaranteeing reassembled molecules are synthetically accessible.",
             x: 310, y: 22
           },
           {
             stepLabel: "03",
             stage: "Synthon Pool",
             stageType: "input",
-            label: "Synthon Pools ([1*]-[16*])",
-            sublabel: "Attachment Sites & Dummy Atoms",
-            formula: "P_synthon = Union_k {S_k | attachment [k*], k in 1..16}",
-            inputContract: "Fragment cores and cleaved connection points",
-            outputContract: "Scaffolds with explicit labeled exit vectors ([*], [1*] to [16*])",
-            description: "Tags cleaved positions with isotopic dummy atoms representing allowable growth vectors. Encodes synthetic compatibility and allowable chemotypes for linker infilling.",
-            drugexSymbols: ["drugex::data::fragments::FragmentCorpusEncoder"],
+            label: "SmilesFragDataSet & VocSmiles",
+            sublabel: "Needs: frags; Out: voc=",
+            formula: "dataset = SmilesFragDataSet(frags, voc=VocSmiles())",
+            inputContract: "Cleaved fragment pools and attachment vectors [1*] to [16*]",
+            outputContract: "VocSmiles vocabulary instance passed to generative model",
+            description: "Compiles fragment building blocks with labeled attachment sites ([1*]-[16*]) into a specialized fragment vocabulary and training dataset.",
+            drugexSymbols: ["drugex::data::datasets::SmilesFragDataSet", "drugex::data::corpus::vocabulary::VocSmiles"],
             keyParameters: [
-              { name: "max_vectors", desc: "Maximum attachment vectors per fragment scaffold (1-3)" }
+              { name: "max_vectors", desc: "Maximum attachment vectors per fragment synthon (1-3)" }
             ],
-            diagnostics: "Restricting exit vectors to solvent-exposed regions prevents generative growth from crashing into protein pocket walls.",
+            diagnostics: "Restricting exit vectors to solvent-exposed regions prevents generative growth from clashing with protein binding pockets.",
             x: 600, y: 22
           },
           {
             stepLabel: "04",
-            stage: "Conditioning",
-            stageType: "input",
-            label: "VocSmiles Conditioning",
-            sublabel: "VocSmiles(encode_frags=True)",
-            formula: "X = [F_core, SEP, t_1, t_2, ...], F_core fixed",
-            inputContract: "Tagged fragment scaffolds and vocabulary dictionary",
-            outputContract: "Prompt token sequences with fixed scaffold prefix",
-            description: "Prefixes the input scaffold synthon as the conditioning prompt. In sequence transformers, cross-attention layers attend to the fixed fragment tokens while generating elaborations.",
-            drugexSymbols: ["drugex::data::corpus::vocabulary::VocSmiles", "drugex::data::corpus::vocabulary::VocGraph"],
+            stage: "Frag Model",
+            stageType: "agent",
+            label: "FragGenerator Models",
+            sublabel: "Needs: voc=; Out: agent=, mutate=",
+            formula: "agent = FragSequenceExplorer.loadModel(path, voc=voc)",
+            inputContract: "VocSmiles vocabulary instance and model hyperparameters",
+            outputContract: "Models passed as agent= and mutate= to FragSequenceExplorer",
+            description: "Fragment-aware sequence networks that conditionally elaborate chemical structures starting from designated exit vectors on a scaffold.",
+            drugexSymbols: ["drugex::training::generators::FragGenerator", "drugex::training::explorers::FragSequenceExplorer"],
             keyParameters: [
-              { name: "encode_frags", desc: "Flag enabling scaffold prefix conditioning in vocabulary" }
+              { name: "d_model", desc: "Feature dimension of recurrent layers (256-512)" }
             ],
-            diagnostics: "If the input scaffold is large (> 25 heavy atoms), monitor remaining sequence length budget to allow sufficient tokens for complete linker elaboration.",
+            diagnostics: "Pre-train generative model on broad synthon libraries before fine-tuning on target-specific fragment elaborations.",
             x: 890, y: 22
           },
           {
             stepLabel: "05",
-            stage: "FragExplorers",
-            stageType: "agent",
-            label: "FragSequence / GraphExplorer",
-            sublabel: "Scaffold-Conditioned RL Policy",
-            formula: "P(m_elaboration | F_core) = prod_t P(x_t | x_{<t}, F_core)",
-            inputContract: "Conditioned fragment tokens, policy network weights",
-            outputContract: "Generated linker and side-chain trajectories",
-            description: "FragSequenceExplorer or FragGraphExplorer generates elaborations conditionally from the labeled exit vectors, navigating target multi-objective chemical spaces.",
-            drugexSymbols: ["drugex::training::explorers::FragSequenceExplorer", "drugex::training::explorers::FragGraphExplorer"],
+            stage: "Core Scaffold",
+            stageType: "input",
+            label: "Target Input Fragment",
+            sublabel: "Passed as: fragment= -> Explorer",
+            formula: "scaffold = 'c1ccc(cc1)[1*]'",
+            inputContract: "Core fragment SMILES with explicit attachment vectors (e.g. [1*], [2*])",
+            outputContract: "Seed fragment passed as fragment= to FragSequenceExplorer",
+            description: "The fixed core scaffold (e.g. kinase hinge binder or GPCR anchor) from which the generative agent explores chemical elaborations.",
+            drugexSymbols: ["drugex::training::explorers::FragSequenceExplorer", "drugex::data::datasets::SmilesFragDataSet"],
             keyParameters: [
-              { name: "frags", desc: "List of starting fragment scaffolds for elaboration" },
-              { name: "batch_size", desc: "Batch size of molecules elaborated per epoch" }
+              { name: "fragment", desc: "Seed fragment SMILES with isotopic attachment markers" }
             ],
-            diagnostics: "Ensure starting fragments remain strictly intact in the generated molecules; FragSequenceExplorer validates scaffold preservation automatically.",
-            x: 890, y: 222
+            diagnostics: "FragSequenceExplorer validates that the seed scaffold remains 100% intact in all generated candidate molecules.",
+            x: 20, y: 222
           },
           {
             stepLabel: "06",
-            stage: "Valence Mask",
-            stageType: "filter",
-            label: "Dynamic Valence Mask",
-            sublabel: "Strict Chemical Valency Enforcement",
-            formula: "a_t ~ softmax(z_t + M_valence), M_{v, illegal} = -inf",
-            inputContract: "Action logits z_t from generative policy, partial molecular graph state",
-            outputContract: "Masked action probabilities; 100% chemically valid actions",
-            description: "At every decode step, calculates allowable valence states. Dynamically masks out illegal tokens (e.g. pentavalent carbon, anti-Bredt bridgeheads) with -infinity.",
-            drugexSymbols: ["drugex::training::generators::GraphTransformer", "drugex::training::explorers::FragGraphExplorer"],
+            stage: "Scorers",
+            stageType: "scorer",
+            label: "Scorers Array & Modifiers",
+            sublabel: "Passed as: scorers= -> Env",
+            formula: "scorers = [Property('SA', mod), QSPRPredScorer(...)]",
+            inputContract: "Synthetic accessibility calculators and target affinity predictors",
+            outputContract: "List[Scorer] passed as scorers= to DrugExEnvironment",
+            description: "Multi-objective scorers penalizing synthetic complexity (SAScore) while rewarding binding affinity and ligand efficiency.",
+            drugexSymbols: ["drugex::training::scorers::Scorer", "drugex::training::scorers::Property"],
             keyParameters: [
-              { name: "max_valence", desc: "Maximum allowable bonds per atom type (C:4, N:3, O:2)" }
+              { name: "scorers", desc: "List of objective functions with calibrated modifiers" }
             ],
-            diagnostics: "Dynamic valence masking ensures 100% valid chemical graph construction and prevents wasted sampling of unkekulizable structures.",
-            x: 600, y: 222
-          },
-          {
-            stepLabel: "07",
-            stage: "Vector Match",
-            stageType: "output",
-            label: "Exit-Vector Matching",
-            sublabel: "Synthetic Rule Reconciliation",
-            formula: "Match(v_A^{[i*]}, v_B^{[j*]}) <=> (i, j) in BRICS_Compatible",
-            inputContract: "Generated elaborations and labeled attachment vectors",
-            outputContract: "Synthetically verified connection pairs",
-            description: "Verifies chemical compatibility between synthon exit vectors and generated linkers according to BRICS reaction rules before covalent assembly.",
-            drugexSymbols: ["drugex::data::fragments::FragmentCorpusEncoder", "rdkit::Chem::BRICS::BRICSDecompose"],
-            keyParameters: [
-              { name: "strict_rules", desc: "Enforce exact BRICS pair compatibility" }
-            ],
-            diagnostics: "Filtering out incompatible synthon pairings guarantees all reassembled structures are retrosynthetically feasible.",
+            diagnostics: "Including an SA penalty prevents the agent from generating synthetically intractable, over-elaborated linkers.",
             x: 310, y: 222
           },
           {
-            stepLabel: "08",
-            stage: "Assembly",
-            stageType: "modifier",
-            label: "Molecule Re-assembly & LE",
-            sublabel: "Sanitization & Ligand Efficiency",
-            formula: "M = Assemble(F_core, Linker), LE = 1.37 * pIC50 / HAC",
-            inputContract: "Reassembled candidate molecules, predicted affinities",
-            outputContract: "Sanitized lead candidates scored for Ligand Efficiency (LE / LipE)",
-            description: "Reconciles dummy attachment vectors, performs ring closure, and sanitizes molecular structures. Computes Ligand Efficiency (LE) and Lipophilic Efficiency (LipE) rewards.",
-            drugexSymbols: ["drugex::training::scorers::LigandEfficiency", "drugex::training::scorers::LipophilicEfficiency", "drugex::molecules::converters::DefaultStandardizer"],
+            stepLabel: "07",
+            stage: "Environment",
+            stageType: "env",
+            label: "DrugExEnvironment",
+            sublabel: "Needs: scorers, thresholds, scheme",
+            formula: "env = DrugExEnvironment(scorers, ths, scheme)",
+            inputContract: "scorers: List[Scorer], thresholds: List[float], reward_scheme",
+            outputContract: "DrugExEnvironment instance passed as env= to FragSequenceExplorer",
+            description: "Multi-objective environment validating chemical feasibility, fragment integrity, and objective desirability cutoffs.",
+            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::scorers::ScoreModifier"],
             keyParameters: [
-              { name: "target_LE", desc: "Desirable Ligand Efficiency threshold (>= 0.35 kcal/mol/HA)" }
+              { name: "thresholds", desc: "Cutoff thresholds for affinity and synthetic feasibility" }
             ],
-            diagnostics: "Without Ligand Efficiency rewards, generative models tend to add excessive non-specific lipophilic bulk to artificially boost predicted affinities.",
-            x: 20, y: 222
+            diagnostics: "Ensure thresholds reflect realistic expectations for fragment-grown leads rather than fully mature clinical drugs.",
+            x: 600, y: 222
+          },
+          {
+            stepLabel: "08",
+            stage: "Frag Explorer",
+            stageType: "output",
+            label: "FragSequenceExplorer Assembler",
+            sublabel: "Needs: agent, env, mutate, fragment",
+            formula: "FragSequenceExplorer(agent, env, mutate, fragment=scaffold)",
+            inputContract: "agent: FragGenerator, env: DrugExEnvironment, mutate: FragGenerator, fragment: str",
+            outputContract: ".fit() execution generating combinatorially decorated leads",
+            description: "Orchestrates scaffold-constrained reinforcement learning. Grows substituents from exit vectors and optimizes multi-objective rewards.",
+            drugexSymbols: ["drugex::training::explorers::FragSequenceExplorer", "drugex::train::Reinforce", "drugex::training::generators::FragGenerator"],
+            keyParameters: [
+              { name: "fragment", desc: "Target scaffold string with attachment points" },
+              { name: "epsilon", desc: "Exploration mutation rate (0.1)" }
+            ],
+            diagnostics: "Monitor in-batch fragment preservation rate; any dropped scaffolds indicate incorrect vocabulary prefix configuration.",
+            x: 890, y: 222
           }
         ],
         connectors: [
-          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "Hit Series", color: "#0284c7" },
-          { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "Rules L1-16", color: "#0284c7" },
-          { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "[1*]-[16*]", color: "#0284c7" },
-          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "Prefix", color: "#0d9488" },
-          { fromX: 890, fromY: 271, toX: 820, toY: 271, label: "Logits", color: "#0284c7" },
-          { fromX: 600, fromY: 271, toX: 530, toY: 271, label: "Valid Act", color: "#ea580c" },
-          { fromX: 310, fromY: 271, toX: 240, toY: 271, label: "Reassemble", color: "#16a34a" }
+          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "mols=", color: "#0d9488" },
+          { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "frags=", color: "#0d9488" },
+          { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "voc=", color: "#0d9488" },
+          { fromX: 240, fromY: 271, toX: 890, toY: 290, label: "fragment=scaffold", color: "#0d9488" },
+          { fromX: 530, fromY: 271, toX: 600, toY: 271, label: "scorers=", color: "#d97706" },
+          { fromX: 820, fromY: 271, toX: 890, toY: 271, label: "env=", color: "#16a34a" },
+          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "agent, mutate", color: "#0284c7" }
         ],
-        feedbackLoop: { fromX: 130, fromY: 222, toX: 130, toY: 120, label: "Iterative Elaboration Cycle", color: "#0284c7" },
+        feedbackLoop: { fromX: 1000, fromY: 320, toX: 710, toY: 22, label: ".fit() -> Decorated Leads", color: "#0284c7" },
         matrixRows: [
-          { step: "01", component: "Active Hits", input: "Crystallographic hits", operation: "Scaffold extraction and core identification", output: "Bioactive series", classes: "FragmentCorpusEncoder" },
-          { step: "02", component: "BRICS Cleavage", input: "Active molecules", operation: "Cleavage via 16 BRICS retrosynthetic rules (L1 to L16)", output: "Cleaved synthons", classes: "BRICSDecompose, MakeScaffoldGeneric" },
-          { step: "03", component: "Synthon Pools", input: "Cleaved synthons", operation: "Attachment vector labeling with isotopes [1*] to [16*]", output: "Scaffolds with labeled vectors", classes: "FragmentCorpusEncoder" },
-          { step: "04", component: "Vocab Encoding", input: "Tagged fragments", operation: "Fragment prefix encoding in sequence vocabulary", output: "Conditioned tokens", classes: "VocSmiles, VocGraph" },
-          { step: "05", component: "FragExplorers", input: "Conditioned seed + prior", operation: "Autoregressive generation from exit vectors", output: "Grown elaborations", classes: "FragSequenceExplorer, FragGraphExplorer" },
-          { step: "06", component: "Valence Mask", input: "Action logits", operation: "Dynamic graph valency checking: mask illegal transitions", output: "Valid action choices", classes: "GraphTransformer, FragGraphExplorer" },
-          { step: "07", component: "Vector Matching", input: "Elaborated fragments", operation: "BRICS compatibility rule verification between synthons", output: "Compatible pairs", classes: "FragmentCorpusEncoder, BRICSDecompose" },
-          { step: "08", component: "Assembly & LE", input: "Affinity, HAC, cLogP", operation: "Molecule re-assembly, LE = 1.37 * pIC50 / HAC, LipE", output: "LE / LipE reward", classes: "LigandEfficiency, LipophilicEfficiency, DefaultStandardizer" }
+          { step: "01", component: "Active Hits", input: "Target bioactivity database", operation: "Curate active compound series: actives list", output: "mols= SMILES list", classes: "DefaultStandardizer" },
+          { step: "02", component: "BRICS Cleavage", input: "mols= SMILES list", operation: "Cleave across 16 retrosynthetic rules: Fragmenter", output: "frags= synthons", classes: "FragmentCorpusEncoder, Fragmenter" },
+          { step: "03", component: "Synthon Pool", input: "frags= synthon collection", operation: "Compile fragment vocabulary: SmilesFragDataSet", output: "voc= VocSmiles", classes: "SmilesFragDataSet, VocSmiles" },
+          { step: "04", component: "Frag Models", input: "voc= VocSmiles vocabulary", operation: "Instantiate conditional models: FragGenerator", output: "agent=, mutate= models", classes: "FragGenerator, FragSequenceExplorer" },
+          { step: "05", component: "Target Scaffold", input: "Seed fragment with [1*] vectors", operation: "Define fixed core scaffold: scaffold = 'c1ccc(cc1)[1*]'", output: "fragment= scaffold", classes: "FragSequenceExplorer, SmilesFragDataSet" },
+          { step: "06", component: "Scorer Array", input: "Property & QSAR functions", operation: "Instantiate objectives: [Property('SA', mod), QSPRPredScorer(...)]", output: "scorers= List[Scorer]", classes: "Scorer, Property" },
+          { step: "07", component: "DrugExEnvironment", input: "scorers, thresholds, reward_scheme", operation: "Assemble environment: DrugExEnvironment(scorers, ths, scheme)", output: "env= instance", classes: "DrugExEnvironment, ScoreModifier" },
+          { step: "08", component: "FragSequenceExplorer Assembler", input: "agent, env, mutate, fragment", operation: "Orchestrate fragment RL: FragSequenceExplorer(...).fit()", output: "Decorated Bioactive Leads", classes: "FragSequenceExplorer, Reinforce, FragGenerator" }
         ]
       },
       {
         id: "telemetry",
         title: "Real-Time Diagnostics & Telemetry Filter Cascade",
         shortTitle: "Telemetry Filter Cascade",
-        tagline: "Candidate batch -> Q1: Validity (V >= 95%) -> Q2: Uniqueness (U >= 85%) -> Q3: Synthetic accessibility (SA <= 3.5, RingSize <= 7) -> Q4: Desired ratio (Dr >= 50%) -> Telemetry feedback",
-        summary: "A rigorous sequential filter cascade inspecting batch rollouts during reinforcement learning: screens syntactic and chemical validity (Q1 >= 95%), batch and historical uniqueness (Q2 >= 85% to avert mode collapse), synthetic accessibility and ring strain pathology (Q3: SA <= 3.5, RingSize <= 7), multi-objective desired ratio (Q4: Dr >= 50%), and chemical population diversity (Q5 >= 0.75) to steer exploration hyper-parameters.",
-        formulaText: "Candidate Batch -> Q1: Validity Check (V >= 95%, grammar check) -> Q2: Uniqueness (U >= 85%, mode collapse check) -> Q3: Synthetic Accessibility (SA <= 3.5, RingSize <= 7) -> Q4: Desired Ratio (Dr >= 50%, multi-objective thresholding)",
+        tagline: "FileMonitor (monitor=) + SmilesChecker + ThresholdedLinear (modifier=) -> Scorers Array (scorers=) + Thresholds (thresholds=) -> DrugExEnvironment (env=) + Agent & Prior (agent=, mutate=) -> SequenceExplorer (.fit(monitor=))",
+        summary: "Component assembly and initialization dependency graph for real-time telemetry diagnostics and quality gating. Illustrates how FileMonitor, SmilesChecker grammar validation, and ThresholdedLinear desirability modifiers assemble into an objective Scorer array and DrugExEnvironment. SequenceExplorer combines the active agent, frozen prior, and environment, streaming epoch-by-epoch loss, validity (V%), uniqueness (U%), and desired ratio (Dr%) directly to FileMonitor.",
+        formulaText: "FileMonitor (monitor=) + SmilesChecker + ThresholdedLinear (modifier=) -> Scorers Array (scorers=) + Thresholds (thresholds=) -> DrugExEnvironment (env=) + Agent & Prior (agent=, mutate=) -> SequenceExplorer (.fit(monitor=))",
         equation: [
-          { type: "term", text: "Candidate Batch (N=1024)", nodeIdx: 0, tag: "input" },
+          { type: "term", text: "FileMonitor (monitor=)", nodeIdx: 0, tag: "output" },
+          { type: "op", text: "+" },
+          { type: "term", text: "SmilesChecker", nodeIdx: 1, tag: "filter" },
+          { type: "op", text: "+" },
+          { type: "term", text: "ScoreModifiers (modifier=)", nodeIdx: 2, tag: "modifier" },
           { type: "op", text: "->" },
-          { type: "term", text: "Q1: Validity Check (V >= 95%)", nodeIdx: 1, tag: "filter" },
+          { type: "term", text: "Scorers Array (scorers=)", nodeIdx: 3, tag: "scorer" },
+          { type: "op", text: "+" },
+          { type: "term", text: "Thresholds (thresholds=)", nodeIdx: 4, tag: "env" },
           { type: "op", text: "->" },
-          { type: "term", text: "Q2: Uniqueness (U >= 85%)", nodeIdx: 2, tag: "filter" },
+          { type: "term", text: "DrugExEnvironment (env=)", nodeIdx: 5, tag: "env" },
+          { type: "op", text: "+" },
+          { type: "term", text: "Agent & Prior (agent=, mutate=)", nodeIdx: 6, tag: "agent" },
           { type: "op", text: "->" },
-          { type: "term", text: "Q3: Synthetic Accessibility (SA <= 3.5)", nodeIdx: 3, tag: "filter" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Q4: Desired Ratio (Dr >= 50%)", nodeIdx: 4, tag: "env" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Q5: Population Diversity", nodeIdx: 5, tag: "pareto" },
-          { type: "op", text: "->" },
-          { type: "term", text: "FileMonitor Telemetry Logging", nodeIdx: 6, tag: "output" },
-          { type: "op", text: "->" },
-          { type: "term", text: "Adaptive Exploration Control", nodeIdx: 7, tag: "agent" }
+          { type: "term", text: "SequenceExplorer & .fit(monitor=)", nodeIdx: 7, tag: "output" }
         ],
         nodes: [
           {
             stepLabel: "01",
-            stage: "Rollout",
-            stageType: "input",
-            label: "Candidate Batch (N=1024)",
-            sublabel: "Agent Policy Rollout Output",
-            formula: "B_raw = {x_1, ..., x_N} ~ pi_theta, N=1024",
-            inputContract: "Autoregressively sampled token sequences from policy network",
-            outputContract: "Raw unchecked candidate batch",
-            description: "Fresh batch of candidate token sequences or molecular graphs generated during the active RL epoch, requiring multi-gate quality verification.",
-            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::training::generators::SequenceTransformer"],
+            stage: "Telemetry",
+            stageType: "output",
+            label: "FileMonitor & Stream Logger",
+            sublabel: "Passed as: monitor= -> Explorer",
+            formula: "monitor = FileMonitor(path, save_smiles=True)",
+            inputContract: "output_path: str, save_smiles: bool, save_model_option: str",
+            outputContract: "FileMonitor instance passed as monitor= to SequenceExplorer.fit()",
+            description: "TSV-based real-time telemetry logger. Flushes per-epoch generator loss, chemical validity rate (V%), population uniqueness (U%), and multi-objective Pareto metrics directly to disk.",
+            drugexSymbols: ["drugex::training::monitors::FileMonitor", "drugex::training::interfaces::TrainingMonitor"],
             keyParameters: [
-              { name: "batch_size", desc: "Batch size of sampled rollouts per epoch (512-2048)" }
+              { name: "path", desc: "File path prefix for TSV logs and model checkpoints" },
+              { name: "save_smiles", desc: "Boolean: record all generated SMILES to disk" }
             ],
-            diagnostics: "If batch generation latency exceeds 2 seconds, utilize batched GPU inference and pinned memory dataloaders.",
+            diagnostics: "FileMonitor automatically flushes disk buffers after each epoch, enabling external live plotting scripts and dashboard monitors to stream results safely.",
             x: 20, y: 22
           },
           {
             stepLabel: "02",
-            stage: "Gate Q1",
+            stage: "Sanitizer",
             stageType: "filter",
-            label: "Q1: Validity Check (V >= 95%)",
-            sublabel: "Syntax & Valency Grammar Check",
-            formula: "V% = (N_valid / N_total) * 100 >= 95%",
-            inputContract: "Raw generated candidate strings",
-            outputContract: "Valid molecular graph subset M_valid",
-            description: "Parses SMILES strings through RDKit, verifying ring closures, valency bounds, and aromatic consistency. Candidates failing grammar check are discarded immediately with zero score.",
+            label: "SmilesChecker Validator",
+            sublabel: "Grammar & Valence Sanity Gate",
+            formula: "is_valid = SmilesChecker.checkSmiles(s)",
+            inputContract: "Raw generated candidate SMILES sequences",
+            outputContract: "Valid molecular graph subset M_valid passed to Scorer array",
+            description: "Verifies chemical valency, ring closure integrity, and aromatic consistency. Molecules failing grammar checks are assigned zero score and marked invalid.",
             drugexSymbols: ["drugex::training::scorers::SmilesChecker", "drugex::molecules::converters::CleanSMILES"],
             keyParameters: [
-              { name: "validity_threshold", desc: "Minimum acceptable validity rate (V >= 95% target)" }
+              { name: "check_valence", desc: "RDKit strict valence and octet verification" }
             ],
-            diagnostics: "If V% drops below 90%, the generative model is destabilizing; check learning rate, gradient clipping norm, or temperature schedule.",
+            diagnostics: "If batch validity drops below 90%, check learning rate, gradient clipping norm, or temperature schedule on the generator.",
             x: 310, y: 22
           },
           {
             stepLabel: "03",
-            stage: "Gate Q2",
-            stageType: "filter",
-            label: "Q2: Uniqueness (U >= 85%)",
-            sublabel: "Mode Collapse Check",
-            formula: "U% = (N_unique / N_valid) * 100 >= 85%",
-            inputContract: "Valid molecules M_valid",
-            outputContract: "Unique canonical molecular subset M_unique",
-            description: "Canonicalizes SMILES and evaluates duplication rates within the batch and across recent training epochs. Flags early signs of generative mode collapse.",
-            drugexSymbols: ["drugex::training::scorers::Uniqueness", "drugex::training::monitors::FileMonitor"],
+            stage: "Modifier",
+            stageType: "modifier",
+            label: "Thresholded Modifiers",
+            sublabel: "Passed as: modifier= -> Scorer",
+            formula: "ThresholdedLinear(threshold=0.5, high=True)",
+            inputContract: "Raw continuous metric values (SA score, uniqueness, MW)",
+            outputContract: "ScoreModifier instances passed to Scorer(modifier=...)",
+            description: "Stepwise and linear desirability functions establishing explicit quality thresholds (e.g. SA <= 3.5, uniqueness >= 85%) for telemetry tracking and reward filtering.",
+            drugexSymbols: ["drugex::training::scorers::modifiers::ThresholdedLinear", "drugex::training::scorers::ScoreModifier"],
             keyParameters: [
-              { name: "history_window", desc: "Number of past batches tracked for deduplication (1-5 epochs)" }
+              { name: "threshold", desc: "Desirability cutoff boundary (0.5 to 0.85)" },
+              { name: "high", desc: "Boolean: True if higher raw metric is more desirable" }
             ],
-            diagnostics: "If U% drops below 85%, the agent is repeating known high-scoring molecules; increase exploration mutation epsilon or boost prior KL penalty.",
+            diagnostics: "ThresholdedLinear cleanly demarcates satisfying candidates from non-satisfying ones for Desired Ratio (Dr%) calculations.",
             x: 600, y: 22
           },
           {
             stepLabel: "04",
-            stage: "Gate Q3",
-            stageType: "filter",
-            label: "Q3: Synthetic Accessibility",
-            sublabel: "SA <= 3.5, RingSize <= 7",
-            formula: "SA <= 3.5 and RingSize <= 7 and RA >= 0.70",
-            inputContract: "Unique molecules M_unique",
-            outputContract: "Feasible drug-like candidate subset",
-            description: "Screens synthetic accessibility (SA <= 3.5), retrosynthetic feasibility (RAScore >= 0.70), and macrocycle strain filter (RingSize <= 7, no strained small rings < 5).",
-            drugexSymbols: ["drugex::training::scorers::SAScorer", "drugex::training::scorers::RAScoreScorer", "drugex::training::scorers::sascorer::numBridgeheadsAndSpiro"],
+            stage: "Scorers",
+            stageType: "scorer",
+            label: "Diagnostic Scorers Array",
+            sublabel: "Needs: modifier=; Out: scorers=",
+            formula: "scorers = [Uniqueness(), SAScorer(mod)]",
+            inputContract: "Diagnostic objective functions with attached modifiers",
+            outputContract: "List[Scorer] passed as scorers= to DrugExEnvironment",
+            description: "Evaluates synthetic accessibility (SAScorer), batch and population uniqueness (Uniqueness to detect mode collapse), and target bioactivity.",
+            drugexSymbols: ["drugex::training::scorers::Scorer", "drugex::training::scorers::Uniqueness", "drugex::training::scorers::SAScorer"],
             keyParameters: [
-              { name: "max_sascore", desc: "Synthetic accessibility ceiling (SA <= 3.5)" },
-              { name: "max_ring_size", desc: "Maximum allowable ring size (<= 7)" }
+              { name: "scorers", desc: "List of diagnostic and objective Scorer instances" }
             ],
-            diagnostics: "Without SAScore/RAScore gating, reinforcement learning agents routinely generate complex polycyclic bridged topologies that cannot be synthesized.",
+            diagnostics: "Tracking uniqueness prevents mode collapse where the agent optimizes rewards by repeating a small handful of known molecules.",
             x: 890, y: 22
           },
           {
             stepLabel: "05",
-            stage: "Gate Q4",
+            stage: "Thresholds",
             stageType: "env",
-            label: "Q4: Desired Ratio (Dr >= 50%)",
-            sublabel: "Multi-Objective Thresholding",
-            formula: "D_r = (N_desired / N_valid) * 100 >= 50%, s_k >= tau_k",
-            inputContract: "Feasible candidate subset, DrugExEnvironment",
-            outputContract: "Molecules satisfying all active objective thresholds simultaneously",
-            description: "Evaluates candidates across all biological target, selectivity, and ADMET predictors. Computes the Desired Ratio (Dr >= 50%), the primary performance metric in DrugEx benchmarks.",
-            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::scorers::modifiers::ThresholdedLinear"],
+            label: "Quality Gate Thresholds",
+            sublabel: "Passed as: thresholds= -> Env",
+            formula: "thresholds = [0.85, 0.70, 0.80]",
+            inputContract: "Cutoff desirability thresholds per diagnostic objective",
+            outputContract: "thresholds vector passed as thresholds= to DrugExEnvironment",
+            description: "Strict multi-gate thresholds vector. A molecule is marked desirable (Dr = 1) only if all objective scores meet or exceed their respective cutoffs.",
+            drugexSymbols: ["drugex::training::environment::DrugExEnvironment"],
             keyParameters: [
-              { name: "thresholds", desc: "Target desirability cutoff for each objective (typically >= 0.5-0.8)" }
+              { name: "thresholds", desc: "Cutoff float vector matching scorers length" }
             ],
-            diagnostics: "Desired Ratio should increase progressively across epochs (e.g. from 2% to 60%+); failure to rise indicates scorer conflict or impossible objective thresholds.",
-            x: 890, y: 222
+            diagnostics: "Desired Ratio (Dr%) measures the percentage of rollouts that satisfy all objective thresholds simultaneously.",
+            x: 20, y: 222
           },
           {
             stepLabel: "06",
-            stage: "Gate Q5",
-            stageType: "pareto",
-            label: "Q5: Population Diversity",
-            sublabel: "Internal Tanimoto Dispersion",
-            formula: "Div(M) = 1 - (2 / |M|(|M|-1)) sum_{i < j} Tanimoto(m_i, m_j) >= 0.75",
-            inputContract: "Desired candidate population, Morgan fingerprints",
-            outputContract: "Internal diversity coefficient in [0, 1]",
-            description: "Calculates mean pairwise Tanimoto distance across desired candidates. Confirms that successful leads span diverse chemical series rather than trivial analog clusters.",
-            drugexSymbols: ["drugex::training::monitors::FileMonitor", "drugex::training::interfaces::TrainingMonitor"],
+            stage: "Environment",
+            stageType: "env",
+            label: "DrugExEnvironment",
+            sublabel: "Needs: scorers, thresholds, scheme",
+            formula: "env = DrugExEnvironment(scorers, ths, scheme)",
+            inputContract: "scorers: List[Scorer], thresholds: List[float], reward_scheme",
+            outputContract: "DrugExEnvironment instance passed as env= to SequenceExplorer",
+            description: "Coordinates batch validation via SmilesChecker, computes objective scores, filters against thresholds, and logs batch Desired Ratio metrics.",
+            drugexSymbols: ["drugex::training::environment::DrugExEnvironment", "drugex::training::scorers::ScoreModifier"],
             keyParameters: [
-              { name: "min_diversity", desc: "Acceptable internal diversity floor (typically >= 0.75)" }
+              { name: "scorers", desc: "Array of diagnostic and property scorers" },
+              { name: "thresholds", desc: "Multi-objective desirability cutoff thresholds" }
             ],
-            diagnostics: "If Dr is high (> 80%) but Diversity is low (< 0.50), the agent has collapsed to a single localized chemotype.",
-            x: 600, y: 222
-          },
-          {
-            stepLabel: "07",
-            stage: "Telemetry",
-            stageType: "output",
-            label: "Telemetry Logging",
-            sublabel: "FileMonitor & CSV Curves",
-            formula: "Metrics -> FileMonitor -> TSV / TensorBoard",
-            inputContract: "Moving averages of V%, U%, Dr%, Div, policy loss, entropy",
-            outputContract: "Structured log entries, CSV curves, and monitoring checkpoints",
-            description: "Records real-time telemetry curves via FileMonitor. Detects plateau conditions, triggers early stopping, and logs multi-objective distributions.",
-            drugexSymbols: ["drugex::training::monitors::FileMonitor", "drugex::training::interfaces::TrainingMonitor"],
-            keyParameters: [
-              { name: "patience", desc: "Epochs without Dr% improvement before early stopping (20 epochs)" }
-            ],
-            diagnostics: "Inspect CSV telemetry logs to diagnose training runs: healthy runs exhibit rising Dr% while maintaining validity >= 95% and uniqueness >= 85%.",
+            diagnostics: "DrugExEnvironment automatically zeros scores for invalid molecules, guaranteeing validity integrity in telemetry logs.",
             x: 310, y: 222
           },
           {
-            stepLabel: "08",
-            stage: "Adaptive Control",
+            stepLabel: "07",
+            stage: "Agent Models",
             stageType: "agent",
-            label: "Adaptive Exploration Control",
-            sublabel: "Dynamic Epsilon & Learning Rate",
-            formula: "eps_{t+1} = f(Div, U%), eta_{t+1} = CosineScheduler(eta_0)",
-            inputContract: "Observed uniqueness U% and population diversity Div",
-            outputContract: "Adapted exploration rate epsilon and learning rate eta",
-            description: "Dynamically modulates mutation rate epsilon and applies cosine annealing learning rate schedule to maintain generative diversity and avert mode collapse.",
+            label: "Generative Agent & Prior",
+            sublabel: "Passed as: agent=, mutate= -> Explorer",
+            formula: "agent = SequenceRNN(voc), mutate = prior",
+            inputContract: "VocSmiles vocabulary and pre-trained weights",
+            outputContract: "Model instances passed as agent= and mutate= to SequenceExplorer",
+            description: "Active generative agent network producing candidate rollouts and frozen reference prior providing exploration mutations and baseline anchor.",
+            drugexSymbols: ["drugex::training::generators::SequenceRNN", "drugex::data::corpus::vocabulary::VocSmiles"],
+            keyParameters: [
+              { name: "voc", desc: "Chemical token vocabulary (VocSmiles)" }
+            ],
+            diagnostics: "Frozen prior prevents the agent from drifting into ungrammatical chemical space during reinforcement learning.",
+            x: 600, y: 222
+          },
+          {
+            stepLabel: "08",
+            stage: "Explorer",
+            stageType: "output",
+            label: "SequenceExplorer & Stream",
+            sublabel: "Needs: agent, env, mutate; .fit(monitor=)",
+            formula: "explorer.fit(loader, epochs=100, monitor=mon)",
+            inputContract: "agent: SequenceRNN, env: DrugExEnvironment, mutate: SequenceRNN, monitor: FileMonitor",
+            outputContract: "Live TSV stream logs, model checkpoints, and Pareto candidates",
+            description: "Executes the RL training loop while streaming real-time metrics (validity V%, uniqueness U%, desired ratio Dr%, loss) directly to FileMonitor.",
             drugexSymbols: ["drugex::training::explorers::SequenceExplorer", "drugex::training::monitors::FileMonitor"],
             keyParameters: [
-              { name: "min_epsilon", desc: "Minimum exploration floor (0.05 default)" },
-              { name: "max_epsilon", desc: "Maximum exploration boost during collapse (0.35)" }
+              { name: "epochs", desc: "Total reinforcement learning epochs (50-200)" },
+              { name: "monitor", desc: "TrainingMonitor instance for real-time telemetry streaming" }
             ],
-            diagnostics: "Temporarily boosting epsilon when uniqueness drops below 85% rescues the policy from local minima.",
-            x: 20, y: 222
+            diagnostics: "If uniqueness drops below 85%, dynamically increase exploration mutation rate epsilon to escape local minima.",
+            x: 890, y: 222
           }
         ],
         connectors: [
-          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "SMILES", color: "#0284c7" },
-          { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "V >= 95%", color: "#0284c7" },
-          { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "U >= 85%", color: "#0284c7" },
-          { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "SA <= 3.5", color: "#ea580c" },
-          { fromX: 890, fromY: 271, toX: 820, toY: 271, label: "Dr >= 50%", color: "#16a34a" },
-          { fromX: 600, fromY: 271, toX: 530, toY: 271, label: "Div >= 0.75", color: "#e11d48" },
-          { fromX: 310, fromY: 271, toX: 240, toY: 271, label: "Curves", color: "#0284c7" }
+          { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "audit log", color: "#0284c7" },
+          { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "valid SMILES", color: "#0d9488" },
+          { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "modifier=", color: "#7c3aed" },
+          { fromX: 1000, fromY: 120, toX: 420, toY: 222, label: "scorers=", color: "#d97706" },
+          { fromX: 240, fromY: 271, toX: 310, toY: 271, label: "thresholds=", color: "#16a34a" },
+          { fromX: 530, fromY: 271, toX: 600, toY: 271, label: "env=", color: "#16a34a" },
+          { fromX: 820, fromY: 271, toX: 890, toY: 271, label: "agent, mutate", color: "#0284c7" }
         ],
-        feedbackLoop: { fromX: 130, fromY: 222, toX: 130, toY: 120, label: "Dynamic eps & LR Control", color: "#0284c7" },
+        feedbackLoop: { fromX: 1000, fromY: 320, toX: 130, toY: 120, label: ".fit(monitor=) -> Live TSV Stream", color: "#0284c7" },
         matrixRows: [
-          { step: "01", component: "Batch Rollout", input: "Policy network sampling", operation: "Autoregressive generation of N=1024 candidate sequences", output: "Raw candidate batch", classes: "SequenceRNN, SequenceTransformer" },
-          { step: "02", component: "Gate Q1: Validity", input: "Raw candidate strings", operation: "RDKit parsing, valence verification, grammar check (V >= 95%)", output: "Valid subset (V%)", classes: "SmilesChecker, CleanSMILES" },
-          { step: "03", component: "Gate Q2: Uniqueness", input: "Valid molecules", operation: "Canonical SMILES deduplication & mode collapse check (U >= 85%)", output: "Unique subset (U%)", classes: "Uniqueness, FileMonitor" },
-          { step: "04", component: "Gate Q3: Accessibility", input: "Unique molecules", operation: "Synthetic accessibility (SA <= 3.5), RAScore >= 0.70, RingSize <= 7", output: "Feasible candidates", classes: "SAScorer, RAScoreScorer, numBridgeheadsAndSpiro" },
-          { step: "05", component: "Gate Q4: Desired Ratio", input: "Feasible candidates", operation: "Multi-objective scoring: verify s_k >= tau_k for all goals (Dr >= 50%)", output: "Desired leads (Dr%)", classes: "DrugExEnvironment, ThresholdedLinear" },
-          { step: "06", component: "Gate Q5: Diversity", input: "Desired candidates", operation: "Internal pairwise Morgan fingerprint Tanimoto calculation (Div >= 0.75)", output: "Diversity coefficient", classes: "FileMonitor, TrainingMonitor" },
-          { step: "07", component: "Telemetry Log", input: "All gate metrics & losses", operation: "FileMonitor logging, convergence & mode check", output: "Diagnostic curves & alerts", classes: "FileMonitor, TrainingMonitor" },
-          { step: "08", component: "Adaptive Control", input: "U% and Diversity curves", operation: "Dynamic mutation rate epsilon & learning rate adaptation", output: "Adapted exploration state", classes: "SequenceExplorer, FileMonitor" }
+          { step: "01", component: "FileMonitor Logger", input: "output_path, options", operation: "Instantiate telemetry logger: FileMonitor(path, save_smiles=True)", output: "monitor= instance", classes: "FileMonitor, TrainingMonitor" },
+          { step: "02", component: "SmilesChecker Validator", input: "Candidate SMILES", operation: "Valence and grammar check: SmilesChecker.checkSmiles(s)", output: "Valid candidate subset", classes: "SmilesChecker, CleanSMILES" },
+          { step: "03", component: "Thresholded Modifiers", input: "Gating boundaries", operation: "Configure desirability thresholds: ThresholdedLinear(0.5)", output: "modifier= instance", classes: "ThresholdedLinear, ScoreModifier" },
+          { step: "04", component: "Diagnostic Scorers", input: "modifier= instances", operation: "Instantiate evaluators: [Uniqueness(), SAScorer(modifier)]", output: "scorers= List[Scorer]", classes: "Scorer, Uniqueness, SAScorer" },
+          { step: "05", component: "Quality Thresholds", input: "Target cutoff values", operation: "Define per-objective thresholds: thresholds = [0.85, 0.70, 0.80]", output: "thresholds= vector", classes: "DrugExEnvironment" },
+          { step: "06", component: "DrugExEnvironment", input: "scorers, thresholds", operation: "Assemble diagnostics environment: DrugExEnvironment(scorers, ths)", output: "env= instance", classes: "DrugExEnvironment, ScoreModifier" },
+          { step: "07", component: "Agent & Prior Models", input: "voc=VocSmiles", operation: "Instantiate models: agent = SequenceRNN(voc), mutate = prior", output: "agent=, mutate= models", classes: "SequenceRNN, VocSmiles" },
+          { step: "08", component: "SequenceExplorer & Stream", input: "agent, env, mutate, monitor", operation: "Run RL training loop: explorer.fit(loader, monitor=monitor)", output: "Live TSV stream & lead candidates", classes: "SequenceExplorer, FileMonitor" }
         ]
       }
     ];
@@ -16545,54 +16543,54 @@ for idx, smi in enumerate(items, 1):
 
     const STEP_CODE_SNIPPETS = {
       morl: {
-        "01": `from drugex.training.generators import SequenceRNN, SequenceTransformer\n\n# Causal autoregressive policy network parameterizing pi_theta\nagent = SequenceTransformer(\n    voc=voc,\n    d_model=256,\n    nhead=8,\n    num_decoder_layers=6,\n    dim_feedforward=1024\n).to(device)`,
-        "02": `# Frozen base prior pi_0 acts as regularizing anchor\nprior = SequenceTransformer.load(voc=voc, path="models/base_prior.pkg").to(device)\nprior.eval()\nfor param in prior.parameters():\n    param.requires_grad = False`,
-        "03": `from drugex.data.corpus.vocabulary import VocSmiles\nfrom drugex.training.scorers import SmilesChecker\n\n# Rollout exploratory candidate batch from agent\ntokens = agent.sample(batch_size=512, temperature=0.8)\nsmiles_batch = [voc.decode(t) for t in tokens]\nvalid_mols = [s for s in smiles_batch if SmilesChecker.checkSmiles(s)]`,
-        "04": `from drugex.training.scorers import Property, RDKitROCSScorer\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\nscorers = [\n    Property("MW"),\n    Property("logP"),\n    QSPRPredScorer(model_path="models/target_qsar.json"),\n    RDKitROCSScorer(ref_mol="data/reference_ligand.sdf")\n]\nraw_scores = [scorer(valid_mols) for scorer in scorers]`,
-        "05": `from drugex.training.scorers import SmoothClippedScore, ClippedScore\n\nmodifiers = [\n    ClippedScore(lower_x=150.0, upper_x=500.0, high=True),\n    ClippedScore(lower_x=0.5, upper_x=3.5, high=True),\n    SmoothClippedScore(lower_x=6.5, upper_x=8.5, high=True),\n    SmoothClippedScore(lower_x=1.2, upper_x=1.6, high=True)\n]\ndesirability = [mod(score) for mod, score in zip(modifiers, raw_scores)]`,
-        "06": `from drugex.training.environment import DrugExEnvironment\n\nenv = DrugExEnvironment(\n    scorers=scorers,\n    modifiers=modifiers,\n    thresholds=[0.75, 0.70, 0.80, 0.65],\n    scheme="ParetoCrowdingDistance"\n)\nrewards = env.getRewards(valid_mols)`,
-        "07": `# Multi-objective Pareto non-dominated ranking & crowding distance\nfrom drugex.training.environment import DrugExEnvironment\n\n# Partitions candidates into Pareto fronts F_1, F_2, ...\n# Crowding distance scalarizes rewards to preserve chemical diversity\npareto_rewards = env.calculateParetoRewards(desirability_matrix)`,
-        "08": `from drugex.training.explorers import SequenceExplorer\n\nexplorer = SequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    crover=None,\n    epsilon=0.1,\n    beta=0.05\n)\nexplorer.fit(train_loader, epochs=100)`
+        "01": `from drugex.training.scorers import SmoothClippedScore, ClippedScore\n\n# Instantiate continuous desirability modifiers\nmod_mw = ClippedScore(lower_x=150.0, upper_x=500.0, high=True)\nmod_logp = ClippedScore(lower_x=0.5, upper_x=3.5, high=True)\nmod_qsar = SmoothClippedScore(lower_x=6.5, upper_x=8.5, high=True)`,
+        "02": `from drugex.training.scorers import Property\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Objective scorers parameterized with calibrated modifiers\nscorers = [\n    Property("MW", modifier=mod_mw),\n    Property("logP", modifier=mod_logp),\n    QSPRPredScorer(model_path="models/target_qsar.json", modifier=mod_qsar)\n]`,
+        "03": `# Multi-objective feasibility thresholds vector\n# A candidate is marked desirable only when s_k >= tau_k for all goals\nthresholds = [0.75, 0.70, 0.80]\nassert len(thresholds) == len(scorers), "Length mismatch!"`,
+        "04": `# Scalarization strategy: ParetoCrowdingDistance preserves chemical diversity\n# Partitions solutions into non-dominated Pareto fronts F_1, F_2, ...\nreward_scheme = "ParetoCrowdingDistance"`,
+        "05": `from drugex.training.environment import DrugExEnvironment\n\n# Central multi-objective reinforcement learning environment\nenv = DrugExEnvironment(\n    scorers=scorers,\n    thresholds=thresholds,\n    reward_scheme=reward_scheme\n)`,
+        "06": `from drugex.data.corpus.vocabulary import VocSmiles\nfrom drugex.training.generators import SequenceRNN\n\n# Autoregressive policy network parameterizing pi_theta\nvoc = VocSmiles.fromFile("data/vocab.txt")\nagent = SequenceRNN(voc=voc, is_lstm=True).to(device)`,
+        "07": `from drugex.training.generators import SequenceRNN\n\n# Frozen reference prior acting as regularizing anchor pi_0\nprior = SequenceRNN.loadStates("models/base_prior.pkg").to(device)\nprior.eval()\nfor param in prior.parameters():\n    param.requires_grad = False`,
+        "08": `from drugex.training.explorers import SequenceExplorer\n\n# Top-level RL orchestrator assembling agent, env, and mutate prior\nexplorer = SequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    crover=None,\n    epsilon=0.1,\n    beta=0.05\n)\nexplorer.fit(train_loader, epochs=100)`
       },
       training: {
-        "01": `from drugex.data.corpus.vocabulary import VocSmiles\nfrom drugex.molecules.converters import DefaultStandardizer\n\n# Ingest and clean Papyrus ~1.5M bioactive molecule corpus\nstandardizer = DefaultStandardizer(canonicalize=True, drop_salts=True)\nclean_smiles = [standardizer(s) for s in raw_papyrus_corpus if s]`,
-        "02": `from drugex.data.corpus.vocabulary import VocSmiles\n\n# Construct vocabulary over Papyrus dataset\nvoc = VocSmiles.fromFile("data/vocab.txt", encode_frags=False)\ntoken_tensor = voc.encode(["CC(=O)Oc1ccccc1C(=O)O"])\nprint("Encoded token shape:", token_tensor.shape)`,
-        "03": `from drugex.train import Pretrain\nfrom drugex.training.generators import SequenceTransformer\n\nmodel = SequenceTransformer(voc=voc, d_model=256, nhead=8, num_decoder_layers=6)\npretrainer = Pretrain(model=model, train_loader=corpus_loader, lr=1e-3)\npretrainer.fit(epochs=50)\nmodel.save("models/pretrained_papyrus.pkg")`,
-        "04": `# Permanently freeze pre-trained base model weights as reference anchor pi_0\nprior = SequenceTransformer.load(voc=voc, path="models/pretrained_papyrus.pkg")\nfor p in prior.parameters():\n    p.requires_grad = False\nprior.eval()`,
-        "05": `import pandas as pd\n\n# Filter active ligand series for biological target (e.g. Kinase / GPCR)\ndf = pd.read_csv("data/target_bioactivity.csv")\nactives = df[df["pIC50"] >= 6.5]["canonical_smiles"].unique()\nprint(f"Curated {len(actives)} target-specific active ligands.")`,
-        "06": `from drugex.train import Finetune\n\n# Target transfer learning: bias base distribution onto active series\nagent = SequenceTransformer.load(voc=voc, path="models/pretrained_papyrus.pkg")\nfinetuner = Finetune(model=agent, train_loader=actives_loader, lr=5e-5)\nfinetuner.fit(epochs=20)\nagent.save("models/finetuned_target.pkg")`,
-        "07": `from drugex.training.explorers import SequenceExplorer\nfrom drugex.training.environment import DrugExEnvironment\n\n# Reinforcement learning fine-tuning with multi-objective environment\nexplorer = SequenceExplorer(agent=agent, env=env, mutate=prior, epsilon=0.1)\nexplorer.fit(train_loader=actives_loader, epochs=100)`,
-        "08": `# High-volume lead library sampling and Pareto filtration\ncandidates = explorer.sample(n_samples=10000, temperature=0.75)\nleads = env.filterParetoDominant(candidates)\nprint(f"Extracted {len(leads)} top-priority de novo lead candidates.")`
+        "01": `import pandas as pd\nfrom drugex.molecules.converters import DefaultStandardizer\n\n# Ingest and curate general ~1.5M bioactive corpus (Papyrus / ChEMBL)\nstandardizer = DefaultStandardizer(canonicalize=True, drop_salts=True)\ndf = pd.read_csv("data/papyrus_corpus.tsv", sep="\\t")\nclean_smiles = [standardizer(s) for s in df["SMILES"] if s]`,
+        "02": `from drugex.data.corpus.vocabulary import VocSmiles\n\n# Extract chemical token vocabulary from general corpus\nvoc = VocSmiles.fromFile("data/vocab.txt", encode_frags=False)\nprint("Vocabulary size:", len(voc.words))`,
+        "03": `from torch.utils.data import DataLoader\nfrom drugex.data.datasets import SmilesDataSet\n\n# Tokenize SMILES into padded integer tensors\ndataset = SmilesDataSet(clean_smiles, voc=voc)\ntrain_loader = DataLoader(dataset, batch_size=256, shuffle=True)`,
+        "04": `from drugex.train import Pretrain\nfrom drugex.training.generators import SequenceRNN\n\n# Pre-train base language model prior via MLE over general corpus\nprior = SequenceRNN(voc=voc, is_lstm=True)\npretrainer = Pretrain(model=prior, train_loader=train_loader, lr=1e-3)\npretrainer.fit(epochs=50)\nprior.saveStates("models/base_prior.pkg")`,
+        "05": `import pandas as pd\n\n# Curate target-specific bioactive ligand series (e.g. CDK2 / GPCR)\ndf_target = pd.read_csv("data/target_actives.csv")\nactives = df_target[df_target["pIC50"] >= 6.5]["canonical_smiles"].unique().tolist()\nprint(f"Curated {len(actives)} target actives.")`,
+        "06": `from drugex.train import Finetune\nfrom drugex.training.generators import SequenceRNN\n\n# Initialize agent from pre-trained prior and fine-tune on target actives\nagent = SequenceRNN(voc=voc, is_lstm=True)\nagent.loadStates("models/base_prior.pkg")\nfinetuner = Finetune(model=agent, train_loader=actives_loader, lr=5e-5)\nfinetuner.fit(epochs=20)\nagent.saveStates("models/finetuned_agent.pkg")`,
+        "07": `from drugex.training.environment import DrugExEnvironment\nfrom drugex.training.scorers import Property\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Multi-objective environment receiving scorers and thresholds\nenv = DrugExEnvironment(\n    scorers=[\n        Property("MW", modifier=mod_mw),\n        QSPRPredScorer("models/target.json", modifier=mod_act)\n    ],\n    thresholds=[0.75, 0.70],\n    reward_scheme="ParetoCrowdingDistance"\n)`,
+        "08": `from drugex.training.explorers import SequenceExplorer\n\n# Assemble fine-tuned agent, environment, and frozen prior anchor\nexplorer = SequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    epsilon=0.1\n)\nexplorer.fit(train_loader=actives_loader, epochs=100)`
       },
       rocs: {
-        "01": `# Generate candidate SMILES batch during exploration rollout\nsmiles_batch = agent.sample(batch_size=128, temperature=0.8)\nprint(f"Batch rollout size: {len(smiles_batch)}")`,
-        "02": `from drugex.training.scorers import SmilesChecker\n\n# Deduplicate candidate batch and verify chemical valence\nunique_smiles = list(set([s for s in smiles_batch if SmilesChecker.checkSmiles(s)]))\nprint(f"Unique valid topologies: {len(unique_smiles)} / {len(smiles_batch)}")`,
-        "03": `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator\n\n# Generate 3D conformer ensembles using experimental-torsion distance geometry\nconf_gen = RDKitConformerGenerator(n_conf=20, prune_rms=0.5)\nconformers = {s: conf_gen(s) for s in unique_smiles}`,
-        "04": `from rdkit import Chem\n\n# Load experimental bioactive co-crystal ligand pose\nref_supplier = Chem.SDMolSupplier("data/co_crystal_ligand.sdf")\nref_mol = next(ref_supplier)\nprint("Reference query heavy atoms:", ref_mol.GetNumAtoms())`,
-        "05": `from rdkit.Chem.rdShapeAlign import AlignMol\n\n# Rigid inertial PMI alignment followed by smooth Gaussian volume overlap\nrmsd, shape_tanimoto = AlignMol(ref_mol, candidate_conformer)`,
-        "06": `from drugex.training.scorers import RDKitROCSScorer\n\n# Calculate steric volume overlap and pharmacophoric color feature overlap\nrocs_scorer = RDKitROCSScorer(ref_mol="data/co_crystal_ligand.sdf", color_scheme="default")\nshape_overlap, color_overlap = rocs_scorer.calculateOverlaps(conformers)`,
-        "07": `# TanimotoCombo = Shape Tanimoto (ST) + Color Tanimoto (CT) in [0, 2.0]\ntanimoto_combo = shape_overlap + color_overlap\nprint("Mean TanimotoCombo:", tanimoto_combo.mean())`,
-        "08": `from drugex.training.scorers import SmoothClippedScore\n\n# Transform TanimotoCombo into continuous sigmoidal [0, 1] desirability\nmod = SmoothClippedScore(lower_x=1.0, upper_x=1.6, high=True)\ndesirability = [mod(tc) for tc in tanimoto_combo]`
+        "01": `from rdkit import Chem\n\n# Ingest high-resolution crystallographic co-crystal inhibitor pose\nref_supplier = Chem.SDMolSupplier("data/co_crystal_ligand.sdf")\nref_mol = next(ref_supplier)\nprint("Reference heavy atoms:", ref_mol.GetNumAtoms())`,
+        "02": `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator\n\n# Conformer generator using ETKDGv3 distance geometry & MMFF94 force field\nconf_gen = RDKitConformerGenerator(n_conf=50, prune_rms=0.5)`,
+        "03": `from drugex.training.scorers import SmoothClippedScore\n\n# Sigmoidal desirability modifier for continuous TanimotoCombo scores in [0, 2.0]\nmod_rocs = SmoothClippedScore(lower_x=1.0, upper_x=1.6, high=True)`,
+        "04": `from drugex.training.scorers import RDKitROCSScorer\n\n# 3D shape and pharmacophore overlap scorer\nrocs_scorer = RDKitROCSScorer(\n    target=ref_mol,\n    modifier=mod_rocs,\n    confgen=conf_gen,\n    score_type="TanimotoCombo"\n)`,
+        "05": `from drugex.training.scorers import Property\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Complementary QSAR bioactivity and property scorers\nqsar_scorer = QSPRPredScorer(model_path="models/target_qsar.json", modifier=mod_qsar)\nscorers = [rocs_scorer, qsar_scorer, Property("logP", modifier=mod_logp)]`,
+        "06": `from drugex.training.environment import DrugExEnvironment\n\n# Assemble environment with 3D ROCS and QSAR objectives\nenv = DrugExEnvironment(\n    scorers=scorers,\n    thresholds=[0.70, 0.75, 0.65],\n    reward_scheme="ParetoCrowdingDistance"\n)`,
+        "07": `from drugex.training.generators import SequenceRNN\nfrom drugex.data.corpus.vocabulary import VocSmiles\n\n# Active generative agent and frozen baseline prior\nvoc = VocSmiles.fromFile("data/vocab.txt")\nagent = SequenceRNN(voc=voc, is_lstm=True)\nprior = SequenceRNN.loadStates("models/base_prior.pkg")`,
+        "08": `from drugex.training.explorers import SequenceExplorer\n\n# Orchestrate 3D shape-guided reinforcement learning exploration\nexplorer = SequenceExplorer(agent=agent, env=env, mutate=prior, epsilon=0.1)\nexplorer.fit(train_loader=train_loader, epochs=100)`
       },
       fragment: {
-        "01": `from rdkit import Chem\n\n# Input crystallographic fragment hits or bioactive patent series\nmols = [Chem.MolFromSmiles(s) for s in ["c1c(c2ccccc2)ncn1CC(=O)N3CCNCC3"]]`,
-        "02": `from rdkit.Chem.BRICS import BRICSDecompose\n\n# Retrosynthetic cleavage across 16 BRICS cleavage rules (L1 to L16)\nfragments = BRICSDecompose(mols[0], returnMols=True)\nprint(f"Decomposed into {len(fragments)} retrosynthetic synthons.")`,
-        "03": `from drugex.data.fragments import FragmentCorpusEncoder\n\n# Tag allowable growth vectors with isotopic dummy attachments [1*] to [16*]\nencoder = FragmentCorpusEncoder()\ntagged_synthons = encoder.tagAttachmentVectors(fragments)\nprint("Tagged synthon cores:", tagged_synthons)`,
-        "04": `from drugex.data.corpus.vocabulary import VocSmiles\n\n# Condition sequence transformer prompt with fixed scaffold prefix\nvoc = VocSmiles.fromFile("data/vocab.txt", encode_frags=True)\nconditioned_tokens = voc.encodeFragmentPrompt(tagged_synthons[0])`,
-        "05": `from drugex.training.explorers import FragSequenceExplorer\n\n# Conditionally elaborate fragment scaffolds via reinforcement learning\nexplorer = FragSequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    frags=tagged_synthons,\n    epsilon=0.1\n)\nexplorer.fit(train_loader, epochs=50)`,
-        "06": `# GraphTransformer dynamic valence masking at each bond creation step\n# Masks chemically forbidden valencies (e.g. pentavalent carbon) with -inf\nlogits = graph_transformer(mol_state)\nmasked_logits = logits + dynamic_valence_mask(mol_state)\naction = torch.argmax(masked_logits, dim=-1)`,
-        "07": `from rdkit.Chem.BRICS import BRICSBuild\n\n# Verify synthetic compatibility between synthon exit vectors and linkers\ncompatible_pairs = [p for p in candidate_pairs if is_brics_compatible(p[0], p[1])]`,
-        "08": `from drugex.training.scorers import LigandEfficiency, LipophilicEfficiency\n\n# Score reassembled drug candidates for Ligand Efficiency (LE / LipE)\nle_scorer = LigandEfficiency(qsar_scorer=target_qsar)\nlipe_scorer = LipophilicEfficiency(qsar_scorer=target_qsar)\nle_scores = le_scorer(assembled_mols)`
+        "01": `from rdkit import Chem\n\n# Input bioactive series or crystallographic fragment hits\nactives = [\n    "Cc1ccc(nc1)c2ccccc2",\n    "c1c(c2ccccc2)ncn1CC(=O)N3CCNCC3"\n]\nmols = [Chem.MolFromSmiles(s) for s in actives]`,
+        "02": `from drugex.data.fragments import FragmentCorpusEncoder, Fragmenter\n\n# Cleave molecules across 16 retrosynthetic BRICS rules (L1 to L16)\nencoder = FragmentCorpusEncoder()\nfrags = encoder.decompose(actives)\nprint(f"Generated {len(frags)} building block synthons.")`,
+        "03": `from drugex.data.datasets import SmilesFragDataSet\nfrom drugex.data.corpus.vocabulary import VocSmiles\n\n# Compile synthon dataset and fragment-conditioned vocabulary\nvoc = VocSmiles.fromFile("data/vocab.txt", encode_frags=True)\ndataset = SmilesFragDataSet(frags, voc=voc)`,
+        "04": `from drugex.training.generators import FragGenerator\nfrom drugex.training.explorers import FragSequenceExplorer\n\n# Fragment-conditioned generative model and exploration anchor\nagent = FragSequenceExplorer.loadModel("models/frag_agent.pkg", voc=voc)\nprior = FragSequenceExplorer.loadModel("models/frag_prior.pkg", voc=voc)`,
+        "05": `# Define fixed seed scaffold with designated growth exit vectors [1*]\nscaffold = "c1ccc(cc1)[1*]"\nprint(f"Target core scaffold for elaboration: {scaffold}")`,
+        "06": `from drugex.training.scorers import Property, SAScorer\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Synthetic accessibility and bioactivity scorers\nscorers = [\n    SAScorer(modifier=mod_sa),\n    QSPRPredScorer(model_path="models/target.json", modifier=mod_qsar),\n    Property("MW", modifier=mod_mw)\n]`,
+        "07": `from drugex.training.environment import DrugExEnvironment\n\n# Scaffold-constrained multi-objective evaluation environment\nenv = DrugExEnvironment(\n    scorers=scorers,\n    thresholds=[0.80, 0.75, 0.70],\n    reward_scheme="ParetoCrowdingDistance"\n)`,
+        "08": `from drugex.training.explorers import FragSequenceExplorer\n\n# Fragment-conditioned RL exploration growing leads from seed scaffold\nexplorer = FragSequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    fragment=scaffold,\n    epsilon=0.1\n)\nexplorer.fit(train_loader=train_loader, epochs=50)`
       },
       telemetry: {
-        "01": `# Rollout fresh candidate batch from policy network\nbatch_smiles = agent.sample(batch_size=1024, temperature=0.8)\nprint(f"Sampled rollout batch size: {len(batch_smiles)}")`,
-        "02": `from drugex.training.scorers import SmilesChecker\n\n# Q1 Filter: Chemical and syntactic valency verification (V >= 95%)\nvalid_smiles = [s for s in batch_smiles if SmilesChecker.checkSmiles(s)]\nvalidity_rate = len(valid_smiles) / len(batch_smiles)\nassert validity_rate >= 0.95, f"Validity dropped: {validity_rate:.2%}"`,
-        "03": `# Q2 Filter: Batch and historical uniqueness to prevent mode collapse (U >= 85%)\nunique_smiles = set(valid_smiles)\nuniqueness_rate = len(unique_smiles) / len(valid_smiles)\nassert uniqueness_rate >= 0.85, f"Mode collapse warning: {uniqueness_rate:.2%}"`,
-        "04": `from drugex.training.scorers import SAScore, RingSizePenalizer\n\n# Q3 Filter: Screen synthetic accessibility (SA <= 3.5) and strained rings\nsa_scorer = SAScore()\nsa_scores = sa_scorer(list(unique_smiles))\nfeasible_synthesis = [s for s, sa in zip(unique_smiles, sa_scores) if sa <= 3.5]`,
-        "05": `# Q4 Filter: Desired Ratio (percentage of molecules meeting all objectives)\npassed_mols = env.getDesiredMolecules(feasible_synthesis)\ndesired_ratio = len(passed_mols) / len(feasible_synthesis)\nprint(f"Desired Ratio (Dr%): {desired_ratio:.2%}")`,
-        "06": `from drugex.training.environment import DrugExEnvironment\n\n# Q5 Metric: Pairwise internal Tanimoto diversity of the candidate batch\ndiversity = env.calculateBatchDiversity(passed_mols)\nprint(f"Population internal diversity: {diversity:.3f}")`,
-        "07": `from drugex.training.monitors import FileMonitor\n\n# Real-time epoch telemetry logging\nmonitor = FileMonitor(log_dir="experiments/run_01")\nmonitor.logEpoch(epoch=epoch, validity=validity_rate, uniqueness=uniqueness_rate, dr=desired_ratio)`,
-        "08": `# Adaptive exploration: boost mutation probability epsilon if diversity falls\nif uniqueness_rate < 0.80:\n    explorer.epsilon = min(0.3, explorer.epsilon * 1.25)\n    print("Telemetry alert: Increased exploration epsilon to", explorer.epsilon)`
+        "01": `from drugex.training.monitors import FileMonitor\n\n# TSV telemetry logger streaming per-epoch loss, V%, U%, and Dr%\nmonitor = FileMonitor(\n    path="experiments/rl_cdk2_run01",\n    save_smiles=True,\n    save_model_option="best"\n)`,
+        "02": `from drugex.training.scorers import SmilesChecker\n\n# Chemical valency, aromaticity, and syntax verification gate\nchecker = SmilesChecker()\nsamples = ["c1ccccc1", "c1ccccc", "CC(=O)Oc1ccccc1C(=O)O"]\nvalidity = [SmilesChecker.checkSmiles(s) for s in samples]\nprint("Syntax validity flags:", validity)`,
+        "03": `from drugex.training.scorers.modifiers import ThresholdedLinear\nfrom drugex.training.scorers import SmoothClippedScore\n\n# Quality gate modifiers establishing telemetry thresholds\nmod_sa = SmoothClippedScore(lower_x=1.0, upper_x=4.0, high=False)\nmod_unique = ThresholdedLinear(threshold=0.85, high=True)`,
+        "04": `from drugex.training.scorers import SAScorer, Uniqueness, Property\n\n# Diagnostic scoring array tracking synthetic feasibility and mode collapse\nscorers = [\n    Uniqueness(modifier=mod_unique),\n    SAScorer(modifier=mod_sa),\n    Property("MW", modifier=mod_mw)\n]`,
+        "05": `# Desirability cutoffs defining multi-objective Desired Ratio (Dr%)\n# Rollouts are marked desirable only if satisfying all cutoffs\nthresholds = [0.85, 0.75, 0.70]\nprint("Active telemetry thresholds:", thresholds)`,
+        "06": `from drugex.training.environment import DrugExEnvironment\n\n# Coordinates candidate scoring and tracks batch Desired Ratio\nenv = DrugExEnvironment(\n    scorers=scorers,\n    thresholds=thresholds,\n    reward_scheme="ParetoCrowdingDistance"\n)`,
+        "07": `from drugex.data.corpus.vocabulary import VocSmiles\nfrom drugex.training.generators import SequenceRNN\n\n# Generative policy network and frozen prior anchor\nvoc = VocSmiles.fromFile("data/vocab.txt")\nagent = SequenceRNN(voc=voc, is_lstm=True)\nprior = SequenceRNN.loadStates("models/base_prior.pkg")`,
+        "08": `from drugex.training.explorers import SequenceExplorer\n\n# RL explorer streaming real-time metrics directly to FileMonitor\nexplorer = SequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    epsilon=0.1\n)\nexplorer.fit(train_loader=train_loader, epochs=100, monitor=monitor)\nmonitor.close()`
       }
     };
 
@@ -16649,7 +16647,7 @@ for idx, smi in enumerate(items, 1):
                   <span className="schemas-badge">DrugEx v3.4 Architecture Schema</span>
                 </h1>
                 <div style={{ color: "var(--accent-cyan)", fontFamily: "var(--font-mono)", fontSize: "12px", fontWeight: 600, marginTop: "2px" }}>
-                  {pipeline.tagline}
+                  Object Construction &amp; Initialization Dependency Graph
                 </div>
               </div>
               <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -16716,40 +16714,36 @@ for idx, smi in enumerate(items, 1):
               <div className="diagram-panel">
                 <div className="diagram-panel-header">
                   <div className="diagram-panel-title">
-                    <span style={{ color: "var(--accent-cyan)" }}>[Schema Diagram]</span>
+                    <span style={{ color: "var(--accent-cyan)" }}>[Initialization Graph]</span>
                     <span>{pipeline.title}</span>
                   </div>
                   <div className="diagram-panel-legend">
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#0d9488" }}></span> Data Input / Corpus</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#0284c7" }}></span> Model / Agent</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#d97706" }}></span> Scorer Array</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#7c3aed" }}></span> Modifier</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#16a34a" }}></span> Environment</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#e11d48" }}></span> Pareto Selection</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#ea580c" }}></span> Filter Gate</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#7c3aed" }}></span> modifier=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#d97706" }}></span> scorers=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#16a34a" }}></span> thresholds= / env=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#e11d48" }}></span> reward_scheme=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#0284c7" }}></span> agent= / mutate=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#0d9488" }}></span> .fit(monitor=)</span>
                   </div>
                 </div>
 
-                {/* Sleek Algebraic Chaining Expression Bar */}
+                {/* Direct Constructor Step Navigator Bar */}
                 <div className="diagram-equation-bar">
-                  <span className="equation-bar-label">Algebraic Chain:</span>
+                  <span className="equation-bar-label">Constructor Chain:</span>
                   <div className="equation-bar-terms">
-                    {pipeline.equation.map((item, eIdx) => {
-                      if (item.type === "op") {
-                        return <span key={eIdx} className="eq-op">{item.text}</span>;
-                      }
-                      const isSelected = item.nodeIdx === selectedNodeIdx;
+                    {pipeline.nodes.map((n, nIdx) => {
+                      const isSelected = nIdx === selectedNodeIdx;
                       return (
                         <button
-                          key={eIdx}
+                          key={nIdx}
                           className={`eq-pill ${isSelected ? "active" : ""}`}
-                          onClick={() => setSelectedNodeIdx(item.nodeIdx)}
-                          title={`Step ${item.nodeIdx + 1}: ${item.text}`}
+                          onClick={() => setSelectedNodeIdx(nIdx)}
+                          title={`Step ${n.stepLabel}: ${n.label} (${n.sublabel})`}
                         >
-                          <span className={`eq-chip-tag eq-tag-${item.tag || "agent"}`}>
-                            {pipeline.nodes[item.nodeIdx].stepLabel}
+                          <span className={`eq-chip-tag eq-tag-${n.stageType || "agent"}`}>
+                            {n.stepLabel}
                           </span>
-                          <span>{item.text}</span>
+                          <span>{n.label}</span>
                         </button>
                       );
                     })}
@@ -17016,7 +17010,7 @@ for idx, smi in enumerate(items, 1):
                   </div>
                   <div className="inspector-body">
                     <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                      Mathematical Transformation / Law:
+                      Constructor Call &amp; Initialization Signature:
                     </div>
                     <div className="inspector-formula-box">
                       {selectedNode.formula}
@@ -17024,17 +17018,17 @@ for idx, smi in enumerate(items, 1):
 
                     <div className="contract-grid">
                       <div className="contract-box">
-                        <div className="contract-box-title">Input Contract</div>
+                        <div className="contract-box-title">Dependencies Needed (Input Arguments)</div>
                         <div className="contract-box-val">{selectedNode.inputContract}</div>
                       </div>
                       <div className="contract-box">
-                        <div className="contract-box-title">Output Contract</div>
+                        <div className="contract-box-title">Constructed Instance (Feeds Next Step As)</div>
                         <div className="contract-box-val">{selectedNode.outputContract}</div>
                       </div>
                     </div>
 
                     <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
-                      Component Behavior &amp; Execution Semantics:
+                      Component Architecture &amp; Wiring Semantics:
                     </div>
                     <p style={{ fontSize: "13px", lineHeight: "1.55", color: "var(--text-main)", margin: 0 }}>
                       {selectedNode.description}
