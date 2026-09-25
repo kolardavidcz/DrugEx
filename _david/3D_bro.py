@@ -21,8 +21,21 @@ from qsprpred.models import scikit_learn as qspr_models  # noqa: F401
 from scaffviz.clustering import manifold  # noqa: F401
 from scaffviz.depiction import plot as scaff_plot  # noqa: F401
 
-import drugex  # noqa: F401
-from drugex import parallel, training, utils  # noqa: F401
+import drugex
+from drugex import data, logs, parallel, training, utils
+from drugex.data import datasets, fragments, processing
+from drugex.data.corpus import vocabulary
+from drugex.logs import logger
+from drugex.molecules.converters import fragmenters
+from drugex.training import environment, explorers, generators, monitors, rewards
+from drugex.training.scorers import (
+    modifiers,
+    properties,
+    qsprpred,
+    sascorer,
+    similarity,
+)
+
 from drugex.data.corpus.vocabulary import VocGraph
 from drugex.data.datasets import GraphFragDataSet
 from drugex.data.fragments import (
@@ -31,7 +44,6 @@ from drugex.data.fragments import (
     GraphFragmentEncoder,
 )
 from drugex.data.processing import Standardization
-from drugex.logs import logger
 from drugex.molecules.converters.fragmenters import Fragmenter
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
@@ -42,13 +54,6 @@ from drugex.training.rewards import (
     ParetoRewardScheme,
     ParetoTanimotoDistance,
     WeightedSum,
-)
-from drugex.training.scorers import (
-    modifiers,
-    properties,
-    qsprpred,
-    sascorer,
-    similarity,
 )
 from drugex.training.scorers.modifiers import (
     ClippedScore,
@@ -203,7 +208,7 @@ class ALL_METHODS:
             self.RUN_ID = output_dir.name
 
         self.MODEL_PRETRAINED = self.ROOT_PATH / "data/models/pretrained/graph-trans/Papyrus05.5_graph_trans_PT"
-        self.VOC = VocGraph.fromFile(self.MODEL_PRETRAINED / "Papyrus05.5_graph_trans_PT.vocab")
+        self.VOC = vocabulary.VocGraph.fromFile(self.MODEL_PRETRAINED / "Papyrus05.5_graph_trans_PT.vocab")
 
     molecules_save_image = staticmethod(DrugExVisualizer.save_molecules_grid)
     MY_save_plot = staticmethod(DrugExVisualizer.save_plot)
