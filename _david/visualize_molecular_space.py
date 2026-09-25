@@ -14,6 +14,7 @@ This module automates the comparative 2D projection and depiction of chemical sp
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -463,9 +464,10 @@ class MolecularSpaceRenderer:
         x_col: str,
         y_col: str,
         output_html: Path,
-        title: str
+        title: str,
+        subtitle: str = ""
     ) -> Path:
-        """Render standalone interactive 2D HTML explorer with hover cards and zoom.
+        """Render standalone interactive 2D HTML explorer with dynamic score filtering slider.
 
         Parameters
         ----------
@@ -479,6 +481,8 @@ class MolecularSpaceRenderer:
             Destination file path for the exported HTML.
         title : str
             Chart title.
+        subtitle : str, default=""
+            Chart subtitle describing targets and score range.
 
         Returns
         -------
@@ -530,16 +534,31 @@ class MolecularSpaceRenderer:
             )
 
         plotly_scale = [[pos, col] for pos, col in cls.VIBRANT_BLUE_CMAP]
+        min_score = float(scores.min())
+        max_score = float(scores.max())
+        total_candidates = len(df_cand)
+
+        cand_x = [float(v) for v in df_cand[x_col]]
+        cand_y = [float(v) for v in df_cand[y_col]]
+        cand_scores = [round(float(v), 5) for v in scores]
+        cand_hover_list = list(cand_hover)
+
+        json_cand_x = json.dumps(cand_x)
+        json_cand_y = json.dumps(cand_y)
+        json_cand_scores = json.dumps(cand_scores)
+        json_cand_hover = json.dumps(cand_hover_list)
+
         fig.add_trace(go.Scatter(
-            x=df_cand[x_col],
-            y=df_cand[y_col],
+            x=cand_x,
+            y=cand_y,
             mode="markers",
             name="Bioactivity Candidates (1,000 Molecules)",
+            customdata=cand_scores,
             marker=dict(
                 size=8.5,
-                color=scores,
+                color=cand_scores,
                 colorscale=plotly_scale,
-                cmin=float(scores.min()),
+                cmin=min_score,
                 cmax=1.0,
                 colorbar=dict(
                     title=dict(text="<b>Similarity Score</b><br>White $\\rightarrow$ Vibrant Blue", font=dict(size=12)),
@@ -551,7 +570,7 @@ class MolecularSpaceRenderer:
                 showscale=True
             ),
             hoverinfo="text",
-            hovertext=cand_hover
+            hovertext=cand_hover_list
         ))
 
         # 3. Query molecule trace (distinct ruby star marker)
@@ -578,24 +597,448 @@ class MolecularSpaceRenderer:
             ))
 
         fig.update_layout(
-            title=dict(text=title, font=dict(size=17, color="#1A202C")),
+            title=dict(text=title, font=dict(size=16, color="#1A202C")),
             xaxis=dict(title=f"{x_col} (Morgan Fingerprint Manifold)", gridcolor="#EDF2F7", zeroline=False),
             yaxis=dict(title=f"{y_col} (Morgan Fingerprint Manifold)", gridcolor="#EDF2F7", zeroline=False),
             plot_bgcolor="#FCFDFF",
             paper_bgcolor="#FFFFFF",
-            width=1200,
-            height=850,
+            autosize=True,
+            height=780,
+            margin=dict(l=60, r=40, t=50, b=60),
             legend=dict(
                 x=0.01,
                 y=0.99,
-                bgcolor="rgba(255, 255, 255, 0.9)",
+                bgcolor="rgba(255, 255, 255, 0.92)",
                 bordercolor="#CBD5E0",
                 borderwidth=1
             )
         )
 
+        plot_inner_html = fig.to_html(
+            full_html=False,
+            include_plotlyjs="cdn",
+            config={"responsive": True, "displayModeBar": True, "scrollZoom": True}
+        )
+
+        full_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <style>
+        :root {{
+            --primary-blue: #001A66;
+            --accent-blue: #2563EB;
+            --light-blue: #DBEAFE;
+            --bg-gray: #F8FAFC;
+            --card-border: #E2E8F0;
+            --text-dark: #0F172A;
+            --text-muted: #64748B;
+        }}
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-gray);
+            color: var(--text-dark);
+            min-height: 100vh;
+            padding: 16px 24px;
+        }}
+        .dashboard-container {{
+            max-width: 1440px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }}
+        .control-panel {{
+            background: #FFFFFF;
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 18px 24px;
+            box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.03);
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }}
+        .panel-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 12px;
+            border-bottom: 1px solid #F1F5F9;
+            padding-bottom: 12px;
+        }}
+        .header-title-block h1 {{
+            font-size: 19px;
+            font-weight: 700;
+            color: var(--text-dark);
+            letter-spacing: -0.02em;
+        }}
+        .header-title-block p {{
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }}
+        .header-badges {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }}
+        .query-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #FEF2F2;
+            color: #991B1B;
+            border: 1px solid #FECACA;
+            border-radius: 9999px;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }}
+        .stats-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #EFF6FF;
+            color: #1E40AF;
+            border: 1px solid #BFDBFE;
+            border-radius: 9999px;
+            padding: 4px 14px;
+            font-size: 13px;
+            font-weight: 600;
+        }}
+        .slider-section {{
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }}
+        .slider-top-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }}
+        .slider-label-group {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        .slider-label-group span.label-text {{
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-dark);
+        }}
+        .threshold-pill {{
+            background: var(--primary-blue);
+            color: #FFFFFF;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: 6px;
+            letter-spacing: 0.02em;
+        }}
+        .slider-instruction {{
+            font-size: 12px;
+            color: var(--text-muted);
+        }}
+        .slider-track-wrap {{
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }}
+        .slider-endpoint {{
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }}
+        input[type=range].similarity-slider {{
+            -webkit-appearance: none;
+            width: 100%;
+            height: 9px;
+            border-radius: 6px;
+            background: linear-gradient(90deg, #E2E8F0 0%, #BFDBFE 30%, #3B82F6 70%, #001A66 100%);
+            outline: none;
+            transition: background 0.2s ease;
+        }}
+        input[type=range].similarity-slider::-webkit-slider-thumb {{
+            -webkit-appearance: none;
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #001A66;
+            border: 2.5px solid #FFFFFF;
+            box-shadow: 0 2px 6px rgba(0, 26, 102, 0.45);
+            cursor: pointer;
+            transition: transform 0.15s ease, background 0.15s ease;
+        }}
+        input[type=range].similarity-slider::-webkit-slider-thumb:hover {{
+            transform: scale(1.22);
+            background: #002B99;
+        }}
+        input[type=range].similarity-slider::-moz-range-thumb {{
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #001A66;
+            border: 2.5px solid #FFFFFF;
+            box-shadow: 0 2px 6px rgba(0, 26, 102, 0.45);
+            cursor: pointer;
+        }}
+        .actions-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding-top: 4px;
+        }}
+        .preset-buttons {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }}
+        .preset-label {{
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-right: 4px;
+        }}
+        .btn {{
+            appearance: none;
+            border: 1px solid var(--card-border);
+            background: #FFFFFF;
+            color: #334155;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }}
+        .btn:hover {{
+            background: #F8FAFC;
+            border-color: #94A3B8;
+            color: #0F172A;
+        }}
+        .btn-active {{
+            background: var(--light-blue);
+            border-color: var(--accent-blue);
+            color: var(--primary-blue);
+            font-weight: 600;
+        }}
+        .toggle-group {{
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }}
+        .toggle-label {{
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: #334155;
+            cursor: pointer;
+            user-select: none;
+        }}
+        .toggle-label input[type=checkbox] {{
+            accent-color: var(--primary-blue);
+            width: 15px;
+            height: 15px;
+            cursor: pointer;
+        }}
+        .chart-card {{
+            background: #FFFFFF;
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05);
+            min-height: 800px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Control Panel Card -->
+        <div class="control-panel">
+            <div class="panel-header">
+                <div class="header-title-block">
+                    <h1>{title}</h1>
+                    <p>{subtitle if subtitle else "Interactive Chemical Space Manifold • Filter molecules dynamically by similarity threshold"}</p>
+                </div>
+                <div class="header-badges">
+                    <span class="query-badge">★ EGCG (Query Molecule, Score: 1.000)</span>
+                    <span class="stats-badge" id="stats-badge">
+                        Visible Candidates: <b id="count-visible">{total_candidates:,}</b> / {total_candidates:,} (<span id="pct-visible">100.0%</span>)
+                    </span>
+                </div>
+            </div>
+
+            <!-- Dynamic Interactive Similarity Slider -->
+            <div class="slider-section">
+                <div class="slider-top-row">
+                    <div class="slider-label-group">
+                        <span class="label-text">Similarity Score Cutoff:</span>
+                        <span class="threshold-pill" id="threshold-display">≥ 0.000</span>
+                    </div>
+                    <span class="slider-instruction">Molecules with similarity score strictly below this threshold disappear from the plot</span>
+                </div>
+                <div class="slider-track-wrap">
+                    <span class="slider-endpoint">0.00 (All)</span>
+                    <input type="range" class="similarity-slider" id="similarity-slider" min="0.000" max="1.000" step="0.005" value="0.000">
+                    <span class="slider-endpoint">1.00 (Exact)</span>
+                </div>
+            </div>
+
+            <!-- Presets & Toggles -->
+            <div class="actions-row">
+                <div class="preset-buttons">
+                    <span class="preset-label">Quick Filters:</span>
+                    <button class="btn preset-btn btn-active" data-val="0.000">Show All</button>
+                    <button class="btn preset-btn" data-val="0.300">≥ 0.30</button>
+                    <button class="btn preset-btn" data-val="0.450">≥ 0.45</button>
+                    <button class="btn preset-btn" data-val="0.600">≥ 0.60</button>
+                    <button class="btn preset-btn" data-val="0.750">≥ 0.75</button>
+                    <button class="btn" id="btn-top100">Top 100</button>
+                    <button class="btn" id="btn-reset">Reset</button>
+                </div>
+                <div class="toggle-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="toggle-bg" checked>
+                        Show 1,000 Neutral Gray Background Molecules
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Interactive Plotly Chart Card -->
+        <div class="chart-card">
+            {plot_inner_html}
+        </div>
+    </div>
+
+    <!-- Client-side Interactive Filtering Script -->
+    <script>
+    const CANDIDATE_CACHE = {{
+        x: {json_cand_x},
+        y: {json_cand_y},
+        scores: {json_cand_scores},
+        hover: {json_cand_hover}
+    }};
+
+    document.addEventListener("DOMContentLoaded", function() {{
+        function initInteractiveChemicalSpace() {{
+            const plotDiv = document.querySelector('.plotly-graph-div');
+            if (!plotDiv || !plotDiv.data || plotDiv.data.length < 2) {{
+                setTimeout(initInteractiveChemicalSpace, 50);
+                return;
+            }}
+
+            const totalCandidates = CANDIDATE_CACHE.scores.length;
+            const slider = document.getElementById('similarity-slider');
+            const thresholdDisplay = document.getElementById('threshold-display');
+            const countVisible = document.getElementById('count-visible');
+            const pctVisible = document.getElementById('pct-visible');
+            const toggleBg = document.getElementById('toggle-bg');
+            const btnReset = document.getElementById('btn-reset');
+            const btnTop100 = document.getElementById('btn-top100');
+            const presetButtons = document.querySelectorAll('.preset-btn');
+
+            function applyCutoff(cutoff) {{
+                const filtX = [];
+                const filtY = [];
+                const filtScores = [];
+                const filtHover = [];
+
+                for (let i = 0; i < totalCandidates; i++) {{
+                    if (CANDIDATE_CACHE.scores[i] >= cutoff) {{
+                        filtX.push(CANDIDATE_CACHE.x[i]);
+                        filtY.push(CANDIDATE_CACHE.y[i]);
+                        filtScores.push(CANDIDATE_CACHE.scores[i]);
+                        filtHover.push(CANDIDATE_CACHE.hover[i]);
+                    }}
+                }}
+
+                thresholdDisplay.textContent = '≥ ' + cutoff.toFixed(3);
+                countVisible.textContent = filtScores.length.toLocaleString();
+                pctVisible.textContent = ((filtScores.length / totalCandidates) * 100).toFixed(1) + '%';
+
+                Plotly.restyle(plotDiv, {{
+                    x: [filtX],
+                    y: [filtY],
+                    'marker.color': [filtScores],
+                    hovertext: [filtHover]
+                }}, [1]);
+
+                // Update active state on preset buttons
+                presetButtons.forEach(btn => {{
+                    const val = parseFloat(btn.getAttribute('data-val'));
+                    if (Math.abs(val - cutoff) < 0.004) {{
+                        btn.classList.add('btn-active');
+                    }} else {{
+                        btn.classList.remove('btn-active');
+                    }}
+                }});
+            }}
+
+            slider.addEventListener('input', function(e) {{
+                applyCutoff(parseFloat(e.target.value));
+            }});
+
+            if (toggleBg) {{
+                toggleBg.addEventListener('change', function(e) {{
+                    Plotly.restyle(plotDiv, {{ visible: e.target.checked ? true : false }}, [0]);
+                }});
+            }}
+
+            presetButtons.forEach(btn => {{
+                btn.addEventListener('click', function() {{
+                    const v = parseFloat(this.getAttribute('data-val'));
+                    slider.value = v;
+                    applyCutoff(v);
+                }});
+            }});
+
+            if (btnReset) {{
+                btnReset.addEventListener('click', function() {{
+                    slider.value = 0.0;
+                    applyCutoff(0.0);
+                }});
+            }}
+
+            if (btnTop100) {{
+                btnTop100.addEventListener('click', function() {{
+                    const sorted = [...CANDIDATE_CACHE.scores].sort((a, b) => b - a);
+                    const cutoff = sorted[Math.min(99, sorted.length - 1)];
+                    slider.value = cutoff;
+                    applyCutoff(cutoff);
+                }});
+            }}
+        }}
+
+        initInteractiveChemicalSpace();
+    }});
+    </script>
+</body>
+</html>"""
+
         output_html.parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(str(output_html), include_plotlyjs="cdn")
+        with open(output_html, "w", encoding="utf-8") as f:
+            f.write(full_html)
         return output_html
 
 
@@ -687,7 +1130,7 @@ class MolecularSpacePipeline:
         )
 
         MolecularSpaceRenderer.render_matplotlib(enriched_df, x_col, y_col, out_png, title, subtitle)
-        MolecularSpaceRenderer.render_plotly_interactive(enriched_df, x_col, y_col, out_html, title)
+        MolecularSpaceRenderer.render_plotly_interactive(enriched_df, x_col, y_col, out_html, title, subtitle)
 
         elapsed = time.time() - t0
         print(f"[V1: Papyrus] Completed in {elapsed:.2f} s!")
@@ -769,7 +1212,7 @@ class MolecularSpacePipeline:
         )
 
         MolecularSpaceRenderer.render_matplotlib(enriched_df, x_col, y_col, out_png, title, subtitle)
-        MolecularSpaceRenderer.render_plotly_interactive(enriched_df, x_col, y_col, out_html, title)
+        MolecularSpaceRenderer.render_plotly_interactive(enriched_df, x_col, y_col, out_html, title, subtitle)
 
         elapsed = time.time() - t0
         print(f"[V2: Papyrus + ChEMBL] Completed in {elapsed:.2f} s!")
