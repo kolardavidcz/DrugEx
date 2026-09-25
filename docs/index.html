@@ -15874,10 +15874,13 @@ for idx, smi in enumerate(items, 1):
         return () => window.removeEventListener("hashchange", updateFromHash);
       }, []);
 
-      // Keyboard shortcuts: '/' to focus search, 'Escape' to clear and blur
+      // Keyboard shortcuts: '/' or 'Ctrl+K' / 'Cmd+K' to focus search, 'Escape' to clear and blur
       useEffect(() => {
         const handleKeyDown = (e) => {
-          if (e.key === "/" && document.activeElement !== searchInputRef.current && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) {
+          const isK = e.key.toLowerCase() === "k";
+          const isSlash = e.key === "/";
+          const isModifier = e.ctrlKey || e.metaKey;
+          if (((isSlash && !isModifier) || (isK && isModifier)) && document.activeElement !== searchInputRef.current && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) {
             e.preventDefault();
             searchInputRef.current?.focus();
             searchInputRef.current?.select();
@@ -16208,7 +16211,7 @@ for idx, smi in enumerate(items, 1):
                 ref={searchInputRef}
                 type="text"
                 className="search-input"
-                placeholder={selectedKey === null ? "Search all 234 symbols across libraries... (press /)" : "Search symbol, module, member function..."}
+                placeholder={selectedKey === null ? "Search all 234 symbols across libraries... (/ or Ctrl+K)" : "Search symbol, module, member function... (/ or Ctrl+K)"}
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 onKeyDown={e => {
@@ -18370,7 +18373,7 @@ for idx, smi in enumerate(items, 1):
           df1: 0.36,
           df2: 0.49,
           color: "#0284c7",
-          title: "Active Cuboid d_B = 1.428 (High Isolation -> Top Reward)"
+          title: "d_B = 1.428 (Isolated)"
         };
         ghostCuboid = {
           x: mapX(0.52),
@@ -18378,7 +18381,7 @@ for idx, smi in enumerate(items, 1):
           w: mapX(0.78) - mapX(0.52),
           h: mapY(0.70) - mapY(0.87),
           color: "#d97706",
-          title: "Crowded Cluster (d_C,D ~ 0.23)"
+          title: "d_C,D ~ 0.23 (Crowded)"
         };
       } else if (activePointId === "C") {
         cuboidRect = {
@@ -18389,7 +18392,7 @@ for idx, smi in enumerate(items, 1):
           df1: 0.26,
           df2: 0.17,
           color: "#d97706",
-          title: "Active Cuboid d_C = 0.245 (Tightly Constrained -> Lower Reward)"
+          title: "d_C = 0.245 (Crowded)"
         };
         ghostCuboid = {
           x: mapX(0.58),
@@ -18397,7 +18400,7 @@ for idx, smi in enumerate(items, 1):
           w: mapX(0.94) - mapX(0.58),
           h: mapY(0.35) - mapY(0.84),
           color: "#0284c7",
-          title: "Isolated Lead B (d_B = 1.428)"
+          title: "d_B = 1.428 (Isolated)"
         };
       } else if (activePointId === "D") {
         cuboidRect = {
@@ -18408,7 +18411,7 @@ for idx, smi in enumerate(items, 1):
           df1: 0.26,
           df2: 0.11,
           color: "#d97706",
-          title: "Active Cuboid d_D = 0.210 (Tightly Constrained -> Lower Reward)"
+          title: "d_D = 0.210 (Crowded)"
         };
         ghostCuboid = {
           x: mapX(0.58),
@@ -18416,7 +18419,7 @@ for idx, smi in enumerate(items, 1):
           w: mapX(0.94) - mapX(0.58),
           h: mapY(0.35) - mapY(0.84),
           color: "#0284c7",
-          title: "Isolated Lead B (d_B = 1.428)"
+          title: "d_B = 1.428 (Isolated)"
         };
       }
 
