@@ -1,4 +1,5 @@
 MOLEKULA:
+my_molecule = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 
 
 PREZENTACE:

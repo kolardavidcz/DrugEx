@@ -5,7 +5,7 @@ Guide for AI agents working in `/home/kolarv/DrugEx/_david`.
 ---
 
 ## 1. Mission & Goal
-- **Core Task**: Ligand-based *de novo* drug design starting from **exactly 1 seed query ligand** (e.g. allosteric modulator from `dodo_notes.md`).
+- **Core Task**: Ligand-based *de novo* drug design starting from **exactly 1 seed query ligand** (e.g. "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O").
 - **Target Objective**: Generate novel, synthetically accessible modulators preserving 3D shape and pharmacophore features of the seed ligand (e.g., CCR2 5T1A allosteric pocket interactions).
 - **Core Architecture**: **Graph-Transformer** (`drugex.models.graph_transformer`). The 2D Sequence-RNN pipeline is retired.
 
@@ -21,7 +21,7 @@ Official DrugEx tutorials assume 1,000–4,000 clean ligands with known crystal 
    - Deconstruct harvested compounds into BRICS fragments (`FragmentCorpusEncoder`).
    - Train Graph-Transformer for **strictly 3–5 epochs** on pretrained `Papyrus05.5_graph_trans_PT`.
    - *Rationale*: A short warm-up biases attention heads toward the relevant chemical subspace and avoids a cold-start gradient desert ($R \approx 0$), while preventing catastrophic memorization / mode collapse.
-3. **Multi-Objective Reinforcement Learning (RL)** (`3D_bro.py`):
+3. **Multi-Objective Reinforcement Learning (RL)** (`GraphTransformer.py`):
    - Explore chemical space using Graph-Transformer with multi-objective rewards:
      - **3D Shape & Pharmacophore Matching**: Tanimoto shape + color similarity against seed ligand conformers.
      - **Synthetic Accessibility**: SA score filter / reward.
@@ -36,8 +36,8 @@ Official DrugEx tutorials assume 1,000–4,000 clean ligands with known crystal 
 
 | File / Folder | Role | Status |
 |---|---|---|
-| `_david/3D_bro.py` | **Primary Production Pipeline**. Graph-Transformer fine-tuning & 3D RL. | **Active** |
-| `_david/not_ment_to_be.py` | Legacy 2D Sequence-RNN script. Preserved for reference (metrics, logging, visualizer patterns). | **Archived (Read-Only)** |
+| `_david/GraphTransformer.py` | **Primary Production Pipeline**. Graph-Transformer fine-tuning & 3D RL. | **Active** |
+| `_david/SequenceRNN.py` | Legacy 2D Sequence-RNN script. Preserved for reference (metrics, logging, visualizer patterns). | **Archived (Read-Only)** |
 | `_david/receptor_similar/` | Papyrus/ChEMBL bioactivity retrieval & candidate clustering pipeline. | **Active Tool** |
 | `_david/visualize_molecular_space.py` | UMAP / PCA chemical space visualization & distribution checks. | **Active Tool** |
 | `_david/dodo_notes.md` | User context, seed ligand SMILES, presentation goals, Discord notes. | **Reference** |

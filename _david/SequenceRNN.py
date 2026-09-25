@@ -86,8 +86,8 @@ RL_BATCH_SIZE = 128
 RL_PATIENCE = 20 #i can have a lot of patience
 
 # --- Scorer & Objective Constants ---
-TVERSKY_ALPHA = 0.70
-TVERSKY_BETA = 0.30
+TVERSKY_ALPHA = 0.80
+TVERSKY_BETA = 0.20
 TVERSKY_FP_TYPE = "ECFP4"
 TVERSKY_THRESHOLD = 0.40
 
@@ -166,6 +166,18 @@ class DrugExVisualizer:
         DrugExVisualizer.save_molecules_grid(generated_sample, out_dir)
         return scored_df
 
+    ####################################################################                                                                                                        
+    ####################################################################                                                                                                        
+    #   █████████  ███████████   █████████   ███████████   ███████████ #
+    #  ███░░░░░███░█░░░███░░░█  ███░░░░░███ ░░███░░░░░███ ░█░░░███░░░█ #
+    # ░███    ░░░ ░   ░███  ░  ░███    ░███  ░███    ░███ ░   ░███  ░  #
+    # ░░█████████     ░███     ░███████████  ░██████████      ░███     #
+    #  ░░░░░░░░███    ░███     ░███░░░░░███  ░███░░░░░███     ░███     #
+    #  ███    ░███    ░███     ░███    ░███  ░███    ░███     ░███     #
+    # ░░█████████     █████    █████   █████ █████   █████    █████    #
+    #  ░░░░░░░░░     ░░░░░    ░░░░░   ░░░░░ ░░░░░   ░░░░░    ░░░░░     #
+    ####################################################################
+    ####################################################################
 
 class ALL_METHODS:
     def __init__(self, output_dir: Path | None = None):
@@ -201,7 +213,7 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
     def __receptor_similar_molecules_get_SMILES(self, molecule_smile: str):
         pipeline = receptor_similar.MoleculeBioactivityPipeline()
         result_df = pipeline.run(molecule_smile, max_molecules=TL_MAX_MOLECULES).molecules
-
+    
         if len(result_df) == 0:
             raise MY_ERROR("No active target ligands discovered across Papyrus bioactivity database.")
 
