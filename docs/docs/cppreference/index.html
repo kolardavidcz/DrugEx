@@ -552,25 +552,47 @@
 
     .pill-badge {
       font-size: 11px;
-      font-weight: 600;
+      font-weight: 500;
+      font-family: var(--font-mono);
       padding: 2px 8px;
-      border-radius: 12px;
-      border: 1px solid transparent;
+      border-radius: 4px;
+      letter-spacing: 0.15px;
+      background: rgba(100, 116, 139, 0.08);
+      color: #475569;
+      border: 1px solid rgba(100, 116, 139, 0.2);
     }
 
-    .pill-cyan { background: rgba(2, 132, 199, 0.1); color: #0284c7; border-color: rgba(2, 132, 199, 0.25); }
-    .pill-teal { background: rgba(13, 148, 136, 0.1); color: #0d9488; border-color: rgba(13, 148, 136, 0.25); }
-    .pill-purple { background: rgba(124, 58, 237, 0.1); color: #7c3aed; border-color: rgba(124, 58, 237, 0.25); }
-    .pill-rose { background: rgba(225, 29, 72, 0.1); color: #e11d48; border-color: rgba(225, 29, 72, 0.25); }
-    .pill-emerald { background: rgba(22, 163, 74, 0.1); color: #16a34a; border-color: rgba(22, 163, 74, 0.25); }
-    .pill-gray { background: rgba(100, 116, 139, 0.12); color: #475569; border-color: rgba(100, 116, 139, 0.28); }
+    [data-theme="dark"] .pill-badge {
+      background: rgba(148, 163, 184, 0.08);
+      color: #94a3b8;
+      border-color: rgba(148, 163, 184, 0.2);
+    }
 
-    [data-theme="dark"] .pill-cyan { color: #38bdf8; }
-    [data-theme="dark"] .pill-teal { color: #2dd4bf; }
-    [data-theme="dark"] .pill-purple { color: #c084fc; }
-    [data-theme="dark"] .pill-rose { color: #fb7185; }
-    [data-theme="dark"] .pill-emerald { color: #34d399; }
-    [data-theme="dark"] .pill-gray { color: #94a3b8; border-color: rgba(148, 163, 184, 0.28); }
+    .pill-badge.pill-version {
+      background: rgba(2, 132, 199, 0.08);
+      color: #0369a1;
+      border-color: rgba(2, 132, 199, 0.22);
+      font-weight: 600;
+    }
+
+    [data-theme="dark"] .pill-badge.pill-version {
+      background: rgba(56, 189, 248, 0.1);
+      color: #7dd3fc;
+      border-color: rgba(56, 189, 248, 0.24);
+    }
+
+    .pill-badge.pill-abstract {
+      background: rgba(100, 116, 139, 0.05);
+      color: #64748b;
+      border-color: rgba(100, 116, 139, 0.15);
+      font-style: italic;
+    }
+
+    [data-theme="dark"] .pill-badge.pill-abstract {
+      background: rgba(148, 163, 184, 0.06);
+      color: #64748b;
+      border-color: rgba(148, 163, 184, 0.15);
+    }
 
     .entry-abstract-tag {
       display: inline-block;
@@ -16432,7 +16454,6 @@ for idx, smi in enumerate(items, 1):
                                       title={`${item.title} (${item.module})${isAbstract ? " [Abstract Base Class]" : ""}`}
                                     >
                                       <span>{item.title}</span>
-                                      {isAbstract && <span className="sidebar-abstract-badge">abstract</span>}
                                     </div>
                                   );
                                 })}
@@ -16490,22 +16511,18 @@ for idx, smi in enumerate(items, 1):
                 </div>
 
                 <div className="entry-badge-row">
-                  {currentItem.badges.map((badge, idx) => {
+                  {currentItem.badges.map(badge => {
                     const isAbsBadge = badge.toLowerCase().includes("abstract") || badge.toLowerCase().includes("interface") || badge.toLowerCase().includes("protocol");
-                    const colors = ["pill-cyan", "pill-teal", "pill-purple", "pill-rose", "pill-emerald"];
-                    const colorClass = isAbsBadge ? "pill-gray" : colors[idx % colors.length];
+                    const isVersionBadge = badge.toLowerCase().includes("v3") || badge.toLowerCase().includes("3.4");
+                    let badgeClass = "pill-badge";
+                    if (isVersionBadge) badgeClass += " pill-version";
+                    else if (isAbsBadge) badgeClass += " pill-abstract";
                     return (
-                      <span key={badge} className={`pill-badge ${colorClass}`}>
+                      <span key={badge} className={badgeClass}>
                         {badge}
                       </span>
                     );
                   })}
-                </div>
-
-                {/* Synopsis Box */}
-                <div className="synopsis-box">
-                  <div className="synopsis-header">Defined in header &lt;{currentItem.module}&gt;</div>
-                  <pre className="synopsis-code language-python" style={{ margin: 0, padding: 0, background: "transparent" }}><code className="language-python">{currentItem.synopsis}</code></pre>
                 </div>
 
                 {/* Description */}
@@ -16518,15 +16535,13 @@ for idx, smi in enumerate(items, 1):
                   </div>
                 )}
 
-                {/* Interactive Collapsible Micro-Visualization Panel */}
-                {(() => {
-                  const vizType = getMicroVizType(selectedKey);
-                  return vizType ? (
-                    <MicroVizPanel key={selectedKey} symbolKey={selectedKey} vizType={vizType} item={currentItem} theme={theme} />
-                  ) : null;
-                })()}
+                {/* Constructor / Synopsis Box */}
+                <div className="synopsis-box">
+                  <div className="synopsis-header">Defined in header &lt;{currentItem.module}&gt;</div>
+                  <pre className="synopsis-code language-python" style={{ margin: 0, padding: 0, background: "transparent" }}><code className="language-python">{currentItem.synopsis}</code></pre>
+                </div>
 
-                {/* Parameters Table */}
+                {/* Constructor Parameters Table */}
                 {currentItem.parameters && currentItem.parameters.length > 0 && (
                   <div>
                     <h2 className="section-header">
@@ -16549,6 +16564,14 @@ for idx, smi in enumerate(items, 1):
                     </ul>
                   </div>
                 )}
+
+                {/* Interactive Collapsible Micro-Visualization Panel */}
+                {(() => {
+                  const vizType = getMicroVizType(selectedKey);
+                  return vizType ? (
+                    <MicroVizPanel key={selectedKey} symbolKey={selectedKey} vizType={vizType} item={currentItem} theme={theme} />
+                  ) : null;
+                })()}
 
                 {/* Member Functions Table */}
                 {(() => {
@@ -17626,14 +17649,14 @@ for idx, smi in enumerate(items, 1):
     // Helper functions for pipeline diagram rendering
     function getStageColor(stageType) {
       switch (stageType) {
-        case "agent": return "#0284c7";
-        case "input": return "#0d9488";
-        case "scorer": return "#d97706";
-        case "modifier": return "#7c3aed";
-        case "env": return "#16a34a";
-        case "pareto": return "#e11d48";
-        case "filter": return "#ea580c";
-        case "output": return "#0284c7";
+        case "agent": return "#2563eb";
+        case "input": return "#475569";
+        case "scorer": return "#0891b2";
+        case "modifier": return "#4f46e5";
+        case "env": return "#059669";
+        case "pareto": return "#6d28d9";
+        case "filter": return "#b45309";
+        case "output": return "#1d4ed8";
         default: return "#64748b";
       }
     }
@@ -17705,7 +17728,6 @@ for idx, smi in enumerate(items, 1):
       const [selectedNodeIdx, setSelectedNodeIdx] = useState(0);
       const [copiedSpec, setCopiedSpec] = useState(false);
       const [copiedSnippet, setCopiedSnippet] = useState(false);
-      const [activeSubTab, setActiveSubTab] = useState("diagram"); // "diagram" | "matrix"
 
       const pipeline = useMemo(() => {
         return PIPELINE_SCHEMAS.find(p => p.id === pipelineId) || PIPELINE_SCHEMAS[0];
@@ -17720,7 +17742,7 @@ for idx, smi in enumerate(items, 1):
         if (window.Prism) {
           setTimeout(() => window.Prism.highlightAll(), 50);
         }
-      }, [selectedNodeIdx, pipelineId, activeSubTab]);
+      }, [selectedNodeIdx, pipelineId]);
 
       const selectedNode = pipeline.nodes[selectedNodeIdx] || pipeline.nodes[0];
 
@@ -17792,63 +17814,20 @@ for idx, smi in enumerate(items, 1):
             </div>
           </div>
 
-          {/* Sub-Tabs: Visual Diagram vs Component Matrix */}
-          <div style={{ display: "flex", gap: "8px", marginBottom: "14px", alignItems: "center" }}>
-            <button
-              className={`schema-tab-btn ${activeSubTab === "diagram" ? "active" : ""}`}
-              onClick={() => setActiveSubTab("diagram")}
-              style={{ fontSize: "12px", padding: "5px 12px" }}
-            >
-              Interactive Visual Flowchart
-            </button>
-            <button
-              className={`schema-tab-btn ${activeSubTab === "matrix" ? "active" : ""}`}
-              onClick={() => setActiveSubTab("matrix")}
-              style={{ fontSize: "12px", padding: "5px 12px" }}
-            >
-              Component Chaining Matrix ({pipeline.matrixRows.length} Stages)
-            </button>
-          </div>
-
-          {activeSubTab === "diagram" ? (
-            <div>
               {/* Interactive SVG Diagram Canvas */}
-              <div className="diagram-panel">
+              <div className="diagram-panel" style={{ marginTop: "16px" }}>
                 <div className="diagram-panel-header">
                   <div className="diagram-panel-title">
                     <span style={{ color: "var(--accent-cyan)" }}>[Initialization Graph]</span>
                     <span>{pipeline.title}</span>
                   </div>
                   <div className="diagram-panel-legend">
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#7c3aed" }}></span> modifier=</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#d97706" }}></span> scorers=</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#16a34a" }}></span> thresholds= / env=</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#e11d48" }}></span> reward_scheme=</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#0284c7" }}></span> agent= / mutate=</span>
-                    <span className="legend-item"><span className="legend-dot" style={{ background: "#0d9488" }}></span> .fit(monitor=)</span>
-                  </div>
-                </div>
-
-                {/* Direct Constructor Step Navigator Bar */}
-                <div className="diagram-equation-bar">
-                  <span className="equation-bar-label">Constructor Chain:</span>
-                  <div className="equation-bar-terms">
-                    {pipeline.nodes.map((n, nIdx) => {
-                      const isSelected = nIdx === selectedNodeIdx;
-                      return (
-                        <button
-                          key={nIdx}
-                          className={`eq-pill ${isSelected ? "active" : ""}`}
-                          onClick={() => setSelectedNodeIdx(nIdx)}
-                          title={`Step ${n.stepLabel}: ${n.label} (${n.sublabel})`}
-                        >
-                          <span className={`eq-chip-tag eq-tag-${n.stageType || "agent"}`}>
-                            {n.stepLabel}
-                          </span>
-                          <span>{n.label}</span>
-                        </button>
-                      );
-                    })}
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#4f46e5" }}></span> modifier=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#0891b2" }}></span> scorers=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#059669" }}></span> thresholds= / env=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#6d28d9" }}></span> reward_scheme=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#2563eb" }}></span> agent= / mutate=</span>
+                    <span className="legend-item"><span className="legend-dot" style={{ background: "#475569" }}></span> .fit(monitor=)</span>
                   </div>
                 </div>
 
@@ -17856,22 +17835,22 @@ for idx, smi in enumerate(items, 1):
                   <svg className="diagram-svg" viewBox="0 0 1130 355" xmlns="http://www.w3.org/2000/svg">
                     <defs>
                       <marker id="arrow-head" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#0284c7" />
+                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563eb" />
                       </marker>
                       <marker id="arrow-amber" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#d97706" />
+                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#b45309" />
                       </marker>
                       <marker id="arrow-purple" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#7c3aed" />
+                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#4f46e5" />
                       </marker>
                       <marker id="arrow-green" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#16a34a" />
+                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#059669" />
                       </marker>
                       <marker id="arrow-rose" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#e11d48" />
+                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#6d28d9" />
                       </marker>
                       <marker id="arrow-orange" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#ea580c" />
+                        <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#475569" />
                       </marker>
                     </defs>
 
@@ -18239,46 +18218,6 @@ for idx, smi in enumerate(items, 1):
                   </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            /* Component Matrix View */
-            <div className="inspector-card" style={{ marginBottom: "24px" }}>
-              <div className="inspector-header">
-                <strong style={{ fontSize: "13.5px", color: "var(--text-main)" }}>
-                  {pipeline.title} — Component Chaining Matrix
-                </strong>
-                <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-                  Authentic Standard Library Specification
-                </span>
-              </div>
-              <div style={{ padding: "16px", overflowX: "auto" }}>
-                <table className="ref-table" style={{ margin: 0 }}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: "6%" }}>Step</th>
-                      <th style={{ width: "16%" }}>Stage / Component</th>
-                      <th style={{ width: "22%" }}>Input Contract</th>
-                      <th style={{ width: "26%" }}>Operation / Law</th>
-                      <th style={{ width: "16%" }}>Output Contract</th>
-                      <th style={{ width: "14%" }}>Classes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pipeline.matrixRows.map(row => (
-                      <tr key={row.step}>
-                        <td className="code-cell" style={{ fontWeight: 700 }}>{row.step}</td>
-                        <td style={{ fontWeight: 600, color: "var(--text-main)" }}>{row.component}</td>
-                        <td style={{ fontFamily: "var(--font-mono)", fontSize: "11.5px", color: "var(--text-muted)" }}>{row.input}</td>
-                        <td style={{ fontFamily: "var(--font-mono)", fontSize: "11.5px" }}>{row.operation}</td>
-                        <td style={{ fontFamily: "var(--font-mono)", fontSize: "11.5px", color: "var(--text-muted)" }}>{row.output}</td>
-                        <td style={{ fontSize: "11.5px" }}>{row.classes}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
       );
     }
