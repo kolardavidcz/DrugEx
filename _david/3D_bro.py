@@ -8,7 +8,6 @@ from pathlib import Path
 import matplotlib
 import pandas as pd
 from pandas.core.frame import DataFrame
-from pandas.core.series import Series
 from rdkit import Chem
 from rdkit.Chem import Draw
 import torch
@@ -18,15 +17,12 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 from qsprpred import data as qspr_data  # noqa: F401
-from qsprpred.data.descriptors import fingerprints as qspr_fps  # noqa: F401
 from qsprpred.models import scikit_learn as qspr_models  # noqa: F401
 from scaffviz.clustering import manifold  # noqa: F401
 from scaffviz.depiction import plot as scaff_plot  # noqa: F401
 
 import drugex  # noqa: F401
-from drugex import data, logs, molecules, parallel, training, utils  # noqa: F401
-from drugex.data import datasets, fragments, processing  # noqa: F401
-from drugex.data.corpus import corpus, vocabulary
+from drugex import parallel, training, utils  # noqa: F401
 from drugex.data.corpus.vocabulary import VocGraph
 from drugex.data.datasets import GraphFragDataSet
 from drugex.data.fragments import (
@@ -34,13 +30,9 @@ from drugex.data.fragments import (
     FragmentPairsSplitter,
     GraphFragmentEncoder,
 )
-from drugex.data.processing import RandomTrainTestSplitter, Standardization
+from drugex.data.processing import Standardization
 from drugex.logs import logger
-from drugex.molecules import converters, mol, suppliers  # noqa: F401
-from drugex.molecules.converters import default as default_converters  # noqa: F401
-from drugex.molecules.converters import standardizers  # noqa: F401
 from drugex.molecules.converters.fragmenters import Fragmenter
-from drugex.training import environment, explorers, generators, monitors, rewards
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
@@ -52,15 +44,11 @@ from drugex.training.rewards import (
     WeightedSum,
 )
 from drugex.training.scorers import (
-    conformer_generators,  # noqa: F401
     modifiers,
-    oe_color_smarts,  # noqa: F401
     properties,
-    protonation,  # noqa: F401
     qsprpred,
     sascorer,
     similarity,
-    smiles as smiles_scorers,
 )
 from drugex.training.scorers.modifiers import (
     ClippedScore,
@@ -71,7 +59,6 @@ from drugex.training.scorers.properties import Property, Uniqueness
 from drugex.training.scorers.qsprpred import QSPRPredScorer
 from drugex.training.scorers.similarity import (
     FraggleSimilarity,
-    TverskyFingerprintSimilarity,
     TverskyGraphSimilarity,
 )
 
@@ -88,25 +75,30 @@ N_PROCESSES = 12
 CHUNK_SIZE = 1000
 GPUS = [1]
 
+# --- Fragmentation & Graph Constants ---
+FRAG_MIN_FRAGS = 4
+FRAG_MAX_FRAGS = 4
+FRAG_METHOD = "brics"
+FRAG_SPLIT_RATIO = 0.10
+FRAG_MAX_PAIRS = 100
+
 # --- Transfer Learning Constants ---
-TL_EPOCHS = 5
-TL_BATCH_SIZE = 32
+TL_EPOCHS = 20
+TL_BATCH_SIZE = 64
 TL_LOSS_TOLERANCE = 0.02
 TL_TEST_SIZE = 0.10
 TL_MAX_MOLECULES = 200
 
 # --- Reinforcement Learning Constants ---
 RL_EPOCHS = 100
-RL_EPSILON = 0.10
+RL_EPSILON = 0.20
 RL_BETA = 0.00
-RL_N_SAMPLES = 1000
-RL_BATCH_SIZE = 128
-RL_PATIENCE = 20 #i can have a lot of patience
+RL_BATCH_SIZE = 64
+RL_PATIENCE = 20
 
 # --- Scorer & Objective Constants ---
 TVERSKY_ALPHA = 0.70
 TVERSKY_BETA = 0.30
-TVERSKY_FP_TYPE = "ECFP4"
 TVERSKY_THRESHOLD = 0.40
 
 QED_LOWER_X = 0.40
@@ -147,7 +139,7 @@ class DrugExVisualizer:
         img.save(str(out_dir / "generated_molecules.png"))
 
     @staticmethod
-    def visualize_transfer_learning(finetuned: GraphTransformer, model_prefix: Path, out_dir: Path, input_dataset: GraphFragDataSet | None = None, num_samples: int = 100):
+    def visualize_transfer_learning(finetuned: GraphTransformer, model_prefix: Path, out_dir: Path, input_dataset: GraphFragDataSet | None = None, input_fragments: list[str] | None = None, num_samples: int = 100):
         fit_file = Path(f"{model_prefix}_fit.tsv")
         if fit_file.exists():
             df_info = pd.read_csv(fit_file, sep="\t")
@@ -161,6 +153,8 @@ class DrugExVisualizer:
 
         if input_dataset is not None:
             generated_sample = finetuned.generate(input_dataset=input_dataset, num_samples=num_samples)
+        elif input_fragments is not None:
+            generated_sample = finetuned.generate(input_fragments, num_samples=num_samples)
         else:
             generated_sample = finetuned.generate(num_samples=num_samples)
 
@@ -169,7 +163,7 @@ class DrugExVisualizer:
         return generated_sample
 
     @staticmethod
-    def visualize_reinforcement_learning(agent: GraphTransformer, env: DrugExEnvironment, model_prefix: Path, out_dir: Path, input_dataset: GraphFragDataSet | None = None, num_samples: int = 100):
+    def visualize_reinforcement_learning(agent: GraphTransformer, env: DrugExEnvironment, model_prefix: Path, out_dir: Path, input_dataset: GraphFragDataSet | None = None, input_fragments: list[str] | None = None, num_samples: int = 100):
         fit_file = Path(f"{model_prefix}_fit.tsv")
         if fit_file.exists():
             df_info = pd.read_csv(fit_file, sep="\t")
@@ -183,6 +177,8 @@ class DrugExVisualizer:
 
         if input_dataset is not None:
             generated_sample = agent.generate(input_dataset=input_dataset, num_samples=num_samples)
+        elif input_fragments is not None:
+            generated_sample = agent.generate(input_fragments, num_samples=num_samples)
         else:
             generated_sample = agent.generate(num_samples=num_samples)
 
@@ -221,9 +217,9 @@ class MY_3D(ALL_METHODS):
 
     def prepare_fragment_corpus(self, smiles_list: list[str], output_prefix: Path):
         encoder = FragmentCorpusEncoder(
-            fragmenter=Fragmenter(4, 4, "brics"),
-            encoder=GraphFragmentEncoder(VocGraph(n_frags=4)),
-            pairs_splitter=FragmentPairsSplitter(0.1, 100),
+            fragmenter=Fragmenter(FRAG_MIN_FRAGS, FRAG_MAX_FRAGS, FRAG_METHOD),
+            encoder=GraphFragmentEncoder(VocGraph(n_frags=FRAG_MAX_FRAGS)),
+            pairs_splitter=FragmentPairsSplitter(FRAG_SPLIT_RATIO, FRAG_MAX_PAIRS),
             n_proc=N_PROCESSES,
         )
         train_ds = GraphFragDataSet(f"{output_prefix}_train.tsv", rewrite=True)
