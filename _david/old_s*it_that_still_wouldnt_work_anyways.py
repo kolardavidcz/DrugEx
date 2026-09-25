@@ -66,7 +66,6 @@ warnings.filterwarnings("ignore")
 N_PROCESSES = 12
 CHUNK_SIZE = 1000
 GPUS = [1]
-SAVE_PROOF = False
 
 # --- Transfer Learning Constants ---
 TL_EPOCHS = 20
@@ -81,7 +80,7 @@ RL_EPSILON = 0.10
 RL_BETA = 0.00
 RL_N_SAMPLES = 1000
 RL_BATCH_SIZE = 128
-RL_PATIENCE = 20
+RL_PATIENCE = 20 #i can have a lot of patience
 
 # --- Scorer & Objective Constants ---
 TVERSKY_ALPHA = 0.70
@@ -203,18 +202,17 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
         if len(result_df) == 0:
             raise MY_ERROR("No active target ligands discovered across Papyrus bioactivity database.")
 
-        smiles_series = result_df["SMILES"]
-        standardized_smiles = processing.Standardization(n_proc=N_PROCESSES, chunk_size=CHUNK_SIZE).apply(smiles_series)
+        raw_smiles = result_df["SMILES"]
+        standardized_smiles = processing.Standardization(n_proc=N_PROCESSES, chunk_size=CHUNK_SIZE).apply(raw_smiles)
 
         if standardized_smiles is None:
             raise MY_ERROR("Chemical standardization failed to process target ligands.")
 
-        clean_smiles = [str(s) for s in standardized_smiles if s]
+        unique_smiles = utils.remove_duplicates(standardized_smiles)
 
-        if SAVE_PROOF:
-            pd.Series(clean_smiles, name="SMILES").to_csv(self.MODEL / "training_ligands.tsv", sep="\t", index=False)
+        pd.Series(unique_smiles, name="SMILES").to_csv(self.MODEL / "training_ligands.tsv", sep="\t", index=False)
 
-        return clean_smiles
+        return unique_smiles
 
     def __tokenization(self, smiles_train: list[str]):
         encoder = processing.CorpusEncoder(
@@ -232,26 +230,18 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
         return data_collector, encoder
 
     def __make_test_dataset(self, data_collector: datasets.SmilesDataSet):
-        if SAVE_PROOF:
-            splitter = processing.RandomTrainTestSplitter(TL_TEST_SIZE, 10000)
-            train, test = splitter(data_collector.getData())
 
-            pd.DataFrame(train, columns=data_collector.getColumns()).to_csv(self.OUTPUT_DIR / "ligand_train.tsv", header=True, index=False, sep="\t")
-            pd.DataFrame(test, columns=data_collector.getColumns()).to_csv(self.OUTPUT_DIR / "ligand_test.tsv", header=True, index=False, sep="\t")
-            self.VOC.toFile(self.OUTPUT_DIR / "pretrained.vocab")
+        splitter = processing.RandomTrainTestSplitter(TL_TEST_SIZE, 1000)
+        train, test = splitter(data_collector.getData())
 
-            train_loader = datasets.SmilesDataSet.dataToLoader(train, batch_size=TL_BATCH_SIZE, vocabulary=self.VOC)
-            valid_loader = datasets.SmilesDataSet.dataToLoader(test, batch_size=TL_BATCH_SIZE, vocabulary=self.VOC)
-            return train_loader, valid_loader
+        pd.DataFrame(train, columns=data_collector.getColumns()).to_csv(self.OUTPUT_DIR / "ligand_train.tsv", header=True, index=False, sep="\t")
+        pd.DataFrame(test, columns=data_collector.getColumns()).to_csv(self.OUTPUT_DIR / "ligand_test.tsv", header=True, index=False, sep="\t")
+        self.VOC.toFile(self.OUTPUT_DIR / "pretrained.vocab")
 
-        loaders = data_collector.asDataLoader(
-            batch_size=TL_BATCH_SIZE,
-            splitter=processing.RandomTrainTestSplitter(TL_TEST_SIZE, 10000),
-        )
-        if not isinstance(loaders, (list, tuple)) or len(loaders) != 2:
-            raise MY_ERROR("Expected exactly two DataLoaders (train, valid) from dataset splitter.")
+        train_loader = datasets.SmilesDataSet.dataToLoader(train, batch_size=TL_BATCH_SIZE, vocabulary=self.VOC)
+        valid_loader = datasets.SmilesDataSet.dataToLoader(test, batch_size=TL_BATCH_SIZE, vocabulary=self.VOC)
+        return train_loader, valid_loader
 
-        return loaders[0], loaders[1]
 
     def __transfer_learning(self, train_loader: DataLoader, valid_loader: DataLoader, model_prefix: Path):
         finetuned = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
@@ -266,8 +256,7 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
             loss_tolerance=TL_LOSS_TOLERANCE,
         )
 
-        if SAVE_PROOF:
-            self.VOC.toFile(self.MODEL / "finetuned.vocab")
+        self.VOC.toFile(self.MODEL / "finetuned.vocab")
 
         return finetuned
 
@@ -294,6 +283,7 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
         )
 
         self.AGENT = finetuned
+        #! how about trying both as finetuned
         self.PRIOR = generators.SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
         self.PRIOR.loadStatesFromFile(self.MODEL_PRETRAINED / "Papyrus05.5_smiles_rnn_PT.pkg")
 
@@ -347,7 +337,7 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
         explorer.fit(
             monitor=monitor,
             epochs=RL_EPOCHS,
-            patience=RL_PATIENCE,
+            patience=RL_PATIENCE, 
             criteria="desired_ratio"
         )
 

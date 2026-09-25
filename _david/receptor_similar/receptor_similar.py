@@ -400,6 +400,11 @@ class AdaptiveCandidateSelector:
                     accepted.append(rec)
                     continue
 
+            # Canonicalize SMILES to ensure identical tautomer/representation consistency
+            canonical_smi = Chem.MolToSmiles(mol)
+            rec[smiles_col] = canonical_smi
+            rec["SMILES"] = canonical_smi
+
             # Compute profile properties
             props = self.profile.calculate_properties(mol)
 
@@ -454,6 +459,10 @@ class AdaptiveCandidateSelector:
             ascending.append(False)
 
         out_df = out_df.sort_values(by=sort_cols, ascending=ascending)
+
+        # Deduplicate strictly by canonical SMILES while keeping top property similarity & pAffinity
+        target_smiles_col = "SMILES" if "SMILES" in out_df.columns else smiles_col
+        out_df = out_df.drop_duplicates(subset=[target_smiles_col]).reset_index(drop=True)
 
         # Cap max molecules if requested
         if self.max_molecules is not None and len(out_df) > self.max_molecules:
