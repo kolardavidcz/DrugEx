@@ -17,47 +17,50 @@ from torch.utils.data import DataLoader
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-from qsprpred import data as qspr_data  # noqa: F401
-from qsprpred.data.descriptors import fingerprints as qspr_fps  # noqa: F401
-from qsprpred.models import scikit_learn as qspr_models  # noqa: F401
-from scaffviz.clustering import manifold  # noqa: F401
-from scaffviz.depiction import plot as scaff_plot  # noqa: F401
+from qsprpred import data as qspr_data
+from qsprpred.data.descriptors import fingerprints as qspr_fps
+from qsprpred.models import scikit_learn as qspr_models
+from scaffviz.clustering import manifold
+from scaffviz.depiction import plot as scaff_plot
 
-import drugex  # noqa: F401
-from drugex import data, logs, molecules, parallel, training, utils  # noqa: F401
-from drugex.data import datasets, fragments, processing  # noqa: F401
+import drugex
+from drugex import data, logs, molecules, parallel, training, utils
+from drugex.data import datasets, fragments, processing
 from drugex.data.corpus import corpus, vocabulary
 from drugex.logs import logger
-from drugex.molecules import converters, mol, suppliers  # noqa: F401
-from drugex.molecules.converters import default as default_converters  # noqa: F401
-from drugex.molecules.converters import standardizers  # noqa: F401
+from drugex.molecules import converters, mol, suppliers
+from drugex.molecules.converters import default as default_converters
+from drugex.molecules.converters import standardizers
 from drugex.training import environment, explorers, generators, monitors, rewards
 from drugex.training.scorers import (
-    conformer_generators,  # noqa: F401
+    conformer_generators,
     modifiers,
-    oe_color_smarts,  # noqa: F401
+    oe_color_smarts,
     properties,
-    protonation,  # noqa: F401
-    qsprpred,  # noqa: F401
-    sascorer,  # noqa: F401
+    protonation,
+    qsprpred,
+    sascorer,
     similarity,
-    smiles as smiles_scorers,  # noqa: F401
+    smiles as smiles_scorers,
 )
 
-from drugex.data.corpus.vocabulary import VocGraph, VocSmiles  # noqa: F401
-from drugex.data.datasets import GraphFragDataSet, SmilesDataSet, SmilesFragDataSet  # noqa: F401
+from drugex.data.corpus.vocabulary import VocGraph, VocSmiles
+from drugex.data.datasets import GraphFragDataSet, SmilesDataSet, SmilesFragDataSet
 from drugex.data.processing import CorpusEncoder, RandomTrainTestSplitter, Standardization
 from drugex.training.environment import DrugExEnvironment
-from drugex.training.explorers import FragGraphExplorer, FragSequenceExplorer, SequenceExplorer  # noqa: F401
-from drugex.training.generators import GraphTransformer, SequenceRNN, SequenceTransformer  # noqa: F401
-from drugex.training.monitors import FileMonitor, NullMonitor  # noqa: F401
-from drugex.training.rewards import ParetoCrowdingDistance, ParetoRewardScheme, ParetoTanimotoDistance, WeightedSum  # noqa: F401
-from drugex.training.scorers.modifiers import ClippedScore, ScoreModifier, SmoothClippedScore  # noqa: F401
-from drugex.training.scorers.properties import Property, Uniqueness  # noqa: F401
-from drugex.training.scorers.qsprpred import QSPRPredScorer  # noqa: F401
-from drugex.training.scorers.similarity import FraggleSimilarity, TverskyFingerprintSimilarity, TverskyGraphSimilarity  # noqa: F401
+from drugex.training.explorers import FragGraphExplorer, FragSequenceExplorer, SequenceExplorer
+from drugex.training.generators import GraphTransformer, SequenceRNN, SequenceTransformer
+from drugex.training.monitors import FileMonitor, NullMonitor
+from drugex.training.rewards import ParetoCrowdingDistance, ParetoRewardScheme, ParetoTanimotoDistance, WeightedSum
+from drugex.training.scorers.modifiers import ClippedScore, ScoreModifier, SmoothClippedScore
+from drugex.training.scorers.properties import Property, Uniqueness
+from drugex.training.scorers.qsprpred import QSPRPredScorer
+from drugex.training.scorers.similarity import FraggleSimilarity, TverskyFingerprintSimilarity, TverskyGraphSimilarity
 
-from _david import receptor_similar
+try:
+    from _david import receptor_similar
+except ModuleNotFoundError:
+    import receptor_similar
 
 logger.setLevel("ERROR")
 warnings.filterwarnings("ignore")
@@ -68,7 +71,7 @@ CHUNK_SIZE = 1000
 GPUS = [1]
 
 # --- Transfer Learning Constants ---
-TL_EPOCHS = 20
+TL_EPOCHS = 5
 TL_BATCH_SIZE = 32
 TL_LOSS_TOLERANCE = 0.02
 TL_TEST_SIZE = 0.10
@@ -312,7 +315,7 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
         ]
 
         thresholds = [TVERSKY_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD]
-        reward_scheme = rewards.ParetoCrowdingDistance()
+        reward_scheme = rewards.ParetoTanimotoDistance()
 
         env = DrugExEnvironment(
             scorers=scorers,
