@@ -410,8 +410,10 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
             mutate=self.PRIOR,
             epsilon=RL_EPSILON,
             beta=RL_BETA,
+            n_samples=RL_N_SAMPLES,
             batch_size=RL_BATCH_SIZE,
             use_gpus=GPUS,
+            no_multifrag_smiles=True,
         )
 
         model_prefix = self.MODEL / "david_agent"
