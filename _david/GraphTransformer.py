@@ -32,6 +32,7 @@ from drugex.training.scorers import (
     modifiers,
     properties,
     qsprpred,
+    ra_scorer,
     sascorer,
     similarity,
 )
@@ -62,6 +63,7 @@ from drugex.training.scorers.modifiers import (
 )
 from drugex.training.scorers.properties import Property, Uniqueness
 from drugex.training.scorers.qsprpred import QSPRPredScorer
+from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
 from drugex.training.scorers.similarity import (
     FraggleSimilarity,
     TverskyGraphSimilarity,
@@ -113,6 +115,10 @@ QED_THRESHOLD = 0.50
 SA_LOWER_X = 4.50
 SA_UPPER_X = 2.50
 SA_THRESHOLD = 0.50
+
+RA_LOWER_X = 0.20
+RA_UPPER_X = 0.70
+RA_THRESHOLD = 0.50
 
 
 class MY_ERROR(RuntimeError):
@@ -219,7 +225,7 @@ class DrugExVisualizer:
 class ALL_METHODS:
     def __init__(self, output_dir: Path | None = None):
         self.ROOT_PATH = Path(__file__).resolve().parent.parent
-        self.BASE_OUTPUT_DIR = self.ROOT_PATH / "_david" / "outputs"
+        self.BASE_OUTPUT_DIR = self.ROOT_PATH / "_david" / "outputs_Graph"
 
         if output_dir is None:
             self.RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -351,9 +357,15 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
                     upper_x=SA_UPPER_X,
                 ),
             ),
+            RetrosyntheticAccessibilityScorer(
+                modifier=SmoothClippedScore(
+                    lower_x=RA_LOWER_X,
+                    upper_x=RA_UPPER_X,
+                ),
+            ),
         ]
 
-        thresholds = [TVERSKY_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD]
+        thresholds = [TVERSKY_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD, RA_THRESHOLD]
         reward_scheme = rewards.ParetoTanimotoDistance()
 
         env = DrugExEnvironment(
