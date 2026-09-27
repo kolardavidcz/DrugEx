@@ -336,6 +336,20 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
         self.PRIOR = generators.GraphTransformer(voc_trg=self.VOC, use_gpus=GPUS)
         self.PRIOR.loadStatesFromFile(self.MODEL_PRETRAINED / "Papyrus05.5_graph_trans_PT.pkg")
 
+    def _prepare_seed_fragments(self, molecule_smile: str):
+        standardized_smile = processing.Standardization(n_proc=1).apply([molecule_smile])[0]
+        seed_tsv = self.MODEL / "seed_fragments.tsv"
+        seed_dataset = datasets.GraphFragDataSet(str(seed_tsv), rewrite=True)
+        corpus_encoder = fragments.FragmentCorpusEncoder(
+            fragmenter=fragmenters.Fragmenter(FRAG_MIN_FRAGS, FRAG_MAX_FRAGS, FRAG_METHOD),
+            encoder=fragments.GraphFragmentEncoder(self.VOC),
+            pairs_splitter=None,
+            n_proc=1,
+        )
+        corpus_encoder.apply([standardized_smile], encodingCollectors=[seed_dataset])
+        seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
+        return seed_loader, seed_dataset
+
     def RAINFORCEMENT_LEARNING(self, molecule_smile: str):
         scorers = [
             similarity.TverskyGraphSimilarity(
@@ -374,10 +388,7 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
             reward_scheme=reward_scheme,
         )
 
-        train_dataset = datasets.GraphFragDataSet(self.OUTPUT_DIR / "ligand_train.tsv")
-        test_dataset = datasets.GraphFragDataSet(self.OUTPUT_DIR / "ligand_test.tsv")
-        train_loader = train_dataset.asDataLoader(RL_BATCH_SIZE)
-        valid_loader = test_dataset.asDataLoader(RL_BATCH_SIZE)
+        seed_loader, seed_dataset = self._prepare_seed_fragments(molecule_smile)
 
         explorer = FragGraphExplorer(
             agent=self.AGENT,
@@ -393,8 +404,8 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
         monitor = FileMonitor(model_prefix, save_smiles=True, reset_directory=True)
 
         explorer.fit(
-            train_loader,
-            valid_loader,
+            seed_loader,
+            seed_loader,
             monitor=monitor,
             epochs=RL_EPOCHS,
             patience=RL_PATIENCE,
@@ -402,7 +413,7 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
         )
 
         scored_df = DrugExVisualizer.visualize_reinforcement_learning(
-            self.AGENT, env, model_prefix, self.MODEL, input_dataset=test_dataset
+            self.AGENT, env, model_prefix, self.MODEL, input_dataset=seed_dataset
         )
         return self.AGENT, scored_df
 
