@@ -154,6 +154,8 @@ class ScaffoldFunnel:
 
         return final_df
 
+    process_candidates = process_candidates_dataframe
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

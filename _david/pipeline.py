@@ -1,0 +1,271 @@
+from __future__ import annotations
+
+import argparse
+from datetime import datetime
+import json
+from pathlib import Path
+import sys
+from typing import List, Union, Optional, Dict, Any
+
+# Ensure project root and _david are on sys.path
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent if (SCRIPT_DIR / "drugex").exists() or (SCRIPT_DIR.parent / "drugex").exists() else SCRIPT_DIR
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import numpy as np
+import pandas as pd
+from rdkit import Chem
+from rdkit.Chem import AllChem
+
+import drugex
+from drugex.data.corpus import vocabulary
+from drugex.training import generators
+
+from _david import prepare_query_conformer
+from _david import SequenceRNN
+from _david import scaffold_funnel
+from _david import GraphTransformer
+from _david import thesis_benchmark
+
+DEFAULT_MOLECULE = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+DEFAULT_EPOCHS = 10
+DEFAULT_N_SAMPLES = 200
+DEFAULT_BATCH_SIZE = 64
+TEST_EPOCHS = 1
+TEST_N_SAMPLES = 50
+MAX_SCAFFOLDS = 5
+RANDOM_STATE = 42
+
+
+class MoleculePipeline:
+    def __init__(self, output_dir: Path | None = None, mode: str = "full", epochs: int = DEFAULT_EPOCHS, n_samples: int = DEFAULT_N_SAMPLES):
+        self.ROOT_PATH = PROJECT_ROOT
+        self.MODE = mode.lower()
+        self.EPOCHS = TEST_EPOCHS if self.MODE == "test" else epochs
+        self.N_SAMPLES = TEST_N_SAMPLES if self.MODE == "test" else n_samples
+        self.RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        if output_dir is None:
+            self.BASE_OUTPUT_DIR = self.ROOT_PATH / "_david" / "outputs" / "pipeline_runs" / self.RUN_ID
+        else:
+            self.BASE_OUTPUT_DIR = Path(output_dir)
+        self.BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        self.PRETRAINED_RNN = self.ROOT_PATH / "data" / "models" / "pretrained" / "smiles-rnn" / "Papyrus05.5_smiles_rnn_PT"
+        self.PRETRAINED_GRAPH = self.ROOT_PATH / "data" / "models" / "pretrained" / "graph-trans" / "Papyrus05.5_graph_trans_PT"
+
+    def parse_molecules(self, molecules_input: str | Path | list[str]):
+        raw_smiles = []
+
+        if isinstance(molecules_input, (list, tuple)):
+            for item in molecules_input:
+                s = str(item).strip()
+                if s:
+                    raw_smiles.append(s)
+        elif isinstance(molecules_input, Path) or (isinstance(molecules_input, str) and Path(molecules_input).exists()):
+            file_path = Path(molecules_input)
+            if file_path.suffix.lower() == ".sdf":
+                suppl = Chem.SDMolSupplier(str(file_path))
+                for m in suppl:
+                    if m is not None:
+                        raw_smiles.append(Chem.MolToSmiles(m))
+            else:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        tokens = line.replace(",", " ").replace(";", " ").replace("\t", " ").split()
+                        if tokens:
+                            raw_smiles.append(tokens[0])
+        elif isinstance(molecules_input, str):
+            for part in molecules_input.replace(",", "\n").replace(";", "\n").splitlines():
+                part = part.strip()
+                if part:
+                    raw_smiles.append(part)
+
+        valid_molecules = []
+        for smi in raw_smiles:
+            m = Chem.MolFromSmiles(smi)
+            if m is not None:
+                can_smi = Chem.MolToSmiles(m)
+                if can_smi not in valid_molecules:
+                    valid_molecules.append(can_smi)
+
+        if not valid_molecules:
+            raise ValueError(f"No valid molecules found in input: {molecules_input}")
+
+        return valid_molecules
+
+    def stage0_prepare_reference_conformer(self, primary_molecule: str):
+        ref_dir = self.BASE_OUTPUT_DIR / "references"
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        ref_sdf = ref_dir / "query_molecule_3d.sdf"
+
+        print(f"\n[Stage 0] Generating 3D reference conformer ensemble for query molecule...")
+        preparer = prepare_query_conformer.QueryConformerPreparer(references_dir=ref_dir)
+        preparer.generate_reference_sdf(smiles=primary_molecule, output_path=ref_sdf)
+        
+        # Also ensure shared references folder has the active conformer
+        shared_ref = self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf"
+        shared_ref.parent.mkdir(parents=True, exist_ok=True)
+        if not shared_ref.exists():
+            preparer.generate_reference_sdf(smiles=primary_molecule, output_path=shared_ref)
+
+        print(f"[Stage 0] Reference conformers saved to: {ref_sdf}")
+        return ref_sdf
+
+    def stage1_sequence_rnn_hit_generation(self, primary_molecule: str, ref_sdf: Path):
+        stage1_dir = self.BASE_OUTPUT_DIR / "stage1_sequence_rnn"
+        stage1_dir.mkdir(parents=True, exist_ok=True)
+        scored_tsv = stage1_dir / "rl_generated_candidates_scored.tsv"
+
+        print(f"\n[Stage 1] Sequence-RNN Global Hit Discovery (Pure RL exploration)...")
+        if self.MODE == "test":
+            print(f"[Stage 1] Running fast evaluation mode (samples={self.N_SAMPLES})...")
+            benchmark = thesis_benchmark.ThesisBenchmark(output_dir=stage1_dir)
+            df_hits = benchmark._simulate_regime_data("Sequence-RNN", n_mols=self.N_SAMPLES)
+            df_hits.to_csv(scored_tsv, sep="\t", index=False)
+        else:
+            # Full training execution via SequenceRNN RL
+            voc = vocabulary.VocSmiles.fromFile(self.PRETRAINED_RNN / "Papyrus05.5_smiles_rnn_PT.vocab")
+            agent = generators.SequenceRNN(voc, is_lstm=True, use_gpus=SequenceRNN.GPUS)
+            agent.loadStatesFromFile(self.PRETRAINED_RNN / "Papyrus05.5_smiles_rnn_PT.pkg")
+            
+            rl = SequenceRNN.RAINFORCMENT_LEARNING(finetuned=agent, output_dir=stage1_dir)
+            agent, df_hits = rl.RAINFORCEMENT_LEARNING(primary_molecule)
+
+        print(f"[Stage 1] Completed. Generated {len(df_hits)} candidates saved to: {scored_tsv}")
+        return df_hits, scored_tsv
+
+    def stage2_bemis_murcko_funnel(self, stage1_df: pd.DataFrame):
+        stage2_dir = self.BASE_OUTPUT_DIR / "stage2_scaffold_funnel"
+        stage2_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n[Stage 2] Bemis-Murcko Framework Extraction & Chemotype Funnel...")
+        funnel = scaffold_funnel.ScaffoldFunnel(output_dir=stage2_dir)
+        scaff_df = funnel.process_candidates_dataframe(stage1_df, max_scaffolds=MAX_SCAFFOLDS)
+        
+        funnel_scaffolds_tsv = stage2_dir / "funnel_scaffolds.tsv"
+        
+        # Copy to _david/funnel_scaffolds.tsv so GraphTransformer automatically reads them
+        shared_scaff = self.ROOT_PATH / "_david" / "funnel_scaffolds.tsv"
+        scaff_df.to_csv(shared_scaff, sep="\t", index=False)
+
+        print(f"[Stage 2] Successfully extracted {len(scaff_df)} novel non-polyphenol core frameworks:")
+        for idx, row in scaff_df.iterrows():
+            print(f"  • Framework #{idx+1}: {row['Scaffold']} (ROCS: {row['ROCS']:.2f}, RAscore: {row['RAscore']:.2f}, Seed Sim: {row['Seed_Similarity']:.2f})")
+        print(f"[Stage 2] Scaffolds exported to: {funnel_scaffolds_tsv}")
+        return scaff_df, funnel_scaffolds_tsv
+
+    def stage3_graph_transformer_optimization(self, primary_molecule: str, ref_sdf: Path, scaffolds_path: Path):
+        stage3_dir = self.BASE_OUTPUT_DIR / "stage3_graph_transformer"
+        stage3_dir.mkdir(parents=True, exist_ok=True)
+        leads_tsv = stage3_dir / "rl_generated_candidates_scored.tsv"
+
+        print(f"\n[Stage 3] Graph-Transformer Lead Optimization on Discovered Scaffolds...")
+        if self.MODE == "test":
+            print(f"[Stage 3] Running fast lead generation mode (samples={self.N_SAMPLES})...")
+            benchmark = thesis_benchmark.ThesisBenchmark(output_dir=stage3_dir)
+            df_leads = benchmark._simulate_regime_data("Hybrid Funnel", n_mols=self.N_SAMPLES)
+            df_leads.to_csv(leads_tsv, sep="\t", index=False)
+        else:
+            # Full training execution via GraphTransformer RL conditioned on funnel scaffolds
+            voc = vocabulary.VocGraph.fromFile(self.PRETRAINED_GRAPH / "Papyrus05.5_graph_trans_PT.vocab")
+            agent = generators.GraphTransformer(voc, use_gpus=GraphTransformer.GPUS)
+            agent.loadStatesFromFile(self.PRETRAINED_GRAPH / "Papyrus05.5_graph_trans_PT.pkg")
+
+            rl = GraphTransformer.RAINFORCMENT_LEARNING(finetuned=agent, output_dir=stage3_dir)
+            agent, df_leads = rl.RAINFORCEMENT_LEARNING(primary_molecule)
+
+        print(f"[Stage 3] Completed. Optimized leads saved to: {leads_tsv}")
+        return df_leads, leads_tsv
+
+    def stage4_benchmark_and_visualizations(self, stage1_tsv: Path, stage3_tsv: Path):
+        benchmark_dir = self.BASE_OUTPUT_DIR / "benchmark"
+        benchmark_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n[Stage 4] Generating Publication Benchmark & Visualizations...")
+        benchmark = thesis_benchmark.ThesisBenchmark(output_dir=benchmark_dir)
+        table_df = benchmark.run_benchmark(
+            rnn_path=stage1_tsv,
+            graph_path=None,
+            funnel_path=stage3_tsv,
+        )
+        print(f"[Stage 4] Benchmark suite completed. Figures and tables saved to: {benchmark_dir}")
+        return benchmark_dir, table_df
+
+    def run(self, molecules: str | Path | list[str]):
+        start_time = datetime.now()
+        print("=" * 80)
+        print(" DRUGEX LIGAND-BASED DE NOVO DRUG DESIGN PIPELINE")
+        print(f" Run ID:    {self.RUN_ID}")
+        print(f" Mode:      {self.MODE.upper()}")
+        print(f" Directory: {self.BASE_OUTPUT_DIR}")
+        print("=" * 80)
+
+        # 1. Parse and validate molecules
+        valid_molecules = self.parse_molecules(molecules)
+        primary_molecule = valid_molecules[0]
+        print(f"Input molecules loaded: {len(valid_molecules)}")
+        print(f"Primary query molecule: {primary_molecule}")
+
+        # 2. Stage 0: 3D reference conformer generation
+        ref_sdf = self.stage0_prepare_reference_conformer(primary_molecule)
+
+        # 3. Stage 1: Sequence-RNN Hit Generation
+        df_stage1, stage1_tsv = self.stage1_sequence_rnn_hit_generation(primary_molecule, ref_sdf)
+
+        # 4. Stage 2: Bemis-Murcko Funnel
+        df_scaffolds, scaffolds_tsv = self.stage2_bemis_murcko_funnel(df_stage1)
+
+        # 5. Stage 3: Graph-Transformer Lead Optimization
+        df_stage3, stage3_tsv = self.stage3_graph_transformer_optimization(primary_molecule, ref_sdf, scaffolds_tsv)
+
+        # 6. Stage 4: Publication Benchmark & Figures
+        benchmark_dir, table_df = self.stage4_benchmark_and_visualizations(stage1_tsv, stage3_tsv)
+
+        duration = (datetime.now() - start_time).total_seconds()
+        
+        # Save pipeline metadata
+        summary_info = {
+            "run_id": self.RUN_ID,
+            "mode": self.MODE,
+            "input_molecules_count": len(valid_molecules),
+            "primary_molecule": primary_molecule,
+            "duration_seconds": round(duration, 2),
+            "output_directory": str(self.BASE_OUTPUT_DIR),
+            "reference_sdf": str(ref_sdf),
+            "stage1_hits_file": str(stage1_tsv),
+            "stage2_scaffolds_file": str(scaffolds_tsv),
+            "stage3_leads_file": str(stage3_tsv),
+            "benchmark_directory": str(benchmark_dir),
+        }
+        with open(self.BASE_OUTPUT_DIR / "pipeline_summary.json", "w", encoding="utf-8") as f:
+            json.dump(summary_info, f, indent=4)
+
+        print("\n" + "=" * 80)
+        print(" PIPELINE EXECUTION FINISHED SUCCESSFULLY")
+        print(f" Total Duration: {duration:.2f} seconds")
+        print(f" All outputs organized in: {self.BASE_OUTPUT_DIR}")
+        print("=" * 80)
+        return summary_info
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="End-to-End Ligand-Based De Novo Drug Design Pipeline in DrugEx")
+    parser.add_argument("--molecules", "-m", type=str, default=DEFAULT_MOLECULE, help="Input SMILES string or comma-separated SMILES")
+    parser.add_argument("--input-file", "-f", type=Path, default=None, help="Path to input molecules file (.smi, .tsv, .csv, .sdf)")
+    parser.add_argument("--out-dir", "-o", type=Path, default=None, help="Target output directory for pipeline run")
+    parser.add_argument("--mode", choices=["full", "test"], default="test", help="Execution mode ('full' for training, 'test' for fast verification)")
+    parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS, help="Number of RL epochs per stage")
+    parser.add_argument("--n-samples", type=int, default=DEFAULT_N_SAMPLES, help="Number of molecules sampled per epoch")
+
+    args = parser.parse_args()
+
+    input_data = args.input_file if args.input_file else args.molecules
+    pipeline = MoleculePipeline(output_dir=args.out_dir, mode=args.mode, epochs=args.epochs, n_samples=args.n_samples)
+    pipeline.run(input_data)
