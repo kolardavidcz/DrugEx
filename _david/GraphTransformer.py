@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import warnings
 from contextlib import contextmanager
 from datetime import datetime
@@ -10,7 +9,7 @@ import matplotlib
 import pandas as pd
 from pandas.core.frame import DataFrame
 from rdkit import Chem
-from rdkit.Chem import AllChem, Draw
+from rdkit.Chem import Draw
 import torch
 from torch.utils.data import DataLoader
 
@@ -30,12 +29,10 @@ from drugex.logs import logger
 from drugex.molecules.converters import fragmenters
 from drugex.training import environment, explorers, generators, monitors, rewards
 from drugex.training.scorers import (
-    conformer_generators,
-    interfaces,
     modifiers,
     properties,
     qsprpred,
-    rocs_rdkit,
+    ra_scorer,
     sascorer,
     similarity,
 )
@@ -59,8 +56,6 @@ from drugex.training.rewards import (
     ParetoTanimotoDistance,
     WeightedSum,
 )
-from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-from drugex.training.scorers.interfaces import ConformerGenerator, Scorer
 from drugex.training.scorers.modifiers import (
     ClippedScore,
     ScoreModifier,
@@ -68,7 +63,7 @@ from drugex.training.scorers.modifiers import (
 )
 from drugex.training.scorers.properties import Property, Uniqueness
 from drugex.training.scorers.qsprpred import QSPRPredScorer
-from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
 from drugex.training.scorers.similarity import (
     FraggleSimilarity,
     TverskyGraphSimilarity,
@@ -81,6 +76,49 @@ except ModuleNotFoundError:
 
 logger.setLevel("ERROR")
 warnings.filterwarnings("ignore")
+
+# --- Hardware & System Constants ---
+N_PROCESSES = 12
+CHUNK_SIZE = 1000
+GPUS = [1]
+
+# --- Fragmentation & Graph Constants ---
+FRAG_MIN_FRAGS = 4
+FRAG_MAX_FRAGS = 4
+FRAG_METHOD = "brics"
+FRAG_SPLIT_RATIO = 0.10
+FRAG_MAX_PAIRS = 100
+
+# --- Transfer Learning Constants ---
+TL_EPOCHS = 5
+TL_BATCH_SIZE = 64
+TL_LOSS_TOLERANCE = 0.02
+TL_TEST_SIZE = 0.10
+TL_MAX_MOLECULES = 200
+
+# --- Reinforcement Learning Constants ---
+RL_EPOCHS = 100
+RL_EPSILON = 0.20
+RL_BETA = 0.00
+RL_BATCH_SIZE = 64
+RL_PATIENCE = 20
+
+# --- Scorer & Objective Constants ---
+TVERSKY_ALPHA = 0.70
+TVERSKY_BETA = 0.30
+TVERSKY_THRESHOLD = 0.40
+
+QED_LOWER_X = 0.40
+QED_UPPER_X = 0.80
+QED_THRESHOLD = 0.50
+
+SA_LOWER_X = 4.50
+SA_UPPER_X = 2.50
+SA_THRESHOLD = 0.50
+
+RA_LOWER_X = 0.20
+RA_UPPER_X = 0.70
+RA_THRESHOLD = 0.50
 
 
 class MY_ERROR(RuntimeError):
@@ -170,6 +208,20 @@ class DrugExVisualizer:
         return scored_df
 
 
+    ####################################################################
+    ####################################################################
+    #   █████████  ███████████   █████████   ███████████   ███████████ #
+    #  ███░░░░░███░█░░░███░░░█  ███░░░░░███ ░░███░░░░░███ ░█░░░███░░░█ #
+    # ░███    ░░░ ░   ░███  ░  ░███    ░███  ░███    ░███ ░   ░███  ░  #
+    # ░░█████████     ░███     ░███████████  ░██████████      ░███     #
+    #  ░░░░░░░░███    ░███     ░███░░░░░███  ░███░░░░░███     ░███     #
+    #  ███    ░███    ░███     ░███    ░███  ░███    ░███     ░███     #
+    # ░░█████████     █████    █████   █████ █████   █████    █████    #
+    #  ░░░░░░░░░     ░░░░░    ░░░░░   ░░░░░ ░░░░░   ░░░░░    ░░░░░     #
+    ####################################################################
+    ####################################################################
+
+
 class ALL_METHODS:
     def __init__(self, output_dir: Path | None = None):
         self.ROOT_PATH = Path(__file__).resolve().parent.parent
@@ -192,62 +244,6 @@ class ALL_METHODS:
     vizualize_rl = staticmethod(DrugExVisualizer.visualize_reinforcement_learning)
 
 
-########################################################################################################################################
-########################################################################################################################################
-########################################################################################################################################
-
-
-# --- Hardware & System Constants ---
-N_PROCESSES = 12
-CHUNK_SIZE = 1000
-GPUS = [1]
-
-# --- Fragmentation & Graph Constants ---
-FRAG_MIN_FRAGS = 4
-FRAG_MAX_FRAGS = 4
-FRAG_METHOD = "brics"
-FRAG_SPLIT_RATIO = 0.10
-FRAG_MAX_PAIRS = 100
-
-# --- Transfer Learning Constants ---
-TL_EPOCHS = 5
-TL_BATCH_SIZE = 64
-TL_LOSS_TOLERANCE = 0.02
-TL_TEST_SIZE = 0.10
-TL_MAX_MOLECULES = 200
-
-# --- Reinforcement Learning Constants ---
-RL_EPOCHS = 100
-RL_EPSILON = 0.20
-RL_BETA = 0.00
-RL_BATCH_SIZE = 64
-RL_PATIENCE = 20
-RL_N_SAMPLES = 1000
-
-# --- 3D Conformer & ROCS Constants ---
-ROCS_MAX_CONFORMERS = 50
-ROCS_MAX_ISOMERS = 2
-ROCS_MAX_HEAVY_ATOMS = 60
-ROCS_MAX_ROTATABLE_BONDS = 15
-ROCS_NUM_THREADS = 1
-ROCS_SCORE_TYPE = "TanimotoCombo"
-ROCS_USE_COLORS = True
-ROCS_THRESHOLD = 0.80
-
-# --- 2D Graph & Property Constants ---
-TVERSKY_ALPHA = 0.70
-TVERSKY_BETA = 0.30
-TVERSKY_THRESHOLD = 0.40
-
-QED_LOWER_X = 0.40
-QED_UPPER_X = 0.80
-QED_THRESHOLD = 0.50
-
-SA_LOWER_X = 4.50
-SA_UPPER_X = 2.50
-SA_THRESHOLD = 0.50
-
-
 class MY_TRANSFER_LEARNING(ALL_METHODS):
     def __init__(self, output_dir: Path | None = None):
         super().__init__(output_dir=output_dir)
@@ -266,6 +262,9 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
 
         raw_smiles = result_df["SMILES"]
         standardized_smiles = processing.Standardization(n_proc=N_PROCESSES, chunk_size=CHUNK_SIZE).apply(raw_smiles)
+
+        if standardized_smiles is None:
+            raise MY_ERROR("Chemical standardization failed to process target ligands.")
 
         unique_smiles = utils.remove_duplicates(standardized_smiles)
 
@@ -310,11 +309,8 @@ class MY_TRANSFER_LEARNING(ALL_METHODS):
 
         return finetuned
 
-    def TRANSFER_LEARNING(self, raw_smile: str):
-        clean_mol = Chem.MolFromSmiles(raw_smile)
-        clean_smile = Chem.CanonSmiles(raw_smile) if clean_mol is not None else raw_smile
-
-        smiles_train = self.__receptor_similar_molecules_get_SMILES(clean_smile)
+    def TRANSFER_LEARNING(self, molecule_smile: str):
+        smiles_train = self.__receptor_similar_molecules_get_SMILES(molecule_smile)
         train_loader, valid_loader, test_dataset = self.__fragmentation_and_encoding(smiles_train)
 
         model_prefix = self.MODEL / "david_finetuned"
@@ -340,57 +336,36 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
         self.PRIOR = generators.GraphTransformer(voc_trg=self.VOC, use_gpus=GPUS)
         self.PRIOR.loadStatesFromFile(self.MODEL_PRETRAINED / "Papyrus05.5_graph_trans_PT.pkg")
 
-    def _prepare_reference_conformer(self, molecule_smile: str):
-        ref_mol = Chem.MolFromSmiles(molecule_smile)
-        if ref_mol is None:
-            raise MY_ERROR(f"Failed to parse query molecule SMILES: {molecule_smile}")
-        ref_mol = Chem.AddHs(ref_mol)
-        params = AllChem.ETKDGv3()
-        params.randomSeed = 42
-        embed_status = AllChem.EmbedMolecule(ref_mol, params=params)
-        if embed_status == 0:
-            AllChem.MMFFOptimizeMolecule(ref_mol)
-        ref_sdf_path = self.OUTPUT_DIR / "reference_ligand.sdf"
-        writer = Chem.SDWriter(str(ref_sdf_path))
-        writer.write(ref_mol)
-        writer.close()
-        return ref_mol, str(ref_sdf_path)
-
     def RAINFORCEMENT_LEARNING(self, molecule_smile: str):
-        ref_mol, ref_sdf = self._prepare_reference_conformer(molecule_smile)
-
-        conf_gen = conformer_generators.RDKitConformerGenerator(
-            max_conformers=ROCS_MAX_CONFORMERS,
-            max_isomers=ROCS_MAX_ISOMERS,
-            max_heavy_atoms=ROCS_MAX_HEAVY_ATOMS,
-            max_rotatable_bonds=ROCS_MAX_ROTATABLE_BONDS,
-            num_threads=ROCS_NUM_THREADS,
-            show_progress=False,
-        )
-
-        rocs_scorer = rocs_rdkit.RDKitROCSScorer(
-            conformer_generator=conf_gen,
-            references=ref_sdf,
-            score_type=ROCS_SCORE_TYPE,
-            use_colors=ROCS_USE_COLORS,
-            show_progress=False,
-            n_jobs=N_PROCESSES,
-        )
-
-        sa_scorer = Property(
-            prop="SA",
-            modifier=SmoothClippedScore(
-                lower_x=SA_LOWER_X,
-                upper_x=SA_UPPER_X,
-            ),
-        )
-
         scorers = [
-            rocs_scorer,
-            sa_scorer,
+            similarity.TverskyGraphSimilarity(
+                smiles=molecule_smile,
+                alpha=TVERSKY_ALPHA,
+                beta=TVERSKY_BETA,
+            ),
+            Property(
+                prop="QED",
+                modifier=SmoothClippedScore(
+                    lower_x=QED_LOWER_X,
+                    upper_x=QED_UPPER_X,
+                ),
+            ),
+            Property(
+                prop="SA",
+                modifier=SmoothClippedScore(
+                    lower_x=SA_LOWER_X,
+                    upper_x=SA_UPPER_X,
+                ),
+            ),
+            RetrosyntheticAccessibilityScorer(
+                modifier=SmoothClippedScore(
+                    lower_x=RA_LOWER_X,
+                    upper_x=RA_UPPER_X,
+                ),
+            ),
         ]
 
-        thresholds = [ROCS_THRESHOLD, SA_THRESHOLD]
+        thresholds = [TVERSKY_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD, RA_THRESHOLD]
         reward_scheme = rewards.ParetoTanimotoDistance()
 
         env = DrugExEnvironment(
@@ -410,10 +385,8 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
             mutate=self.PRIOR,
             epsilon=RL_EPSILON,
             beta=RL_BETA,
-            n_samples=RL_N_SAMPLES,
             batch_size=RL_BATCH_SIZE,
             use_gpus=GPUS,
-            no_multifrag_smiles=True,
         )
 
         model_prefix = self.MODEL / "david_agent"
