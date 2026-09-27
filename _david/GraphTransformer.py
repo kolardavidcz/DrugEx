@@ -29,10 +29,12 @@ from drugex.logs import logger
 from drugex.molecules.converters import fragmenters
 from drugex.training import environment, explorers, generators, monitors, rewards
 from drugex.training.scorers import (
+    conformer_generators,
     modifiers,
     properties,
     qsprpred,
     ra_scorer,
+    rocs_rdkit,
     sascorer,
     similarity,
 )
@@ -56,6 +58,7 @@ from drugex.training.rewards import (
     ParetoTanimotoDistance,
     WeightedSum,
 )
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.modifiers import (
     ClippedScore,
     ScoreModifier,
@@ -64,6 +67,7 @@ from drugex.training.scorers.modifiers import (
 from drugex.training.scorers.properties import Property, Uniqueness
 from drugex.training.scorers.qsprpred import QSPRPredScorer
 from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
+from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 from drugex.training.scorers.similarity import (
     FraggleSimilarity,
     TverskyGraphSimilarity,
@@ -104,9 +108,17 @@ RL_BATCH_SIZE = 64
 RL_PATIENCE = 20
 
 # --- Scorer & Objective Constants ---
-TVERSKY_ALPHA = 0.70
-TVERSKY_BETA = 0.30
-TVERSKY_THRESHOLD = 0.40
+ROCS_SCORE_TYPE = "TanimotoCombo"
+ROCS_MAX_CONFS = 2
+ROCS_MAX_ISOMERS = 1
+ROCS_TIMEOUT = 10
+ROCS_LOWER_X = 0.40
+ROCS_UPPER_X = 1.20
+ROCS_THRESHOLD = 0.50
+
+RA_LOWER_X = 0.20
+RA_UPPER_X = 0.70
+RA_THRESHOLD = 0.50
 
 QED_LOWER_X = 0.40
 QED_UPPER_X = 0.80
@@ -115,10 +127,6 @@ QED_THRESHOLD = 0.50
 SA_LOWER_X = 4.50
 SA_UPPER_X = 2.50
 SA_THRESHOLD = 0.50
-
-RA_LOWER_X = 0.20
-RA_UPPER_X = 0.70
-RA_THRESHOLD = 0.50
 
 
 class MY_ERROR(RuntimeError):
@@ -337,7 +345,6 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
         self.PRIOR.loadStatesFromFile(self.MODEL_PRETRAINED / "Papyrus05.5_graph_trans_PT.pkg")
 
     def _prepare_seed_fragments(self, molecule_smile: str):
-        standardized_smile = processing.Standardization(n_proc=1).apply([molecule_smile])[0]
         seed_tsv = self.MODEL / "seed_fragments.tsv"
         seed_dataset = datasets.GraphFragDataSet(str(seed_tsv), rewrite=True)
         corpus_encoder = fragments.FragmentCorpusEncoder(
@@ -346,16 +353,59 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
             pairs_splitter=None,
             n_proc=1,
         )
+
+        funnel_path = self.ROOT_PATH / "_david" / "funnel_scaffolds.tsv"
+        if funnel_path.exists():
+            df_funnel = pd.read_csv(funnel_path, sep="\t")
+            if "Scaffold" in df_funnel.columns and len(df_funnel) > 0:
+                scaffolds = df_funnel["Scaffold"].dropna().unique().tolist()
+                std_scaffolds = processing.Standardization(n_proc=1).apply(scaffolds)
+                if std_scaffolds:
+                    corpus_encoder.apply(std_scaffolds, encodingCollectors=[seed_dataset])
+                    seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
+                    return seed_loader, seed_dataset
+
+        standardized_smile = processing.Standardization(n_proc=1).apply([molecule_smile])[0]
         corpus_encoder.apply([standardized_smile], encodingCollectors=[seed_dataset])
         seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
         return seed_loader, seed_dataset
 
     def RAINFORCEMENT_LEARNING(self, molecule_smile: str):
+        ref_sdf = self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf"
+        if not ref_sdf.exists():
+            from _david.prepare_query_conformer import QueryConformerPreparer
+            preparer = QueryConformerPreparer(ref_sdf.parent)
+            ref_sdf = preparer.generate_reference_sdf(molecule_smile, ref_sdf)
+
+        conf_gen = conformer_generators.RDKitConformerGenerator(
+            max_conformers=ROCS_MAX_CONFS,
+            max_isomers=ROCS_MAX_ISOMERS,
+            num_threads=0,
+            timeout=ROCS_TIMEOUT,
+            show_progress=False,
+        )
+        rocs_scorer = rocs_rdkit.RDKitROCSScorer(
+            conformer_generator=conf_gen,
+            references=str(ref_sdf),
+            score_type=ROCS_SCORE_TYPE,
+            use_colors=True,
+            show_progress=False,
+            n_jobs=-1,
+        )
+        rocs_scorer.setModifier(
+            SmoothClippedScore(
+                lower_x=ROCS_LOWER_X,
+                upper_x=ROCS_UPPER_X,
+            )
+        )
+
         scorers = [
-            similarity.TverskyGraphSimilarity(
-                smiles=molecule_smile,
-                alpha=TVERSKY_ALPHA,
-                beta=TVERSKY_BETA,
+            rocs_scorer,
+            RetrosyntheticAccessibilityScorer(
+                modifier=SmoothClippedScore(
+                    lower_x=RA_LOWER_X,
+                    upper_x=RA_UPPER_X,
+                ),
             ),
             Property(
                 prop="QED",
@@ -371,15 +421,9 @@ class RAINFORCMENT_LEARNING(ALL_METHODS):
                     upper_x=SA_UPPER_X,
                 ),
             ),
-            RetrosyntheticAccessibilityScorer(
-                modifier=SmoothClippedScore(
-                    lower_x=RA_LOWER_X,
-                    upper_x=RA_UPPER_X,
-                ),
-            ),
         ]
 
-        thresholds = [TVERSKY_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD, RA_THRESHOLD]
+        thresholds = [ROCS_THRESHOLD, RA_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD]
         reward_scheme = rewards.ParetoTanimotoDistance()
 
         env = DrugExEnvironment(
