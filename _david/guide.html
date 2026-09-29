@@ -660,10 +660,8 @@
         padding-left: 16pt !important;
       }
 
-      /* Keep callouts, defense Q&A cards, and diagrams intact on a single page */
+      /* Keep callouts and diagrams intact on a single page */
       .callout,
-      .defense-card,
-      .defense-qa-card,
       .diagram-container,
       figure {
         page-break-inside: avoid !important;
@@ -800,22 +798,93 @@
         color: #475569 !important;
       }
 
-      /* Defense Q&A Cards */
+      /* Defense Q&A Cards (Breakable across pages to avoid blank gaps in print) */
+      .defense-qa-card,
       .defense-card {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        box-shadow: none !important;
+        margin: 8pt 0 12pt 0 !important;
         padding: 10pt 12pt !important;
-        margin-bottom: 8pt !important;
+        border-radius: 6pt !important;
         background-color: #faf5ff !important;
         border: 1pt solid #d8b4fe !important;
       }
 
-      .defense-qa-title {
+      .defense-qa-question {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        page-break-after: avoid !important;
+        break-after: avoid-page !important;
         font-size: 9.5pt !important;
-        margin-bottom: 4pt !important;
+        margin-bottom: 6pt !important;
+      }
+
+      .defense-qa-question .qa-badge {
+        font-size: 7.5pt !important;
+        padding: 1pt 4pt !important;
       }
 
       .defense-qa-answer {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
         font-size: 8.5pt !important;
         line-height: 1.45 !important;
+      }
+
+      .defense-quick-answer {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        padding: 5pt 8pt !important;
+        margin-bottom: 6pt !important;
+        font-size: 8.5pt !important;
+        line-height: 1.4 !important;
+      }
+
+      .defense-quick-title {
+        page-break-after: avoid !important;
+        break-after: avoid-page !important;
+        font-size: 7.5pt !important;
+        margin-bottom: 2pt !important;
+      }
+
+      .defense-deep-title {
+        page-break-after: avoid !important;
+        break-after: avoid-page !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        font-size: 7.5pt !important;
+        margin-top: 6pt !important;
+        margin-bottom: 3pt !important;
+      }
+
+      .defense-deep-answer {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+      }
+
+      .defense-deep-answer p {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        orphans: 2 !important;
+        widows: 2 !important;
+        margin-bottom: 4pt !important;
+      }
+
+      .defense-trap {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        padding: 5pt 8pt !important;
+        margin-top: 6pt !important;
+        font-size: 8pt !important;
+        line-height: 1.35 !important;
+      }
+
+      .defense-trap-title {
+        page-break-after: avoid !important;
+        break-after: avoid-page !important;
+        font-size: 7.5pt !important;
+        margin-bottom: 2pt !important;
       }
 
       /* Links */
