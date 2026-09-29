@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import List, Tuple
+import sys
+from typing import List, Tuple, Sequence
+
+# Ensure project root and _david are on sys.path
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent if (SCRIPT_DIR / "drugex").exists() or (SCRIPT_DIR.parent / "drugex").exists() else SCRIPT_DIR
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 import pandas as pd
 from rdkit import Chem, DataStructs
@@ -10,25 +19,52 @@ from rdkit.Chem import AllChem, Draw
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.ML.Cluster import Butina
 
-MIN_ROCS_SCORE = 0.40
-MIN_RA_SCORE = 0.50
-MIN_QED_SCORE = 0.40
-MAX_SEED_SIMILARITY = 0.60
-CLUSTER_CUTOFF = 0.40
-MAX_OUTPUT_SCAFFOLDS = 5
-MY_MOLECULE = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+MIN_ROCS_SCORE: float = 0.40
+MIN_RA_SCORE: float = 0.50
+MIN_QED_SCORE: float = 0.40
+MAX_SEED_SIMILARITY: float = 0.60
+CLUSTER_CUTOFF: float = 0.40
+MAX_OUTPUT_SCAFFOLDS: int = 5
+MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 
 
 class ScaffoldFunnel:
-    def __init__(self, output_dir: Path | None = None):
-        self.ROOT_PATH = Path(__file__).resolve().parent.parent
-        self.OUTPUT_DIR = output_dir or (self.ROOT_PATH / "_david")
-        self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        self.CATECHOL_SMARTS = Chem.MolFromSmarts("c1c([OH])c([OH])ccc1")
-        self.SEED_MOL = Chem.MolFromSmiles(MY_MOLECULE)
-        self.SEED_FP = AllChem.GetMorganFingerprintAsBitVect(self.SEED_MOL, 2, nBits=2048) if self.SEED_MOL else None
+    """Stage 2 Chemotype Funnel bridging Sequence-RNN exploration and Graph-Transformer optimization.
 
-    def is_catechol_polyphenol(self, mol: Chem.Mol):
+    Decomposes raw candidate hits into Bemis-Murcko core frameworks, purges catechol
+    and polyphenol PAINS substructures, enforces structural hopping distance away from
+    the seed query, and clusters scaffolds via Butina sphere exclusion.
+
+    Attributes:
+        ROOT_PATH: Root directory of repository.
+        OUTPUT_DIR: Target folder for saving funnel TSV and PNG files.
+        CATECHOL_SMARTS: RDKit Mol representing catechol substructure.
+        SEED_MOL: RDKit Mol of the query active ligand.
+        SEED_FP: Explicit 2048-bit Morgan fingerprint of query active ligand.
+    """
+
+    def __init__(self, output_dir: Path | None = None) -> None:
+        """Initialize ScaffoldFunnel.
+
+        Args:
+            output_dir: Optional Path to save output files.
+        """
+        self.ROOT_PATH: Path = Path(__file__).resolve().parent.parent
+        self.OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david")
+        self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        self.CATECHOL_SMARTS: Chem.Mol | None = Chem.MolFromSmarts("c1c([OH])c([OH])ccc1")
+        self.SEED_MOL: Chem.Mol | None = Chem.MolFromSmiles(MY_MOLECULE)
+        self.SEED_FP: DataStructs.ExplicitBitVect | None = AllChem.GetMorganFingerprintAsBitVect(self.SEED_MOL, 2, nBits=2048) if self.SEED_MOL else None
+
+    def is_catechol_polyphenol(self, mol: Chem.Mol | None) -> bool:
+        """Determine whether a molecule contains catechol or polyphenol liabilities.
+
+        Args:
+            mol: RDKit Mol to inspect.
+
+        Returns:
+            True if molecule matches catechol SMARTS or has >= 4 phenolic hydroxyls.
+        """
         if mol is None:
             return False
         if self.CATECHOL_SMARTS and mol.HasSubstructMatch(self.CATECHOL_SMARTS):
@@ -38,7 +74,15 @@ class ScaffoldFunnel:
             return True
         return False
 
-    def extract_murcko_scaffold(self, smiles: str):
+    def extract_murcko_scaffold(self, smiles: str) -> str | None:
+        """Extract the Bemis-Murcko core framework from a SMILES string.
+
+        Args:
+            smiles: Input SMILES string.
+
+        Returns:
+            Canonical SMILES of the heavy-atom Murcko scaffold, or None if extraction fails.
+        """
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None
@@ -46,11 +90,20 @@ class ScaffoldFunnel:
             scaff = MurckoScaffold.GetScaffoldForMol(mol)
             if scaff.GetNumHeavyAtoms() == 0:
                 return None
-            return Chem.MolToSmiles(scaff)
+            return str(Chem.MolToSmiles(scaff))
         except Exception:
             return None
 
-    def cluster_scaffolds(self, scaffolds: list[str], cutoff: float = CLUSTER_CUTOFF):
+    def cluster_scaffolds(self, scaffolds: list[str], cutoff: float = CLUSTER_CUTOFF) -> Sequence[Tuple[int, ...]]:
+        """Cluster scaffold fingerprints using the Butina sphere-exclusion algorithm.
+
+        Args:
+            scaffolds: List of scaffold SMILES strings.
+            cutoff: Maximum Tanimoto distance threshold for neighborhood membership.
+
+        Returns:
+            Sequence of cluster tuples, where each tuple starts with the centroid index.
+        """
         mols = [Chem.MolFromSmiles(s) for s in scaffolds]
         valid_mols = [m for m in mols if m is not None]
         if not valid_mols:
@@ -58,15 +111,31 @@ class ScaffoldFunnel:
 
         fps = [AllChem.GetMorganFingerprintAsBitVect(m, 2, nBits=2048) for m in valid_mols]
         num_fps = len(fps)
-        dists = []
+        dists: List[float] = []
         for i in range(1, num_fps):
             sims = DataStructs.BulkTanimotoSimilarity(fps[i], fps[:i])
             dists.extend([1.0 - s for s in sims])
 
-        clusters = Butina.ClusterData(dists, num_fps, cutoff, isDistData=True)
+        clusters: Sequence[Tuple[int, ...]] = Butina.ClusterData(dists, num_fps, cutoff, isDistData=True)
         return clusters
 
-    def process_candidates_dataframe(self, df: pd.DataFrame, max_scaffolds: int = MAX_OUTPUT_SCAFFOLDS):
+    def process_candidates_dataframe(self, df: pd.DataFrame, max_scaffolds: int = MAX_OUTPUT_SCAFFOLDS) -> pd.DataFrame:
+        """Process candidate DataFrame through the Bemis-Murcko chemotype funnel.
+
+        Filters candidates by score thresholds (ROCS, RAscore, QED), extracts
+        Murcko scaffolds, filters out catechol/polyphenol PAINS and seed-like frameworks,
+        and clusters unique scaffolds with Butina clustering to select diverse lead centroids.
+
+        Args:
+            df: DataFrame containing candidate molecules with at least a 'SMILES' column.
+            max_scaffolds: Maximum number of distinct scaffold centroids to output.
+
+        Returns:
+            DataFrame of selected scaffold leads with properties, IDs, and similarity metrics.
+
+        Raises:
+            ValueError: If 'SMILES' column is missing from input DataFrame.
+        """
         if "SMILES" not in df.columns:
             raise ValueError("Input DataFrame must contain 'SMILES' column.")
 

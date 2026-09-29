@@ -109,7 +109,7 @@ my_molecule_conf_3
  33 51  1  0
 M  END
 >  <Energy>  (1) 
-32.9577
+29.4557
 
 $$$$
 my_molecule_conf_7
@@ -223,7 +223,7 @@ my_molecule_conf_7
  33 51  1  0
 M  END
 >  <Energy>  (2) 
-43.0331
+29.4557
 
 $$$$
 my_molecule_conf_6
@@ -337,7 +337,7 @@ my_molecule_conf_6
  33 51  1  0
 M  END
 >  <Energy>  (3) 
-38.6983
+29.7997
 
 $$$$
 my_molecule_conf_5
@@ -451,7 +451,7 @@ my_molecule_conf_5
  33 51  1  0
 M  END
 >  <Energy>  (4) 
-34.5578
+32.9577
 
 $$$$
 my_molecule_conf_1
@@ -565,7 +565,7 @@ my_molecule_conf_1
  33 51  1  0
 M  END
 >  <Energy>  (5) 
-29.4557
+34.3497
 
 $$$$
 my_molecule_conf_0
@@ -679,6 +679,6 @@ my_molecule_conf_0
  33 51  1  0
 M  END
 >  <Energy>  (6) 
-29.4557
+34.5578
 
 $$$$

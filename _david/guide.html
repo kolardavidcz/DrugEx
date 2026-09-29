@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ligand-Based De Novo Drug Design in DrugEx: Architectural Rationale & Algorithmic Deep Dive</title>
   
-  <!-- MathJax for rendering LaTeX mathematical equations -->
+  <!-- MathJax Configuration with Offline Fallback -->
   <script>
     window.MathJax = {
       tex: {
@@ -16,6 +16,12 @@
       options: {
         renderActions: {
           addMenu: []
+        }
+      },
+      startup: {
+        ready: () => {
+          MathJax.startup.defaultReady();
+          document.body.classList.add('mathjax-loaded');
         }
       }
     };
@@ -61,11 +67,22 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      line-height: 1.7;
+      line-height: 1.72;
       color: var(--text-main);
       background-color: var(--bg-main);
       display: flex;
       min-height: 100vh;
+    }
+
+    /* Offline math styling fallback */
+    body:not(.mathjax-loaded) .math-tex,
+    body:not(.mathjax-loaded) .math-display {
+      font-family: "Cambria Math", "Latin Modern Math", "STIX Two Math", Georgia, serif;
+      font-style: italic;
+      color: #1e293b;
+      background-color: #f1f5f9;
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
     }
 
     /* Sidebar Navigation */
@@ -89,14 +106,30 @@
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: #94a3b8;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.35rem;
     }
 
     #sidebar h3 {
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       color: #38bdf8;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
       font-weight: 500;
+    }
+
+    #sidebar-search {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      color: #f8fafc;
+      font-size: 0.85rem;
+      margin-bottom: 1.5rem;
+      outline: none;
+    }
+    #sidebar-search:focus {
+      border-color: #38bdf8;
+      background: rgba(255, 255, 255, 0.12);
     }
 
     #sidebar ul {
@@ -104,15 +137,15 @@
     }
 
     #sidebar li {
-      margin-bottom: 0.45rem;
+      margin-bottom: 0.4rem;
     }
 
     #sidebar a {
       color: #cbd5e1;
       text-decoration: none;
-      font-size: 0.88rem;
+      font-size: 0.86rem;
       display: block;
-      padding: 0.4rem 0.6rem;
+      padding: 0.38rem 0.6rem;
       border-radius: 6px;
       transition: all 0.2s ease;
       line-height: 1.35;
@@ -131,11 +164,11 @@
     }
 
     #sidebar .nav-section-title {
-      font-size: 0.78rem;
+      font-size: 0.76rem;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
       color: #64748b;
-      margin-top: 1.25rem;
+      margin-top: 1.35rem;
       margin-bottom: 0.4rem;
       padding-left: 0.6rem;
       font-weight: 700;
@@ -153,11 +186,11 @@
     .hero-banner {
       background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
       color: #ffffff;
-      padding: 3rem;
+      padding: 3.25rem;
       border-radius: 16px;
       margin-bottom: 3.5rem;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25);
     }
 
     .hero-banner .badge {
@@ -185,12 +218,13 @@
       font-size: 1.15rem;
       color: #cbd5e1;
       line-height: 1.6;
-      max-width: 900px;
+      max-width: 920px;
     }
 
     .hero-meta {
       display: flex;
-      gap: 2rem;
+      flex-wrap: wrap;
+      gap: 1.75rem;
       margin-top: 2rem;
       padding-top: 1.5rem;
       border-top: 1px solid rgba(255, 255, 255, 0.15);
@@ -206,8 +240,8 @@
     section {
       background-color: var(--bg-card);
       border-radius: 14px;
-      padding: 2.75rem;
-      margin-bottom: 3rem;
+      padding: 3rem;
+      margin-bottom: 3.25rem;
       border: 1px solid var(--border);
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
@@ -228,7 +262,7 @@
       font-size: 1.35rem;
       font-weight: 600;
       color: var(--primary);
-      margin-top: 2.25rem;
+      margin-top: 2.35rem;
       margin-bottom: 1rem;
     }
 
@@ -245,6 +279,16 @@
       color: #334155;
     }
 
+    ul, ol {
+      margin-bottom: 1.25rem;
+      padding-left: 1.75rem;
+      color: #334155;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
     /* Callout Boxes */
     .callout {
       padding: 1.5rem 1.75rem;
@@ -255,7 +299,7 @@
 
     .callout-title {
       font-weight: 700;
-      font-size: 1rem;
+      font-size: 1.02rem;
       margin-bottom: 0.5rem;
       display: flex;
       align-items: center;
@@ -283,6 +327,13 @@
     }
     .callout-danger .callout-title { color: #7f1d1d; }
 
+    .callout-success {
+      background-color: var(--callout-success-bg);
+      border-color: var(--callout-success-border);
+      color: #065f46;
+    }
+    .callout-success .callout-title { color: #064e3b; }
+
     .callout-defense {
       background-color: var(--callout-defense-bg);
       border-color: var(--callout-defense-border);
@@ -291,6 +342,11 @@
     .callout-defense .callout-title { color: #3b0764; }
 
     /* Code Blocks */
+    .code-container {
+      position: relative;
+      margin: 1.5rem 0;
+    }
+
     pre {
       background-color: var(--code-bg);
       color: var(--code-text);
@@ -299,9 +355,26 @@
       overflow-x: auto;
       font-family: "JetBrains Mono", Consolas, Monaco, "Courier New", Courier, monospace;
       font-size: 0.88rem;
-      line-height: 1.5;
-      margin: 1.5rem 0;
+      line-height: 1.55;
       border: 1px solid #313244;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 10px;
+      background: rgba(255, 255, 255, 0.15);
+      border: none;
+      color: #cdd6f4;
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+      color: #ffffff;
     }
 
     code {
@@ -365,17 +438,18 @@
       background-color: #ffffff;
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 1.5rem;
-      margin: 2rem 0;
+      padding: 1.75rem;
+      margin: 2.25rem 0;
       text-align: center;
       box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.03);
     }
 
     .diagram-caption {
-      margin-top: 0.75rem;
-      font-size: 0.85rem;
+      margin-top: 1rem;
+      font-size: 0.86rem;
       color: var(--text-muted);
       font-style: italic;
+      text-align: center;
     }
 
     /* Grid Layouts */
@@ -410,7 +484,8 @@
       background: linear-gradient(180deg, #faf5ff 0%, #ffffff 100%);
       border-radius: 12px;
       padding: 1.75rem;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.75rem;
+      box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.03);
     }
 
     .defense-qa-question {
@@ -426,7 +501,7 @@
     .defense-qa-answer {
       color: #334155;
       font-size: 0.95rem;
-      line-height: 1.65;
+      line-height: 1.68;
     }
 
     /* Print Stylesheet */
@@ -454,6 +529,9 @@
         background-color: #f5f5f5;
         color: #000;
       }
+      .copy-btn {
+        display: none;
+      }
     }
   </style>
 </head>
@@ -464,8 +542,10 @@
     <h2>Thesis Guide</h2>
     <h3>Ligand-Based De Novo Drug Design</h3>
 
+    <input type="text" id="sidebar-search" placeholder="Search guide sections..." onkeyup="filterSidebar()">
+
     <div class="nav-section-title">Foundations & Strategy</div>
-    <ul>
+    <ul id="sidebar-list">
       <li><a href="#executive-summary">Executive Summary</a></li>
       <li><a href="#query-molecule">1. The Query Seed Ligand (EGCG)</a></li>
       <li><a href="#pure-lbdd-constraint">2. 100% Pure LBDD Constraint</a></li>
@@ -507,8 +587,8 @@
       <div class="hero-meta">
         <span><strong>Target Query:</strong> Epigallocatechin Gallate (EGCG) Derivative</span>
         <span><strong>Framework:</strong> DrugEx 3.x Deep Generative AI</span>
-        <span><strong>Mode:</strong> Pure LBDD (Zero Docking/Grids)</span>
-        <span><strong>Defense Rigor:</strong> Bulletproof Validation</span>
+        <span><strong>Constraint:</strong> 100% Pure LBDD (Zero Receptor / Docking Grids)</span>
+        <span><strong>Defense Rigor:</strong> Bulletproof Verification</span>
       </div>
     </header>
 
@@ -641,8 +721,11 @@
         The central chemical object of our investigation is designated as <code>my_molecule</code>, corresponding to the polyphenolic natural product derivative <strong>(-)-epigallocatechin gallate (EGCG)</strong>:
       </p>
 
-      <pre><code># Primary Query SMILES
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code># Primary Query SMILES
 my_molecule = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"</code></pre>
+      </div>
 
       <h3 class="sub-header">Chemical Architecture & Structural Liabilities</h3>
       <p>
@@ -665,6 +748,58 @@ my_molecule = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=C
         </p>
         <p>
           <strong>Thesis Imperative:</strong> A successful computational design must preserve the <em>3D spatial envelope and electrostatic/pharmacophoric feature vector</em> of EGCG while <strong>aggressively purging the catechol/pyrogallol moieties</strong> and replacing them with modern, synthetically accessible, metabolically stable bioisosteres (amides, heterocycles, ethers, fluorine substitutions).
+        </p>
+      </div>
+
+      <!-- Chemical Scheme SVG: Catechol Redox Mechanism -->
+      <div class="diagram-container">
+        <svg viewBox="0 0 850 220" width="100%" height="200" xmlns="http://www.w3.org/2000/svg">
+          <!-- Background -->
+          <rect x="0" y="0" width="850" height="220" rx="8" fill="#ffffff" />
+          
+          <!-- Box 1: Catechol -->
+          <rect x="30" y="30" width="190" height="150" rx="8" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" />
+          <text x="125" y="55" fill="#991b1b" font-size="13" font-weight="bold" text-anchor="middle">Catechol / Pyrogallol</text>
+          <!-- Benzene ring with 2 OH -->
+          <polygon points="125,75 155,92 155,127 125,145 95,127 95,92" fill="none" stroke="#b91c1c" stroke-width="2" />
+          <line x1="155" y1="92" x2="185" y2="75" stroke="#b91c1c" stroke-width="2" />
+          <text x="195" y="78" fill="#b91c1c" font-size="12" font-weight="bold">OH</text>
+          <line x1="155" y1="127" x2="185" y2="145" stroke="#b91c1c" stroke-width="2" />
+          <text x="195" y="150" fill="#b91c1c" font-size="12" font-weight="bold">OH</text>
+          <text x="125" y="170" fill="#7f1d1d" font-size="10" text-anchor="middle">EGCG Polyphenolic Core</text>
+
+          <!-- Arrow 1 -->
+          <path d="M 230 105 L 290 105" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+          <text x="260" y="95" fill="#64748b" font-size="10" text-anchor="middle">- e&minus;, - H&plus;</text>
+
+          <!-- Box 2: Semiquinone Radical -->
+          <rect x="305" y="30" width="200" height="150" rx="8" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5" />
+          <text x="405" y="55" fill="#92400e" font-size="13" font-weight="bold" text-anchor="middle">Semiquinone Radical</text>
+          <polygon points="405,75 435,92 435,127 405,145 375,127 375,92" fill="none" stroke="#d97706" stroke-width="2" />
+          <line x1="435" y1="92" x2="465" y2="75" stroke="#d97706" stroke-width="2" />
+          <text x="475" y="78" fill="#d97706" font-size="12" font-weight="bold">O&bull;</text>
+          <line x1="435" y1="127" x2="465" y2="145" stroke="#d97706" stroke-width="2" />
+          <text x="475" y="150" fill="#d97706" font-size="12" font-weight="bold">OH</text>
+          <text x="405" y="170" fill="#b45309" font-size="10" text-anchor="middle">ROS Generation (O2&bull;&minus;)</text>
+
+          <!-- Arrow 2 -->
+          <path d="M 515 105 L 575 105" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+          <text x="545" y="95" fill="#64748b" font-size="10" text-anchor="middle">- e&minus;, - H&plus;</text>
+
+          <!-- Box 3: Ortho-Quinone -->
+          <rect x="590" y="30" width="230" height="150" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5" />
+          <text x="705" y="55" fill="#991b1b" font-size="13" font-weight="bold" text-anchor="middle">Reactive ortho-Quinone</text>
+          <polygon points="705,75 735,92 735,127 705,145 675,127 675,92" fill="none" stroke="#dc2626" stroke-width="2" />
+          <line x1="735" y1="90" x2="765" y2="73" stroke="#dc2626" stroke-width="2" />
+          <line x1="732" y1="95" x2="762" y2="78" stroke="#dc2626" stroke-width="2" />
+          <text x="772" y="78" fill="#dc2626" font-size="12" font-weight="bold">=O</text>
+          <line x1="735" y1="129" x2="765" y2="146" stroke="#dc2626" stroke-width="2" />
+          <line x1="732" y1="124" x2="762" y2="141" stroke="#dc2626" stroke-width="2" />
+          <text x="772" y="150" fill="#dc2626" font-size="12" font-weight="bold">=O</text>
+          <text x="705" y="170" fill="#b91c1c" font-size="10" font-weight="bold" text-anchor="middle">+ Protein-SH &rarr; Covalent PAINS</text>
+        </svg>
+        <div class="diagram-caption">
+          Figure 2: The Biochemical Redox Cascade of the "Polyphenol Trap". Spontaneous oxidation converts catechols into electrophilic ortho-quinones that covalently adduct protein nucleophiles and produce cytotoxic reactive oxygen species (ROS).
         </div>
       </div>
     </section>
@@ -772,7 +907,7 @@ my_molecule = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=C
           <tr>
             <td><strong>SMILES Validity</strong></td>
             <td>75.4% (Syntax errors under RL)</td>
-            <td>99.2% (Graph-constrained)</td>
+            <td>98.5% (Graph-constrained)</td>
             <td><strong>99.8%</strong> (Graph-constrained)</td>
           </tr>
           <tr>
@@ -813,20 +948,29 @@ my_molecule = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=C
         Because our approach is 100% ligand-based, the accuracy of the 3D target envelope depends entirely on generating a low-energy, bioactive conformer ensemble for the query ligand.
       </p>
 
+      <h3 class="sub-header">Distance Geometry Bound Smoothing & Metric Embedding</h3>
+      <p>
+        Classical Distance Geometry (DG) begins by constructing a square bounds matrix containing lower ($l_{ij}$) and upper ($u_{ij}$) distance bounds between all atom pairs derived from covalent bond lengths, valence angles, and van der Waals contacts. These bounds are refined through triangle inequality smoothing:
+      </p>
+      $$u_{ik} \le u_{ij} + u_{jk}, \quad l_{ik} \ge l_{ij} - u_{jk}$$
+      <p>
+        From smoothed bounds, trial distances $d_{ij} \in [l_{ij}, u_{ij}]$ are randomly selected, and the metric matrix $\mathbf{M}$ is computed:
+      </p>
+      $$M_{ij} = \frac{1}{2} \left( d_{0i}^2 + d_{0j}^2 - d_{ij}^2 \right)$$
+      <p>
+        Eigen-decomposition $\mathbf{M} = \mathbf{V}\mathbf{\Lambda}\mathbf{V}^T$ yields initial 4D coordinates $\mathbf{X} = \mathbf{V}_{1:4}\mathbf{\Lambda}_{1:4}^{1/2}$, escaping local topological knots before projection into 3D.
+      </p>
+
       <h3 class="sub-header">ETKDGv3: Experimental-Torsion Knowledge Distance Geometry</h3>
       <p>
-        Classical Distance Geometry (DG) relies solely on lower and upper interatomic distance bounds derived from covalent bond lengths, valence angles, and van der Waals hard-sphere contacts:
-      </p>
-      $$l_{ij} \le \|\mathbf{x}_i - \mathbf{x}_j\| \le u_{ij}$$
-      <p>
-        While mathematically robust, classical DG frequently embeds molecules into unphysical ring conformations or staggered geometries that violate crystallographic torsional preferences.
+        While classical DG produces mathematically valid distance matrices, it frequently embeds unphysical ring conformations or staggered geometries that violate crystallographic torsional preferences.
       </p>
       <p>
-        The <strong>ETKDGv3</strong> algorithm (Riniker & Landrum, 2015; Wang et al., 2020) solves this by incorporating empirical torsional angle distributions extracted from the <strong>Cambridge Structural Database (CSD)</strong> and Protein Data Bank (PDB). For every dihedral angle $\phi_{ijkl}$, a probability density function $P(\phi)$ is defined:
+        The <strong>ETKDGv3</strong> algorithm (Riniker & Landrum, 2015; Wang et al., 2020) solves this by incorporating empirical torsional angle distributions extracted from the <strong>Cambridge Structural Database (CSD)</strong> and Protein Data Bank (PDB). For every dihedral angle $\phi_{ijkl}$, a probability density function $P(\phi)$ is defined via a Fourier expansion:
       </p>
       $$V_{\text{torsion}}(\phi) = \sum_{m=1}^M k_m \left[ 1 + \cos(m\phi - \gamma_m) \right]$$
       <p>
-        In ETKDGv3, these potentials are converted into 1-4 distance bounds and integrated directly into the stochastic metric matrix embedding step. An initial 4-dimensional coordinates vector is generated to escape local topological knots, followed by projection into 3D and minimization against distance bound violations.
+        In ETKDGv3, these potentials are converted into 1-4 distance bounds and integrated directly into the stochastic metric matrix embedding step.
       </p>
 
       <h3 class="sub-header">Force-Field Energy Minimization (MMFF94)</h3>
@@ -847,11 +991,14 @@ my_molecule = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=C
       </ul>
 
       <h3 class="sub-header">Conformer Filtering & Pruning Thresholds</h3>
-      <pre><code># Exact parameters configured in prepare_query_conformer.py
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code># Exact parameters configured in prepare_query_conformer.py
 NUM_CONFORMERS = 30
 RANDOM_SEED = 42
 PRUNE_RMS_THRESH = 0.50   # 0.5 Å Heavy-atom RMSD pruning
 MAX_ENERGY_DELTA = 8.0    # 8.0 kcal/mol thermodynamic window</code></pre>
+      </div>
       <p>
         The ensemble filtering protocol executes two mathematical filters:
       </p>
@@ -862,9 +1009,6 @@ MAX_ENERGY_DELTA = 8.0    # 8.0 kcal/mol thermodynamic window</code></pre>
         $$\Delta E_j = E_j - E_{\min} \le 8.0 \text{ kcal/mol}$$
         Geometries with $\Delta E > 8.0 \text{ kcal/mol}$ are inaccessible at physiological temperature ($310 \text{ K}$, where $k_B T \approx 0.61 \text{ kcal/mol}$) and are purged.</li>
       </ol>
-      <p>
-        The surviving valid conformers are written to a multi-model <code>.sdf</code> file with explicit Kekulization (<code>writer.SetKekulize(True)</code>) to ensure consistent aromatic bond typing across scoring workers.
-      </p>
     </section>
 
     <!-- Section 5: RDKit ROCS Deep Dive -->
@@ -1006,6 +1150,56 @@ MAX_ENERGY_DELTA = 8.0    # 8.0 kcal/mol thermodynamic window</code></pre>
       <p>
         The cross-pose spread collapsed to exactly $\mathbf{0.0000}$, and self-alignment failure rates dropped to $0 / 100$. Scoring is guaranteed to be mathematically deterministic and rigid-body invariant.
       </p>
+
+      <!-- Diagram SVG: Inertial Frame & 4 Sign Flips -->
+      <div class="diagram-container">
+        <svg viewBox="0 0 850 260" width="100%" height="240" xmlns="http://www.w3.org/2000/svg">
+          <rect x="0" y="0" width="850" height="260" rx="8" fill="#ffffff" />
+          
+          <!-- Box 1: Arbitrary Pose -->
+          <rect x="20" y="30" width="220" height="200" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" />
+          <text x="130" y="55" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="middle">1. Arbitrary Input Pose</text>
+          <!-- Coordinate system angled -->
+          <line x1="130" y1="130" x2="190" y2="100" stroke="#ef4444" stroke-width="2" marker-end="url(#arrow)" />
+          <line x1="130" y1="130" x2="80" y2="100" stroke="#10b981" stroke-width="2" marker-end="url(#arrow)" />
+          <line x1="130" y1="130" x2="140" y2="190" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)" />
+          <text x="130" y="215" fill="#dc2626" font-size="10" text-anchor="middle">&sigma; = 0.056 (Non-Deterministic)</text>
+
+          <!-- Arrow 1 -->
+          <path d="M 250 130 L 290 130" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+          <text x="270" y="120" fill="#64748b" font-size="9" text-anchor="middle">Diag(I)</text>
+
+          <!-- Box 2: Canonical Frame -->
+          <rect x="300" y="30" width="230" height="200" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5" />
+          <text x="415" y="55" fill="#1e40af" font-size="12" font-weight="bold" text-anchor="middle">2. Principal Inertial Frame</text>
+          <!-- Coordinate system orthogonal -->
+          <line x1="415" y1="130" x2="495" y2="130" stroke="#ef4444" stroke-width="2" marker-end="url(#arrow)" />
+          <text x="500" y="134" fill="#ef4444" font-size="10">X</text>
+          <line x1="415" y1="130" x2="415" y2="65" stroke="#10b981" stroke-width="2" marker-end="url(#arrow)" />
+          <text x="415" y="60" fill="#10b981" font-size="10" text-anchor="middle">Y</text>
+          <line x1="415" y1="130" x2="365" y2="175" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)" />
+          <text x="355" y="185" fill="#3b82f6" font-size="10">Z</text>
+          <text x="415" y="215" fill="#1d4ed8" font-size="10" text-anchor="middle">Canonical Axes Aligned</text>
+
+          <!-- Arrow 2 -->
+          <path d="M 540 130 L 580 130" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+          <text x="560" y="120" fill="#64748b" font-size="9" text-anchor="middle">4 Sign Flips</text>
+
+          <!-- Box 3: 4 Proper Rotations -->
+          <rect x="590" y="30" width="240" height="200" rx="8" fill="#f0fdf4" stroke="#10b981" stroke-width="1.5" />
+          <text x="710" y="55" fill="#065f46" font-size="12" font-weight="bold" text-anchor="middle">3. Supremum Retention</text>
+          <text x="610" y="85" fill="#334155" font-size="10">S1: (+1, +1, +1) Identity</text>
+          <text x="610" y="105" fill="#334155" font-size="10">S2: (+1, -1, -1) 180&deg; flip X</text>
+          <text x="610" y="125" fill="#334155" font-size="10">S3: (-1, +1, -1) 180&deg; flip Y</text>
+          <text x="610" y="145" fill="#334155" font-size="10">S4: (-1, -1, +1) 180&deg; flip Z</text>
+          <rect x="605" y="170" width="210" height="45" rx="4" fill="#dcfce7" stroke="#16a34a" />
+          <text x="710" y="188" fill="#15803d" font-size="10" font-weight="bold" text-anchor="middle">Score* = max(S1..S4)</text>
+          <text x="710" y="204" fill="#166534" font-size="9" text-anchor="middle">&sigma; = 0.0000 (Deterministic)</text>
+        </svg>
+        <div class="diagram-caption">
+          Figure 3: Analytical Resolution of the Pose-Dependence Bug (Issue #8513). Translating to the center of mass, diagonalizing the inertia tensor, and evaluating all 4 proper sign-flip rotations collapses non-physical score variance to exactly 0.0000.
+        </div>
+      </div>
     </section>
 
     <!-- Section 7: Retrosynthetic Accessibility Deep Dive -->
@@ -1024,7 +1218,7 @@ MAX_ENERGY_DELTA = 8.0    # 8.0 kcal/mol thermodynamic window</code></pre>
         Where $\text{FragmentScore}$ is the average historical frequency of a molecule's 1-4 atom fragments in the PubChem database, and $\text{ComplexityPenalty}$ penalizes chiral centers, macrocycles, spiro atoms, and large rings.
       </p>
       <p>
-        <strong>The Fatal Flaw:</strong> Classical SA score is completely unaware of <em>reaction feasibility, chemical protecting group incompatibility, and regioselectivity</em>. Because natural polyphenols (like EGCG, quercetin, and resveratrol) occur millions of times in natural product databases, their fragments are abundant in PubChem. Consequently, EGCG receives an "acceptable" classical SA score of $4.8$ (on a scale of 1 to 10).
+        <strong>The Fatal Flaw:</strong> Classical SA score is completely unaware of <em>reaction feasibility, chemical protecting group incompatibility, and regioselectivity</em>. Because natural polyphenols (like EGCG, quercetin, and resveratrol) occur millions of times in natural product databases, their fragments are abundant in PubChem. Consequently, EGCG receives an "acceptable" classical SA score of $3.74$ (on a scale of 1 to 10).
       </p>
       <p>
         However, in synthetic organic reality, <strong>synthesizing an EGCG derivative with 8 free phenolic hydroxyls de novo is a nightmare</strong> requiring 15+ steps of differential benzyl/TBDMS protection, regioselective ester coupling, and catalytic hydrogenation!
@@ -1082,11 +1276,14 @@ MAX_ENERGY_DELTA = 8.0    # 8.0 kcal/mol thermodynamic window</code></pre>
       <p>
         Candidate scaffolds are evaluated against SMARTS substructure queries to purge toxic polyphenols:
       </p>
-      <pre><code># Substructure matching rules
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code># Substructure matching rules in scaffold_funnel.py
 CATECHOL_SMARTS = Chem.MolFromSmarts("c1c([OH])c([OH])ccc1")
 is_catechol = mol.HasSubstructMatch(CATECHOL_SMARTS)
 num_phenolic_oh = len(mol.GetSubstructMatches(Chem.MolFromSmarts("[OH]")))
 is_polyphenol = is_catechol or (num_phenolic_oh >= 4)</code></pre>
+      </div>
       <p>
         Any scaffold containing ortho-dihydroxy benzene (catechol) or having $\ge 4$ hydroxyl groups is strictly discarded, breaking the polyphenol attractor.
       </p>
@@ -1118,9 +1315,71 @@ is_polyphenol = is_catechol or (num_phenolic_oh >= 4)</code></pre>
         <li>Extract the top 5 cluster centroids, sorted by composite quality:
         $$\text{Quality} = 0.5 \cdot \text{ROCS} + 0.3 \cdot \text{RAscore} + 0.2 \cdot \text{QED}$$</li>
       </ol>
+
+      <h3 class="sub-header">The 5 Discovered Lead Chemotype Scaffolds</h3>
       <p>
-        This guarantees that the 5 scaffolds passed to Stage 3 represent <strong>5 distinct, non-overlapping chemical families</strong>, preventing mode collapse.
+        Processing candidates through the Funnel yields exactly 5 diverse, non-polyphenol centroids exported to <code>_david/funnel_scaffolds.tsv</code>:
       </p>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Scaffold SMILES</th>
+            <th>ROCS</th>
+            <th>RAscore</th>
+            <th>QED</th>
+            <th>Seed Sim</th>
+            <th>Chemical Family</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Scaffold 1</strong></td>
+            <td><code>C1CCC2C(C1)CCC1C2CCC2C3CCCCC3CCC21</code></td>
+            <td>0.45</td>
+            <td>0.60</td>
+            <td>0.40</td>
+            <td>0.037</td>
+            <td>Polycyclic aliphatic hydrocarbon core</td>
+          </tr>
+          <tr>
+            <td><strong>Scaffold 2</strong></td>
+            <td><code>O=C(Nc1ccccc1)c1ccc(C2CC2)cn1</code></td>
+            <td>0.58</td>
+            <td>0.88</td>
+            <td>0.75</td>
+            <td>0.136</td>
+            <td>Nicotinamide-phenyl carboxamide</td>
+          </tr>
+          <tr>
+            <td><strong>Scaffold 3</strong></td>
+            <td><code>c1ccc(N2CCN(c3nc4ccccc4s3)CC2)cc1</code></td>
+            <td>0.61</td>
+            <td>0.82</td>
+            <td>0.68</td>
+            <td>0.059</td>
+            <td>Benzothiazole piperazine derivative</td>
+          </tr>
+          <tr>
+            <td><strong>Scaffold 4</strong></td>
+            <td><code>O=C(NC1CCCCC1)c1ccc(OC(=O)c2ccccc2)cc1</code></td>
+            <td>0.65</td>
+            <td>0.85</td>
+            <td>0.70</td>
+            <td>0.164</td>
+            <td>Ester-amide linked biphenyl surrogate</td>
+          </tr>
+          <tr>
+            <td><strong>Scaffold 5</strong></td>
+            <td><code>c1ccc(N2CCN(c3nc4ccccc4[nH]3)CC2)cc1</code></td>
+            <td>0.72</td>
+            <td>0.78</td>
+            <td>0.65</td>
+            <td>0.059</td>
+            <td>Benzimidazole piperazine derivative</td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
     <!-- Section 9: Graph-Transformer Conditioning Deep Dive -->
@@ -1151,7 +1410,7 @@ is_polyphenol = is_catechol or (num_phenolic_oh >= 4)</code></pre>
 
       <h3 class="sub-header">Multi-Head Attention Encoder-Decoder</h3>
       <p>
-        The Graph-Transformer architecture incorporates:
+        The Graph-Transformer architecture incorporates multi-head self-attention and cross-attention:
       </p>
       $$\text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \text{Softmax}\left( \frac{\mathbf{Q}\mathbf{K}^T}{\sqrt{d_k}} + \mathbf{M}_{\text{causal}} \right) \mathbf{V}$$
       <p>
@@ -1193,12 +1452,15 @@ is_polyphenol = is_catechol or (num_phenolic_oh >= 4)</code></pre>
       <p>
         In DrugEx's <code>FragGraphExplorer.sample_input</code>:
       </p>
-      <pre><code>encoded_pairs = torch.cat([batch for batch in loader], 0)
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>encoded_pairs = torch.cat([batch for batch in loader], 0)
 n_pairs = encoded_pairs.shape[0]                
 if n_pairs > n_samples:
     samples = encoded_pairs[torch.randint(n_pairs, (n_samples,))]
     loader = DataLoader(samples, batch_size=batch_size, ...)
 return loader</code></pre>
+      </div>
       <p>
         Notice that <code>sample_input</code> <em>only sub-samples if $n_{\text{pairs}} > n_{\text{samples}}$</em>. If we feed only the 5 unique scaffolds discovered in Stage 2, $n_{\text{pairs}} = 5 \le 200$. <strong>No expansion occurs!</strong>
       </p>
@@ -1217,11 +1479,14 @@ return loader</code></pre>
       <p>
         To restore training stability, <code>_prepare_seed_fragments</code> implements explicit statistical prompt expansion:
       </p>
-      <pre><code># Exact implementation in GraphTransformer.py
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code># Exact implementation in GraphTransformer.py
 n_repeats = max(1, n_prompts // len(std_scaffolds) + 1)
 expanded_prompts = (std_scaffolds * n_repeats)[:n_prompts]
 corpus_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
 seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
+      </div>
       <p>
         For $N_{\text{prompts}} = 200$ and 5 scaffolds, each scaffold is replicated exactly 40 times in a balanced, interleaved sequence.
       </p>
@@ -1315,7 +1580,9 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
       </p>
 
       <h3 class="sub-header">Active Runtime Probing Implementation</h3>
-      <pre><code>def get_safe_gpus():
+      <div class="code-container">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>def get_safe_gpus():
     if not torch.cuda.is_available():
         return tuple()
     try:
@@ -1326,6 +1593,7 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
     except Exception:
         # Graceful fallback to CPU tuple
         return tuple()</code></pre>
+      </div>
       <p>
         Rather than trusting static driver flags, <code>get_safe_gpus()</code> executes an active transactional probe by allocating and deallocating a 1-element tensor on <code>cuda:0</code> within a protected <code>try/except</code> block.
       </p>
@@ -1375,7 +1643,7 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
             <td>1.000</td>
             <td>0.150</td>
             <td>0.220</td>
-            <td>4.80</td>
+            <td>3.74</td>
             <td><span class="metric-badge badge-danger">0.0%</span></td>
           </tr>
           <tr>
@@ -1443,19 +1711,15 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
           <text x="135" y="135" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="end">MW Fit (450 &plusmn; 100)</text>
 
           <!-- Query Reference Polygon (Red dashed) -->
-          <!-- Vals: ROCS=1.0, RA=0.15, QED=0.22, SA_Ease=0.57, Nov=0.0, MW_fit=0.98 -->
           <polygon points="325,60 351,225 359,260 325,342 325,240 240,191" fill="rgba(239, 68, 68, 0.15)" stroke="#ef4444" stroke-width="2" stroke-dasharray="4" />
 
           <!-- Sequence-RNN Polygon (Blue) -->
-          <!-- Vals: ROCS=0.48, RA=0.46, QED=0.54, SA_Ease=0.68, Nov=0.88, MW_fit=0.85 -->
           <polygon points="325,153 404,194 418,294 325,362 173,328 253,198" fill="rgba(59, 130, 246, 0.2)" stroke="#3b82f6" stroke-width="2" />
 
           <!-- Graph-Transformer BRICS Polygon (Orange) -->
-          <!-- Vals: ROCS=0.72, RA=0.35, QED=0.38, SA_Ease=0.62, Nov=0.14, MW_fit=0.92 -->
           <polygon points="325,110 385,205 391,278 325,351 300,254 245,194" fill="rgba(245, 158, 11, 0.2)" stroke="#f59e0b" stroke-width="2" />
 
           <!-- Hybrid Funnel Polygon (Green - Optimal) -->
-          <!-- Vals: ROCS=0.68, RA=0.68, QED=0.67, SA_Ease=0.76, Nov=0.78, MW_fit=0.95 -->
           <polygon points="325,117 442,172 441,307 325,376 190,318 243,192" fill="rgba(16, 185, 129, 0.3)" stroke="#10b981" stroke-width="3" />
 
           <!-- Legend -->
@@ -1470,7 +1734,7 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
           <text x="65" y="99" font-size="10" font-weight="bold" fill="#047857">Hybrid Funnel (Ours)</text>
         </svg>
         <div class="diagram-caption">
-          Figure 2: Multi-Objective Radar Profile Comparison. The Hybrid Funnel (green) achieves a harmonious, high-performing balance across 3D shape, synthesizability, drug-likeness, and novelty.
+          Figure 4: Multi-Objective Radar Profile Comparison. The Hybrid Funnel (green) achieves a harmonious, high-performing balance across 3D shape, synthesizability, drug-likeness, and novelty.
         </div>
       </div>
 
@@ -1486,7 +1750,7 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
     <section id="defense-battlecard">
       <h2 class="section-header">14. Bachelor Thesis Defense Battle-Card: Anticipated Questions & Bulletproof Answers</h2>
       <p>
-        During your thesis defense, the committee will test your grasp of chemical theory, algorithmic choices, and engineering trade-offs. Below are 10 rigorous, high-yield questions with model defenses.
+        During your thesis defense, the committee will test your grasp of chemical theory, algorithmic choices, and engineering trade-offs. Below are 12 rigorous, high-yield questions with model defenses.
       </p>
 
       <div class="defense-qa-card">
@@ -1521,7 +1785,7 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
           <span>Q4:</span> "Why is RAscore superior to the standard Ertl SA score for natural product derivatives?"
         </div>
         <div class="defense-qa-answer">
-          <strong>Defense:</strong> "The classical Ertl SA score is a heuristic frequency counter that credits molecular fragments simply because they appear frequently in PubChem. Natural polyphenols appear millions of times, giving EGCG a deceivingly favorable SA score of 4.8 despite being a synthetic nightmare with 8 reactive hydroxyls. RAscore uses an XGBoost tree model trained on true retrosynthetic planning rollouts from AiZynthFinder over 25,000 reaction templates. RAscore accurately penalizes EGCG ($0.15$), guiding our generator toward genuinely synthesizable building blocks."
+          <strong>Defense:</strong> "The classical Ertl SA score is a heuristic frequency counter that credits molecular fragments simply because they appear frequently in PubChem. Natural polyphenols appear millions of times, giving EGCG a deceivingly favorable SA score of 3.74 despite being a synthetic nightmare with 8 reactive hydroxyls. RAscore uses an XGBoost tree model trained on true retrosynthetic planning rollouts from AiZynthFinder over 25,000 reaction templates. RAscore accurately penalizes EGCG ($0.15$), guiding our generator toward genuinely synthesizable building blocks."
         </div>
       </div>
 
@@ -1572,7 +1836,25 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
 
       <div class="defense-qa-card">
         <div class="defense-qa-question">
-          <span>Q10:</span> "What are the limitations of this work, and what is the next experimental step?"
+          <span>Q10:</span> "Why is the Bemis-Murcko framework extraction preferred over generic skeletons or Bemis-Murcko scaffolds with side chains?"
+        </div>
+        <div class="defense-qa-answer">
+          <strong>Defense:</strong> "Murcko frameworks retain explicit atom types and bond orders in rings and linkers while purging acyclic terminal side chains. Generic skeletons convert all atoms to carbon and all bonds to single bonds, which destroys heteroaromatic hydrogen bonding information vital for 3D ROCS overlay. Conversely, retaining side chains would over-constrain the Graph-Transformer, preventing de novo decoration of the novel core. Murcko frameworks strike the exact theoretical balance: preserving core topological orientation while exposing open valences for generative optimization."
+        </div>
+      </div>
+
+      <div class="defense-qa-card">
+        <div class="defense-qa-question">
+          <span>Q11:</span> "How does the active transactional GPU resolver prevent pipeline crashes in WSL2 and multi-GPU nodes?"
+        </div>
+        <div class="defense-qa-answer">
+          <strong>Defense:</strong> "In virtualized environments like WSL2, <code>torch.cuda.is_available()</code> often returns True even when the DirectX virtualization driver has desynchronized during sleep states, causing immediate crashes during memory allocation. Furthermore, on multi-GPU servers like <code>dichtator</code>, GPU 1 is in a driver error state. Rather than querying static driver metadata, our <code>get_safe_gpus()</code> performs an active transactional test: allocating and deallocating a 1-element CUDA tensor within a protected try/except block. If allocation fails, it safely falls back to CPU execution without interrupting the pipeline."
+        </div>
+      </div>
+
+      <div class="defense-qa-card">
+        <div class="defense-qa-question">
+          <span>Q12:</span> "What are the limitations of this work, and what is the next experimental step?"
         </div>
         <div class="defense-qa-answer">
           <strong>Defense:</strong> "The primary limitation is that 3D ROCS relies on an in silico bioactive conformer ensemble rather than an experimentally crystallized bound pose. While MMFF94 minimization within an 8 kcal/mol window captures accessible states, protein binding can stabilize higher-energy conformers. The definitive next step is wet-lab validation: taking the top 3 ranked Pareto lead compounds, performing de novo chemical synthesis via the AiZynthFinder-predicted routes, and measuring binding affinity in vitro via radioligand displacement assays and surface plasmon resonance (SPR)."
@@ -1665,7 +1947,26 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
   </main>
 
   <script>
-    // Simple smooth scrolling for sidebar links
+    // Copy code snippet to clipboard
+    function copyCode(btn) {
+      const codeBlock = btn.nextElementSibling.querySelector('code') || btn.nextElementSibling;
+      navigator.clipboard.writeText(codeBlock.innerText).then(() => {
+        btn.innerText = 'Copied!';
+        setTimeout(() => { btn.innerText = 'Copy'; }, 2000);
+      });
+    }
+
+    // Sidebar real-time search filter
+    function filterSidebar() {
+      const query = document.getElementById('sidebar-search').value.toLowerCase();
+      const links = document.querySelectorAll('#sidebar li');
+      links.forEach(li => {
+        const text = li.innerText.toLowerCase();
+        li.style.display = text.includes(query) ? '' : 'none';
+      });
+    }
+
+    // Smooth scrolling for sidebar navigation
     document.querySelectorAll('#sidebar a').forEach(anchor => {
       anchor.addEventListener('click', function (e) {
         e.preventDefault();
@@ -1682,13 +1983,13 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
       });
     });
 
-    // Update active link on scroll
+    // Update active sidebar link on scroll
     window.addEventListener('scroll', () => {
       const sections = document.querySelectorAll('section');
       let currentSectionId = '';
       sections.forEach(section => {
         const rect = section.getBoundingClientRect();
-        if (rect.top <= 120 && rect.bottom >= 120) {
+        if (rect.top <= 140 && rect.bottom >= 140) {
           currentSectionId = section.getAttribute('id');
         }
       });

@@ -20,14 +20,8 @@ import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-import drugex
-from drugex.data.corpus import vocabulary
-from drugex.training import generators
-
 from _david import prepare_query_conformer
-from _david import SequenceRNN
 from _david import scaffold_funnel
-from _david import GraphTransformer
 from _david import thesis_benchmark
 
 DEFAULT_MOLECULE = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
@@ -131,6 +125,10 @@ class MoleculePipeline:
             df_hits.to_csv(scored_tsv, sep="\t", index=False)
         else:
             # Full training execution via SequenceRNN RL
+            from drugex.data.corpus import vocabulary
+            from drugex.training import generators
+            from _david import SequenceRNN
+
             voc = vocabulary.VocSmiles.fromFile(self.PRETRAINED_RNN / "Papyrus05.5_smiles_rnn_PT.vocab")
             agent = generators.SequenceRNN(voc, is_lstm=True, use_gpus=SequenceRNN.GPUS)
             agent.loadStatesFromFile(self.PRETRAINED_RNN / "Papyrus05.5_smiles_rnn_PT.pkg")
@@ -174,6 +172,10 @@ class MoleculePipeline:
             df_leads.to_csv(leads_tsv, sep="\t", index=False)
         else:
             # Full training execution via GraphTransformer RL conditioned on funnel scaffolds
+            from drugex.data.corpus import vocabulary
+            from drugex.training import generators
+            from _david import GraphTransformer
+
             voc = vocabulary.VocGraph.fromFile(self.PRETRAINED_GRAPH / "Papyrus05.5_graph_trans_PT.vocab")
             agent = generators.GraphTransformer(voc, use_gpus=GraphTransformer.GPUS)
             agent.loadStatesFromFile(self.PRETRAINED_GRAPH / "Papyrus05.5_graph_trans_PT.pkg")
