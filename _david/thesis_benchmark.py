@@ -9,11 +9,28 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 from rdkit import Chem, DataStructs
+try:
+    import seaborn as sns
+except ImportError:
+    sns = None
 from rdkit.Chem import AllChem, Descriptors, Draw, QED
 from rdkit.Chem.Scaffolds import MurckoScaffold
-from sklearn.decomposition import PCA
+try:
+    from sklearn.decomposition import PCA
+except ImportError:
+    class PCA:
+        def __init__(self, n_components=2, random_state=42):
+            self.n_components = n_components
+            self.explained_variance_ratio_ = [0.5, 0.3]
+        def fit_transform(self, X):
+            X_centered = X - np.mean(X, axis=0)
+            u, s, vt = np.linalg.svd(X_centered, full_matrices=False)
+            explained_variance = (s ** 2) / max(1, (len(X) - 1))
+            total_var = explained_variance.sum()
+            if total_var > 0:
+                self.explained_variance_ratio_ = (explained_variance / total_var)[:self.n_components]
+            return u[:, :self.n_components] * s[:self.n_components]
 
 try:
     from drugex.training.scorers.sascorer import calculateScore as calculate_sa_score
@@ -434,43 +451,40 @@ class ThesisBenchmark:
         merged = pd.concat(combined_rows, ignore_index=True)
 
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        regimes = list(datasets.keys())
+        regime_labels = [r.replace(" (Pure RL)", "\n(Pure RL)").replace(" (BRICS Seed)", "\n(BRICS Seed)").replace(" (Two-Stage)", "\n(Two-Stage)") for r in regimes]
         palette = [COLOR_RNN, COLOR_GRAPH, COLOR_FUNNEL]
 
+        def draw_box(ax, col, title, ylabel, thresh, is_upper=False):
+            if sns is not None:
+                sns.boxplot(data=merged, x="Regime", y=col, hue="Regime", palette=palette, ax=ax, width=0.5, legend=False)
+            else:
+                data_list = [merged[merged["Regime"] == r][col].dropna().values for r in regimes]
+                bp = ax.boxplot(data_list, patch_artist=True, widths=0.5)
+                for patch, color in zip(bp['boxes'], palette):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.7)
+                ax.set_xticks(range(1, len(regimes) + 1))
+                ax.set_xticklabels(regime_labels)
+            if thresh is not None:
+                ax.axhline(thresh, color="red" if not is_upper else "gray", linestyle="--" if not is_upper else ":", alpha=0.7, label=f"Threshold ({thresh})")
+            ax.set_title(title, weight="bold")
+            ax.set_ylabel(ylabel)
+            ax.set_xlabel("")
+            ax.tick_params(axis="x", rotation=15)
+            ax.legend(loc="lower left" if not is_upper else "upper right")
+
         # 1. ROCS
-        sns.boxplot(data=merged, x="Regime", y="ROCS", hue="Regime", palette=palette, ax=axes[0, 0], width=0.5, legend=False)
-        axes[0, 0].axhline(ROCS_THRESHOLD, color="red", linestyle="--", alpha=0.7, label=f"Threshold ({ROCS_THRESHOLD})")
-        axes[0, 0].set_title("3D ROCS Shape & Color Similarity", weight="bold")
-        axes[0, 0].set_ylabel("TanimotoCombo (Normalized)")
-        axes[0, 0].set_xlabel("")
-        axes[0, 0].tick_params(axis="x", rotation=15)
-        axes[0, 0].legend(loc="lower left")
+        draw_box(axes[0, 0], "ROCS", "3D ROCS Shape & Color Similarity", "TanimotoCombo (Normalized)", ROCS_THRESHOLD)
 
         # 2. RAscore
-        sns.boxplot(data=merged, x="Regime", y="RAscore", hue="Regime", palette=palette, ax=axes[0, 1], width=0.5, legend=False)
-        axes[0, 1].axhline(RA_THRESHOLD, color="red", linestyle="--", alpha=0.7, label=f"Threshold ({RA_THRESHOLD})")
-        axes[0, 1].set_title("Retrosynthetic Accessibility (RAscore)", weight="bold")
-        axes[0, 1].set_ylabel("Probability of Synthesis")
-        axes[0, 1].set_xlabel("")
-        axes[0, 1].tick_params(axis="x", rotation=15)
-        axes[0, 1].legend(loc="lower left")
+        draw_box(axes[0, 1], "RAscore", "Retrosynthetic Accessibility (RAscore)", "Probability of Synthesis", RA_THRESHOLD)
 
         # 3. QED
-        sns.boxplot(data=merged, x="Regime", y="QED", hue="Regime", palette=palette, ax=axes[1, 0], width=0.5, legend=False)
-        axes[1, 0].axhline(QED_THRESHOLD, color="red", linestyle="--", alpha=0.7, label=f"Threshold ({QED_THRESHOLD})")
-        axes[1, 0].set_title("Drug-likeness (QED)", weight="bold")
-        axes[1, 0].set_ylabel("QED Score")
-        axes[1, 0].set_xlabel("")
-        axes[1, 0].tick_params(axis="x", rotation=15)
-        axes[1, 0].legend(loc="lower left")
+        draw_box(axes[1, 0], "QED", "Drug-likeness (QED)", "QED Score", QED_THRESHOLD)
 
         # 4. Tanimoto to Seed
-        sns.boxplot(data=merged, x="Regime", y="Tanimoto_to_Seed", hue="Regime", palette=palette, ax=axes[1, 1], width=0.5, legend=False)
-        axes[1, 1].axhline(0.40, color="gray", linestyle=":", alpha=0.7, label="Scaffold Hop Bound (0.4)")
-        axes[1, 1].set_title("ECFP4 Similarity to Query (Scaffold Novelty)", weight="bold")
-        axes[1, 1].set_ylabel("Tanimoto Similarity to Seed")
-        axes[1, 1].set_xlabel("")
-        axes[1, 1].tick_params(axis="x", rotation=15)
-        axes[1, 1].legend(loc="upper right")
+        draw_box(axes[1, 1], "Tanimoto_to_Seed", "ECFP4 Similarity to Query (Scaffold Novelty)", "Tanimoto Similarity to Seed", 0.40, is_upper=True)
 
         plt.tight_layout()
         out_path = self.BASE_OUTPUT_DIR / "thesis_score_distributions.png"

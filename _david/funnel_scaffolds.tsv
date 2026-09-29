@@ -1,0 +1,6 @@
+SMILES	Scaffold	ROCS	RAscore	QED	Is_Polyphenol	Seed_Similarity	Scaffold_ID
+CC1CCC2C(C1)C1CCC3C4(C)CCC(O)C(C)(C)C4CCC3(C)C1(C)CC2	C1CCC2C(C1)CCC1C2CCC2C3CCCCC3CCC21	0.45	0.6	0.4	False	0.037037037037037035	Funnel_Scaffold_1
+c1ccccc1NC(=O)c1ccc(cn1)C1CC1	O=C(Nc1ccccc1)c1ccc(C2CC2)cn1	0.58	0.88	0.75	False	0.13636363636363635	Funnel_Scaffold_2
+c1ccc2c(c1)nc(s2)N1CCN(CC1)c1ccccc1	c1ccc(N2CCN(c3nc4ccccc4s3)CC2)cc1	0.61	0.82	0.68	False	0.058823529411764705	Funnel_Scaffold_3
+O=C(Oc1ccc(cc1)C(=O)NC1CCCCC1)c1ccccc1	O=C(NC1CCCCC1)c1ccc(OC(=O)c2ccccc2)cc1	0.65	0.85	0.7	False	0.16417910447761194	Funnel_Scaffold_4
+Cc1ccc(cc1)N1CCN(CC1)c1nc2ccccc2n1C	c1ccc(N2CCN(c3nc4ccccc4[nH]3)CC2)cc1	0.72	0.78	0.65	False	0.058823529411764705	Funnel_Scaffold_5
