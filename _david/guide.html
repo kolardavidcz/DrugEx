@@ -446,9 +446,9 @@
 
     .diagram-caption {
       margin-top: 1rem;
-      font-size: 0.86rem;
-      color: var(--text-muted);
-      font-style: italic;
+      font-size: 0.95rem;
+      color: #475569;
+      font-weight: 500;
       text-align: center;
     }
 
@@ -504,33 +504,252 @@
       line-height: 1.68;
     }
 
-    /* Print Stylesheet */
+    /* ==========================================================================
+       PRINT STYLESHEET (OPTIMIZED FOR CTRL+P / PDF MONOGRAPH GENERATION)
+       ========================================================================== */
+    @page {
+      size: A4 portrait;
+      margin: 16mm 14mm 18mm 14mm;
+    }
+
     @media print {
-      body {
-        background-color: #ffffff;
-        color: #000000;
+      /* Reset layout containers from flexbox to natural block flow */
+      html, body {
+        display: block !important;
+        background: #ffffff !important;
+        color: #0f172a !important;
+        font-size: 10pt !important;
+        line-height: 1.55 !important;
+        min-height: auto !important;
+        height: auto !important;
+        overflow: visible !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
-      #sidebar {
-        display: none;
+
+      /* Hide interactive navigation, search bar, and copy buttons */
+      #sidebar,
+      #sidebar-search,
+      .copy-btn,
+      .nav-section-title {
+        display: none !important;
+        visibility: hidden !important;
       }
+
+      /* Unconstrain content area to full page width */
       #content {
-        margin-left: 0;
-        padding: 0;
-        max-width: 100%;
+        margin: 0 !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
       }
+
+      /* Eliminate page-break bugs on sections: Allow natural page splitting */
       section {
-        border: none;
-        box-shadow: none;
-        padding: 1.5rem 0;
-        page-break-inside: avoid;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        padding: 8pt 0 !important;
+        margin: 0 0 16pt 0 !important;
+        page-break-inside: auto !important;
+        break-inside: auto !important;
       }
+
+      /* Prevent headings from being orphaned at the bottom of a page */
+      h1, h2, h3, h4, .section-header, .sub-header {
+        page-break-after: avoid !important;
+        break-after: avoid-page !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-top: 14pt !important;
+        margin-bottom: 6pt !important;
+      }
+
+      .section-header {
+        border-bottom: 1.5pt solid #cbd5e1 !important;
+        padding-bottom: 4pt !important;
+      }
+
+      /* Paragraph and list item orphan/widow protection */
+      p, li {
+        orphans: 3 !important;
+        widows: 3 !important;
+        margin-bottom: 6pt !important;
+        color: #1e293b !important;
+      }
+
+      ul, ol {
+        margin-bottom: 8pt !important;
+        padding-left: 16pt !important;
+      }
+
+      /* Keep callouts, defense Q&A cards, and diagrams intact on a single page */
+      .callout,
+      .defense-card,
+      .diagram-container,
+      figure {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        box-shadow: none !important;
+        margin: 10pt 0 !important;
+        border-radius: 6pt !important;
+      }
+
+      .callout {
+        padding: 8pt 12pt !important;
+        border-left-width: 4pt !important;
+      }
+
+      .callout p {
+        margin-bottom: 4pt !important;
+      }
+
+      /* Hero Header Banner */
+      .hero-banner {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        background: #0f172a !important;
+        color: #ffffff !important;
+        padding: 16pt 20pt !important;
+        margin-bottom: 18pt !important;
+        border-radius: 8pt !important;
+        border: 1pt solid #334155 !important;
+        box-shadow: none !important;
+      }
+
+      .hero-banner h1 {
+        font-size: 18pt !important;
+        color: #ffffff !important;
+        margin-bottom: 6pt !important;
+      }
+
+      .hero-banner .lead {
+        font-size: 10pt !important;
+        color: #cbd5e1 !important;
+      }
+
+      .hero-meta {
+        font-size: 8.5pt !important;
+        margin-top: 10pt !important;
+        padding-top: 8pt !important;
+        gap: 12pt !important;
+      }
+
+      /* Tables: Repeat header across page boundaries and avoid row slicing */
+      table {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        width: 100% !important;
+        font-size: 8.5pt !important;
+        margin: 10pt 0 !important;
+        border-collapse: collapse !important;
+      }
+
+      thead {
+        display: table-header-group !important;
+      }
+
+      tfoot {
+        display: table-footer-group !important;
+      }
+
+      tr {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+
+      th, td {
+        padding: 4.5pt 6pt !important;
+        border-bottom: 1pt solid #cbd5e1 !important;
+      }
+
+      th {
+        background-color: #f1f5f9 !important;
+        color: #0f172a !important;
+        font-size: 7.5pt !important;
+        font-weight: 700 !important;
+      }
+
+      /* Code Blocks: Format cleanly with wrapping so code doesn't get clipped horizontally */
+      .code-container {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        margin: 8pt 0 !important;
+      }
+
       pre {
-        border: 1px solid #ccc;
-        background-color: #f5f5f5;
-        color: #000;
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        word-break: break-all !important;
+        font-size: 7.5pt !important;
+        line-height: 1.35 !important;
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
+        border: 1pt solid #cbd5e1 !important;
+        padding: 6pt 8pt !important;
+        border-radius: 4pt !important;
       }
-      .copy-btn {
-        display: none;
+
+      code {
+        font-size: 8pt !important;
+        background-color: #f1f5f9 !important;
+        color: #0f172a !important;
+        padding: 0.1rem 0.25rem !important;
+      }
+
+      pre code {
+        background-color: transparent !important;
+        padding: 0 !important;
+      }
+
+      /* SVG Diagrams & Radar Charts: Scale to 100% width cleanly */
+      svg {
+        max-width: 100% !important;
+        height: auto !important;
+      }
+
+      .diagram-container {
+        padding: 10pt !important;
+        background: #ffffff !important;
+        border: 1pt solid #e2e8f0 !important;
+      }
+
+      .diagram-caption {
+        font-size: 8pt !important;
+        margin-top: 6pt !important;
+        color: #475569 !important;
+      }
+
+      /* Defense Q&A Cards */
+      .defense-card {
+        padding: 10pt 12pt !important;
+        margin-bottom: 8pt !important;
+        background-color: #faf5ff !important;
+        border: 1pt solid #d8b4fe !important;
+      }
+
+      .defense-qa-title {
+        font-size: 9.5pt !important;
+        margin-bottom: 4pt !important;
+      }
+
+      .defense-qa-answer {
+        font-size: 8.5pt !important;
+        line-height: 1.45 !important;
+      }
+
+      /* Links */
+      a {
+        color: #1e3a8a !important;
+        text-decoration: none !important;
+      }
+
+      /* Badges */
+      .metric-badge {
+        padding: 1pt 4pt !important;
+        font-size: 7.5pt !important;
       }
     }
   </style>
@@ -609,8 +828,16 @@
 
       <!-- High Level Funnel SVG Architecture Diagram -->
       <div class="diagram-container">
-        <svg viewBox="0 0 950 360" width="100%" height="320" xmlns="http://www.w3.org/2000/svg">
+        <svg viewBox="0 0 1060 440" width="100%" height="auto" style="max-height: 420px;" xmlns="http://www.w3.org/2000/svg">
           <defs>
+            <style>
+              .f1-card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 15.5px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
+              .f1-card-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12.5px; font-weight: 600; text-anchor: middle; }
+              .f1-body-bold { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13.5px; font-weight: 700; fill: #1e293b; text-anchor: middle; }
+              .f1-body-item { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12.5px; font-weight: 500; fill: #475569; text-anchor: middle; }
+              .f1-badge-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; text-anchor: middle; }
+              .f1-badge-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 600; text-anchor: middle; }
+            </style>
             <linearGradient id="gradRef" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stop-color="#ef4444" />
               <stop offset="100%" stop-color="#991b1b" />
@@ -637,76 +864,87 @@
           </defs>
 
           <!-- Stage 0 -->
-          <rect x="20" y="40" width="150" height="260" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
-          <rect x="30" y="55" width="130" height="50" rx="6" fill="url(#gradRef)" />
-          <text x="95" y="80" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">Stage 0: 3D Query</text>
-          <text x="95" y="95" fill="#fecaca" font-size="10" text-anchor="middle">ETKDGv3 + MMFF94</text>
-          <text x="95" y="140" fill="#334155" font-size="11" text-anchor="middle">Seed: EGCG</text>
-          <text x="95" y="160" fill="#64748b" font-size="10" text-anchor="middle">30 Conformers</text>
-          <text x="95" y="180" fill="#64748b" font-size="10" text-anchor="middle">RMSD &lt; 0.5 Å Prune</text>
-          <text x="95" y="200" fill="#64748b" font-size="10" text-anchor="middle">&Delta;E &le; 8 kcal/mol</text>
-          <rect x="35" y="235" width="120" height="45" rx="4" fill="#fee2e2" stroke="#f87171" />
-          <text x="95" y="253" fill="#991b1b" font-size="10" font-weight="bold" text-anchor="middle">Pure LBDD Anchor</text>
-          <text x="95" y="268" fill="#7f1d1d" font-size="9" text-anchor="middle">Zero Docking / Zero Receptor</text>
+          <rect x="20" y="35" width="185" height="385" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+          <rect x="30" y="47" width="165" height="58" rx="7" fill="url(#gradRef)" />
+          <text x="112" y="73" class="f1-card-title">Stage 0: 3D Query</text>
+          <text x="112" y="93" class="f1-card-sub" fill="#fecaca">ETKDGv3 + MMFF94</text>
+          <text x="112" y="142" class="f1-body-bold">Seed: EGCG Derivative</text>
+          <text x="112" y="170" class="f1-body-item">30 Diverse Conformers</text>
+          <text x="112" y="196" class="f1-body-item">RMSD &lt; 0.5 Å Pruned</text>
+          <text x="112" y="222" class="f1-body-item">&Delta;E &le; 8.0 kcal/mol Cutoff</text>
+          <text x="112" y="248" class="f1-body-item">Boltzmann-Filtered</text>
+          <text x="112" y="274" class="f1-body-item">Rigid-Body 3D Envelope</text>
+          <rect x="30" y="318" width="165" height="66" rx="6" fill="#fee2e2" stroke="#f87171" stroke-width="1.5" />
+          <text x="112" y="344" class="f1-badge-title" fill="#991b1b">Pure LBDD Anchor</text>
+          <text x="112" y="366" class="f1-badge-sub" fill="#7f1d1d">Zero Receptor / Zero Docking</text>
 
-          <line x1="170" y1="170" x2="205" y2="170" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+          <line x1="207" y1="225" x2="228" y2="225" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
 
           <!-- Stage 1 -->
-          <rect x="210" y="40" width="150" height="260" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
-          <rect x="220" y="55" width="130" height="50" rx="6" fill="url(#gradRnn)" />
-          <text x="285" y="80" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">Stage 1: Exploration</text>
-          <text x="285" y="95" fill="#bfdbfe" font-size="10" text-anchor="middle">Sequence-RNN (SMILES)</text>
-          <text x="285" y="140" fill="#334155" font-size="11" text-anchor="middle">Global Hit Discovery</text>
-          <text x="285" y="160" fill="#64748b" font-size="10" text-anchor="middle">Broad Chem. Space</text>
-          <text x="285" y="180" fill="#64748b" font-size="10" text-anchor="middle">Soft RL (ROCS + RA)</text>
-          <rect x="225" y="235" width="120" height="45" rx="4" fill="#dbeafe" stroke="#60a5fa" />
-          <text x="285" y="253" fill="#1e40af" font-size="10" font-weight="bold" text-anchor="middle">Raw Candidate Pool</text>
-          <text x="285" y="268" fill="#1e3a8a" font-size="9" text-anchor="middle">N = 200 - 1,000 Hits</text>
+          <rect x="232" y="35" width="185" height="385" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+          <rect x="242" y="47" width="165" height="58" rx="7" fill="url(#gradRnn)" />
+          <text x="324" y="73" class="f1-card-title">Stage 1: Exploration</text>
+          <text x="324" y="93" class="f1-card-sub" fill="#bfdbfe">Sequence-RNN (SMILES)</text>
+          <text x="324" y="142" class="f1-body-bold">Global Hit Discovery</text>
+          <text x="324" y="170" class="f1-body-item">Unconstrained Sampling</text>
+          <text x="324" y="196" class="f1-body-item">Generates from pure &lt;BOS&gt;</text>
+          <text x="324" y="222" class="f1-body-item">Broad Diversity Search</text>
+          <text x="324" y="248" class="f1-body-item">Soft Multi-Objective RL</text>
+          <text x="324" y="274" class="f1-body-item">3D ROCS + RAscore Driven</text>
+          <rect x="242" y="318" width="165" height="66" rx="6" fill="#dbeafe" stroke="#60a5fa" stroke-width="1.5" />
+          <text x="324" y="344" class="f1-badge-title" fill="#1e40af">Raw Candidate Pool</text>
+          <text x="324" y="366" class="f1-badge-sub" fill="#1e3a8a">N = 200 - 1,000 Diverse Hits</text>
 
-          <line x1="360" y1="170" x2="395" y2="170" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+          <line x1="419" y1="225" x2="440" y2="225" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
 
           <!-- Stage 2 -->
-          <rect x="400" y="40" width="155" height="260" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
-          <rect x="410" y="55" width="135" height="50" rx="6" fill="url(#gradFunnel)" />
-          <text x="477" y="80" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">Stage 2: Funnel</text>
-          <text x="477" y="95" fill="#fef3c7" font-size="10" text-anchor="middle">Bemis-Murcko + Butina</text>
-          <text x="477" y="135" fill="#334155" font-size="11" text-anchor="middle">Catechol Sanitization</text>
-          <text x="477" y="152" fill="#64748b" font-size="10" text-anchor="middle">Purge &ge; 4 Phenolic OH</text>
-          <text x="477" y="170" fill="#64748b" font-size="10" text-anchor="middle">Seed Sim &le; 0.60 Filter</text>
-          <text x="477" y="188" fill="#64748b" font-size="10" text-anchor="middle">Butina Cluster (&theta;=0.40)</text>
-          <rect x="415" y="235" width="125" height="45" rx="4" fill="#fef3c7" stroke="#f59e0b" />
-          <text x="477" y="253" fill="#b45309" font-size="10" font-weight="bold" text-anchor="middle">5 Diverse Scaffolds</text>
-          <text x="477" y="268" fill="#92400e" font-size="9" text-anchor="middle">Pure Non-Polyphenols</text>
+          <rect x="444" y="35" width="185" height="385" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+          <rect x="454" y="47" width="165" height="58" rx="7" fill="url(#gradFunnel)" />
+          <text x="536" y="73" class="f1-card-title">Stage 2: Funnel</text>
+          <text x="536" y="93" class="f1-card-sub" fill="#fef3c7">Bemis-Murcko + Butina</text>
+          <text x="536" y="142" class="f1-body-bold">Catechol Sanitization</text>
+          <text x="536" y="170" class="f1-body-item">Purge &ge; 4 Phenolic -OH</text>
+          <text x="536" y="196" class="f1-body-item">Murcko Ring Extraction</text>
+          <text x="536" y="222" class="f1-body-item">Seed Sim &le; 0.60 Filter</text>
+          <text x="536" y="248" class="f1-body-item">Morgan FP Taylor-Butina</text>
+          <text x="536" y="274" class="f1-body-item">Cluster Cutoff &theta; = 0.40</text>
+          <rect x="454" y="318" width="165" height="66" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.5" />
+          <text x="536" y="344" class="f1-badge-title" fill="#b45309">5 Lead Centroids</text>
+          <text x="536" y="366" class="f1-badge-sub" fill="#92400e">Purified Non-Polyphenols</text>
 
-          <line x1="555" y1="170" x2="590" y2="170" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+          <line x1="631" y1="225" x2="652" y2="225" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
 
           <!-- Stage 3 -->
-          <rect x="595" y="40" width="160" height="260" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
-          <rect x="605" y="55" width="140" height="50" rx="6" fill="url(#gradGraph)" />
-          <text x="675" y="80" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">Stage 3: Optimization</text>
-          <text x="675" y="95" fill="#a7f3d0" font-size="10" text-anchor="middle">Graph-Transformer</text>
-          <text x="675" y="135" fill="#334155" font-size="11" text-anchor="middle">Scaffold Conditioning</text>
-          <text x="675" y="152" fill="#64748b" font-size="10" text-anchor="middle">Prompt Expansion (N=200)</text>
-          <text x="675" y="170" fill="#64748b" font-size="10" text-anchor="middle">Variance Stabilization</text>
-          <text x="675" y="188" fill="#64748b" font-size="10" text-anchor="middle">Substituent Elaboration</text>
-          <rect x="610" y="235" width="130" height="45" rx="4" fill="#d1fae5" stroke="#10b981" />
-          <text x="675" y="253" fill="#047857" font-size="10" font-weight="bold" text-anchor="middle">Constrained Graphs</text>
-          <text x="675" y="268" fill="#065f46" font-size="9" text-anchor="middle">Preserves Core Integrity</text>
+          <rect x="656" y="35" width="185" height="385" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+          <rect x="666" y="47" width="165" height="58" rx="7" fill="url(#gradGraph)" />
+          <text x="748" y="73" class="f1-card-title">Stage 3: Optimization</text>
+          <text x="748" y="93" class="f1-card-sub" fill="#a7f3d0">Graph-Transformer</text>
+          <text x="748" y="142" class="f1-body-bold">Scaffold Conditioning</text>
+          <text x="748" y="170" class="f1-body-item">Graph Encoder-Decoder</text>
+          <text x="748" y="196" class="f1-body-item">Prompt Expansion (N=200)</text>
+          <text x="748" y="222" class="f1-body-item">Gradient Variance Solved</text>
+          <text x="748" y="248" class="f1-body-item">Rigid Core Retention</text>
+          <text x="748" y="274" class="f1-body-item">Focused R-Group Elaboration</text>
+          <rect x="666" y="318" width="165" height="66" rx="6" fill="#d1fae5" stroke="#10b981" stroke-width="1.5" />
+          <text x="748" y="344" class="f1-badge-title" fill="#047857">Focused Lead Series</text>
+          <text x="748" y="366" class="f1-badge-sub" fill="#065f46">Core Frameworks Preserved</text>
 
-          <line x1="755" y1="170" x2="785" y2="170" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+          <line x1="843" y1="225" x2="864" y2="225" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
 
           <!-- Stage 4 -->
-          <rect x="790" y="40" width="145" height="260" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
-          <rect x="800" y="55" width="125" height="50" rx="6" fill="url(#gradPareto)" />
-          <text x="862" y="80" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">Stage 4: Pareto</text>
-          <text x="862" y="95" fill="#e9d5ff" font-size="10" text-anchor="middle">ParetoTanimotoDistance</text>
-          <text x="862" y="135" fill="#334155" font-size="11" text-anchor="middle">Non-Dominated Sort</text>
-          <text x="862" y="152" fill="#64748b" font-size="10" text-anchor="middle">ECFP6 Mutual Crowd</text>
-          <text x="862" y="170" fill="#64748b" font-size="10" text-anchor="middle">3D ROCS + RAscore</text>
-          <text x="862" y="188" fill="#64748b" font-size="10" text-anchor="middle">QED + SA Penalties</text>
-          <rect x="805" y="235" width="115" height="45" rx="4" fill="#f3e8ff" stroke="#8b5cf6" />
-          <text x="862" y="253" fill="#6d28d9" font-size="10" font-weight="bold" text-anchor="middle">Optimized Leads</text>
-          <text x="862" y="268" fill="#5b21b6" font-size="9" text-anchor="middle">Desired Ratio &gt; 65%</text>
+          <rect x="868" y="35" width="172" height="385" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+          <rect x="876" y="47" width="156" height="58" rx="7" fill="url(#gradPareto)" />
+          <text x="954" y="73" class="f1-card-title">Stage 4: Pareto</text>
+          <text x="954" y="93" class="f1-card-sub" fill="#e9d5ff">Multi-Objective Sort</text>
+          <text x="954" y="142" class="f1-body-bold">Non-Dominated Sort</text>
+          <text x="954" y="170" class="f1-body-item">ParetoTanimotoDistance</text>
+          <text x="954" y="196" class="f1-body-item">Mutual Crowd Pruning</text>
+          <text x="954" y="222" class="f1-body-item">3D ROCS + RAscore Top</text>
+          <text x="954" y="248" class="f1-body-item">QED &gt; 0.65, SA &lt; 3.0</text>
+          <text x="954" y="274" class="f1-body-item">Zero PAINS Liabilities</text>
+          <rect x="876" y="318" width="156" height="66" rx="6" fill="#f3e8ff" stroke="#8b5cf6" stroke-width="1.5" />
+          <text x="954" y="344" class="f1-badge-title" fill="#6d28d9">Optimized Leads</text>
+          <text x="954" y="366" class="f1-badge-sub" fill="#5b21b6">Desired Ratio &gt; 65%</text>
         </svg>
         <div class="diagram-caption">
           Figure 1: The End-to-End Two-Stage Funnel Architecture. Seamlessly bridging unconstrained 1D sequence exploration and graph-constrained 2D/3D lead optimization.
@@ -753,50 +991,58 @@ my_molecule = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=C
 
       <!-- Chemical Scheme SVG: Catechol Redox Mechanism -->
       <div class="diagram-container">
-        <svg viewBox="0 0 850 220" width="100%" height="200" xmlns="http://www.w3.org/2000/svg">
+        <svg viewBox="0 0 940 260" width="100%" height="auto" style="max-height: 240px;" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <style>
+              .f2-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 15.5px; font-weight: 700; text-anchor: middle; }
+              .f2-chem { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14.5px; font-weight: 700; }
+              .f2-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12.5px; font-weight: 600; text-anchor: middle; }
+              .f2-arrow { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 11.5px; font-weight: 600; fill: #475569; text-anchor: middle; }
+            </style>
+          </defs>
           <!-- Background -->
-          <rect x="0" y="0" width="850" height="220" rx="8" fill="#ffffff" />
+          <rect x="0" y="0" width="940" height="260" rx="8" fill="#ffffff" />
           
           <!-- Box 1: Catechol -->
-          <rect x="30" y="30" width="190" height="150" rx="8" fill="#fef2f2" stroke="#ef4444" stroke-width="1.5" />
-          <text x="125" y="55" fill="#991b1b" font-size="13" font-weight="bold" text-anchor="middle">Catechol / Pyrogallol</text>
+          <rect x="25" y="25" width="260" height="205" rx="8" fill="#fef2f2" stroke="#ef4444" stroke-width="2" />
+          <text x="155" y="55" class="f2-title" fill="#991b1b">Catechol / Pyrogallol</text>
           <!-- Benzene ring with 2 OH -->
-          <polygon points="125,75 155,92 155,127 125,145 95,127 95,92" fill="none" stroke="#b91c1c" stroke-width="2" />
-          <line x1="155" y1="92" x2="185" y2="75" stroke="#b91c1c" stroke-width="2" />
-          <text x="195" y="78" fill="#b91c1c" font-size="12" font-weight="bold">OH</text>
-          <line x1="155" y1="127" x2="185" y2="145" stroke="#b91c1c" stroke-width="2" />
-          <text x="195" y="150" fill="#b91c1c" font-size="12" font-weight="bold">OH</text>
-          <text x="125" y="170" fill="#7f1d1d" font-size="10" text-anchor="middle">EGCG Polyphenolic Core</text>
+          <polygon points="155,75 190,95 190,135 155,155 120,135 120,95" fill="none" stroke="#b91c1c" stroke-width="2.5" />
+          <line x1="190" y1="95" x2="225" y2="75" stroke="#b91c1c" stroke-width="2.5" />
+          <text x="232" y="78" class="f2-chem" fill="#b91c1c">OH</text>
+          <line x1="190" y1="135" x2="225" y2="155" stroke="#b91c1c" stroke-width="2.5" />
+          <text x="232" y="160" class="f2-chem" fill="#b91c1c">OH</text>
+          <text x="155" y="195" class="f2-sub" fill="#7f1d1d">EGCG Polyphenolic Core</text>
 
           <!-- Arrow 1 -->
-          <path d="M 230 105 L 290 105" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
-          <text x="260" y="95" fill="#64748b" font-size="10" text-anchor="middle">- e&minus;, - H&plus;</text>
+          <path d="M 295 125 L 335 125" stroke="#64748b" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="315" y="112" class="f2-arrow">- e&minus;, - H&plus;</text>
 
           <!-- Box 2: Semiquinone Radical -->
-          <rect x="305" y="30" width="200" height="150" rx="8" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5" />
-          <text x="405" y="55" fill="#92400e" font-size="13" font-weight="bold" text-anchor="middle">Semiquinone Radical</text>
-          <polygon points="405,75 435,92 435,127 405,145 375,127 375,92" fill="none" stroke="#d97706" stroke-width="2" />
-          <line x1="435" y1="92" x2="465" y2="75" stroke="#d97706" stroke-width="2" />
-          <text x="475" y="78" fill="#d97706" font-size="12" font-weight="bold">O&bull;</text>
-          <line x1="435" y1="127" x2="465" y2="145" stroke="#d97706" stroke-width="2" />
-          <text x="475" y="150" fill="#d97706" font-size="12" font-weight="bold">OH</text>
-          <text x="405" y="170" fill="#b45309" font-size="10" text-anchor="middle">ROS Generation (O2&bull;&minus;)</text>
+          <rect x="345" y="25" width="260" height="205" rx="8" fill="#fffbeb" stroke="#f59e0b" stroke-width="2" />
+          <text x="475" y="55" class="f2-title" fill="#92400e">Semiquinone Radical</text>
+          <polygon points="475,75 510,95 510,135 475,155 440,135 440,95" fill="none" stroke="#d97706" stroke-width="2.5" />
+          <line x1="510" y1="95" x2="545" y2="75" stroke="#d97706" stroke-width="2.5" />
+          <text x="552" y="78" class="f2-chem" fill="#d97706">O&bull;</text>
+          <line x1="510" y1="135" x2="545" y2="155" stroke="#d97706" stroke-width="2.5" />
+          <text x="552" y="160" class="f2-chem" fill="#d97706">OH</text>
+          <text x="475" y="195" class="f2-sub" fill="#b45309">ROS Generation (O2&bull;&minus;)</text>
 
           <!-- Arrow 2 -->
-          <path d="M 515 105 L 575 105" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
-          <text x="545" y="95" fill="#64748b" font-size="10" text-anchor="middle">- e&minus;, - H&plus;</text>
+          <path d="M 615 125 L 655 125" stroke="#64748b" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="635" y="112" class="f2-arrow">- e&minus;, - H&plus;</text>
 
           <!-- Box 3: Ortho-Quinone -->
-          <rect x="590" y="30" width="230" height="150" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5" />
-          <text x="705" y="55" fill="#991b1b" font-size="13" font-weight="bold" text-anchor="middle">Reactive ortho-Quinone</text>
-          <polygon points="705,75 735,92 735,127 705,145 675,127 675,92" fill="none" stroke="#dc2626" stroke-width="2" />
-          <line x1="735" y1="90" x2="765" y2="73" stroke="#dc2626" stroke-width="2" />
-          <line x1="732" y1="95" x2="762" y2="78" stroke="#dc2626" stroke-width="2" />
-          <text x="772" y="78" fill="#dc2626" font-size="12" font-weight="bold">=O</text>
-          <line x1="735" y1="129" x2="765" y2="146" stroke="#dc2626" stroke-width="2" />
-          <line x1="732" y1="124" x2="762" y2="141" stroke="#dc2626" stroke-width="2" />
-          <text x="772" y="150" fill="#dc2626" font-size="12" font-weight="bold">=O</text>
-          <text x="705" y="170" fill="#b91c1c" font-size="10" font-weight="bold" text-anchor="middle">+ Protein-SH &rarr; Covalent PAINS</text>
+          <rect x="665" y="25" width="250" height="205" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="2" />
+          <text x="790" y="55" class="f2-title" fill="#991b1b">Reactive ortho-Quinone</text>
+          <polygon points="790,75 825,95 825,135 790,155 755,135 755,95" fill="none" stroke="#dc2626" stroke-width="2.5" />
+          <line x1="825" y1="93" x2="860" y2="73" stroke="#dc2626" stroke-width="2.5" />
+          <line x1="822" y1="98" x2="857" y2="78" stroke="#dc2626" stroke-width="2.5" />
+          <text x="866" y="78" class="f2-chem" fill="#dc2626">=O</text>
+          <line x1="825" y1="137" x2="860" y2="157" stroke="#dc2626" stroke-width="2.5" />
+          <line x1="822" y1="132" x2="857" y2="152" stroke="#dc2626" stroke-width="2.5" />
+          <text x="866" y="160" class="f2-chem" fill="#dc2626">=O</text>
+          <text x="790" y="195" class="f2-sub" fill="#991b1b">+ Protein-SH &rarr; Covalent PAINS</text>
         </svg>
         <div class="diagram-caption">
           Figure 2: The Biochemical Redox Cascade of the "Polyphenol Trap". Spontaneous oxidation converts catechols into electrophilic ortho-quinones that covalently adduct protein nucleophiles and produce cytotoxic reactive oxygen species (ROS).
@@ -1153,48 +1399,57 @@ MAX_ENERGY_DELTA = 8.0    # 8.0 kcal/mol thermodynamic window</code></pre>
 
       <!-- Diagram SVG: Inertial Frame & 4 Sign Flips -->
       <div class="diagram-container">
-        <svg viewBox="0 0 850 260" width="100%" height="240" xmlns="http://www.w3.org/2000/svg">
-          <rect x="0" y="0" width="850" height="260" rx="8" fill="#ffffff" />
+        <svg viewBox="0 0 940 280" width="100%" height="auto" style="max-height: 260px;" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <style>
+              .f3-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 15.5px; font-weight: 700; text-anchor: middle; }
+              .f3-axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13.5px; font-weight: 700; }
+              .f3-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12.5px; font-weight: 600; text-anchor: middle; }
+              .f3-item { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12.5px; font-weight: 500; fill: #334155; }
+              .f3-arrow { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 11.5px; font-weight: 600; fill: #475569; text-anchor: middle; }
+            </style>
+          </defs>
+          <rect x="0" y="0" width="940" height="280" rx="8" fill="#ffffff" />
           
           <!-- Box 1: Arbitrary Pose -->
-          <rect x="20" y="30" width="220" height="200" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5" />
-          <text x="130" y="55" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="middle">1. Arbitrary Input Pose</text>
+          <rect x="25" y="25" width="260" height="225" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+          <text x="155" y="55" class="f3-title" fill="#1e293b">1. Arbitrary Input Pose</text>
           <!-- Coordinate system angled -->
-          <line x1="130" y1="130" x2="190" y2="100" stroke="#ef4444" stroke-width="2" marker-end="url(#arrow)" />
-          <line x1="130" y1="130" x2="80" y2="100" stroke="#10b981" stroke-width="2" marker-end="url(#arrow)" />
-          <line x1="130" y1="130" x2="140" y2="190" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)" />
-          <text x="130" y="215" fill="#dc2626" font-size="10" text-anchor="middle">&sigma; = 0.056 (Non-Deterministic)</text>
+          <line x1="155" y1="135" x2="225" y2="100" stroke="#ef4444" stroke-width="2.5" marker-end="url(#arrow)" />
+          <line x1="155" y1="135" x2="95" y2="100" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrow)" />
+          <line x1="155" y1="135" x2="165" y2="200" stroke="#3b82f6" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="155" y="228" class="f3-sub" fill="#dc2626">&sigma; = 0.056 (Non-Deterministic)</text>
 
           <!-- Arrow 1 -->
-          <path d="M 250 130 L 290 130" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
-          <text x="270" y="120" fill="#64748b" font-size="9" text-anchor="middle">Diag(I)</text>
+          <path d="M 295 135 L 335 135" stroke="#64748b" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="315" y="122" class="f3-arrow">Diag(I)</text>
 
           <!-- Box 2: Canonical Frame -->
-          <rect x="300" y="30" width="230" height="200" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5" />
-          <text x="415" y="55" fill="#1e40af" font-size="12" font-weight="bold" text-anchor="middle">2. Principal Inertial Frame</text>
+          <rect x="345" y="25" width="260" height="225" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="2" />
+          <text x="475" y="55" class="f3-title" fill="#1e40af">2. Principal Inertial Frame</text>
           <!-- Coordinate system orthogonal -->
-          <line x1="415" y1="130" x2="495" y2="130" stroke="#ef4444" stroke-width="2" marker-end="url(#arrow)" />
-          <text x="500" y="134" fill="#ef4444" font-size="10">X</text>
-          <line x1="415" y1="130" x2="415" y2="65" stroke="#10b981" stroke-width="2" marker-end="url(#arrow)" />
-          <text x="415" y="60" fill="#10b981" font-size="10" text-anchor="middle">Y</text>
-          <line x1="415" y1="130" x2="365" y2="175" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)" />
-          <text x="355" y="185" fill="#3b82f6" font-size="10">Z</text>
-          <text x="415" y="215" fill="#1d4ed8" font-size="10" text-anchor="middle">Canonical Axes Aligned</text>
+          <line x1="475" y1="135" x2="565" y2="135" stroke="#ef4444" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="572" y="140" class="f3-axis" fill="#ef4444">X</text>
+          <line x1="475" y1="135" x2="475" y2="65" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="475" y="58" class="f3-axis" fill="#10b981" text-anchor="middle">Y</text>
+          <line x1="475" y1="135" x2="420" y2="185" stroke="#3b82f6" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="410" y="195" class="f3-axis" fill="#3b82f6">Z</text>
+          <text x="475" y="228" class="f3-sub" fill="#1d4ed8">Canonical Axes Aligned</text>
 
           <!-- Arrow 2 -->
-          <path d="M 540 130 L 580 130" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
-          <text x="560" y="120" fill="#64748b" font-size="9" text-anchor="middle">4 Sign Flips</text>
+          <path d="M 615 135 L 655 135" stroke="#64748b" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="635" y="122" class="f3-arrow">4 Sign Flips</text>
 
           <!-- Box 3: 4 Proper Rotations -->
-          <rect x="590" y="30" width="240" height="200" rx="8" fill="#f0fdf4" stroke="#10b981" stroke-width="1.5" />
-          <text x="710" y="55" fill="#065f46" font-size="12" font-weight="bold" text-anchor="middle">3. Supremum Retention</text>
-          <text x="610" y="85" fill="#334155" font-size="10">S1: (+1, +1, +1) Identity</text>
-          <text x="610" y="105" fill="#334155" font-size="10">S2: (+1, -1, -1) 180&deg; flip X</text>
-          <text x="610" y="125" fill="#334155" font-size="10">S3: (-1, +1, -1) 180&deg; flip Y</text>
-          <text x="610" y="145" fill="#334155" font-size="10">S4: (-1, -1, +1) 180&deg; flip Z</text>
-          <rect x="605" y="170" width="210" height="45" rx="4" fill="#dcfce7" stroke="#16a34a" />
-          <text x="710" y="188" fill="#15803d" font-size="10" font-weight="bold" text-anchor="middle">Score* = max(S1..S4)</text>
-          <text x="710" y="204" fill="#166534" font-size="9" text-anchor="middle">&sigma; = 0.0000 (Deterministic)</text>
+          <rect x="665" y="25" width="250" height="225" rx="8" fill="#f0fdf4" stroke="#10b981" stroke-width="2" />
+          <text x="790" y="55" class="f3-title" fill="#065f46">3. Supremum Retention</text>
+          <text x="685" y="85" class="f3-item">S1: (+1, +1, +1) Identity</text>
+          <text x="685" y="106" class="f3-item">S2: (+1, -1, -1) 180&deg; flip X</text>
+          <text x="685" y="127" class="f3-item">S3: (-1, +1, -1) 180&deg; flip Y</text>
+          <text x="685" y="148" class="f3-item">S4: (-1, -1, +1) 180&deg; flip Z</text>
+          <rect x="680" y="165" width="220" height="65" rx="5" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5" />
+          <text x="790" y="190" class="f3-title" fill="#15803d" font-size="13px">Score* = max(S1..S4)</text>
+          <text x="790" y="212" class="f3-sub" fill="#166534">&sigma; = 0.0000 (Deterministic)</text>
         </svg>
         <div class="diagram-caption">
           Figure 3: Analytical Resolution of the Pose-Dependence Bug (Issue #8513). Translating to the center of mass, diagonalizing the inertia tensor, and evaluating all 4 proper sign-flip rotations collapses non-physical score variance to exactly 0.0000.
@@ -1687,51 +1942,58 @@ seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)</code></pre>
 
       <!-- SVG Multi-Property Radar Chart -->
       <div class="diagram-container">
-        <svg viewBox="0 0 650 480" width="100%" height="420" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="325" cy="240" r="180" fill="none" stroke="#e2e8f0" stroke-width="1" />
-          <circle cx="325" cy="240" r="144" fill="none" stroke="#e2e8f0" stroke-width="1" />
-          <circle cx="325" cy="240" r="108" fill="none" stroke="#e2e8f0" stroke-width="1" />
-          <circle cx="325" cy="240" r="72" fill="none" stroke="#e2e8f0" stroke-width="1" />
-          <circle cx="325" cy="240" r="36" fill="none" stroke="#e2e8f0" stroke-width="1" />
+        <svg viewBox="0 0 700 520" width="100%" height="auto" style="max-height: 460px;" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <style>
+              .f4-axis-lbl { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 700; fill: #1e293b; }
+              .f4-legend-lbl { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; font-weight: 600; fill: #334155; }
+            </style>
+          </defs>
+          <!-- Concentric Grid Circles -->
+          <circle cx="350" cy="260" r="180" fill="none" stroke="#e2e8f0" stroke-width="1.5" />
+          <circle cx="350" cy="260" r="144" fill="none" stroke="#e2e8f0" stroke-width="1.5" />
+          <circle cx="350" cy="260" r="108" fill="none" stroke="#e2e8f0" stroke-width="1.5" />
+          <circle cx="350" cy="260" r="72" fill="none" stroke="#e2e8f0" stroke-width="1.5" />
+          <circle cx="350" cy="260" r="36" fill="none" stroke="#e2e8f0" stroke-width="1.5" />
 
           <!-- Axes -->
-          <line x1="325" y1="240" x2="325" y2="40" stroke="#cbd5e1" stroke-width="1.5" />
-          <line x1="325" y1="240" x2="498" y2="140" stroke="#cbd5e1" stroke-width="1.5" />
-          <line x1="325" y1="240" x2="498" y2="340" stroke="#cbd5e1" stroke-width="1.5" />
-          <line x1="325" y1="240" x2="325" y2="440" stroke="#cbd5e1" stroke-width="1.5" />
-          <line x1="325" y1="240" x2="152" y2="340" stroke="#cbd5e1" stroke-width="1.5" />
-          <line x1="325" y1="240" x2="152" y2="140" stroke="#cbd5e1" stroke-width="1.5" />
+          <line x1="350" y1="260" x2="350" y2="60" stroke="#cbd5e1" stroke-width="2" />
+          <line x1="350" y1="260" x2="523" y2="160" stroke="#cbd5e1" stroke-width="2" />
+          <line x1="350" y1="260" x2="523" y2="360" stroke="#cbd5e1" stroke-width="2" />
+          <line x1="350" y1="260" x2="350" y2="460" stroke="#cbd5e1" stroke-width="2" />
+          <line x1="350" y1="260" x2="177" y2="360" stroke="#cbd5e1" stroke-width="2" />
+          <line x1="350" y1="260" x2="177" y2="160" stroke="#cbd5e1" stroke-width="2" />
 
           <!-- Axis Labels -->
-          <text x="325" y="28" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="middle">3D ROCS Shape (0-1)</text>
-          <text x="515" y="135" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="start">Synthesizability (RAscore)</text>
-          <text x="515" y="350" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="start">Drug-likeness (QED)</text>
-          <text x="325" y="465" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="middle">Synthetic Ease (10 - SA)</text>
-          <text x="135" y="350" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="end">Scaffold Novelty (1 - Sim)</text>
-          <text x="135" y="135" fill="#1e293b" font-size="12" font-weight="bold" text-anchor="end">MW Fit (450 &plusmn; 100)</text>
+          <text x="350" y="44" class="f4-axis-lbl" text-anchor="middle">3D ROCS Shape (0 - 1)</text>
+          <text x="538" y="156" class="f4-axis-lbl" text-anchor="start">Synthesizability (RAscore)</text>
+          <text x="538" y="372" class="f4-axis-lbl" text-anchor="start">Drug-likeness (QED)</text>
+          <text x="350" y="488" class="f4-axis-lbl" text-anchor="middle">Synthetic Ease (10 - SA)</text>
+          <text x="162" y="372" class="f4-axis-lbl" text-anchor="end">Scaffold Novelty (1 - Sim)</text>
+          <text x="162" y="156" class="f4-axis-lbl" text-anchor="end">MW Fit (450 &plusmn; 100)</text>
 
           <!-- Query Reference Polygon (Red dashed) -->
-          <polygon points="325,60 351,225 359,260 325,342 325,240 240,191" fill="rgba(239, 68, 68, 0.15)" stroke="#ef4444" stroke-width="2" stroke-dasharray="4" />
+          <polygon points="350,80 376,245 384,280 350,362 350,260 265,211" fill="rgba(239, 68, 68, 0.15)" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="4" />
 
           <!-- Sequence-RNN Polygon (Blue) -->
-          <polygon points="325,153 404,194 418,294 325,362 173,328 253,198" fill="rgba(59, 130, 246, 0.2)" stroke="#3b82f6" stroke-width="2" />
+          <polygon points="350,173 429,214 443,314 350,382 198,348 278,218" fill="rgba(59, 130, 246, 0.2)" stroke="#3b82f6" stroke-width="2.5" />
 
           <!-- Graph-Transformer BRICS Polygon (Orange) -->
-          <polygon points="325,110 385,205 391,278 325,351 300,254 245,194" fill="rgba(245, 158, 11, 0.2)" stroke="#f59e0b" stroke-width="2" />
+          <polygon points="350,130 410,225 416,298 350,371 325,274 270,214" fill="rgba(245, 158, 11, 0.2)" stroke="#f59e0b" stroke-width="2.5" />
 
           <!-- Hybrid Funnel Polygon (Green - Optimal) -->
-          <polygon points="325,117 442,172 441,307 325,376 190,318 243,192" fill="rgba(16, 185, 129, 0.3)" stroke="#10b981" stroke-width="3" />
+          <polygon points="350,137 467,192 466,327 350,396 215,338 268,212" fill="rgba(16, 185, 129, 0.3)" stroke="#10b981" stroke-width="3.5" />
 
           <!-- Legend -->
-          <rect x="20" y="20" width="180" height="95" rx="6" fill="#ffffff" stroke="#cbd5e1" />
-          <line x1="30" y1="35" x2="55" y2="35" stroke="#ef4444" stroke-width="2" stroke-dasharray="3" />
-          <text x="65" y="39" font-size="10" fill="#334155">Query Seed (EGCG)</text>
-          <line x1="30" y1="55" x2="55" y2="55" stroke="#3b82f6" stroke-width="2" />
-          <text x="65" y="59" font-size="10" fill="#334155">Sequence-RNN (Pure RL)</text>
-          <line x1="30" y1="75" x2="55" y2="75" stroke="#f59e0b" stroke-width="2" />
-          <text x="65" y="79" font-size="10" fill="#334155">Graph-Trans (Seed BRICS)</text>
-          <line x1="30" y1="95" x2="55" y2="95" stroke="#10b981" stroke-width="3" />
-          <text x="65" y="99" font-size="10" font-weight="bold" fill="#047857">Hybrid Funnel (Ours)</text>
+          <rect x="25" y="25" width="205" height="110" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5" />
+          <line x1="38" y1="42" x2="68" y2="42" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="3" />
+          <text x="76" y="47" class="f4-legend-lbl">Query Seed (EGCG)</text>
+          <line x1="38" y1="66" x2="68" y2="66" stroke="#3b82f6" stroke-width="2.5" />
+          <text x="76" y="71" class="f4-legend-lbl">Sequence-RNN (Pure RL)</text>
+          <line x1="38" y1="90" x2="68" y2="90" stroke="#f59e0b" stroke-width="2.5" />
+          <text x="76" y="95" class="f4-legend-lbl">Graph-Trans (Seed BRICS)</text>
+          <line x1="38" y1="114" x2="68" y2="114" stroke="#10b981" stroke-width="3.5" />
+          <text x="76" y="119" class="f4-legend-lbl" font-weight="700" fill="#047857">Hybrid Funnel (Ours)</text>
         </svg>
         <div class="diagram-caption">
           Figure 4: Multi-Objective Radar Profile Comparison. The Hybrid Funnel (green) achieves a harmonious, high-performing balance across 3D shape, synthesizability, drug-likeness, and novelty.
