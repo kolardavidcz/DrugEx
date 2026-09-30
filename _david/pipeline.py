@@ -81,6 +81,7 @@ class MoleculePipeline:
                 if part:
                     raw_smiles.append(part)
 
+        #acctuall molecule
         valid_molecules = []
         for smi in raw_smiles:
             m = Chem.MolFromSmiles(smi)
