@@ -44,6 +44,10 @@ from _david.usrcat_scorer import USRCATScorer
 if not hasattr(GraphTransformer, "encodeFragments"):
     GraphTransformer.encodeFragments = GraphTransformer.loaderFromFrags
 
+# Ensure GraphFragDataSet supports len() inspection
+if not hasattr(GraphFragDataSet, "__len__"):
+    GraphFragDataSet.__len__ = lambda self: len(self.getData()) if hasattr(self, "outpath") and self.outpath.exists() else 0
+
 warnings.filterwarnings("ignore")
 
 
@@ -320,8 +324,13 @@ class GraphTransformerOptimizer:
             # Fallback to query seed molecule if no funnel scaffolds exist
             scaffolds = [molecule_smile]
 
-        # Standardize scaffolds
-        std_scaffolds = processing.Standardization(n_proc=1).apply(scaffolds)
+        # Standardize scaffolds and remove stereochemistry (VocGraph operates on 2D constitution/valences only)
+        std_raw = processing.Standardization(n_proc=1).apply(scaffolds)
+        std_scaffolds: List[str] = []
+        for s in (std_raw or scaffolds):
+            m = Chem.MolFromSmiles(s)
+            if m is not None:
+                std_scaffolds.append(Chem.MolToSmiles(m, isomericSmiles=False))
         if not std_scaffolds:
             std_scaffolds = scaffolds
 
@@ -330,7 +339,8 @@ class GraphTransformerOptimizer:
         expanded_prompts = (std_scaffolds * n_repeats)[:n_prompts]
 
         corpus_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
-        if len(seed_dataset) == 0:
+        dataset_len = len(seed_dataset.getData()) if seed_dataset.outpath.exists() else 0
+        if dataset_len == 0:
             raise RuntimeError(f"Could not encode any valid fragment prompts from scaffolds: {std_scaffolds[:5]}")
 
         seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
@@ -455,7 +465,10 @@ class GraphTransformerOptimizer:
         scored_df = scored_df.loc[:, ~scored_df.columns.duplicated()].copy()
         scored_df.to_csv(out_dir / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
         scored_df.to_csv(out_dir / "stage3_leads.tsv", sep="\t", index=False)
-        if hasattr(self, "OUTPUT_DIR") and self.OUTPUT_DIR != out_dir:
+        if out_dir.name == "reinforcement_learning" and out_dir.parent != out_dir:
+            scored_df.to_csv(out_dir.parent / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
+            scored_df.to_csv(out_dir.parent / "stage3_leads.tsv", sep="\t", index=False)
+        if hasattr(self, "OUTPUT_DIR") and self.OUTPUT_DIR != out_dir and self.OUTPUT_DIR != out_dir.parent:
             scored_df.to_csv(self.OUTPUT_DIR / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
             scored_df.to_csv(self.OUTPUT_DIR / "stage3_leads.tsv", sep="\t", index=False)
 

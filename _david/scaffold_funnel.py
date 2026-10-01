@@ -206,7 +206,7 @@ class ScaffoldFunnel:
                     show_progress=False,
                     opt_mode="combo",
                 )
-                return np.asarray(scorer.getScores(smiles_list), dtype=np.float32)
+                return np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
             except Exception:
                 pass
 
@@ -221,7 +221,7 @@ class ScaffoldFunnel:
                     show_progress=False,
                     n_jobs=2,
                 )
-                return np.asarray(scorer.getScores(smiles_list), dtype=np.float32)
+                return np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
             except Exception:
                 pass
 

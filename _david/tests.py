@@ -45,13 +45,14 @@ class TestAntiCheatingRewards(unittest.TestCase):
         egcg_smiles = "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1"
         egcg_mol = Chem.MolFromSmiles(egcg_smiles)
         # EGCG contains catechol/gallate rings, is_match=False -> should be penalized (score 0.0)
-        score_egcg = scaffold_filter(egcg_mol)
-        self.assertEqual(score_egcg, 0.0)
+        # DrugEx scorers accept a sequence of molecules and return a 1D numpy array.
+        scores_egcg = scaffold_filter([egcg_mol])
+        self.assertEqual(scores_egcg[0], 0.0)
 
         # Benzene has no catechol -> should pass (score 1.0)
         benzene_mol = Chem.MolFromSmiles("c1ccccc1")
-        score_benzene = scaffold_filter(benzene_mol)
-        self.assertEqual(score_benzene, 1.0)
+        scores_benzene = scaffold_filter([benzene_mol])
+        self.assertEqual(scores_benzene[0], 1.0)
 
     def test_augmented_chebyshev_anti_cheating(self) -> None:
         """Verify Chebyshev penalizes a candidate that collapses in 3D shape."""
@@ -87,20 +88,43 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_dummy_mols_from_fragments(self) -> None:
         """Verify dummyMolsFromFragments generates valid graph inputs from Murcko core."""
+        import tempfile
+        from drugex.data.corpus.vocabulary import VocGraph
+        from drugex.data.fragments import FragmentCorpusEncoder, GraphFragmentEncoder
+        from drugex.data.datasets import GraphFragDataSet
+
         egcg_smiles = "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1"
         mol = Chem.MolFromSmiles(egcg_smiles)
         core = MurckoScaffold.GetScaffoldForMol(mol)
-        core_smiles = Chem.MolToSmiles(core)
+        core_smiles = Chem.MolToSmiles(core, isomericSmiles=False)
         self.assertTrue(len(core_smiles) > 0)
 
-        # dummyMolsFromFragments appends attachment vectors directly
-        dummy_mols = dummyMolsFromFragments([core_smiles])
-        self.assertEqual(len(dummy_mols), 1)
-        self.assertIsNotNone(dummy_mols[0])
-        self.assertTrue(Chem.MolToSmiles(dummy_mols[0]).startswith("[*]") or "*" in Chem.MolToSmiles(dummy_mols[0]))
+        # dummyMolsFromFragments is a MolConverter instantiated with 0 arguments
+        converter = dummyMolsFromFragments()
+        pairs = converter(core_smiles)
+        self.assertIsNotNone(pairs)
+        self.assertEqual(len(pairs), 1)
+        frag, dummy_mol = pairs[0]
+        self.assertEqual(frag, core_smiles)
+        self.assertIsNotNone(dummy_mol)
+
+        # End-to-end verification: FragmentCorpusEncoder successfully encodes Murcko core into GraphFragDataSet
+        encoder = FragmentCorpusEncoder(
+            fragmenter=dummyMolsFromFragments(),
+            encoder=GraphFragmentEncoder(VocGraph(n_frags=4)),
+            pairs_splitter=None,
+            n_proc=1,
+        )
+        with tempfile.NamedTemporaryFile(suffix=".tsv", delete=False) as tmp:
+            tmp_tsv = tmp.name
+
+        dataset = GraphFragDataSet(tmp_tsv, rewrite=True)
+        encoder.apply([core_smiles], encodingCollectors=[dataset])
+        data = dataset.getData()
+        self.assertGreater(len(data), 0)
 
     def test_edge_cases(self) -> None:
-        """Verify empty and extreme edge cases do not throw uncaught exceptions."""
+        """Verify empty, NaN, and 1D edge cases do not throw uncaught exceptions."""
         cheb = AugmentedChebyshevReward()
         geom = GeometricMeanReward()
 
@@ -117,6 +141,46 @@ class TestAntiCheatingRewards(unittest.TestCase):
         r_geom_ones = geom(["C"], ones_scores, [0.5] * 4)
         self.assertAlmostEqual(r_cheb_ones[0, 0], 1.0, places=4)
         self.assertAlmostEqual(r_geom_ones[0, 0], 1.0, places=4)
+
+        # 1D array handling
+        scores_1d = np.array([0.9, 0.2], dtype=np.float64)
+        r_cheb_1d = cheb(["C1", "C2"], scores_1d, [0.5])
+        r_geom_1d = geom(["C1", "C2"], scores_1d, [0.5])
+        self.assertEqual(r_cheb_1d.shape, (2, 1))
+        self.assertEqual(r_geom_1d.shape, (2, 1))
+
+        # NaN score handling
+        scores_nan = np.array([[np.nan, 0.8], [0.5, np.nan]])
+        r_cheb_nan = cheb(["C1", "C2"], scores_nan, [0.5, 0.5])
+        r_geom_nan = geom(["C1", "C2"], scores_nan, [0.5, 0.5])
+        self.assertFalse(np.isnan(r_cheb_nan).any())
+        self.assertFalse(np.isnan(r_geom_nan).any())
+
+    def test_rocs_flattened_output(self) -> None:
+        """Verify compute_rocs_scores outputs a flat 1D array."""
+        from _david.scaffold_funnel import ScaffoldFunnel
+        funnel = ScaffoldFunnel()
+        rocs = funnel.compute_rocs_scores(["c1ccccc1", "c1ccncc1"])
+        self.assertEqual(rocs.ndim, 1)
+        self.assertEqual(len(rocs), 2)
+
+    def test_graph_transformer_prepare_seed_fragments(self) -> None:
+        """Verify GraphTransformerOptimizer._prepare_seed_fragments successfully creates DataLoader and dataset."""
+        import tempfile
+        from pathlib import Path
+        from _david.GraphTransformer import GraphTransformerOptimizer, MY_MOLECULE
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            optimizer = GraphTransformerOptimizer(output_dir=Path(tmp_dir))
+            scaffolds_file = Path(__file__).parent / "funnel_scaffolds.tsv"
+            loader, dataset = optimizer._prepare_seed_fragments(
+                MY_MOLECULE, n_prompts=10, scaffolds_path=scaffolds_file
+            )
+            self.assertIsNotNone(loader)
+            self.assertIsNotNone(dataset)
+            self.assertGreater(len(dataset), 0)
+            batch = next(iter(loader))
+            self.assertEqual(batch.ndim, 3)
 
 
 if __name__ == "__main__":

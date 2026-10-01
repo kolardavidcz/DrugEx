@@ -358,7 +358,10 @@ class SequenceRNNOptimizer:
         scored_df = scored_df.loc[:, ~scored_df.columns.duplicated()].copy()
         scored_df.to_csv(out_dir / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
         scored_df.to_csv(out_dir / "stage1_hits.tsv", sep="\t", index=False)
-        if self.OUTPUT_DIR != out_dir:
+        if out_dir.name == "reinforcement_learning" and out_dir.parent != out_dir:
+            scored_df.to_csv(out_dir.parent / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
+            scored_df.to_csv(out_dir.parent / "stage1_hits.tsv", sep="\t", index=False)
+        if self.OUTPUT_DIR != out_dir and self.OUTPUT_DIR != out_dir.parent:
             scored_df.to_csv(self.OUTPUT_DIR / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
             scored_df.to_csv(self.OUTPUT_DIR / "stage1_hits.tsv", sep="\t", index=False)
 
