@@ -27,15 +27,15 @@ from drugex.training import environment, explorers, generators, monitors, reward
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import SequenceExplorer
 from drugex.training.generators import SequenceRNN
+from drugex.training.interfaces import RewardScheme
 from drugex.training.monitors import FileMonitor
 from drugex.training.rewards import ParetoTanimotoDistance
-from drugex.training.scorers import conformer_generators, modifiers, properties, ra_scorer, rocs_rdkit
-from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-from drugex.training.scorers.modifiers import Gaussian, SmoothClippedScore
-from drugex.training.scorers.properties import Property
+from drugex.training.scorers import modifiers, properties, ra_scorer
+from drugex.training.scorers.modifiers import SmoothClippedScore, SmoothHump
+from drugex.training.scorers.properties import Property, Scaffold
 from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
-from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 
+from _david.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
 from _david.usrcat_scorer import USRCATScorer
 
 warnings.filterwarnings("ignore")
@@ -79,15 +79,20 @@ ROCS_LOWER_X: float = 0.45
 ROCS_UPPER_X: float = 1.10
 ROCS_THRESHOLD: float = 0.50
 
-# --- USRCAT 3D Pharmacophore Bounds ---
+# --- USRCAT 3D Pharmacophore Bounds (Ultrafast Decoupled RL Tier) ---
 USRCAT_LOWER_X: float = 0.50
 USRCAT_UPPER_X: float = 0.85
 USRCAT_THRESHOLD: float = 0.55
 
-# --- Physical Size / Volume Bounds (EGCG target: 33 heavy atoms, MW ~458) ---
-TARGET_HEAVY_ATOMS: float = 33.0
-SIGMA_HEAVY_ATOMS: float = 6.0
-HEAVY_THRESHOLD: float = 0.45
+# --- Physical Size / Volume Bounds (Native SmoothHump on HAC: plateau [28, 38], sigma=4) ---
+SIZE_LOWER_X: float = 28.0
+SIZE_UPPER_X: float = 38.0
+SIZE_SIGMA: float = 4.0
+HEAVY_THRESHOLD: float = 0.50
+
+# --- Toxicophore Suppression Bounds (Catechol PAINS filter: threshold 0.99) ---
+TOXICOPHORE_SMARTS: str = "c1c([OH])c([OH])ccc1"
+TOXICOPHORE_THRESHOLD: float = 0.99
 
 # --- Synthesizability & Drug-likeness Bounds ---
 RA_LOWER_X: float = 0.30
@@ -157,45 +162,31 @@ class SequenceRNNOptimizer:
         self.PRIOR: SequenceRNN = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
         self.PRIOR.loadStatesFromFile(self.PRETRAINED_DIR / "Papyrus05.5_smiles_rnn_PT.pkg")
 
-    def build_environment(self, ref_sdf_path: Path | str, seed_smiles: str = MY_MOLECULE) -> DrugExEnvironment:
+    def build_environment(
+        self,
+        ref_sdf_path: Path | str,
+        seed_smiles: str = MY_MOLECULE,
+        reward_scheme: RewardScheme | None = None,
+    ) -> DrugExEnvironment:
         """Construct multi-objective DrugExEnvironment for reinforcement learning.
 
-        Builds an un-cheatable multi-objective environment incorporating 3D ROCS shape/color
-        overlap, USRCAT 3D moments, heavy atom volume matching (targeting 33 atoms),
-        retrosynthetic accessibility (RAscore), QED, and synthetic accessibility (SA).
+        Builds an un-cheatable multi-objective environment incorporating ultrafast 3D USRCAT
+        moments (rotationally/translationally invariant, 100x faster than full ROCS conformer
+        search), heavy atom volume plateau (SmoothHump [28, 38], sigma=4), active toxicophore
+        suppression (Scaffold catechol SMARTS filter, threshold 0.99), retrosynthetic
+        accessibility (RAscore), QED drug-likeness, and synthetic accessibility (SA).
+        Uses AugmentedChebyshevReward scalarization to prevent small fragments from gaming
+        the Pareto frontier.
 
         Args:
-            ref_sdf_path: Path to reference multi-conformer 3D SDF for ROCS and USRCAT.
-            seed_smiles: SMILES string of active seed query for scaffold reference.
+            ref_sdf_path: Path to reference multi-conformer 3D SDF for USRCAT.
+            seed_smiles: SMILES string of active seed query for reference.
+            reward_scheme: Optional custom RewardScheme (defaults to AugmentedChebyshevReward).
 
         Returns:
-            Configured DrugExEnvironment with ParetoTanimotoDistance reward scheme.
+            Configured DrugExEnvironment with anti-cheating reward scheme.
         """
         ref_path_str: str = str(ref_sdf_path)
-
-        #? [RDKit Conformer Generator] Multi-conformer generator with ETKDGv3 and expanded max_heavy_atoms=50.
-        conf_gen = RDKitConformerGenerator(
-            max_conformers=ROCS_MAX_CONFS,
-            max_isomers=ROCS_MAX_ISOMERS,
-            max_heavy_atoms=50,
-            num_threads=0,
-            timeout=ROCS_TIMEOUT,
-            show_progress=False,
-        )
-        rocs_scorer = RDKitROCSScorer(
-            conformer_generator=conf_gen,
-            references=ref_path_str,
-            score_type=ROCS_SCORE_TYPE,
-            use_colors=True,
-            show_progress=False,
-            n_jobs=4,
-        )
-        rocs_scorer.setModifier(
-            SmoothClippedScore(
-                lower_x=ROCS_LOWER_X,
-                upper_x=ROCS_UPPER_X,
-            )
-        )
 
         #? [Pure LBDD USRCAT Scorer] Ultrafast 60-dimensional shape and pharmacophore moment similarity.
         usrcat_scorer = USRCATScorer(
@@ -207,13 +198,20 @@ class SequenceRNNOptimizer:
             ),
         )
 
-        #? [Heavy Atom Volume Scorer] Gaussian modifier centered on EGCG (33 atoms) to penalize small-fragment cheats.
+        #? [Heavy Atom Volume Scorer] Native SmoothHump modifier with plateau [28, 38] and sigma=4.
         size_scorer = Property(
             prop="Heavy",
-            modifier=Gaussian(
-                mu=TARGET_HEAVY_ATOMS,
-                sigma=SIGMA_HEAVY_ATOMS,
+            modifier=SmoothHump(
+                lower_x=SIZE_LOWER_X,
+                upper_x=SIZE_UPPER_X,
+                sigma=SIZE_SIGMA,
             ),
+        )
+
+        #? [Toxicophore Suppression Scorer] Native Scaffold scorer penalizing catechol (1,2-dihydroxybenzene) liabilities.
+        toxicophore_scorer = Scaffold(
+            smart=TOXICOPHORE_SMARTS,
+            is_match=False,
         )
 
         #? [Retrosynthetic Accessibility Scorer] RAscore machine-learning model estimating synthesizability probability.
@@ -221,7 +219,7 @@ class SequenceRNNOptimizer:
             modifier=SmoothClippedScore(
                 lower_x=RA_LOWER_X,
                 upper_x=RA_UPPER_X,
-            )
+            ),
         )
 
         #? [Drug-likeness QED Scorer] Quantitative Estimate of Drug-likeness.
@@ -242,14 +240,21 @@ class SequenceRNNOptimizer:
             ),
         )
 
-        scorers = [rocs_scorer, usrcat_scorer, size_scorer, ra_scorer_inst, qed_scorer, sa_scorer]
-        thresholds = [ROCS_THRESHOLD, USRCAT_THRESHOLD, HEAVY_THRESHOLD, RA_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD]
-        reward_scheme = ParetoTanimotoDistance()
+        scorers = [usrcat_scorer, size_scorer, toxicophore_scorer, ra_scorer_inst, qed_scorer, sa_scorer]
+        thresholds = [
+            USRCAT_THRESHOLD,
+            HEAVY_THRESHOLD,
+            TOXICOPHORE_THRESHOLD,
+            RA_THRESHOLD,
+            QED_THRESHOLD,
+            SA_THRESHOLD,
+        ]
+        scheme = reward_scheme if reward_scheme is not None else AugmentedChebyshevReward()
 
         env = DrugExEnvironment(
             scorers=scorers,
             thresholds=thresholds,
-            reward_scheme=reward_scheme,
+            reward_scheme=scheme,
         )
         return env
 

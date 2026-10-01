@@ -195,16 +195,39 @@ class MoleculePipeline:
         print(f"\n[Stage 1] Sequence-RNN Global Hit Discovery (Pure RL exploration)...")
         print(f"[Stage 1] Executing Sequence-RNN RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
 
-        from drugex.data.corpus import vocabulary
-        from drugex.training import generators
+        from drugex.training.explorers import SequenceExplorer
+        from drugex.training.monitors import FileMonitor
         from _david import SequenceRNN
 
-        voc = vocabulary.VocSmiles.fromFile(self.PRETRAINED_RNN / "Papyrus05.5_smiles_rnn_PT.vocab")
-        agent = generators.SequenceRNN(voc, is_lstm=True, use_gpus=SequenceRNN.GPUS)
-        agent.loadStatesFromFile(self.PRETRAINED_RNN / "Papyrus05.5_smiles_rnn_PT.pkg")
+        optimizer = SequenceRNN.SequenceRNNOptimizer(output_dir=stage1_dir)
+        env = optimizer.build_environment(ref_sdf, seed_smiles=primary_molecule)
 
-        rl = SequenceRNN.RAINFORCMENT_LEARNING(finetuned=agent, output_dir=stage1_dir)
-        agent, df_hits = rl.RAINFORCEMENT_LEARNING(primary_molecule, epochs=self.EPOCHS, n_samples=self.N_SAMPLES)
+        #? [DrugEx SequenceExplorer] Policy gradient RL explorer optimizing SequenceRNN agent against multi-objective environment.
+        explorer = SequenceExplorer(
+            agent=optimizer.AGENT,
+            env=env,
+            mutate=optimizer.PRIOR,
+            epsilon=SequenceRNN.RL_EPSILON,
+            beta=SequenceRNN.RL_BETA,
+            n_samples=self.N_SAMPLES,
+            batch_size=SequenceRNN.RL_BATCH_SIZE,
+            use_gpus=SequenceRNN.GPUS,
+        )
+
+        model_prefix = optimizer.MODEL_DIR / "david_agent"
+        monitor = FileMonitor(model_prefix, save_smiles=True, reset_directory=True)
+        patience = min(SequenceRNN.RL_PATIENCE, max(5, self.EPOCHS // 2))
+
+        explorer.fit(
+            monitor=monitor,
+            epochs=self.EPOCHS,
+            patience=patience,
+            criteria="desired_ratio",
+        )
+
+        df_hits = optimizer.save_visualizations(
+            optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, num_samples=self.N_SAMPLES
+        )
         if not scored_tsv.exists() and (stage1_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv").exists():
             scored_tsv = stage1_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv"
 
@@ -266,17 +289,42 @@ class MoleculePipeline:
         print(f"\n[Stage 3] Graph-Transformer Lead Optimization on Discovered Scaffolds...")
         print(f"[Stage 3] Executing Graph-Transformer RL lead optimization (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
 
-        from drugex.data.corpus import vocabulary
-        from drugex.training import generators
+        from drugex.training.explorers import FragGraphExplorer
+        from drugex.training.monitors import FileMonitor
         from _david import GraphTransformer
 
-        voc = vocabulary.VocGraph.fromFile(self.PRETRAINED_GRAPH / "Papyrus05.5_graph_trans_PT.vocab")
-        agent = generators.GraphTransformer(voc, use_gpus=GraphTransformer.GPUS)
-        agent.loadStatesFromFile(self.PRETRAINED_GRAPH / "Papyrus05.5_graph_trans_PT.pkg")
+        optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage3_dir)
+        env = optimizer.build_environment(ref_sdf)
+        seed_loader, seed_dataset = optimizer._prepare_seed_fragments(
+            primary_molecule, n_prompts=self.N_SAMPLES, scaffolds_path=scaffolds_path
+        )
 
-        rl = GraphTransformer.RAINFORCMENT_LEARNING(finetuned=agent, output_dir=stage3_dir)
-        agent, df_leads = rl.RAINFORCEMENT_LEARNING(
-            primary_molecule, epochs=self.EPOCHS, n_samples=self.N_SAMPLES, scaffolds_path=scaffolds_path
+        #? [DrugEx FragGraphExplorer] Self-attention graph transformer optimizing lead frameworks against environment.
+        explorer = FragGraphExplorer(
+            agent=optimizer.AGENT,
+            env=env,
+            mutate=optimizer.PRIOR,
+            epsilon=GraphTransformer.RL_EPSILON,
+            beta=GraphTransformer.RL_BETA,
+            batch_size=GraphTransformer.RL_BATCH_SIZE,
+            use_gpus=GraphTransformer.GPUS,
+        )
+
+        model_prefix = optimizer.MODEL_DIR / "david_agent"
+        monitor = FileMonitor(model_prefix, save_smiles=True, reset_directory=True)
+        patience = min(GraphTransformer.RL_PATIENCE, max(5, self.EPOCHS // 2))
+
+        explorer.fit(
+            seed_loader,
+            seed_loader,
+            monitor=monitor,
+            epochs=self.EPOCHS,
+            patience=patience,
+            criteria="desired_ratio",
+        )
+
+        df_leads = optimizer.save_visualizations(
+            optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, input_dataset=seed_dataset, num_samples=self.N_SAMPLES
         )
         if not leads_tsv.exists() and (stage3_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv").exists():
             leads_tsv = stage3_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv"

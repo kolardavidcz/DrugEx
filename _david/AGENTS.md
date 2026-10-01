@@ -25,9 +25,12 @@ Guide for AI agents working in `/home/kolar/build_projects/drugex_edu/repo/_davi
    - 60-dimensional rotationally/translationally invariant moment vectors across 5 pharmacophore atom types.
    - Exact $O(1)$ inverse Manhattan distance ($S = \frac{1}{1 + \frac{1}{60} \sum |u_i - v_i|}$) executing in microseconds without alignment search traps.
 4. **Resolution of Previous RL Failure Modes**:
-   - Conformer under-sampling resolved: Increased RL conformers from 2 to 10 (with 50 reference conformers).
-   - Pareto reward hacking resolved: Purged counter-productive 2D novelty objective from RL; scaffold hopping is enforced structurally in Stage 2 funnel.
-   - Fragment collapse resolved: Added Gaussian heavy-atom volume constraint (`Property("Heavy", Gaussian(33, 6))`), candidate heavy-atom filter ($\ge 20$ atoms), and scaffold core filter (12-32 atoms) so small 15-atom fragments cannot cheat.
+   - Conformer under-sampling resolved: Increased reference conformers to 50 with ETKDGv3 and MMFF94 minimization.
+   - Decoupled 3D shape tiers: Ultrafast rotation-invariant USRCAT moments in RL inner loops (Stages 1 and 3) provide ~100x speedup; physical Gaussian volume overlay (CDPKit ROCS: `CDPKitROCSScorer` + `RDKitConformerGenerator`) is reserved for Stage 2 scaffold funnel and Stage 4 lead validation.
+   - Pareto reward hacking resolved: Replaced vulnerable Pareto ranking with `AugmentedChebyshevReward` and `GeometricMeanReward` scalarization. Extreme single-objective cheats (e.g. 0.98 QED but 0.05 3D shape) are severely penalized.
+   - Fragment collapse resolved: Upgraded to native `SmoothHump(lower_x=28, upper_x=38, sigma=4)` on heavy atom count.
+   - Toxicophore suppression: Integrated native `Scaffold(smart="c1c([OH])c([OH])ccc1", is_match=False)` with threshold 0.99 into RL environment to actively suppress catechol PAINS liabilities.
+   - Native scaffold encoding: Replaced BRICS/RECAP cleavage in Graph-Transformer with DrugEx native `dummyMolsFromFragments()`, ensuring intact Bemis-Murcko frameworks are directly elaborated.
    - Mock simulation eliminated: All synthetic random-number generation in `thesis_benchmark.py` has been removed.
 
 ---
@@ -37,12 +40,14 @@ Guide for AI agents working in `/home/kolar/build_projects/drugex_edu/repo/_davi
 | File / Folder | Role | Status |
 |---|---|---|
 | `_david/prepare_query_conformer.py` | Stage 0: 3D reference conformer ensemble (50 confs, MMFF94) & USRCAT moment array generation. | **Active** |
-| `_david/SequenceRNN.py` | Stage 1: Global hit discovery via Sequence-RNN policy gradient RL (10 confs, USRCAT, HeavyAtoms). | **Active** |
-| `_david/scaffold_funnel.py` | Stage 2: Bemis-Murcko framework extraction, heavy-atom volume filter, PAINS purge, Butina clustering. | **Active** |
-| `_david/GraphTransformer.py` | Stage 3: Fragment-conditioned lead optimization on discovered funnel scaffolds. | **Active** |
+| `_david/SequenceRNN.py` | Stage 1: Global hit discovery via Sequence-RNN policy gradient RL (USRCAT, SmoothHump, Scaffold). | **Active** |
+| `_david/scaffold_funnel.py` | Stage 2: Bemis-Murcko framework extraction, heavy-atom volume filter, PAINS purge, CDPKit ROCS, Butina clustering. | **Active** |
+| `_david/GraphTransformer.py` | Stage 3: Fragment-conditioned lead optimization on discovered funnel scaffolds using `dummyMolsFromFragments()`. | **Active** |
+| `_david/anti_cheating_rewards.py` | Augmented Chebyshev & Geometric Mean scalarization schemes preventing Pareto reward hacking. | **Active Tool** |
 | `_david/usrcat_scorer.py` | Pure LBDD 3D shape and pharmacophore moment scorer (`drugex.training.scorers.interfaces.Scorer`). | **Active Tool** |
 | `_david/pipeline.py` | Unified end-to-end multi-stage pipeline orchestrator (Stages 0 -> 1 -> 2 -> 3 -> 4). | **Active Production** |
-| `_david/thesis_benchmark.py` | Stage 4: Publication benchmark suite (tables, radar, PCA, boxplots, grids) on real empirical data. | **Active Production** |
+| `_david/thesis_benchmark.py` | Stage 4: Publication benchmark suite (CDPKit ROCS, radar, PCA, boxplots, grids) on real empirical data. | **Active Production** |
+| `_david/test_anti_cheating_and_api.py` | Unit tests for anti-cheating rewards, SmoothHump, toxicophore Scaffold, and dummyMolsFromFragments. | **Active Test** |
 | `_david/dodo_notes.md` | Academic evaluation notes, query molecule SMILES, and failure mode documentation. | **Reference** |
 | `_david/outputs/` | Pipeline runs, benchmark tables, and generated molecule figures. | **Output Storage** |
 

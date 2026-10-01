@@ -33,7 +33,10 @@ if str(PROJECT_ROOT) not in sys.path:
 try:
     from _david import receptor_similar
 except ImportError:
-    import receptor_similar
+    try:
+        import receptor_similar
+    except ImportError:
+        receptor_similar = None
 
 # --- Hyperparameters & System Constants ---
 SEED_SMILES = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
@@ -1043,7 +1046,7 @@ class MolecularSpacePipeline:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.papyrus_path = (
-            receptor_similar.MoleculeBioactivityPipeline._resolve_papyrus_path()
+            (receptor_similar.MoleculeBioactivityPipeline._resolve_papyrus_path() if receptor_similar else None)
             or str(PROJECT_ROOT / "tutorial" / "data" / "data" / ".Papyrus")
         )
         self.dataset_manager = ChemicalSpaceDataset(self.papyrus_path, self.config)

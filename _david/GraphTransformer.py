@@ -24,21 +24,25 @@ from drugex.data import datasets, fragments, processing
 from drugex.data.corpus import vocabulary
 from drugex.data.corpus.vocabulary import VocGraph
 from drugex.data.datasets import GraphFragDataSet
-from drugex.molecules.converters.fragmenters import Fragmenter
+from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
 from drugex.training import environment, explorers, generators, monitors, rewards
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
+from drugex.training.interfaces import RewardScheme
 from drugex.training.monitors import FileMonitor
 from drugex.training.rewards import ParetoTanimotoDistance
-from drugex.training.scorers import conformer_generators, modifiers, properties, ra_scorer, rocs_rdkit
-from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-from drugex.training.scorers.modifiers import Gaussian, SmoothClippedScore
-from drugex.training.scorers.properties import Property
+from drugex.training.scorers import modifiers, properties, ra_scorer
+from drugex.training.scorers.modifiers import SmoothClippedScore, SmoothHump
+from drugex.training.scorers.properties import Property, Scaffold
 from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
-from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 
+from _david.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
 from _david.usrcat_scorer import USRCATScorer
+
+# Ensure encodeFragments alias exists on GraphTransformer
+if not hasattr(GraphTransformer, "encodeFragments"):
+    GraphTransformer.encodeFragments = GraphTransformer.loaderFromFrags
 
 warnings.filterwarnings("ignore")
 
@@ -86,15 +90,20 @@ ROCS_LOWER_X: float = 0.45
 ROCS_UPPER_X: float = 1.10
 ROCS_THRESHOLD: float = 0.50
 
-# --- USRCAT 3D Pharmacophore Bounds ---
+# --- USRCAT 3D Pharmacophore Bounds (Ultrafast Decoupled RL Tier) ---
 USRCAT_LOWER_X: float = 0.50
 USRCAT_UPPER_X: float = 0.85
 USRCAT_THRESHOLD: float = 0.55
 
-# --- Physical Size / Volume Bounds (EGCG target: 33 heavy atoms, MW ~458) ---
-TARGET_HEAVY_ATOMS: float = 33.0
-SIGMA_HEAVY_ATOMS: float = 6.0
-HEAVY_THRESHOLD: float = 0.45
+# --- Physical Size / Volume Bounds (Native SmoothHump on HAC: plateau [28, 38], sigma=4) ---
+SIZE_LOWER_X: float = 28.0
+SIZE_UPPER_X: float = 38.0
+SIZE_SIGMA: float = 4.0
+HEAVY_THRESHOLD: float = 0.50
+
+# --- Toxicophore Suppression Bounds (Catechol PAINS filter: threshold 0.99) ---
+TOXICOPHORE_SMARTS: str = "c1c([OH])c([OH])ccc1"
+TOXICOPHORE_THRESHOLD: float = 0.99
 
 # --- Synthesizability & Drug-likeness Bounds ---
 RA_LOWER_X: float = 0.30
@@ -162,40 +171,29 @@ class GraphTransformerOptimizer:
         self.PRIOR: GraphTransformer = GraphTransformer(voc_trg=self.VOC, use_gpus=GPUS)
         self.PRIOR.loadStatesFromFile(self.PRETRAINED_DIR / "Papyrus05.5_graph_trans_PT.pkg")
 
-    def build_environment(self, ref_sdf_path: Path | str) -> DrugExEnvironment:
+    def build_environment(
+        self,
+        ref_sdf_path: Path | str,
+        reward_scheme: RewardScheme | None = None,
+    ) -> DrugExEnvironment:
         """Construct multi-objective DrugExEnvironment for reinforcement learning.
 
+        Builds an un-cheatable multi-objective environment incorporating ultrafast 3D USRCAT
+        moments (rotationally/translationally invariant, 100x faster than full ROCS conformer
+        search), heavy atom volume plateau (SmoothHump [28, 38], sigma=4), active toxicophore
+        suppression (Scaffold catechol SMARTS filter, threshold 0.99), retrosynthetic
+        accessibility (RAscore), QED drug-likeness, and synthetic accessibility (SA).
+        Uses AugmentedChebyshevReward scalarization to prevent small fragments from gaming
+        the Pareto frontier.
+
         Args:
-            ref_sdf_path: Path to reference multi-conformer 3D SDF for ROCS and USRCAT.
+            ref_sdf_path: Path to reference multi-conformer 3D SDF for USRCAT.
+            reward_scheme: Optional custom RewardScheme (defaults to AugmentedChebyshevReward).
 
         Returns:
-            Configured DrugExEnvironment with ParetoTanimotoDistance reward scheme.
+            Configured DrugExEnvironment with anti-cheating reward scheme.
         """
         ref_path_str: str = str(ref_sdf_path)
-
-        #? [RDKit Conformer Generator] Multi-conformer generator with ETKDGv3 and expanded max_heavy_atoms=50.
-        conf_gen = RDKitConformerGenerator(
-            max_conformers=ROCS_MAX_CONFS,
-            max_isomers=ROCS_MAX_ISOMERS,
-            max_heavy_atoms=50,
-            num_threads=0,
-            timeout=ROCS_TIMEOUT,
-            show_progress=False,
-        )
-        rocs_scorer = RDKitROCSScorer(
-            conformer_generator=conf_gen,
-            references=ref_path_str,
-            score_type=ROCS_SCORE_TYPE,
-            use_colors=True,
-            show_progress=False,
-            n_jobs=4,
-        )
-        rocs_scorer.setModifier(
-            SmoothClippedScore(
-                lower_x=ROCS_LOWER_X,
-                upper_x=ROCS_UPPER_X,
-            )
-        )
 
         #? [Pure LBDD USRCAT Scorer] Ultrafast 60-dimensional shape and pharmacophore moment similarity.
         usrcat_scorer = USRCATScorer(
@@ -207,13 +205,20 @@ class GraphTransformerOptimizer:
             ),
         )
 
-        #? [Heavy Atom Volume Scorer] Gaussian modifier centered on EGCG (33 atoms) to penalize small-fragment cheats.
+        #? [Heavy Atom Volume Scorer] Native SmoothHump modifier with plateau [28, 38] and sigma=4.
         size_scorer = Property(
             prop="Heavy",
-            modifier=Gaussian(
-                mu=TARGET_HEAVY_ATOMS,
-                sigma=SIGMA_HEAVY_ATOMS,
+            modifier=SmoothHump(
+                lower_x=SIZE_LOWER_X,
+                upper_x=SIZE_UPPER_X,
+                sigma=SIZE_SIGMA,
             ),
+        )
+
+        #? [Toxicophore Suppression Scorer] Native Scaffold scorer penalizing catechol (1,2-dihydroxybenzene) liabilities.
+        toxicophore_scorer = Scaffold(
+            smart=TOXICOPHORE_SMARTS,
+            is_match=False,
         )
 
         #? [Retrosynthetic Accessibility Scorer] RAscore machine-learning model estimating synthesizability probability.
@@ -221,7 +226,7 @@ class GraphTransformerOptimizer:
             modifier=SmoothClippedScore(
                 lower_x=RA_LOWER_X,
                 upper_x=RA_UPPER_X,
-            )
+            ),
         )
 
         #? [Drug-likeness QED Scorer] Quantitative Estimate of Drug-likeness.
@@ -242,14 +247,21 @@ class GraphTransformerOptimizer:
             ),
         )
 
-        scorers = [rocs_scorer, usrcat_scorer, size_scorer, ra_scorer_inst, qed_scorer, sa_scorer]
-        thresholds = [ROCS_THRESHOLD, USRCAT_THRESHOLD, HEAVY_THRESHOLD, RA_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD]
-        reward_scheme = ParetoTanimotoDistance()
+        scorers = [usrcat_scorer, size_scorer, toxicophore_scorer, ra_scorer_inst, qed_scorer, sa_scorer]
+        thresholds = [
+            USRCAT_THRESHOLD,
+            HEAVY_THRESHOLD,
+            TOXICOPHORE_THRESHOLD,
+            RA_THRESHOLD,
+            QED_THRESHOLD,
+            SA_THRESHOLD,
+        ]
+        scheme = reward_scheme if reward_scheme is not None else AugmentedChebyshevReward()
 
         env = DrugExEnvironment(
             scorers=scorers,
             thresholds=thresholds,
-            reward_scheme=reward_scheme,
+            reward_scheme=scheme,
         )
         return env
 
@@ -257,6 +269,14 @@ class GraphTransformerOptimizer:
         self, molecule_smile: str, n_prompts: int = RL_N_SAMPLES, scaffolds_path: Path | str | None = None
     ) -> tuple[torch.utils.data.DataLoader, GraphFragDataSet]:
         """Encode lead scaffolds or seed fragments into PyTorch DataLoader for GraphTransformer.
+
+        Skeptical Academic Rationale:
+        Replaces BRICS/RECAP cleavage with DrugEx native dummyMolsFromFragments().
+        Intact Bemis-Murcko core frameworks (e.g. condensed rings or flavan skeletons)
+        lack cleavable retrosynthetic bonds, causing BRICS to generate zero fragments
+        and silently trigger fallback to EGCG. dummyMolsFromFragments() natively treats
+        the intact scaffold core as a single fragment with dummy connection vectors,
+        enabling Graph-Transformer to elaborate decorations directly onto discovered leads.
 
         Args:
             molecule_smile: Active seed query SMILES string.
@@ -268,9 +288,10 @@ class GraphTransformerOptimizer:
         """
         seed_tsv: Path = self.MODEL_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
-        #? [DrugEx FragmentCorpusEncoder] Decomposes prompts into graph fragments; allow_single=True enables single-ring retention.
+
+        #? [DrugEx dummyMolsFromFragments] Native fragment converter attaching dummy attachment vectors without bond cleavage.
         corpus_encoder = fragments.FragmentCorpusEncoder(
-            fragmenter=Fragmenter(FRAG_MIN_FRAGS, FRAG_MAX_FRAGS, FRAG_METHOD, allow_single=True),
+            fragmenter=dummyMolsFromFragments(),
             encoder=fragments.GraphFragmentEncoder(self.VOC),
             pairs_splitter=None,
             n_proc=1,
@@ -284,37 +305,33 @@ class GraphTransformerOptimizer:
             self.ROOT_PATH / "_david" / "funnel_scaffolds.tsv",
         ])
 
+        scaffolds: List[str] = []
         for fpath in funnel_candidates:
             if fpath.exists():
                 #? [Pandas] Reads funnel scaffold TSV table to retrieve lead centroids.
                 df_funnel = pd.read_csv(fpath, sep="\t")
                 if "Scaffold" in df_funnel.columns and len(df_funnel) > 0:
-                    scaffolds = df_funnel["Scaffold"].dropna().unique().tolist()
-                    std_scaffolds = processing.Standardization(n_proc=1).apply(scaffolds)
-                    if std_scaffolds:
-                        n_repeats = max(1, n_prompts // len(std_scaffolds) + 1)
-                        expanded_prompts = (std_scaffolds * n_repeats)[:n_prompts]
-                        corpus_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
-                        if len(seed_dataset) > 0:
-                            seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
-                            return seed_loader, seed_dataset
+                    loaded = df_funnel["Scaffold"].dropna().unique().tolist()
+                    if loaded:
+                        scaffolds = loaded
+                        break
 
-        # Fallback to seed molecule fragmentation (EGCG possesses ester/ether bonds readily cleaved by BRICS/RECAP)
-        standardized_smile = processing.Standardization(n_proc=1).apply([molecule_smile])[0]
-        expanded_prompts = [standardized_smile] * max(1, n_prompts // 5)
+        if not scaffolds:
+            # Fallback to query seed molecule if no funnel scaffolds exist
+            scaffolds = [molecule_smile]
+
+        # Standardize scaffolds
+        std_scaffolds = processing.Standardization(n_proc=1).apply(scaffolds)
+        if not std_scaffolds:
+            std_scaffolds = scaffolds
+
+        # Expand scaffolds to target prompt count
+        n_repeats = max(1, n_prompts // len(std_scaffolds) + 1)
+        expanded_prompts = (std_scaffolds * n_repeats)[:n_prompts]
+
         corpus_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
         if len(seed_dataset) == 0:
-            # Fallback to RECAP method if BRICS produced 0 pairs
-            recap_encoder = fragments.FragmentCorpusEncoder(
-                fragmenter=Fragmenter(FRAG_MIN_FRAGS, FRAG_MAX_FRAGS, "recap", allow_single=True),
-                encoder=fragments.GraphFragmentEncoder(self.VOC),
-                pairs_splitter=None,
-                n_proc=1,
-            )
-            recap_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
-
-        if len(seed_dataset) == 0:
-            raise RuntimeError(f"Could not encode any valid fragment prompts from scaffolds or {molecule_smile}")
+            raise RuntimeError(f"Could not encode any valid fragment prompts from scaffolds: {std_scaffolds[:5]}")
 
         seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
         return seed_loader, seed_dataset

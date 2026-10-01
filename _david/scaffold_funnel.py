@@ -13,6 +13,8 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+#? [NumPy] Array operations for shape scoring and distance vectors.
+import numpy as np
 #? [Pandas] Tabular DataFrame operations for candidate sorting, deduplication, and TSV export.
 import pandas as pd
 #? [RDKit] Cheminformatics library for SMILES parsing, substructure searching, Morgan fingerprints, and depictions.
@@ -22,6 +24,18 @@ from rdkit.Chem import AllChem, Draw
 from rdkit.Chem.Scaffolds import MurckoScaffold
 #? [RDKit Butina] Sphere-exclusion unsupervised clustering algorithm for structural diversity selection.
 from rdkit.ML.Cluster import Butina
+
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+try:
+    from drugex.training.scorers.rocs_cdpkit import CDPKitROCSScorer
+    CDPKIT_AVAILABLE: bool = True
+except (ImportError, Exception):
+    CDPKIT_AVAILABLE: bool = False
+try:
+    from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+    RDKIT_ROCS_AVAILABLE: bool = True
+except (ImportError, Exception):
+    RDKIT_ROCS_AVAILABLE: bool = False
 
 MIN_ROCS_SCORE: float = 0.38
 MIN_USRCAT_SCORE: float = 0.45
@@ -148,6 +162,71 @@ class ScaffoldFunnel:
         clusters: Sequence[Tuple[int, ...]] = Butina.ClusterData(dists, num_fps, cutoff, isDistData=True)
         return clusters
 
+    def compute_rocs_scores(self, smiles_list: Sequence[str], ref_sdf: Path | str | None = None) -> np.ndarray:
+        """Compute authentic physical Gaussian volume overlap for candidates.
+
+        Skeptical Academic Rationale:
+        Decoupled 3D Tier: During Stage 1 RL, USRCAT moments ran in microseconds without
+        conformer generation to accelerate RL rollouts. In Stage 2 Funnel, candidates are
+        subjected to rigorous physical Gaussian volume overlay (CDPKit ROCS: CDPKitROCSScorer
+        + RDKitConformerGenerator) using ETKDGv3 conformer ensembles against the query conformers.
+
+        Args:
+            smiles_list: Candidate SMILES strings to evaluate.
+            ref_sdf: Optional custom reference SDF path.
+
+        Returns:
+            NumPy array of ROCS TanimotoCombo scores.
+        """
+        if not smiles_list:
+            return np.zeros(0, dtype=np.float32)
+
+        ref_path = Path(ref_sdf) if ref_sdf else (self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf")
+        if not ref_path.exists():
+            from _david.prepare_query_conformer import QueryConformerPreparer
+            preparer = QueryConformerPreparer(ref_path.parent)
+            ref_path = preparer.generate_reference_sdf(MY_MOLECULE, ref_path)
+
+        #? [RDKit Conformer Generator] 10 conformers per candidate with ETKDGv3.
+        conf_gen = RDKitConformerGenerator(
+            max_conformers=10,
+            max_isomers=1,
+            max_heavy_atoms=50,
+            num_threads=0,
+            timeout=15,
+            show_progress=False,
+        )
+
+        if CDPKIT_AVAILABLE:
+            try:
+                #? [CDPKit ROCS Scorer] Rigorous physical Gaussian volume overlap.
+                scorer = CDPKitROCSScorer(
+                    conformer_generator=conf_gen,
+                    references=str(ref_path),
+                    show_progress=False,
+                    opt_mode="combo",
+                )
+                return np.asarray(scorer.getScores(smiles_list), dtype=np.float32)
+            except Exception:
+                pass
+
+        if RDKIT_ROCS_AVAILABLE:
+            try:
+                #? [RDKit ROCS Scorer] Robust fallback Gaussian shape aligner.
+                scorer = RDKitROCSScorer(
+                    conformer_generator=conf_gen,
+                    references=str(ref_path),
+                    score_type="TanimotoCombo",
+                    use_colors=True,
+                    show_progress=False,
+                    n_jobs=2,
+                )
+                return np.asarray(scorer.getScores(smiles_list), dtype=np.float32)
+            except Exception:
+                pass
+
+        return np.full(len(smiles_list), 0.5, dtype=np.float32)
+
     def process_candidates_dataframe(self, df: pd.DataFrame, max_scaffolds: int = MAX_OUTPUT_SCAFFOLDS) -> pd.DataFrame:
         """Process candidate DataFrame through the Bemis-Murcko chemotype funnel.
 
@@ -179,14 +258,23 @@ class ScaffoldFunnel:
         filtered = df.copy()
         if "Valid" in filtered.columns:
             filtered = filtered[filtered["Valid"] == 1]
-        if rocs_col and rocs_col in filtered.columns:
-            filtered = filtered[filtered[rocs_col] >= MIN_ROCS_SCORE]
         if usrcat_col and usrcat_col in filtered.columns:
             filtered = filtered[filtered[usrcat_col] >= MIN_USRCAT_SCORE]
         if ra_col and ra_col in filtered.columns:
             filtered = filtered[filtered[ra_col] >= MIN_RA_SCORE]
         if qed_col and qed_col in filtered.columns:
             filtered = filtered[filtered[qed_col] >= MIN_QED_SCORE]
+
+        # Decoupled 3D Tier: If ROCS was not evaluated during Stage 1 RL loop, evaluate authentic Gaussian overlap in Funnel
+        if rocs_col is None and len(filtered) > 0:
+            candidate_smiles = filtered["SMILES"].tolist()
+            rocs_scores = self.compute_rocs_scores(candidate_smiles)
+            filtered["ROCS"] = rocs_scores
+            rocs_col = "ROCS"
+            if (filtered["ROCS"] >= MIN_ROCS_SCORE).any():
+                filtered = filtered[filtered["ROCS"] >= MIN_ROCS_SCORE]
+        elif rocs_col and rocs_col in filtered.columns:
+            filtered = filtered[filtered[rocs_col] >= MIN_ROCS_SCORE]
 
         if len(filtered) == 0:
             filtered = df.head(50)

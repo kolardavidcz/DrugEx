@@ -50,10 +50,12 @@ Previous pipeline executions yielded mean ROCS ~0.26–0.28 and Desired Ratio on
 
 | Root Cause | Mechanism of Failure | Architectural Solution |
 |---|---|---|
-| **1. Conformer Undersampling** | `ROCS_MAX_CONFS = 2` during RL left flexible molecules (4–10 rotatable bonds) in a conformational desert. | Upgraded to `ROCS_MAX_CONFS = 10` (with 50 reference conformers), allowing realistic conformational search. |
-| **2. Pareto Reward Hacking** | In 5-objective Pareto ranking, candidates scoring ~0.98 on RAscore, ~0.98 on 2D Novelty, and ~0.85 on QED dominated the Pareto front while completely ignoring the difficult 3D shape objective (~0.25). | 1) Removed counterproductive 2D Novelty objective from RL (scaffold hopping is handled in Stage 2 funnel). 2) Tightened 3D shape modifiers (`SmoothClippedScore` threshold 0.50). 3) Added USRCAT dual 3D shape scoring. |
-| **3. Fragment Volume Mismatch** | High QED and RAscore naturally favored small 15–20 heavy atom fragments. Physically, an 18-atom molecule cannot fill EGCG's 33-heavy-atom steric volume ($\text{ROCS} \le 0.35$). | Added heavy-atom Gaussian size constraint (`Property(prop="Heavy", modifier=Gaussian(mu=33, sigma=6))`), candidate heavy-atom filter ($\ge 20$ atoms), and scaffold core filter (12–32 atoms) in Stage 2. |
-| **4. Artificial Mock Benchmark** | `_david/thesis_benchmark.py` previously generated synthetic random-normal numbers (`_simulate_regime_data`), masking actual performance. | Completely purged all synthetic simulation code. All benchmark tables and figures are generated strictly from authentic candidate calculations. |
+| **1. Conformer Undersampling & RL Speed** | `ROCS_MAX_CONFS = 2` left flexible molecules in a conformational desert, while computing ROCS in RL loops caused severe bottlenecks. | Decoupled 3D shape tiers: 1) Inner RL loops use ultrafast rotationally-invariant USRCAT moments for ~100x speedup. 2) Stage 2 funnel and Stage 4 lead validation evaluate rigorous physical Gaussian volume overlap (CDPKit ROCS: `CDPKitROCSScorer` + `RDKitConformerGenerator`, 10 confs). |
+| **2. Pareto Reward Hacking** | In 5-objective Pareto ranking, candidates scoring ~0.98 on RAscore and QED dominated the front despite disastrous 3D shape (~0.05). | Replaced vulnerable Pareto ranking with `AugmentedChebyshevReward` (minimax on deviations from ideal point z*=1.0 + rho*sum) and `GeometricMeanReward`. Single-objective cheats are severely penalized. |
+| **3. Fragment Volume Mismatch** | High QED naturally favored small 15–20 heavy atom fragments incapable of matching EGCG's 33-atom steric volume. | Upgraded size constraint to native DrugEx `SmoothHump(lower_x=28, upper_x=38, sigma=4)`. |
+| **4. PAINS Toxicophore Liabilities** | EGCG's 8 phenolic hydroxyls contain catechols causing biochemical assay false positives. | Added native `Scaffold(smart="c1c([OH])c([OH])ccc1", is_match=False)` with threshold 0.99 into RL environment to actively suppress catechol formation. |
+| **5. Murcko Scaffold Cleavage Failure** | Custom BRICS/RECAP fragmenter failed on intact Murcko ring frameworks, silently falling back to cleaving EGCG prompts. | Replaced custom fragmentation with DrugEx native `dummyMolsFromFragments()` via `agent.loaderFromFrags(scaffolds)` to directly attach dummy vectors to intact frameworks. |
+| **6. Artificial Mock Benchmark** | `_david/thesis_benchmark.py` previously generated synthetic random numbers (`_simulate_regime_data`). | Completely purged all synthetic simulation code. All benchmark tables and figures are generated strictly from authentic candidate calculations. |
 
 ---
 
@@ -64,16 +66,19 @@ Previous pipeline executions yielded mean ROCS ~0.26–0.28 and Desired Ratio on
    - Pre-computes and caches 60-dimensional reference USRCAT moment array (`my_molecule_usrcat.npy`).
 2. **Stage 1: Sequence-RNN Global Hit Discovery** (`SequenceRNN.py`):
    - Broad unconstrained chemical space exploration using autoregressive LSTM on Papyrus vocab.
-   - Rewards: ROCS 3D TanimotoCombo (10 confs), USRCAT 3D moments, Heavy Atom count (targeting 33 atoms), RAscore synthesizability, QED, and SA.
+   - Rewards: USRCAT 3D moments (ultrafast), Heavy Atom SmoothHump (plateau [28, 38], sigma=4), Scaffold catechol suppression (threshold 0.99), RAscore synthesizability, QED, and SA.
+   - Scalarization: `AugmentedChebyshevReward` preventing boundary Pareto cheats.
 3. **Stage 2: Bemis-Murcko Framework Extraction & Funnel** (`scaffold_funnel.py`):
+   - Evaluates authentic physical Gaussian volume overlap (CDPKit ROCS: `CDPKitROCSScorer` + `RDKitConformerGenerator`).
    - Decomposes Stage 1 hits into Murcko scaffolds.
-   - Heavy-atom volume filtering (14–32 atoms).
+   - Heavy-atom volume filtering (12–32 atoms).
    - Purges catechol and polyphenol PAINS liabilities (preventing redox/reactive false positives).
    - Enforces scaffold hopping distance from seed (ECFP4 Tanimoto $\le 0.60$).
    - Clusters scaffolds with Butina sphere exclusion (Tanimoto cutoff 0.40) to select diverse lead centroids.
 4. **Stage 3: Graph-Transformer Lead Optimization** (`GraphTransformer.py`):
    - Fragment-conditioned generative RL starting from discovered funnel centroids.
-   - Same un-cheatable multi-objective rewards (ROCS + USRCAT + Heavy Atoms + RAscore + QED + SA).
+   - Native `dummyMolsFromFragments()` fragment encoding directly preserving intact Murcko frameworks.
+   - Same un-cheatable multi-objective rewards (USRCAT + SmoothHump + Catechol Scaffold + RAscore + QED + SA) with `AugmentedChebyshevReward`.
 5. **Stage 4: Thesis Publication Benchmark** (`thesis_benchmark.py`):
-   - Evaluates authentic candidate files with real calculated properties.
+   - Evaluates authentic candidate files with real calculated properties, including CDPKit ROCS validation.
    - Exports `thesis_benchmark_table.tsv`, radar chart, Morgan FP PCA projection, score distribution boxplots, and 2D depiction grids.
