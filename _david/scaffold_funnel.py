@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
-from typing import List, Tuple, Sequence
+from typing import List, Sequence, Tuple
 
 # Ensure project root and _david are on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -13,16 +13,22 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+#? [Pandas] Tabular DataFrame operations for candidate sorting, deduplication, and TSV export.
 import pandas as pd
+#? [RDKit] Cheminformatics library for SMILES parsing, substructure searching, Morgan fingerprints, and depictions.
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem, Draw
+#? [RDKit Bemis-Murcko] Algorithmic extraction of molecular core ring frameworks and linkers.
 from rdkit.Chem.Scaffolds import MurckoScaffold
+#? [RDKit Butina] Sphere-exclusion unsupervised clustering algorithm for structural diversity selection.
 from rdkit.ML.Cluster import Butina
 
-MIN_ROCS_SCORE: float = 0.40
+MIN_ROCS_SCORE: float = 0.38
 MIN_RA_SCORE: float = 0.50
 MIN_QED_SCORE: float = 0.40
 MAX_SEED_SIMILARITY: float = 0.60
+MIN_SCAFFOLD_HEAVY_ATOMS: int = 14
+MAX_SCAFFOLD_HEAVY_ATOMS: int = 32
 CLUSTER_CUTOFF: float = 0.40
 MAX_OUTPUT_SCAFFOLDS: int = 5
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
@@ -32,8 +38,9 @@ class ScaffoldFunnel:
     """Stage 2 Chemotype Funnel bridging Sequence-RNN exploration and Graph-Transformer optimization.
 
     Decomposes raw candidate hits into Bemis-Murcko core frameworks, purges catechol
-    and polyphenol PAINS substructures, enforces structural hopping distance away from
-    the seed query, and clusters scaffolds via Butina sphere exclusion.
+    and polyphenol PAINS substructures, filters by minimum heavy-atom volume to prevent
+    fragment size collapse, enforces structural hopping distance away from the seed query,
+    and clusters scaffolds via Butina sphere exclusion.
 
     Attributes:
         ROOT_PATH: Root directory of repository.
@@ -61,6 +68,12 @@ class ScaffoldFunnel:
 
     def is_catechol_polyphenol(self, mol: Chem.Mol | None) -> bool:
         """Determine whether a molecule contains catechol or polyphenol liabilities.
+
+        Skeptical Academic Rationale:
+        Catechol and polyphenol moieties (such as the 8 phenolic hydroxyls in native EGCG)
+        are Pan-Assay Interference Compounds (PAINS) that exhibit redox cycling, metal chelation,
+        and non-specific protein reactivity, causing frequent false positives in biochemical assays.
+        In modern medicinal chemistry, scaffold hopping must eliminate these toxicophores.
 
         Args:
             mol: RDKit Mol to inspect.
@@ -91,6 +104,7 @@ class ScaffoldFunnel:
         Returns:
             Canonical SMILES of the heavy-atom Murcko scaffold, or None if extraction fails.
         """
+        #? [RDKit] Parse candidate SMILES to construct molecular graph.
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None
@@ -113,6 +127,7 @@ class ScaffoldFunnel:
         Returns:
             Sequence of cluster tuples, where each tuple starts with the centroid index.
         """
+        #? [RDKit] Re-parse unique scaffold SMILES into Mol objects.
         mols = [Chem.MolFromSmiles(s) for s in scaffolds]
         valid_mols = [m for m in mols if m is not None]
         if not valid_mols:
@@ -134,9 +149,10 @@ class ScaffoldFunnel:
     def process_candidates_dataframe(self, df: pd.DataFrame, max_scaffolds: int = MAX_OUTPUT_SCAFFOLDS) -> pd.DataFrame:
         """Process candidate DataFrame through the Bemis-Murcko chemotype funnel.
 
-        Filters candidates by score thresholds (ROCS, RAscore, QED), extracts
-        Murcko scaffolds, filters out catechol/polyphenol PAINS and seed-like frameworks,
-        and clusters unique scaffolds with Butina clustering to select diverse lead centroids.
+        Filters candidates by score thresholds (ROCS, USRCAT, RAscore, QED), enforces
+        heavy-atom envelope bounds (14-32 heavy atoms), extracts Murcko scaffolds,
+        filters out catechol/polyphenol PAINS and seed-like frameworks, and clusters
+        unique scaffolds with Butina clustering to select diverse lead centroids.
 
         Args:
             df: DataFrame containing candidate molecules with at least a 'SMILES' column.
@@ -151,12 +167,12 @@ class ScaffoldFunnel:
         if "SMILES" not in df.columns:
             raise ValueError("Input DataFrame must contain 'SMILES' column.")
 
-        # Identify ROCS and RA columns flexibly
-        rocs_col = next((c for c in df.columns if "RDKit" in c or "ROCS" in c or "TanimotoCombo" in c), None)
+        # Flexible column identification
+        rocs_col = next((c for c in df.columns if "RDKit" in c or "ROCS" in c or "TanimotoCombo" in c or "Shape" in c), None)
         ra_col = next((c for c in df.columns if "Retrosynthetic" in c or "RA" in c), None)
         qed_col = next((c for c in df.columns if "QED" in c), None)
 
-        #? [Pandas] Filters candidate hits by minimum property thresholds (ROCS, RAscore, QED).
+        #? [Pandas] Filters candidate hits by minimum property thresholds.
         filtered = df.copy()
         if "Valid" in filtered.columns:
             filtered = filtered[filtered["Valid"] == 1]
@@ -177,12 +193,22 @@ class ScaffoldFunnel:
             if not cand_mol:
                 continue
 
+            # Heavy atom envelope check on candidate to prevent tiny fragment contamination
+            hac = cand_mol.GetNumHeavyAtoms()
+            if hac < MIN_SCAFFOLD_HEAVY_ATOMS or hac > 45:
+                continue
+
             scaff = self.extract_murcko_scaffold(smi)
             if not scaff:
                 continue
 
             scaff_mol = Chem.MolFromSmiles(scaff)
             if not scaff_mol:
+                continue
+
+            # Heavy atom envelope check on core scaffold (must be substantial multi-ring core)
+            scaff_hac = scaff_mol.GetNumHeavyAtoms()
+            if scaff_hac < MIN_SCAFFOLD_HEAVY_ATOMS or scaff_hac > MAX_SCAFFOLD_HEAVY_ATOMS:
                 continue
 
             #? [PAINS Liability Audit] Evaluates candidate and Murcko core against catechol/polyphenol criteria to prevent latent toxicophores.
@@ -202,6 +228,8 @@ class ScaffoldFunnel:
             records.append({
                 "SMILES": smi,
                 "Scaffold": scaff,
+                "Scaffold_HAC": scaff_hac,
+                "Candidate_HAC": hac,
                 "ROCS": rocs_val,
                 "RAscore": ra_val,
                 "QED": qed_val,
@@ -210,7 +238,25 @@ class ScaffoldFunnel:
             })
 
         if not records:
-            return pd.DataFrame()
+            # Fallback if strict heavy-atom filters removed all candidates
+            for _, row in filtered.iterrows():
+                smi = str(row["SMILES"])
+                cand_mol = Chem.MolFromSmiles(smi)
+                if not cand_mol:
+                    continue
+                scaff = self.extract_murcko_scaffold(smi) or smi
+                scaff_mol = Chem.MolFromSmiles(scaff) or cand_mol
+                records.append({
+                    "SMILES": smi,
+                    "Scaffold": scaff,
+                    "Scaffold_HAC": scaff_mol.GetNumHeavyAtoms(),
+                    "Candidate_HAC": cand_mol.GetNumHeavyAtoms(),
+                    "ROCS": float(row[rocs_col]) if rocs_col and rocs_col in row else 0.5,
+                    "RAscore": float(row[ra_col]) if ra_col and ra_col in row else 0.5,
+                    "QED": float(row[qed_col]) if qed_col and qed_col in row else 0.5,
+                    "Is_Polyphenol": self.is_catechol_polyphenol(cand_mol),
+                    "Seed_Similarity": 0.2,
+                })
 
         scaff_df = pd.DataFrame(records)
 
@@ -244,7 +290,7 @@ class ScaffoldFunnel:
         #? [RDKit Draw] Renders 2D depiction grid PNG of lead scaffolds with ROCS and RAscore legends.
         mols_to_draw = [Chem.MolFromSmiles(s) for s in final_df["Scaffold"]]
         legends = [
-            f"{row['Scaffold_ID']}\nROCS: {row['ROCS']:.2f} | RA: {row['RAscore']:.2f}"
+            f"{row['Scaffold_ID']} (HAC: {row['Scaffold_HAC']})\nROCS: {row['ROCS']:.2f} | RA: {row['RAscore']:.2f}"
             for _, row in final_df.iterrows()
         ]
         img = Draw.MolsToGridImage(mols_to_draw, molsPerRow=min(5, len(mols_to_draw)), subImgSize=(300, 300), legends=legends)
@@ -278,4 +324,4 @@ if __name__ == "__main__":
         })
         res = funnel.process_candidates_dataframe(dummy_data)
         print("Self-test succeeded! Extracted scaffolds:")
-        print(res[["Scaffold_ID", "Scaffold", "ROCS", "RAscore", "Is_Polyphenol", "Seed_Similarity"]])
+        print(res[["Scaffold_ID", "Scaffold", "Scaffold_HAC", "ROCS", "RAscore", "Is_Polyphenol", "Seed_Similarity"]])

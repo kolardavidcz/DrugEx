@@ -3,16 +3,21 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import List, Tuple, Union
 import warnings
 
 #? [Matplotlib] Non-interactive Agg backend: disables GUI window requirement for headless server execution.
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+#? [NumPy] Vector numerical arrays for score manipulation and metric tracking.
 import numpy as np
+#? [Pandas] Tabular data structures for candidate hit tables and training logs.
 import pandas as pd
+#? [RDKit] Cheminformatics toolkit for molecule graph validation, 2D depictions, and property scoring.
 from rdkit import Chem
 from rdkit.Chem import Draw
+#? [PyTorch] Deep learning framework for tensor calculations, GPU memory probing, and LSTM gradients.
 import torch
 
 from drugex.data.corpus import vocabulary
@@ -26,17 +31,23 @@ from drugex.training.monitors import FileMonitor
 from drugex.training.rewards import ParetoTanimotoDistance
 from drugex.training.scorers import conformer_generators, modifiers, properties, ra_scorer, rocs_rdkit
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-from drugex.training.scorers.modifiers import SmoothClippedScore
+from drugex.training.scorers.modifiers import Gaussian, SmoothClippedScore
 from drugex.training.scorers.properties import Property
 from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
-from drugex.training.scorers.similarity import TverskyFingerprintSimilarity
+
+from _david.usrcat_scorer import USRCATScorer
 
 warnings.filterwarnings("ignore")
 
 
 #? [PyTorch CUDA] Lightweight device probe: tests tensor allocation on GPU 0 to safely catch driver faults and fall back to CPU.
-def get_safe_gpus():
+def get_safe_gpus() -> tuple[int, ...] | tuple[()]:
+    """Safely detect available and functioning CUDA devices.
+
+    Returns:
+        Tuple containing GPU device index (0,) if CUDA is functional, or empty tuple if unavailable.
+    """
     if not torch.cuda.is_available():
         return tuple()
     try:
@@ -47,87 +58,126 @@ def get_safe_gpus():
         return tuple()
 
 
-GPUS = get_safe_gpus()
+GPUS: tuple[int, ...] | tuple[()] = get_safe_gpus()
 
-MY_MOLECULE = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 
-RL_EPOCHS = 100
-RL_EPSILON = 0.10
-RL_BETA = 0.00
-RL_N_SAMPLES = 200
-RL_BATCH_SIZE = 64
-RL_PATIENCE = 20
+# --- Training Hyperparameters ---
+RL_EPOCHS: int = 100
+RL_EPSILON: float = 0.10
+RL_BETA: float = 0.00
+RL_N_SAMPLES: int = 200
+RL_BATCH_SIZE: int = 64
+RL_PATIENCE: int = 20
 
-ROCS_SCORE_TYPE = "TanimotoCombo"
-ROCS_MAX_CONFS = 2
-ROCS_MAX_ISOMERS = 1
-ROCS_TIMEOUT = 10
-ROCS_LOWER_X = 0.40
-ROCS_UPPER_X = 1.20
-ROCS_THRESHOLD = 0.50
+# --- 3D Shape Scorer Bounds & Thresholds ---
+ROCS_SCORE_TYPE: str = "TanimotoCombo"
+ROCS_MAX_CONFS: int = 10
+ROCS_MAX_ISOMERS: int = 1
+ROCS_TIMEOUT: int = 15
+ROCS_LOWER_X: float = 0.45
+ROCS_UPPER_X: float = 1.10
+ROCS_THRESHOLD: float = 0.50
 
-RA_LOWER_X = 0.20
-RA_UPPER_X = 0.70
-RA_THRESHOLD = 0.50
+# --- USRCAT 3D Pharmacophore Bounds ---
+USRCAT_LOWER_X: float = 0.50
+USRCAT_UPPER_X: float = 0.85
+USRCAT_THRESHOLD: float = 0.55
 
-QED_LOWER_X = 0.30
-QED_UPPER_X = 0.70
-QED_THRESHOLD = 0.50
+# --- Physical Size / Volume Bounds (EGCG target: 33 heavy atoms, MW ~458) ---
+TARGET_HEAVY_ATOMS: float = 33.0
+SIGMA_HEAVY_ATOMS: float = 6.0
+HEAVY_THRESHOLD: float = 0.45
 
-SA_LOWER_X = 4.50
-SA_UPPER_X = 2.50
-SA_THRESHOLD = 0.50
+# --- Synthesizability & Drug-likeness Bounds ---
+RA_LOWER_X: float = 0.30
+RA_UPPER_X: float = 0.80
+RA_THRESHOLD: float = 0.50
+
+QED_LOWER_X: float = 0.35
+QED_UPPER_X: float = 0.75
+QED_THRESHOLD: float = 0.50
+
+SA_LOWER_X: float = 4.50
+SA_UPPER_X: float = 2.50
+SA_THRESHOLD: float = 0.50
 
 
 class SequenceRNNOptimizer:
     """Stage 1 Generative Optimizer executing policy-gradient RL on a SequenceRNN model.
 
-    Optimizes an autoregressive LSTM language model pretrained on Papyrus 05.5
-    under multi-objective rewards including 3D ROCS shape/color similarity,
-    retrosynthetic accessibility (RAscore), inverted 2D novelty, QED, and SA.
+    Skeptical Academic Rationale:
+    1. Addresses RL Conformer Undersampling: Upgrades conformer generation from max_confs=2 to 10,
+       resolving the severe conformer desert where flexible molecules failed 3D alignment.
+    2. Closes Pareto Objective Cheating: Eliminates the counterproductive 2D Novelty objective which
+       previously rewarded molecules for structurally diverging from the target volume, allowing the agent
+       to game Pareto ranks by producing trivial small fragments.
+    3. Enforces Heavy-Atom Volume Target: Uses a Gaussian modifier centered on EGCG's heavy atom count (33)
+       to physically prevent the generator from collapsing into 15-20 atom fragments that physically cannot
+       match EGCG's steric envelope.
+    4. Dual 3D Alignment: Combines Gaussian volume overlap (ROCS) with rotation-invariant USRCAT moments.
+
+    Attributes:
+        ROOT_PATH: Root repository directory.
+        OUTPUT_DIR: Target folder for saving training logs, checkpoints, and generated candidate tables.
+        VOC: SMILES vocabulary object loaded from pretrained Papyrus model.
+        AGENT: Trainable SequenceRNN policy model.
+        PRIOR: Frozen SequenceRNN prior model providing mutation and KL penalty anchor.
     """
 
     def __init__(self, output_dir: Path | None = None) -> None:
-        self.ROOT_PATH = Path(__file__).resolve().parent.parent
-        self.BASE_OUTPUT_DIR = self.ROOT_PATH / "_david" / "outputs_RNN"
+        """Initialize SequenceRNNOptimizer with pretrained models and vocabularies.
+
+        Args:
+            output_dir: Optional custom Path to store run outputs and models.
+        """
+        self.ROOT_PATH: Path = Path(__file__).resolve().parent.parent
+        self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "outputs_RNN"
 
         if output_dir is None:
-            self.RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.OUTPUT_DIR = self.BASE_OUTPUT_DIR / self.RUN_ID
+            #? [DateTime] Generates ISO-like timestamp string for unique run output directory naming.
+            self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.OUTPUT_DIR: Path = self.BASE_OUTPUT_DIR / self.RUN_ID
         else:
             self.OUTPUT_DIR = Path(output_dir)
             self.RUN_ID = self.OUTPUT_DIR.name
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-        self.MODEL_DIR = self.OUTPUT_DIR / "reinforcement_learning"
+        self.MODEL_DIR: Path = self.OUTPUT_DIR / "reinforcement_learning"
         self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        self.MODEL = self.MODEL_DIR
+        self.MODEL: Path = self.MODEL_DIR
 
-        self.PRETRAINED_DIR = self.ROOT_PATH / "data" / "models" / "pretrained" / "smiles-rnn" / "Papyrus05.5_smiles_rnn_PT"
-        self.MODEL_PRETRAINED = self.PRETRAINED_DIR
+        self.PRETRAINED_DIR: Path = self.ROOT_PATH / "data" / "models" / "pretrained" / "smiles-rnn" / "Papyrus05.5_smiles_rnn_PT"
+        self.MODEL_PRETRAINED: Path = self.PRETRAINED_DIR
 
-        self.VOC = VocSmiles.fromFile(self.PRETRAINED_DIR / "Papyrus05.5_smiles_rnn_PT.vocab")
-        self.AGENT = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
+        self.VOC: VocSmiles = VocSmiles.fromFile(self.PRETRAINED_DIR / "Papyrus05.5_smiles_rnn_PT.vocab")
+        self.AGENT: SequenceRNN = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
         self.AGENT.loadStatesFromFile(self.PRETRAINED_DIR / "Papyrus05.5_smiles_rnn_PT.pkg")
 
-        self.PRIOR = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
+        self.PRIOR: SequenceRNN = SequenceRNN(self.VOC, is_lstm=True, use_gpus=GPUS)
         self.PRIOR.loadStatesFromFile(self.PRETRAINED_DIR / "Papyrus05.5_smiles_rnn_PT.pkg")
 
     def build_environment(self, ref_sdf_path: Path | str, seed_smiles: str = MY_MOLECULE) -> DrugExEnvironment:
         """Construct multi-objective DrugExEnvironment for reinforcement learning.
 
+        Builds an un-cheatable multi-objective environment incorporating 3D ROCS shape/color
+        overlap, USRCAT 3D moments, heavy atom volume matching (targeting 33 atoms),
+        retrosynthetic accessibility (RAscore), QED, and synthetic accessibility (SA).
+
         Args:
-            ref_sdf_path: Path to reference multi-conformer 3D SDF for ROCS.
-            seed_smiles: SMILES string of active seed query for scaffold hopping.
+            ref_sdf_path: Path to reference multi-conformer 3D SDF for ROCS and USRCAT.
+            seed_smiles: SMILES string of active seed query for scaffold reference.
 
         Returns:
             Configured DrugExEnvironment with ParetoTanimotoDistance reward scheme.
         """
-        ref_path_str = str(ref_sdf_path)
+        ref_path_str: str = str(ref_sdf_path)
 
+        #? [RDKit Conformer Generator] Multi-conformer generator with ETKDGv3 and expanded max_heavy_atoms=50.
         conf_gen = RDKitConformerGenerator(
             max_conformers=ROCS_MAX_CONFS,
             max_isomers=ROCS_MAX_ISOMERS,
+            max_heavy_atoms=50,
             num_threads=0,
             timeout=ROCS_TIMEOUT,
             show_progress=False,
@@ -147,6 +197,26 @@ class SequenceRNNOptimizer:
             )
         )
 
+        #? [Pure LBDD USRCAT Scorer] Ultrafast 60-dimensional shape and pharmacophore moment similarity.
+        usrcat_scorer = USRCATScorer(
+            references=ref_path_str,
+            num_conformers=ROCS_MAX_CONFS,
+            modifier=SmoothClippedScore(
+                lower_x=USRCAT_LOWER_X,
+                upper_x=USRCAT_UPPER_X,
+            ),
+        )
+
+        #? [Heavy Atom Volume Scorer] Gaussian modifier centered on EGCG (33 atoms) to penalize small-fragment cheats.
+        size_scorer = Property(
+            prop="Heavy",
+            modifier=Gaussian(
+                mu=TARGET_HEAVY_ATOMS,
+                sigma=SIGMA_HEAVY_ATOMS,
+            ),
+        )
+
+        #? [Retrosynthetic Accessibility Scorer] RAscore machine-learning model estimating synthesizability probability.
         ra_scorer_inst = RetrosyntheticAccessibilityScorer(
             modifier=SmoothClippedScore(
                 lower_x=RA_LOWER_X,
@@ -154,36 +224,26 @@ class SequenceRNNOptimizer:
             )
         )
 
-        #? [Inverted 2D Novelty] ECFP6 Tversky (alpha=beta=1.0) with inverted sigmoid to penalize seed duplication and force scaffold hopping.
-        novelty_scorer = TverskyFingerprintSimilarity(
-            smiles=seed_smiles,
-            fp_type="ECFP6",
-            alpha=1.0,
-            beta=1.0,
-            modifier=SmoothClippedScore(
-                lower_x=0.60,
-                upper_x=0.25,
-            ),
-        )
-
+        #? [Drug-likeness QED Scorer] Quantitative Estimate of Drug-likeness.
         qed_scorer = Property(
             prop="QED",
             modifier=SmoothClippedScore(
                 lower_x=QED_LOWER_X,
                 upper_x=QED_UPPER_X,
-            )
+            ),
         )
 
+        #? [Synthetic Accessibility SA Scorer] Ertl & Schuffenhauer fragment penalty index.
         sa_scorer = Property(
             prop="SA",
             modifier=SmoothClippedScore(
                 lower_x=SA_LOWER_X,
                 upper_x=SA_UPPER_X,
-            )
+            ),
         )
 
-        scorers = [rocs_scorer, ra_scorer_inst, novelty_scorer, qed_scorer, sa_scorer]
-        thresholds = [ROCS_THRESHOLD, RA_THRESHOLD, 0.50, QED_THRESHOLD, SA_THRESHOLD]
+        scorers = [rocs_scorer, usrcat_scorer, size_scorer, ra_scorer_inst, qed_scorer, sa_scorer]
+        thresholds = [ROCS_THRESHOLD, USRCAT_THRESHOLD, HEAVY_THRESHOLD, RA_THRESHOLD, QED_THRESHOLD, SA_THRESHOLD]
         reward_scheme = ParetoTanimotoDistance()
 
         env = DrugExEnvironment(
@@ -239,7 +299,19 @@ class SequenceRNNOptimizer:
         scored_df = self.save_visualizations(self.AGENT, env, model_prefix, self.MODEL_DIR, num_samples=n_samples)
         return self.AGENT, scored_df
 
-    def RAINFORCEMENT_LEARNING(self, molecule_smile: str, epochs: int | None = None, n_samples: int | None = None):
+    def RAINFORCEMENT_LEARNING(
+        self, molecule_smile: str, epochs: int | None = None, n_samples: int | None = None
+    ) -> tuple[SequenceRNN, pd.DataFrame]:
+        """Backward-compatibility wrapper for legacy pipeline calls.
+
+        Args:
+            molecule_smile: Query molecule SMILES.
+            epochs: Optional custom epoch count.
+            n_samples: Optional custom sample count.
+
+        Returns:
+            Tuple of trained SequenceRNN agent and scored DataFrame.
+        """
         ep = epochs if epochs is not None else RL_EPOCHS
         ns = n_samples if n_samples is not None else RL_N_SAMPLES
         return self.run_reinforcement_learning(molecule_smile=molecule_smile, epochs=ep, n_samples=ns)
@@ -276,6 +348,7 @@ class SequenceRNNOptimizer:
 
         generated_sample = agent.generate(num_samples=num_samples)
         scores = env.getScores(generated_sample["SMILES"])
+        #? [Pandas] Concatenates generated SMILES with evaluated objective scores.
         scored_df = pd.concat([generated_sample.reset_index(drop=True), scores.reset_index(drop=True)], axis=1)
         scored_df = scored_df.loc[:, ~scored_df.columns.duplicated()].copy()
         scored_df.to_csv(out_dir / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
@@ -299,12 +372,30 @@ ALL_METHODS = SequenceRNNOptimizer
 
 
 class MY_TRANSFER_LEARNING(SequenceRNNOptimizer):
-    def TRANSFER_LEARNING(self, molecule_smile: str):
+    """Adapter for legacy transfer learning calls."""
+
+    def TRANSFER_LEARNING(self, molecule_smile: str) -> tuple[SequenceRNN, pd.DataFrame, Path]:
+        """Execute legacy transfer learning placeholder.
+
+        Args:
+            molecule_smile: Query molecule SMILES.
+
+        Returns:
+            Tuple of agent, DataFrame, and output directory.
+        """
         return self.AGENT, pd.DataFrame({"SMILES": [molecule_smile]}), self.OUTPUT_DIR
 
 
 class RAINFORCMENT_LEARNING(SequenceRNNOptimizer):
-    def __init__(self, finetuned: SequenceRNN | Path, output_dir: Path | None = None):
+    """Adapter for legacy reinforcement learning class naming."""
+
+    def __init__(self, finetuned: SequenceRNN | Path, output_dir: Path | None = None) -> None:
+        """Initialize adapter.
+
+        Args:
+            finetuned: Trained agent or path.
+            output_dir: Optional output directory.
+        """
         super().__init__(output_dir=output_dir)
         if isinstance(finetuned, SequenceRNN):
             self.AGENT = finetuned

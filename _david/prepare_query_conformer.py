@@ -12,32 +12,38 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+#? [NumPy] Array operations for saving and loading pre-computed USRCAT 3D moment vectors.
+import numpy as np
+#? [RDKit] Cheminformatics foundation for molecule parsing, conformer embedding, force-field optimization, and SDF I/O.
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolDescriptors
 
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
-NUM_CONFORMERS: int = 30
+NUM_CONFORMERS: int = 50
 RANDOM_SEED: int = 42
 PRUNE_RMS_THRESH: float = 0.50
 MAX_ENERGY_DELTA: float = 8.0
 
 
 class QueryConformerPreparer:
-    """Prepares 3D conformer ensembles and minimizes force-field energies for LBDD seed ligands.
+    """Prepares low-energy 3D conformer ensembles and USRCAT descriptors for LBDD seed ligands.
 
     Uses ETKDGv3 (CSD experimental torsional potentials) and MMFF94 force field
     minimization, applying heavy-atom RMSD pruning and thermodynamic energy window filtering.
+    Additionally pre-computes 60-dimensional USRCAT shape/pharmacophore moments to enable
+    ultrafast alignment-free 3D similarity evaluations.
 
     Attributes:
-        REFERENCES_DIR: Path to directory where reference SDFs are stored.
+        REFERENCES_DIR: Path to directory where reference SDFs and moment arrays are stored.
         OUTPUT_SDF: Path to default output multi-conformer SDF file.
+        OUTPUT_USRCAT: Path to precomputed reference USRCAT moments array (.npy).
     """
 
     def __init__(self, references_dir: Path | None = None) -> None:
         """Initialize QueryConformerPreparer.
 
         Args:
-            references_dir: Optional custom path for storing reference SDF files.
+            references_dir: Optional custom path for storing reference SDF and USRCAT files.
         """
         if references_dir is None:
             self.REFERENCES_DIR: Path = Path(__file__).resolve().parent / "references"
@@ -45,9 +51,10 @@ class QueryConformerPreparer:
             self.REFERENCES_DIR = Path(references_dir)
         self.REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
         self.OUTPUT_SDF: Path = self.REFERENCES_DIR / "my_molecule_3d.sdf"
+        self.OUTPUT_USRCAT: Path = self.REFERENCES_DIR / "my_molecule_usrcat.npy"
 
     def generate_reference_sdf(self, smiles: str = MY_MOLECULE, output_path: Path | None = None) -> Path:
-        """Generate a low-energy 3D conformer ensemble for the query SMILES.
+        """Generate a low-energy 3D conformer ensemble and USRCAT moments for the query SMILES.
 
         Args:
             smiles: SMILES string of the query active ligand.
@@ -111,6 +118,24 @@ class QueryConformerPreparer:
             mol_conf.SetProp("Energy", f"{energy_map[cid]:.4f}")
             writer.write(mol_conf, confId=cid)
         writer.close()
+
+        #? [RDKit USRCAT Pre-computation] Computes 60-dim USRCAT vectors for all valid reference conformers and stores as NumPy matrix.
+        usrcat_vectors = []
+        for cid in valid_cids:
+            try:
+                vec = rdMolDescriptors.GetUSRCAT(mol, confId=cid)
+                usrcat_vectors.append(vec)
+            except Exception:
+                pass
+
+        if usrcat_vectors:
+            usrcat_arr = np.array(usrcat_vectors, dtype=np.float64)
+            #? [NumPy Save] Saves precomputed reference 3D moments for instant O(1) vectorized similarity lookups during RL and screening.
+            usrcat_target = target_path.parent / f"{target_path.stem}_usrcat.npy"
+            np.save(str(usrcat_target), usrcat_arr)
+            if self.OUTPUT_USRCAT != usrcat_target:
+                np.save(str(self.OUTPUT_USRCAT), usrcat_arr)
+
         return target_path
 
     def test_rocs_loading(self, target_path: Path | None = None) -> list[float]:
@@ -134,10 +159,10 @@ class QueryConformerPreparer:
 
         #? [RDKit ROCS Scorer] Generates conformers and evaluates 3D Gaussian shape/color TanimotoCombo overlap against reference SDF.
         conf_gen = RDKitConformerGenerator(
-            max_conformers=2,
+            max_conformers=10,
             max_isomers=1,
             num_threads=0,
-            timeout=10,
+            timeout=15,
             show_progress=False,
         )
 

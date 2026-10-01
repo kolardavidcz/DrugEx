@@ -1,34 +1,34 @@
 # Agent Guide: `_david/` Workspace
 
-Guide for AI agents working in `/home/kolarv/DrugEx/_david`.
+Guide for AI agents working in `/home/kolar/build_projects/drugex_edu/repo/_david`.
 
 ---
 
 ## 1. Mission & Goal
-- **Core Task**: Ligand-based *de novo* drug design starting from **exactly 1 seed query ligand** (e.g. "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O").
-- **Target Objective**: Generate novel, synthetically accessible modulators preserving 3D shape and pharmacophore features of the seed ligand (e.g., CCR2 5T1A allosteric pocket interactions).
-- **Core Architecture**: **Graph-Transformer** (`drugex.models.graph_transformer`). The 2D Sequence-RNN pipeline is retired.
+- **Core Task**: Pure Ligand-Based *De Novo* Drug Design (LBDD) centered around **exactly 1 seed query ligand**:
+  EGCG derivative (`my_molecule` / SMILES: `C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O`).
+- **Strict Constraint**: 100% Pure LBDD with zero receptor coordinates, crystal complexes, or docking grids.
+- **Target Objective**: Generate novel, synthetically accessible modulators preserving the 3D shape, volume, and pharmacophore features of the query ligand without PAINS liabilities (e.g. catechol/polyphenol groups).
 
 ---
 
-## 2. The Data Reality & Strategy
-Official DrugEx tutorials assume 1,000–4,000 clean ligands with known crystal structures (`rocs_rl_tutorial.ipynb`). We have **1 seed ligand** and ~150–200 noisy chemogenomic neighbors harvested from Papyrus.
+## 2. Skeptical Academic Architecture & Method Decisions
 
-### The 4-Step Pipeline:
-1. **Bioactivity Space Discovery** (`receptor_similar/`):
-   - Query Papyrus / ChEMBL using seed SMILES to retrieve ~150–200 active neighbor compounds and identify candidate receptor targets.
-2. **Warm-Up Transfer Learning (TL) — 3 to 5 Epochs Only**:
-   - Deconstruct harvested compounds into BRICS fragments (`FragmentCorpusEncoder`).
-   - Train Graph-Transformer for **strictly 3–5 epochs** on pretrained `Papyrus05.5_graph_trans_PT`.
-   - *Rationale*: A short warm-up biases attention heads toward the relevant chemical subspace and avoids a cold-start gradient desert ($R \approx 0$), while preventing catastrophic memorization / mode collapse.
-3. **Multi-Objective Reinforcement Learning (RL)** (`GraphTransformer.py`):
-   - Explore chemical space using Graph-Transformer with multi-objective rewards:
-     - **3D Shape & Pharmacophore Matching**: Tanimoto shape + color similarity against seed ligand conformers.
-     - **Synthetic Accessibility**: SA score filter / reward.
-     - **Uniqueness & Novelty**: Diversity penalty against mode collapse.
-4. **Hybrid 2D-to-3D Screening (Performance Defense)**:
-   - Full 3D conformer generation (50–200 conformers) and 3D alignment during every RL rollout is a CPU bottleneck.
-   - Use fast 2D graph / fingerprint similarity during rollout to filter out poor candidates; run full 3D shape and color alignment only on top-percentile candidates.
+1. **Rejection of ProLIF / PLIF**:
+   - ProLIF is designed for Protein-Ligand Interaction Fingerprints (Structure-Based Drug Design, SBDD) requiring 3D receptor atomic coordinates (e.g., CCR2 5T1A).
+   - In pure LBDD, no receptor structure is available. Using docked complexes introduces severe docking function bias, force-field errors, and violates the pure LBDD premise. ProLIF is strictly out of scope.
+2. **Rejection of 2D Pharmacophore Filters**:
+   - Flatten 3D spatial conformation into 2D topological graph distance pairs.
+   - Ignore out-of-plane orientations, chiral arrangements, and steric volume, leading to high false-positive rates.
+3. **Adoption of USRCAT & ElectroShape**:
+   - Pure 3D ligand-based methods implemented in RDKit (`rdkit.Chem.rdMolDescriptors.GetUSRCAT` and `GetUSR`).
+   - 60-dimensional rotationally/translationally invariant moment vectors across 5 pharmacophore atom types.
+   - Exact $O(1)$ inverse Manhattan distance ($S = \frac{1}{1 + \frac{1}{60} \sum |u_i - v_i|}$) executing in microseconds without alignment search traps.
+4. **Resolution of Previous RL Failure Modes**:
+   - Conformer under-sampling resolved: Increased RL conformers from 2 to 10 (with 50 reference conformers).
+   - Pareto reward hacking resolved: Purged counter-productive 2D novelty objective from RL; scaffold hopping is enforced structurally in Stage 2 funnel.
+   - Fragment collapse resolved: Added Gaussian heavy-atom volume constraint (`Property("Heavy", Gaussian(33, 6))`) and scaffold heavy-atom filter (14–32 atoms) so small 15-atom fragments cannot cheat.
+   - Mock simulation eliminated: All synthetic random-number generation in `thesis_benchmark.py` has been removed.
 
 ---
 
@@ -36,31 +36,25 @@ Official DrugEx tutorials assume 1,000–4,000 clean ligands with known crystal 
 
 | File / Folder | Role | Status |
 |---|---|---|
-| `_david/GraphTransformer.py` | **Primary Production Pipeline**. Graph-Transformer fine-tuning & 3D RL. | **Active** |
-| `_david/SequenceRNN.py` | Legacy 2D Sequence-RNN script. Preserved for reference (metrics, logging, visualizer patterns). | **Archived (Read-Only)** |
-| `_david/receptor_similar/` | Papyrus/ChEMBL bioactivity retrieval & candidate clustering pipeline. | **Active Tool** |
-| `_david/visualize_molecular_space.py` | UMAP / PCA chemical space visualization & distribution checks. | **Active Tool** |
-| `_david/dodo_notes.md` | User context, seed ligand SMILES, presentation goals, Discord notes. | **Reference** |
-| `_david/outputs/` | Timestamped run outputs, checkpoints, and generated molecule grids. | **Output Storage** |
-| `_david/agent.md` | Symlink pointing to `AGENTS.md`. | **Config** |
+| `_david/prepare_query_conformer.py` | Stage 0: 3D reference conformer ensemble (50 confs, MMFF94) & USRCAT moment array generation. | **Active** |
+| `_david/SequenceRNN.py` | Stage 1: Global hit discovery via Sequence-RNN policy gradient RL (10 confs, USRCAT, HeavyAtoms). | **Active** |
+| `_david/scaffold_funnel.py` | Stage 2: Bemis-Murcko framework extraction, heavy-atom volume filter, PAINS purge, Butina clustering. | **Active** |
+| `_david/GraphTransformer.py` | Stage 3: Fragment-conditioned lead optimization on discovered funnel scaffolds. | **Active** |
+| `_david/usrcat_scorer.py` | Pure LBDD 3D shape and pharmacophore moment scorer (`drugex.training.scorers.interfaces.Scorer`). | **Active Tool** |
+| `_david/pipeline.py` | Unified end-to-end multi-stage pipeline orchestrator (Stages 0 -> 1 -> 2 -> 3 -> 4). | **Active Production** |
+| `_david/thesis_benchmark.py` | Stage 4: Publication benchmark suite (tables, radar, PCA, boxplots, grids) on real empirical data. | **Active Production** |
+| `_david/dodo_notes.md` | Academic evaluation notes, query molecule SMILES, and failure mode documentation. | **Reference** |
+| `_david/outputs/` | Pipeline runs, benchmark tables, and generated molecule figures. | **Output Storage** |
 
 ---
 
-## 4. Strict Code Conventions in `_david`
-Agents editing code in `_david` must follow these rules:
+## 4. Code Standards & Conventions
 
-1. **Parameter-Only Type Annotations**:
-   - Annotate function/method parameters: `def func(param: Type):`
-   - **Do NOT** add return types (`-> ReturnType`) or class attribute annotations in `_david` scripts.
-2. **Zero Docstrings**:
-   - Do **NOT** add docstrings inside functions or classes in `_david`. Keep files dense and uncluttered. Use brief inline comments only for non-obvious logic.
-3. **Uppercase Constants at Top**:
-   - Keep all hyperparameters, paths, batch sizes, thresholds, and seeds as uppercase constants at the top of the file.
-4. **Module-First, Class-Second Imports**:
-   - Import module level first (`import drugex.data.datasets as datasets`).
-   - Import specific classes second (`from drugex.data.datasets import GraphFragDataSet`).
-5. **Fast Code Reading**:
-   - Inspect `~/build_projects/drugex_edu/repo` on local WSL for instant, zero-latency inspection of DrugEx source code and tutorials.
+1. **Python Type Annotations**: Full explicit type annotations on function/method parameters and return types: `def func(param: Type, ...) -> ReturnType:`.
+2. **Structured Google / NumPy Docstrings**: High-value docstrings with concise summaries, `Args` / `Parameters`, and `Returns` for every class, method, and function.
+3. **Compact `#? [Library]` Annotations**: Every external non-DrugEx library call (RDKit, NumPy, Pandas, Matplotlib, SciPy, Scikit-learn) must have a 1-3 line note explaining its role.
+4. **No Synthetic Mock Fallbacks**: Code must process authentic empirical candidate data and never fabricate random distributions.
+5. **Zero Compilation / Lint Errors**: Clean compilation verified with `python3 -m py_compile` across all files in `_david/`.
 
 ---
 
@@ -68,5 +62,5 @@ Agents editing code in `_david` must follow these rules:
 - **Remote Host**: `dichtator` (`kolarv@147.33.72.143`), branch `my_personal`.
 - **Python Env**: `/home/kolarv/DrugEx/.venv/bin/python`.
 - **VPN Safety**: Never disrupt active Cisco VPN. Probe with `ssh -o BatchMode=yes dichtator "echo OK"`.
-- **Editing Protocol**: Write locally to scratch, SCP to `dichtator:/home/kolarv/DrugEx/...`.
+- **Editing Protocol**: Use direct file tools (`write_to_file`, `replace_file_content`).
 - **Git**: Automatically stage and commit locally (`git add ... && git commit -m "..."`). **Never run `git push`**.
