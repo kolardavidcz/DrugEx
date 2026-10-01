@@ -15,36 +15,6 @@ if str(SCRIPT_DIR) not in sys.path:
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-#? ============================================================================
-#? QUERY LIGAND & 3D CONFORMER GENERATION HYPERPARAMETERS
-#? ============================================================================
-#? WHAT:
-#?   - MY_MOLECULE: The canonical SMILES representation with explicit chiral center
-#?     stereochemistry (@/@@) for (-)-Epigallocatechin gallate (EGCG).
-#?   - NUM_CONFORMERS (30): Number of initial 3D coordinates generated via distance geometry.
-#?   - RANDOM_SEED (42): Deterministic PRNG seed for reproducible stochastic embedding.
-#?   - PRUNE_RMS_THRESH (0.50 Å): Coordinate distance threshold for discarding duplicate conformers.
-#?   - MAX_ENERGY_DELTA (8.0 kcal/mol): Thermodynamic energy window above the global minimum.
-#?
-#? WHY (Bachelor Thesis - Ligand-Based De Novo Drug Design):
-#?   - EGCG is our seed active ligand. It exhibits potent biological inhibition against target
-#?     proteins, but is chemically plagued by catechol and polyphenol moieties (PAINS liabilities,
-#?     rapid oxidative quinone formation, non-specific protein adduction, poor oral bioavailability).
-#?   - Our thesis aims to execute 3D scaffold hopping: discovering non-polyphenolic drug-like molecules
-#?     that faithfully mimic EGCG's 3D spatial pharmacophoric shape and electrostatics without
-#?     its toxic polyphenolic liabilities.
-#?   - Because flexible molecules bind in specific 3D bioactive poses rather than flat 2D structures,
-#?     we must generate an ensemble of low-energy 3D conformations to serve as our ROCS shape query.
-#?
-#? UNDER THE HOOD:
-#?   - Stereochemical SMILES encodes configuration parity at chiral carbons ([C@H] / [C@@H]).
-#?   - PRUNE_RMS_THRESH = 0.50 Å uses heavy-atom Kabsch superposition during embedding: if the RMSD
-#?     between a candidate conformer and any accepted conformer is < 0.50 Å, it is pruned on the fly.
-#?   - MAX_ENERGY_DELTA = 8.0 kcal/mol is grounded in statistical thermodynamics via the Boltzmann
-#?     distribution: P(i) / P(0) = exp(-delta_E / (k_B * T)). At physiological temperature (310.15 K),
-#?     k_B * T ≈ 0.616 kcal/mol. Conformations with delta_E > 8.0 kcal/mol possess a Boltzmann
-#?     probability ratio < 2.3e-6, meaning they are energetically inaccessible in solution and would
-#?     act as deceptive, unphysical targets for shape matching.
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 NUM_CONFORMERS: int = 30
 RANDOM_SEED: int = 42
@@ -52,23 +22,6 @@ PRUNE_RMS_THRESH: float = 0.50
 MAX_ENERGY_DELTA: float = 8.0
 
 
-#? ============================================================================
-#? CLASS: QueryConformerPreparer
-#? ============================================================================
-#? WHAT:
-#?   Generates, minimizes, filters, and serializes a 3D conformational ensemble
-#?   of a seed query molecule into a multi-conformer MDL Structure-Data File (SDF).
-#?
-#? WHY:
-#?   In ligand-based virtual screening and DrugEx de novo design, 3D shape scoring (ROCS)
-#?   requires a multi-conformer reference ensemble to capture the conformational flexibility
-#?   of the active ligand, ensuring generated molecules are rewarded for matching any
-#?   thermodynamically viable binding conformation.
-#?
-#? UNDER THE HOOD:
-#?   Converts 2D graph topology -> 3D coordinate space via ETKDGv3 distance geometry ->
-#?   minimizes potential energy with MMFF94 force field -> enforces Boltzmann window cutoff ->
-#?   writes compliant MDL V2000 SDF records with conformer energies.
 class QueryConformerPreparer:
     """Prepares 3D conformer ensembles and minimizes force-field energies for LBDD seed ligands.
 
@@ -108,37 +61,18 @@ class QueryConformerPreparer:
             RuntimeError: If conformer embedding yields zero conformers.
         """
         target_path: Path = output_path or self.OUTPUT_SDF
+        #? [RDKit] Parse SMILES into C++ Mol graph: validates valences, ring closures, and chiral center parities (@/@@).
         mol: Chem.Mol | None = Chem.MolFromSmiles(smiles)
         if mol is None:
             raise ValueError(f"Could not parse SMILES: {smiles}")
 
-        #? WHAT:
-        #?   Chem.AddHs adds explicit hydrogen atoms to the 2D molecular graph.
-        #? WHY:
-        #?   Standard SMILES strings omit hydrogens (implicit valences). However, 3D coordinate
-        #?   generation, steric clash prevention, and molecular mechanics force fields (MMFF94/UFF)
-        #?   strictly require explicit hydrogens to calculate 1-4 electrostatic interactions,
-        #?   van der Waals overlap radii, and directional hydrogen-bond donor orientations.
-        #? UNDER THE HOOD:
-        #?   RDKit inspects heavy-atom valences in C++, creates explicit hydrogen atom nodes (atomic
-        #?   number 1), binds them with single covalent bonds, and sets standard covalent bond lengths
-        #?   (e.g., C-H ≈ 1.09 Å, O-H ≈ 0.96 Å).
+        #? [RDKit] Adds explicit hydrogen vertices to 2D graph: required for 3D force-field charges, van der Waals radii, and H-bond donors.
         mol = Chem.AddHs(mol)
 
-        #? WHAT:
-        #?   AllChem.ETKDGv3 initializes the Experimental-Torsion Knowledge Distance Geometry (v3) engine.
-        #? WHY:
-        #?   Traditional distance geometry frequently produces physically distorted conformations
-        #?   (e.g., boat-like aromatics, strained aliphatic ring puckering, or unphysical dihedral angles).
-        #?   ETKDGv3 imposes statistical torsional preferences learned from experimental small-molecule
-        #?   crystal structures in the Cambridge Structural Database (CSD).
-        #? UNDER THE HOOD:
-        #?   Calculates an initial distance bounds matrix [L_ij, U_ij] from atomic connectivity and van der
-        #?   Waals limits. ETKDG adds statistical 1-4 distance potentials parameterized from CSD dihedral
-        #?   distributions, ring-puckering terms, and macrocycle torsional constraints to steer distance
-        #?   geometry embedding toward realistic, low-strain conformational wells.
+        #? [RDKit ETKDGv3] Experimental-Torsion Knowledge Distance Geometry: incorporates Cambridge Structural Database (CSD) dihedral potentials.
         params = AllChem.ETKDGv3()
         params.randomSeed = RANDOM_SEED
+        #? [RDKit] Heavy-atom Kabsch RMSD threshold: prunes duplicate conformers with RMSD < 0.5 Å on-the-fly during stochastic embedding.
         params.pruneRmsThresh = PRUNE_RMS_THRESH
 
         #? WHAT:

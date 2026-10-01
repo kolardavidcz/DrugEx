@@ -314,31 +314,32 @@ class ThesisBenchmark:
             return df
 
     def prepare_regime_dataframe(self, raw_df: pd.DataFrame):
+        raw_df = raw_df.loc[:, ~raw_df.columns.duplicated()].copy()
         smiles_col = "SMILES" if "SMILES" in raw_df.columns else ("smiles" if "smiles" in raw_df.columns else None)
         if smiles_col is None:
             return pd.DataFrame()
 
         df_props = self.compute_molecular_properties(raw_df[smiles_col].tolist())
         
-        rocs_col = None
-        for col in ["ROCS", "RDKit_Aggregate_6refs_TanimotoCombo", "RDKit_Aggregate_1refs_TanimotoCombo"]:
-            if col in raw_df.columns:
-                rocs_col = col
-                break
+        rocs_col = next((c for c in raw_df.columns if "ROCS" in c or "RDKit" in c or "TanimotoCombo" in c), None)
         if rocs_col:
             df_props["ROCS"] = raw_df[rocs_col].values
         else:
             df_props["ROCS"] = np.clip(0.35 + 0.45 * df_props["Tanimoto_to_Seed"], 0.20, 0.95)
 
-        ra_col = None
-        for col in ["RAscore", "RetrosyntheticAccessibilityScorer", "RA_score"]:
-            if col in raw_df.columns:
-                ra_col = col
-                break
+        ra_col = next((c for c in raw_df.columns if "RA" in c or "Retrosynthetic" in c), None)
         if ra_col:
             df_props["RAscore"] = raw_df[ra_col].values
         else:
             df_props["RAscore"] = np.clip(1.1 - 0.15 * df_props["SA"], 0.05, 0.95)
+
+        qed_col = next((c for c in raw_df.columns if "QED" in c), None)
+        if qed_col:
+            df_props["QED"] = raw_df[qed_col].values
+
+        sa_col = next((c for c in raw_df.columns if c in ["SA", "SAscore", "SAS"] or "SyntheticAccessibility" in c), None)
+        if sa_col and len(raw_df[sa_col].dropna()) > 0 and float(raw_df[sa_col].max()) > 1.5:
+            df_props["SA"] = raw_df[sa_col].values
 
         return df_props
 

@@ -119,13 +119,14 @@ class MoleculePipeline:
         scored_tsv = stage1_dir / "rl_generated_candidates_scored.tsv"
 
         print(f"\n[Stage 1] Sequence-RNN Global Hit Discovery (Pure RL exploration)...")
-        if self.MODE == "test":
-            print(f"[Stage 1] Running fast evaluation mode (samples={self.N_SAMPLES})...")
+        if self.MODE == "simulate":
+            print(f"[Stage 1] Running simulated mock mode (samples={self.N_SAMPLES})...")
             benchmark = thesis_benchmark.ThesisBenchmark(output_dir=stage1_dir)
             df_hits = benchmark._simulate_regime_data("Sequence-RNN", n_mols=self.N_SAMPLES)
             df_hits.to_csv(scored_tsv, sep="\t", index=False)
         else:
-            # Full training execution via SequenceRNN RL
+            # Full or fast test training execution via SequenceRNN RL
+            print(f"[Stage 1] Executing Sequence-RNN RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
             from drugex.data.corpus import vocabulary
             from drugex.training import generators
             from _david import SequenceRNN
@@ -135,7 +136,9 @@ class MoleculePipeline:
             agent.loadStatesFromFile(self.PRETRAINED_RNN / "Papyrus05.5_smiles_rnn_PT.pkg")
             
             rl = SequenceRNN.RAINFORCMENT_LEARNING(finetuned=agent, output_dir=stage1_dir)
-            agent, df_hits = rl.RAINFORCEMENT_LEARNING(primary_molecule)
+            agent, df_hits = rl.RAINFORCEMENT_LEARNING(primary_molecule, epochs=self.EPOCHS, n_samples=self.N_SAMPLES)
+            if not scored_tsv.exists() and (stage1_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv").exists():
+                scored_tsv = stage1_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv"
 
         print(f"[Stage 1] Completed. Generated {len(df_hits)} candidates saved to: {scored_tsv}")
         return df_hits, scored_tsv
@@ -153,6 +156,10 @@ class MoleculePipeline:
         # Copy to _david/funnel_scaffolds.tsv so GraphTransformer automatically reads them
         shared_scaff = self.ROOT_PATH / "_david" / "funnel_scaffolds.tsv"
         scaff_df.to_csv(shared_scaff, sep="\t", index=False)
+        expanded_tsv = stage2_dir / "funnel_scaffolds_expanded.tsv"
+        if expanded_tsv.exists():
+            shared_expanded = self.ROOT_PATH / "_david" / "funnel_scaffolds_expanded.tsv"
+            pd.read_csv(expanded_tsv, sep="\t").to_csv(shared_expanded, sep="\t", index=False)
 
         print(f"[Stage 2] Successfully extracted {len(scaff_df)} novel non-polyphenol core frameworks:")
         for idx, row in scaff_df.iterrows():
@@ -166,13 +173,14 @@ class MoleculePipeline:
         leads_tsv = stage3_dir / "rl_generated_candidates_scored.tsv"
 
         print(f"\n[Stage 3] Graph-Transformer Lead Optimization on Discovered Scaffolds...")
-        if self.MODE == "test":
-            print(f"[Stage 3] Running fast lead generation mode (samples={self.N_SAMPLES})...")
+        if self.MODE == "simulate":
+            print(f"[Stage 3] Running simulated mock mode (samples={self.N_SAMPLES})...")
             benchmark = thesis_benchmark.ThesisBenchmark(output_dir=stage3_dir)
             df_leads = benchmark._simulate_regime_data("Hybrid Funnel", n_mols=self.N_SAMPLES)
             df_leads.to_csv(leads_tsv, sep="\t", index=False)
         else:
-            # Full training execution via GraphTransformer RL conditioned on funnel scaffolds
+            # Full or fast test training execution via GraphTransformer RL conditioned on funnel scaffolds
+            print(f"[Stage 3] Executing Graph-Transformer RL lead optimization (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
             from drugex.data.corpus import vocabulary
             from drugex.training import generators
             from _david import GraphTransformer
@@ -182,7 +190,9 @@ class MoleculePipeline:
             agent.loadStatesFromFile(self.PRETRAINED_GRAPH / "Papyrus05.5_graph_trans_PT.pkg")
 
             rl = GraphTransformer.RAINFORCMENT_LEARNING(finetuned=agent, output_dir=stage3_dir)
-            agent, df_leads = rl.RAINFORCEMENT_LEARNING(primary_molecule)
+            agent, df_leads = rl.RAINFORCEMENT_LEARNING(primary_molecule, epochs=self.EPOCHS, n_samples=self.N_SAMPLES, scaffolds_path=scaffolds_path)
+            if not leads_tsv.exists() and (stage3_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv").exists():
+                leads_tsv = stage3_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv"
 
         print(f"[Stage 3] Completed. Optimized leads saved to: {leads_tsv}")
         return df_leads, leads_tsv
@@ -263,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--molecules", "-m", type=str, default=DEFAULT_MOLECULE, help="Input SMILES string or comma-separated SMILES")
     parser.add_argument("--input-file", "-f", type=Path, default=None, help="Path to input molecules file (.smi, .tsv, .csv, .sdf)")
     parser.add_argument("--out-dir", "-o", type=Path, default=None, help="Target output directory for pipeline run")
-    parser.add_argument("--mode", choices=["full", "test"], default="test", help="Execution mode ('full' for training, 'test' for fast verification)")
+    parser.add_argument("--mode", choices=["full", "test", "simulate"], default="full", help="Execution mode ('full' for training, 'test' for fast verification, 'simulate' for mock benchmark)")
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS, help="Number of RL epochs per stage")
     parser.add_argument("--n-samples", type=int, default=DEFAULT_N_SAMPLES, help="Number of molecules sampled per epoch")
 

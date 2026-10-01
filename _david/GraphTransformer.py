@@ -128,7 +128,7 @@ class GraphTransformerOptimizer:
             score_type=ROCS_SCORE_TYPE,
             use_colors=True,
             show_progress=False,
-            n_jobs=2,
+            n_jobs=4,
         )
         rocs_scorer.setModifier(
             SmoothClippedScore(
@@ -171,7 +171,7 @@ class GraphTransformerOptimizer:
         )
         return env
 
-    def _prepare_seed_fragments(self, molecule_smile: str, n_prompts: int = RL_N_SAMPLES):
+    def _prepare_seed_fragments(self, molecule_smile: str, n_prompts: int = RL_N_SAMPLES, scaffolds_path: Path | str | None = None):
         seed_tsv = self.MODEL_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
         corpus_encoder = fragments.FragmentCorpusEncoder(
@@ -181,18 +181,26 @@ class GraphTransformerOptimizer:
             n_proc=1,
         )
 
-        funnel_path = self.ROOT_PATH / "_david" / "funnel_scaffolds.tsv"
-        if funnel_path.exists():
-            df_funnel = pd.read_csv(funnel_path, sep="\t")
-            if "Scaffold" in df_funnel.columns and len(df_funnel) > 0:
-                scaffolds = df_funnel["Scaffold"].dropna().unique().tolist()
-                std_scaffolds = processing.Standardization(n_proc=1).apply(scaffolds)
-                if std_scaffolds:
-                    n_repeats = max(1, n_prompts // len(std_scaffolds) + 1)
-                    expanded_prompts = (std_scaffolds * n_repeats)[:n_prompts]
-                    corpus_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
-                    seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
-                    return seed_loader, seed_dataset
+        funnel_candidates = []
+        if scaffolds_path is not None and Path(scaffolds_path).exists():
+            funnel_candidates.append(Path(scaffolds_path))
+        funnel_candidates.extend([
+            self.ROOT_PATH / "_david" / "funnel_scaffolds_expanded.tsv",
+            self.ROOT_PATH / "_david" / "funnel_scaffolds.tsv",
+        ])
+
+        for fpath in funnel_candidates:
+            if fpath.exists():
+                df_funnel = pd.read_csv(fpath, sep="\t")
+                if "Scaffold" in df_funnel.columns and len(df_funnel) > 0:
+                    scaffolds = df_funnel["Scaffold"].dropna().unique().tolist()
+                    std_scaffolds = processing.Standardization(n_proc=1).apply(scaffolds)
+                    if std_scaffolds:
+                        n_repeats = max(1, n_prompts // len(std_scaffolds) + 1)
+                        expanded_prompts = (std_scaffolds * n_repeats)[:n_prompts]
+                        corpus_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
+                        seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
+                        return seed_loader, seed_dataset
 
         standardized_smile = processing.Standardization(n_proc=1).apply([molecule_smile])[0]
         expanded_prompts = [standardized_smile] * max(1, n_prompts // 5)
@@ -200,7 +208,7 @@ class GraphTransformerOptimizer:
         seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
         return seed_loader, seed_dataset
 
-    def run_reinforcement_learning(self, molecule_smile: str = MY_MOLECULE, epochs: int = RL_EPOCHS, n_samples: int = RL_N_SAMPLES):
+    def run_reinforcement_learning(self, molecule_smile: str = MY_MOLECULE, epochs: int = RL_EPOCHS, n_samples: int = RL_N_SAMPLES, scaffolds_path: Path | str | None = None):
         ref_sdf = self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf"
         if not ref_sdf.exists():
             from _david.prepare_query_conformer import QueryConformerPreparer
@@ -208,7 +216,7 @@ class GraphTransformerOptimizer:
             ref_sdf = preparer.generate_reference_sdf(molecule_smile, ref_sdf)
 
         env = self.build_environment(ref_sdf)
-        seed_loader, seed_dataset = self._prepare_seed_fragments(molecule_smile, n_prompts=n_samples)
+        seed_loader, seed_dataset = self._prepare_seed_fragments(molecule_smile, n_prompts=n_samples, scaffolds_path=scaffolds_path)
 
         explorer = FragGraphExplorer(
             agent=self.AGENT,
@@ -223,20 +231,23 @@ class GraphTransformerOptimizer:
         model_prefix = self.MODEL_DIR / "david_agent"
         monitor = FileMonitor(model_prefix, save_smiles=True, reset_directory=True)
 
+        patience = min(RL_PATIENCE, max(5, epochs // 2))
         explorer.fit(
             seed_loader,
             seed_loader,
             monitor=monitor,
             epochs=epochs,
-            patience=RL_PATIENCE,
+            patience=patience,
             criteria="desired_ratio",
         )
 
         scored_df = self.save_visualizations(self.AGENT, env, model_prefix, self.MODEL_DIR, input_dataset=seed_dataset, num_samples=n_samples)
         return self.AGENT, scored_df
 
-    def RAINFORCEMENT_LEARNING(self, molecule_smile: str):
-        return self.run_reinforcement_learning(molecule_smile=molecule_smile, epochs=RL_EPOCHS, n_samples=RL_N_SAMPLES)
+    def RAINFORCEMENT_LEARNING(self, molecule_smile: str, epochs: int | None = None, n_samples: int | None = None, scaffolds_path: Path | str | None = None):
+        ep = epochs if epochs is not None else RL_EPOCHS
+        ns = n_samples if n_samples is not None else RL_N_SAMPLES
+        return self.run_reinforcement_learning(molecule_smile=molecule_smile, epochs=ep, n_samples=ns, scaffolds_path=scaffolds_path)
 
     def save_visualizations(self, agent: GraphTransformer, env: DrugExEnvironment, model_prefix: Path, out_dir: Path, input_dataset: GraphFragDataSet, num_samples: int = 100):
         fit_file = Path(f"{model_prefix}_fit.tsv")
@@ -255,7 +266,12 @@ class GraphTransformerOptimizer:
         generated_sample = agent.generate(input_dataset=input_dataset, num_samples=num_samples)
         scores = env.getScores(generated_sample["SMILES"])
         scored_df = pd.concat([generated_sample.reset_index(drop=True), scores.reset_index(drop=True)], axis=1)
+        scored_df = scored_df.loc[:, ~scored_df.columns.duplicated()].copy()
         scored_df.to_csv(out_dir / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
+        scored_df.to_csv(out_dir / "stage3_leads.tsv", sep="\t", index=False)
+        if hasattr(self, "OUTPUT_DIR") and self.OUTPUT_DIR != out_dir:
+            scored_df.to_csv(self.OUTPUT_DIR / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
+            scored_df.to_csv(self.OUTPUT_DIR / "stage3_leads.tsv", sep="\t", index=False)
 
         mols = [m for s in generated_sample["SMILES"][:25] if (m := Chem.MolFromSmiles(s)) is not None]
         if mols:
@@ -275,8 +291,9 @@ class MY_TRANSFER_LEARNING(GraphTransformerOptimizer):
 
 
 class RAINFORCMENT_LEARNING(GraphTransformerOptimizer):
-    def __init__(self, finetuned: GraphTransformer | Path, out_dir: Path | None = None):
-        super().__init__(output_dir=out_dir)
+    def __init__(self, finetuned: GraphTransformer | Path, out_dir: Path | None = None, output_dir: Path | None = None):
+        target_dir = output_dir or out_dir
+        super().__init__(output_dir=target_dir)
         if isinstance(finetuned, GraphTransformer):
             self.AGENT = finetuned
 
