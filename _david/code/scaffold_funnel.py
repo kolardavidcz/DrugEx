@@ -89,6 +89,7 @@ class ScaffoldFunnel:
         seed_smiles: str = MY_MOLECULE,
         toxicophore_smarts: str | Sequence[str] | None = None,
         filter_pains: bool = True,
+        ref_sdf_path: Path | str | None = None,
     ) -> None:
         """Initialize ScaffoldFunnel.
 
@@ -97,11 +98,13 @@ class ScaffoldFunnel:
             seed_smiles: SMILES string of active query seed ligand.
             toxicophore_smarts: Optional SMARTS string or sequence of SMARTS patterns to penalize.
             filter_pains: Whether to apply standard RDKit PAINS filter catalog (default: True).
+            ref_sdf_path: Optional explicit path to reference 3D conformer ensemble SDF.
         """
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david")
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         self.seed_smiles: str = seed_smiles
+        self.ref_sdf_path: Path | None = Path(ref_sdf_path) if ref_sdf_path else None
 
         #? [RDKit] Parse SMILES into C++ Mol graph: validates valences, ring closures, and chiral center parities (@/@@).
         self.SEED_MOL: Chem.Mol | None = Chem.MolFromSmiles(seed_smiles) if seed_smiles else None
@@ -250,10 +253,15 @@ class ScaffoldFunnel:
         if not smiles_list:
             return np.array([], dtype=np.float32)
 
-        ref_candidates = [
+        ref_candidates: List[Path] = []
+        if self.ref_sdf_path is not None:
+            ref_candidates.append(self.ref_sdf_path)
+        ref_candidates.extend([
             self.OUTPUT_DIR / "references" / "query_molecule_3d.sdf",
+            self.OUTPUT_DIR.parent / "references" / "query_molecule_3d.sdf",
+            self.ROOT_PATH / "_david" / "references" / "query_molecule_3d.sdf",
             self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf",
-        ]
+        ])
         ref_path = next((p for p in ref_candidates if p.exists()), None)
         if not ref_path:
             FallbackMonitor.record_fallback(
@@ -281,7 +289,15 @@ class ScaffoldFunnel:
                     show_progress=False,
                     opt_mode="combo",
                 )
-                return np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
+                cdp_scores = np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
+                if len(cdp_scores) > 0 and np.all(cdp_scores == 0.0):
+                    FallbackMonitor.record_fallback(
+                        fallback_type="rocs_cdpkit_zero_scores",
+                        message="CDPKit ROCS returned all-zero scores; falling back to RDKitROCSScorer",
+                        context={"n_molecules": len(smiles_list)},
+                    )
+                else:
+                    return cdp_scores
             except Exception as e:
                 FallbackMonitor.record_fallback(
                     fallback_type="rocs_cdpkit_failed",
@@ -315,6 +331,24 @@ class ScaffoldFunnel:
         )
         return np.full(len(smiles_list), 0.5, dtype=np.float32)
 
+    @staticmethod
+    def _safe_float(val: Any, default: float = 0.5) -> float:
+        """Safely parse float value with fallback default.
+
+        Args:
+            val: Input value of any type.
+            default: Fallback float if parsing fails.
+
+        Returns:
+            Float value.
+        """
+        if val is None or pd.isna(val):
+            return default
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return default
+
     def process_candidates_dataframe(self, df: pd.DataFrame, max_scaffolds: int = MAX_OUTPUT_SCAFFOLDS) -> pd.DataFrame:
         """Process candidate DataFrame through the Bemis-Murcko chemotype funnel.
 
@@ -342,9 +376,33 @@ class ScaffoldFunnel:
             raise ValueError("Input DataFrame must contain 'SMILES' column.")
 
         # Flexible column identification
-        rocs_col = next((c for c in df.columns if any(k in c for k in ["RDKit", "ROCS", "TanimotoCombo", "Shape"])), None)
-        electroshape_col = next((c for c in df.columns if any(k in c for k in ["ElectroShape", "electroshape", "USRCAT", "usrcat"])), None)
-        ra_col = next((c for c in df.columns if any(k in c for k in ["Retrosynthetic", "RA"])), None)
+        rocs_col = next(
+            (
+                c
+                for c in df.columns
+                if c in ["ROCS", "RDKit_ROCS", "CDPKit_ROCS", "TanimotoCombo"]
+                or (
+                    ("ROCS" in c or "Shape" in c)
+                    and not any(es in c for es in ["ElectroShape", "electroshape", "USRCAT", "usrcat"])
+                )
+            ),
+            None,
+        )
+        electroshape_col = next(
+            (c for c in df.columns if any(k in c for k in ["ElectroShape", "electroshape", "USRCAT", "usrcat"])),
+            None,
+        )
+        ra_col = next(
+            (
+                c
+                for c in df.columns
+                if c in ["RAscore", "RA", "RA_Score", "rascore"]
+                or "Retrosynthetic" in c
+                or c.startswith("RA_")
+                or c.startswith("RAscore")
+            ),
+            None,
+        )
         qed_col = next((c for c in df.columns if "QED" in c), None)
 
         # =========================================================================
@@ -366,17 +424,17 @@ class ScaffoldFunnel:
                 continue
 
             # Check 3D ElectroShape moment threshold
-            es_val = float(row[electroshape_col]) if electroshape_col and electroshape_col in row else 1.0
+            es_val = self._safe_float(row.get(electroshape_col), 1.0) if electroshape_col else 1.0
             if electroshape_col and es_val < MIN_ELECTROSHAPE_SCORE:
                 continue
 
             # Check Retrosynthetic Accessibility (RAscore)
-            ra_val = float(row[ra_col]) if ra_col and ra_col in row else 1.0
+            ra_val = self._safe_float(row.get(ra_col), 1.0) if ra_col else 1.0
             if ra_col and ra_val < MIN_RA_SCORE:
                 continue
 
             # Check Drug-likeness (QED)
-            qed_val = float(row[qed_col]) if qed_col and qed_col in row else 1.0
+            qed_val = self._safe_float(row.get(qed_col), 1.0) if qed_col else 1.0
             if qed_col and qed_val < MIN_QED_SCORE:
                 continue
 
@@ -424,9 +482,9 @@ class ScaffoldFunnel:
                     "SMILES": smi,
                     "Mol": cand_mol,
                     "Candidate_HAC": hac,
-                    "ElectroShape": float(row[electroshape_col]) if electroshape_col and electroshape_col in row else 0.5,
-                    "RAscore": float(row[ra_col]) if ra_col and ra_col in row else 0.5,
-                    "QED": float(row[qed_col]) if qed_col and qed_col in row else 0.5,
+                    "ElectroShape": self._safe_float(row.get(electroshape_col), 0.5) if electroshape_col else 0.5,
+                    "RAscore": self._safe_float(row.get(ra_col), 0.5) if ra_col else 0.5,
+                    "QED": self._safe_float(row.get(qed_col), 0.5) if qed_col else 0.5,
                     "Has_Liability": self.is_liability_or_pains(cand_mol),
                     "Seed_Similarity": 0.2,
                 })
@@ -443,7 +501,7 @@ class ScaffoldFunnel:
         else:
             for c in tier1_candidates:
                 orig_row = c["row"]
-                c["ROCS"] = float(orig_row[rocs_col]) if rocs_col and rocs_col in orig_row else 0.5
+                c["ROCS"] = self._safe_float(orig_row.get(rocs_col), 0.5) if rocs_col else 0.5
 
         # Filter by ROCS threshold if any pass
         rocs_passed = [c for c in tier1_candidates if c["ROCS"] >= MIN_ROCS_SCORE]

@@ -128,6 +128,24 @@ class USRCATScorer(Scorer):
                     arr = arr.reshape(1, -1)
                 return arr
 
+            # Check if pre-computed companion .npy moments file exists alongside the SDF
+            if ref_path.suffix.lower() in [".sdf", ".sd"]:
+                expected_dim = 75 if self.score_type == "electroshape" else 60
+                companion_candidates = [
+                    ref_path.with_name(f"{ref_path.stem}_{self.score_type}.npy"),
+                    ref_path.parent / f"my_molecule_{self.score_type}.npy",
+                ]
+                for comp_path in companion_candidates:
+                    if comp_path.exists():
+                        try:
+                            arr = np.load(comp_path)
+                            if arr.ndim == 1:
+                                arr = arr.reshape(1, -1)
+                            if arr.shape[1] == expected_dim:
+                                return arr
+                        except Exception:
+                            pass
+
             # Parse reference conformers from multi-record SDF
             suppl = Chem.SDMolSupplier(str(ref_path), removeHs=False)
             ref_mols: List[Chem.Mol] = [m for m in suppl if m is not None]
@@ -214,6 +232,13 @@ class USRCATScorer(Scorer):
             c_neg = np.sum(coords[neg_mask] * abs_neg[:, np.newaxis], axis=0) / np.sum(abs_neg)
         else:
             c_neg = c_geom
+
+        if not np.any(pos_mask) or not np.any(neg_mask):
+            FallbackMonitor.record_fallback(
+                fallback_type="electroshape_unpolarized_charges",
+                message="Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+                context={"num_atoms": mol.GetNumAtoms()},
+            )
 
         # 4 & 5. Highest positive and negative charge atom coordinates
         idx_max_pos = int(np.argmax(charges))

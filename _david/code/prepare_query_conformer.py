@@ -198,8 +198,17 @@ class QueryConformerPreparer:
 
         # Save cached moments to disk alongside SDF
         if usrcat_moments:
-            np.save(self.OUTPUT_USRCAT, np.vstack(usrcat_moments))
+            u_arr = np.vstack(usrcat_moments)
+            np.save(self.OUTPUT_USRCAT, u_arr)
+            target_usrcat = target_path.with_name(target_path.stem + "_usrcat.npy")
+            if target_usrcat.resolve() != self.OUTPUT_USRCAT.resolve():
+                np.save(target_usrcat, u_arr)
+
         if electroshape_moments:
-            np.save(self.OUTPUT_ELECTROSHAPE, np.vstack(electroshape_moments))
+            es_arr = np.vstack(electroshape_moments)
+            np.save(self.OUTPUT_ELECTROSHAPE, es_arr)
+            target_electroshape = target_path.with_name(target_path.stem + "_electroshape.npy")
+            if target_electroshape.resolve() != self.OUTPUT_ELECTROSHAPE.resolve():
+                np.save(target_electroshape, es_arr)
 
         return target_path

@@ -123,22 +123,38 @@ class ThesisBenchmark:
         REF_SDF: Path to 3D reference conformer ensemble SDF.
     """
 
-    def __init__(self, output_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        output_dir: Path | None = None,
+        ref_sdf: Path | str | None = None,
+        seed_smiles: str = MY_MOLECULE,
+    ) -> None:
         """Initialize ThesisBenchmark suite.
 
         Args:
             output_dir: Optional destination Path for generated benchmark figures and tables.
+            ref_sdf: Optional explicit Path to 3D reference conformer ensemble SDF.
+            seed_smiles: SMILES string of query reference molecule (defaults to EGCG).
         """
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.BASE_OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david" / "output" / "benchmark")
         self.BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        self.seed_smiles: str = seed_smiles
         #? [RDKit] Construct seed molecule graph from canonical SMILES string.
-        self.SEED_MOL: Chem.Mol | None = Chem.MolFromSmiles(MY_MOLECULE)
+        self.SEED_MOL: Chem.Mol | None = Chem.MolFromSmiles(seed_smiles) if seed_smiles else None
         #? [RDKit Morgan Fingerprint] Pre-compute 2048-bit ECFP4 bit vector of seed for Tanimoto distance auditing.
         self.SEED_FP: DataStructs.ExplicitBitVect | None = (
             AllChem.GetMorganFingerprintAsBitVect(self.SEED_MOL, 2, nBits=2048) if self.SEED_MOL else None
         )
-        self.REF_SDF: Path = self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf"
+        if ref_sdf is not None:
+            self.REF_SDF: Path = Path(ref_sdf)
+        else:
+            candidates = [
+                self.BASE_OUTPUT_DIR.parent / "references" / "query_molecule_3d.sdf",
+                self.ROOT_PATH / "_david" / "references" / "query_molecule_3d.sdf",
+                self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf",
+            ]
+            self.REF_SDF = next((p for p in candidates if p.exists()), candidates[-1])
 
     def compute_molecular_properties(self, smiles_list: Sequence[str]) -> pd.DataFrame:
         """Compute real physicochemical and cheminformatics descriptors for candidate SMILES.
@@ -350,7 +366,7 @@ class ThesisBenchmark:
             try:
                 from _david.code.prepare_query_conformer import QueryConformerPreparer
                 preparer = QueryConformerPreparer(self.REF_SDF.parent)
-                self.REF_SDF = preparer.generate_reference_sdf(MY_MOLECULE, self.REF_SDF)
+                self.REF_SDF = preparer.generate_reference_sdf(self.seed_smiles, self.REF_SDF)
             except Exception:
                 pass
 
@@ -391,7 +407,7 @@ class ThesisBenchmark:
             try:
                 from _david.code.prepare_query_conformer import QueryConformerPreparer
                 preparer = QueryConformerPreparer(self.REF_SDF.parent)
-                self.REF_SDF = preparer.generate_reference_sdf(MY_MOLECULE, self.REF_SDF)
+                self.REF_SDF = preparer.generate_reference_sdf(self.seed_smiles, self.REF_SDF)
             except Exception:
                 pass
 
@@ -422,7 +438,15 @@ class ThesisBenchmark:
                     show_progress=False,
                     opt_mode="combo",
                 )
-                return np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
+                cdp_scores = np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
+                if len(cdp_scores) > 0 and np.all(cdp_scores == 0.0):
+                    FallbackMonitor.record_fallback(
+                        fallback_type="rocs_cdpkit_zero_scores",
+                        message="CDPKit ROCS returned all-zero scores; falling back to RDKitROCSScorer",
+                        context={"n_molecules": len(smiles_list)},
+                    )
+                else:
+                    return cdp_scores
             except Exception as e:
                 FallbackMonitor.record_fallback(
                     fallback_type="rocs_cdpkit_failed",

@@ -592,9 +592,22 @@ class LigandEfficiency(Scorer):
         np.ndarray
             Calculated Ligand Efficiency scores.
         """
-        pChEMBL = self.qsar_scorer.getScores(mols)
-        nAtoms = [mol.GerNumAtoms() for mol in mols]
-        scores = 1.4 * pChEMBL / nAtoms
+        pChEMBL = np.asarray(self.qsar_scorer.getScores(mols), dtype="float64")
+        nAtoms = np.zeros(len(mols), dtype="float64")
+        for i, mol in enumerate(mols):
+            if mol is None:
+                continue
+            if isinstance(mol, str):
+                mol = Chem.MolFromSmiles(mol)
+                if mol is None:
+                    continue
+            try:
+                nAtoms[i] = float(mol.GetNumHeavyAtoms())
+            except Exception:
+                continue
+        scores = np.zeros(len(mols), dtype="float64")
+        valid_mask = nAtoms > 0
+        scores[valid_mask] = 1.4 * pChEMBL[valid_mask] / nAtoms[valid_mask]
         return scores
 
     def getKey(self) -> str:

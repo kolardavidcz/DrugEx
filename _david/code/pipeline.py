@@ -245,7 +245,12 @@ class MoleculePipeline:
         print(f"[Stage 1] Completed. Generated {len(df_hits)} candidates saved to: {scored_tsv}")
         return df_hits, scored_tsv
 
-    def stage2_bemis_murcko_funnel(self, stage1_df: pd.DataFrame, primary_molecule: str) -> tuple[pd.DataFrame, Path]:
+    def stage2_bemis_murcko_funnel(
+        self,
+        stage1_df: pd.DataFrame,
+        primary_molecule: str,
+        ref_sdf: Path | None = None,
+    ) -> tuple[pd.DataFrame, Path]:
         """Process candidate hits through the Bemis-Murcko chemotype funnel.
 
         Filters out PAINS, enforces heavy-atom volume bounds,
@@ -254,6 +259,7 @@ class MoleculePipeline:
         Args:
             stage1_df: DataFrame of candidate molecules from Stage 1.
             primary_molecule: Seed SMILES string for dynamic volume and hopping bounds.
+            ref_sdf: Optional explicit path to reference 3D conformer ensemble SDF.
 
         Returns:
             Tuple containing DataFrame of selected scaffold leads and Path to funnel scaffolds TSV.
@@ -262,7 +268,11 @@ class MoleculePipeline:
         stage2_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"\n[Stage 2] Bemis-Murcko Framework Extraction & Chemotype Funnel...")
-        funnel = scaffold_funnel.ScaffoldFunnel(output_dir=stage2_dir, seed_smiles=primary_molecule)
+        funnel = scaffold_funnel.ScaffoldFunnel(
+            output_dir=stage2_dir,
+            seed_smiles=primary_molecule,
+            ref_sdf_path=ref_sdf,
+        )
         scaff_df = funnel.process_candidates_dataframe(stage1_df, max_scaffolds=MAX_SCAFFOLDS)
 
         funnel_scaffolds_tsv: Path = stage2_dir / "funnel_scaffolds.tsv"
@@ -344,13 +354,19 @@ class MoleculePipeline:
         return df_leads, leads_tsv
 
     def stage4_benchmark_and_visualizations(
-        self, stage1_tsv: Path, stage3_tsv: Path
+        self,
+        stage1_tsv: Path,
+        stage3_tsv: Path,
+        ref_sdf: Path | None = None,
+        primary_molecule: str = DEFAULT_MOLECULE,
     ) -> tuple[Path, pd.DataFrame]:
         """Execute Stage 4 publication benchmark suite on authentic candidate data.
 
         Args:
             stage1_tsv: Path to Stage 1 hits TSV file.
             stage3_tsv: Path to Stage 3 leads TSV file.
+            ref_sdf: Optional explicit Path to reference 3D conformer ensemble SDF.
+            primary_molecule: Query active SMILES string.
 
         Returns:
             Tuple containing benchmark output directory and summary table DataFrame.
@@ -359,7 +375,11 @@ class MoleculePipeline:
         benchmark_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"\n[Stage 4] Generating Publication Benchmark & Visualizations (Empirical Only)...")
-        benchmark = thesis_benchmark.ThesisBenchmark(output_dir=benchmark_dir)
+        benchmark = thesis_benchmark.ThesisBenchmark(
+            output_dir=benchmark_dir,
+            ref_sdf=ref_sdf,
+            seed_smiles=primary_molecule,
+        )
         table_df = benchmark.run_benchmark(
             rnn_path=stage1_tsv,
             graph_path=None,
@@ -396,21 +416,29 @@ class MoleculePipeline:
 
         if self.MODE == "benchmark_only":
             print("[Pipeline] Running in benchmark_only mode. Looking for existing run files...")
-            benchmark = thesis_benchmark.ThesisBenchmark(output_dir=self.BASE_OUTPUT_DIR / "benchmark")
+            benchmark_dir = self.BASE_OUTPUT_DIR / "benchmark"
+            benchmark_dir.mkdir(parents=True, exist_ok=True)
+            benchmark = thesis_benchmark.ThesisBenchmark(
+                output_dir=benchmark_dir,
+                ref_sdf=ref_sdf,
+                seed_smiles=primary_molecule,
+            )
             table_df = benchmark.run_benchmark()
-            return {"run_id": self.RUN_ID, "mode": self.MODE, "status": "completed"}
+            stage1_tsv = self.BASE_OUTPUT_DIR / "stage1_sequence_rnn" / "stage1_hits.tsv"
+            scaffolds_tsv = self.BASE_OUTPUT_DIR / "stage2_scaffold_funnel" / "funnel_scaffolds.tsv"
+            stage3_tsv = self.BASE_OUTPUT_DIR / "stage3_graph_transformer" / "stage3_leads.tsv"
+        else:
+            # 3. Stage 1: Sequence-RNN Hit Generation
+            df_stage1, stage1_tsv = self.stage1_sequence_rnn_hit_generation(primary_molecule, ref_sdf)
 
-        # 3. Stage 1: Sequence-RNN Hit Generation
-        df_stage1, stage1_tsv = self.stage1_sequence_rnn_hit_generation(primary_molecule, ref_sdf)
+            # 4. Stage 2: Bemis-Murcko Funnel
+            df_scaffolds, scaffolds_tsv = self.stage2_bemis_murcko_funnel(df_stage1, primary_molecule, ref_sdf=ref_sdf)
 
-        # 4. Stage 2: Bemis-Murcko Funnel
-        df_scaffolds, scaffolds_tsv = self.stage2_bemis_murcko_funnel(df_stage1, primary_molecule)
+            # 5. Stage 3: Graph-Transformer Lead Optimization
+            df_stage3, stage3_tsv = self.stage3_graph_transformer_optimization(primary_molecule, ref_sdf, scaffolds_tsv)
 
-        # 5. Stage 3: Graph-Transformer Lead Optimization
-        df_stage3, stage3_tsv = self.stage3_graph_transformer_optimization(primary_molecule, ref_sdf, scaffolds_tsv)
-
-        # 6. Stage 4: Publication Benchmark & Figures
-        benchmark_dir, table_df = self.stage4_benchmark_and_visualizations(stage1_tsv, stage3_tsv)
+            # 6. Stage 4: Publication Benchmark & Figures
+            benchmark_dir, table_df = self.stage4_benchmark_and_visualizations(stage1_tsv, stage3_tsv, ref_sdf=ref_sdf, primary_molecule=primary_molecule)
 
         duration = (datetime.now() - start_time).total_seconds()
 

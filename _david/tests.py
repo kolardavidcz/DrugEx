@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 #? [RDKit] MolFromSmiles validation and Murcko scaffold extraction.
 from rdkit import Chem
+from rdkit.Chem import AllChem
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
 from drugex.training.scorers.modifiers import SmoothHump
@@ -333,6 +334,105 @@ class TestAntiCheatingRewards(unittest.TestCase):
             clean_no_ra = bench.prepare_regime_dataframe(raw_no_ra)
             self.assertEqual(len(clean_no_ra), 1)
             self.assertAlmostEqual(clean_no_ra["RAscore"].iloc[0], 0.50, places=2)
+
+    def test_ligand_efficiency_scorer_handles_strings_and_mols(self) -> None:
+        """Verify drugex LigandEfficiency computes correct scores and handles strings, Mols, and None."""
+        from drugex.training.scorers.properties import LigandEfficiency
+        from drugex.training.scorers.interfaces import Scorer
+
+        class DummyQSAR(Scorer):
+            def getScores(self, mols, frags=None):
+                return np.array([7.0] * len(mols), dtype=np.float64)
+            def getKey(self):
+                return "DummyQSAR"
+
+        dummy_qsar = DummyQSAR()
+        le_scorer = LigandEfficiency(qsar_scorer=dummy_qsar)
+
+        # Test with SMILES strings (benzene has 6 heavy atoms: 1.4 * 7.0 / 6 = 1.6333...)
+        scores = le_scorer.getScores(["c1ccccc1", "c1ccccc1O", None, "INVALID_SMILES"])
+        self.assertEqual(len(scores), 4)
+        self.assertAlmostEqual(scores[0], 1.4 * 7.0 / 6.0, places=3)
+        self.assertAlmostEqual(scores[1], 1.4 * 7.0 / 7.0, places=3)
+        self.assertEqual(scores[2], 0.0)
+        self.assertEqual(scores[3], 0.0)
+
+        # Test with Chem.Mol
+        mol = Chem.MolFromSmiles("c1ccccc1")
+        scores_mol = le_scorer.getScores([mol])
+        self.assertAlmostEqual(scores_mol[0], 1.4 * 7.0 / 6.0, places=3)
+
+    def test_scaffold_funnel_column_matching_isolation(self) -> None:
+        """Verify ScaffoldFunnel does not confuse ElectroShape with ROCS or FRAGS with RAscore."""
+        import pandas as pd
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            funnel = ScaffoldFunnel(output_dir=Path(tmp_dir), seed_smiles="c1ccccc1")
+            called_rocs = []
+            def mock_rocs(smiles_list):
+                called_rocs.extend(smiles_list)
+                return np.full(len(smiles_list), 0.85, dtype=np.float32)
+            funnel.compute_rocs_scores = mock_rocs
+
+            cand_df = pd.DataFrame({
+                "SMILES": ["c1ccccc1", "c1ccccc1CC"],
+                "ElectroShape": [0.90, 0.85],
+                "FRAGS": ["c1ccccc1", "c1ccccc1"],
+                "RAscore": [0.80, 0.75],
+                "QED": [0.60, 0.65],
+                "Valid": [1, 1],
+            })
+            res = funnel.process_candidates_dataframe(cand_df)
+            self.assertGreater(len(called_rocs), 0)
+            self.assertTrue("ROCS" in res.columns)
+
+    def test_usrcat_scorer_companion_npy_loading(self) -> None:
+        """Verify USRCATScorer loads companion pre-computed .npy moments alongside .sdf."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            sdf_path = Path(tmp_dir) / "query_3d.sdf"
+            m = Chem.MolFromSmiles("c1ccccc1")
+            AllChem.EmbedMolecule(m, randomSeed=42)
+            w = Chem.SDWriter(str(sdf_path))
+            w.write(m)
+            w.close()
+
+            comp_npy = Path(tmp_dir) / "query_3d_electroshape.npy"
+            mock_moments = np.ones((1, 75), dtype=np.float64)
+            np.save(comp_npy, mock_moments)
+
+            scorer = USRCATScorer(references=sdf_path, score_type="electroshape")
+            np.testing.assert_array_equal(scorer.ref_moments, mock_moments)
+
+    def test_thesis_benchmark_ref_sdf_and_seed_isolation(self) -> None:
+        """Verify ThesisBenchmark correctly accepts custom ref_sdf and seed_smiles."""
+        from _david.code.thesis_benchmark import ThesisBenchmark
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            custom_sdf = Path(tmp_dir) / "custom_seed.sdf"
+            bench = ThesisBenchmark(
+                output_dir=Path(tmp_dir),
+                ref_sdf=custom_sdf,
+                seed_smiles="c1ccccc1O",
+            )
+            self.assertEqual(bench.REF_SDF, custom_sdf)
+            self.assertEqual(bench.seed_smiles, "c1ccccc1O")
+            self.assertIsNotNone(bench.SEED_MOL)
+            self.assertEqual(bench.SEED_MOL.GetNumHeavyAtoms(), 7)
+
+    def test_pipeline_benchmark_only_creates_summaries(self) -> None:
+        """Verify MoleculePipeline in benchmark_only mode produces summary and audit JSON files."""
+        from _david.code.pipeline import MoleculePipeline
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pipe_dir = Path(tmp_dir) / "test_run"
+            bench_dir = pipe_dir / "benchmark"
+            bench_dir.mkdir(parents=True, exist_ok=True)
+            pipe = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
+            import pandas as pd
+            from unittest.mock import patch
+            with patch("drugex.training.scorers.sascorer.calculateScore", return_value=3.0), \
+                 patch("_david.code.thesis_benchmark.ThesisBenchmark.run_benchmark", return_value=pd.DataFrame()):
+                summary = pipe.run(molecules="c1ccccc1O")
+                self.assertTrue((pipe_dir / "pipeline_summary.json").exists())
+                self.assertTrue((pipe_dir / "fallback_audit.json").exists())
+                self.assertEqual(summary["mode"], "benchmark_only")
 
 
 if __name__ == "__main__":
