@@ -199,10 +199,11 @@ class GraphTransformerOptimizer:
         """
         ref_path_str: str = str(ref_sdf_path)
 
-        #? [Pure LBDD USRCAT Scorer] Ultrafast 60-dimensional shape and pharmacophore moment similarity.
+        #? [Pure LBDD ElectroShape Scorer] Ultrafast 75-dimensional shape and partial charge centroid moment similarity.
         usrcat_scorer = USRCATScorer(
             references=ref_path_str,
             num_conformers=ROCS_MAX_CONFS,
+            score_type="electroshape",
             modifier=SmoothClippedScore(
                 lower_x=USRCAT_LOWER_X,
                 upper_x=USRCAT_UPPER_X,

@@ -250,7 +250,7 @@ class ScaffoldFunnel:
 
         # Flexible column identification
         rocs_col = next((c for c in df.columns if "RDKit" in c or "ROCS" in c or "TanimotoCombo" in c or "Shape" in c), None)
-        usrcat_col = next((c for c in df.columns if "USRCAT" in c or "usrcat" in c), None)
+        usrcat_col = next((c for c in df.columns if "USRCAT" in c or "usrcat" in c or "ElectroShape" in c or "electroshape" in c), None)
         ra_col = next((c for c in df.columns if "Retrosynthetic" in c or "RA" in c), None)
         qed_col = next((c for c in df.columns if "QED" in c), None)
 

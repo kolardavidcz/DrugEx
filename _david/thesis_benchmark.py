@@ -445,8 +445,8 @@ class ThesisBenchmark:
         else:
             df_props["RAscore"] = 0.0
 
-        # Check for USRCAT column or compute real USRCAT
-        usrcat_col = next((c for c in raw_df.columns if "USRCAT" in c or "usrcat" in c), None)
+        # Check for USRCAT or ElectroShape column or compute real 3D moments
+        usrcat_col = next((c for c in raw_df.columns if "USRCAT" in c or "usrcat" in c or "ElectroShape" in c or "electroshape" in c), None)
         if usrcat_col and usrcat_col in raw_df.columns:
             df_props["USRCAT"] = pd.to_numeric(raw_df[usrcat_col], errors="coerce").fillna(0.0).values
         else:

@@ -54,7 +54,7 @@ class USRCATScorer(Scorer):
         self,
         references: Union[str, Path, Sequence[Chem.Mol]],
         num_conformers: int = 10,
-        score_type: str = "usrcat",
+        score_type: str = "electroshape",
         modifier: ScoreModifier | None = None,
         random_seed: int = 42,
     ) -> None:
@@ -63,7 +63,7 @@ class USRCATScorer(Scorer):
         Args:
             references: Path to multi-record reference SDF or sequence of RDKit Mol conformers.
             num_conformers: Candidate conformers generated per molecule (default: 10).
-            score_type: Descriptor type ('usrcat', 'usr', or 'electroshape').
+            score_type: Descriptor type ('electroshape', 'usrcat', or 'usr').
             modifier: Optional DrugEx ScoreModifier to scale raw similarity into [0.0, 1.0].
             random_seed: Random seed for stochastic ETKDG conformer embedding.
 
@@ -81,9 +81,11 @@ class USRCATScorer(Scorer):
         """Return the unique objective identifier key for this scorer.
 
         Returns:
-            String key name identifying this scorer in DrugExEnvironment ('USRCAT' or 'USRCAT_<TYPE>').
+            String key name identifying this scorer in DrugExEnvironment ('ElectroShape', 'USRCAT', etc.).
         """
-        if self.score_type == "usrcat":
+        if self.score_type == "electroshape":
+            return "ElectroShape"
+        elif self.score_type == "usrcat":
             return "USRCAT"
         return f"USRCAT_{self.score_type.upper()}"
 

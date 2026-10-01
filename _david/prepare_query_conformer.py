@@ -52,9 +52,10 @@ class QueryConformerPreparer:
         self.REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
         self.OUTPUT_SDF: Path = self.REFERENCES_DIR / "my_molecule_3d.sdf"
         self.OUTPUT_USRCAT: Path = self.REFERENCES_DIR / "my_molecule_usrcat.npy"
+        self.OUTPUT_ELECTROSHAPE: Path = self.REFERENCES_DIR / "my_molecule_electroshape.npy"
 
     def generate_reference_sdf(self, smiles: str = MY_MOLECULE, output_path: Path | None = None) -> Path:
-        """Generate a low-energy 3D conformer ensemble and USRCAT moments for the query SMILES.
+        """Generate a low-energy 3D conformer ensemble, USRCAT, and ElectroShape moments for query SMILES.
 
         Args:
             smiles: SMILES string of the query active ligand.
@@ -139,6 +140,17 @@ class QueryConformerPreparer:
             np.save(str(usrcat_target), usrcat_arr)
             if self.OUTPUT_USRCAT != usrcat_target:
                 np.save(str(self.OUTPUT_USRCAT), usrcat_arr)
+
+        #? [ElectroShape Pre-computation] Computes 75-dim moments (USRCAT + Gasteiger partial charge centroids) and caches .npy file.
+        try:
+            from _david.usrcat_scorer import USRCATScorer
+            es_scorer = USRCATScorer(references=target_path, score_type="electroshape")
+            es_target = target_path.parent / f"{target_path.stem}_electroshape.npy"
+            np.save(str(es_target), es_scorer.ref_moments)
+            if self.OUTPUT_ELECTROSHAPE != es_target:
+                np.save(str(self.OUTPUT_ELECTROSHAPE), es_scorer.ref_moments)
+        except Exception:
+            pass
 
         return target_path
 
