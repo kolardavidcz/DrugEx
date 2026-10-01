@@ -1,10 +1,25 @@
+"""Stage 1 Generative Optimizer executing policy-gradient RL on a SequenceRNN model.
+
+Combines unconstrained SMILES exploration with multi-objective reward environments
+featuring ultrafast 75-D ElectroShape moments, dynamic heavy-atom volume plateau,
+retrosynthetic accessibility, and Augmented Chebyshev anti-cheating scalarization.
+"""
 from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+import sys
 from typing import List, Tuple, Union
 import warnings
+
+# Ensure project root is on sys.path
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent if (SCRIPT_DIR.parent.parent / "drugex").exists() else SCRIPT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 #? [Matplotlib] Non-interactive Agg backend: disables GUI window requirement for headless server execution.
 import matplotlib
@@ -35,8 +50,9 @@ from drugex.training.scorers.modifiers import SmoothClippedScore, SmoothHump
 from drugex.training.scorers.properties import Property, Scaffold
 from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
 
-from _david.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
-from _david.usrcat_scorer import USRCATScorer
+from _david.code.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
+from _david.code.fallback_monitor import FallbackMonitor
+from _david.code.usrcat_scorer import USRCATScorer
 
 warnings.filterwarnings("ignore")
 
@@ -49,12 +65,20 @@ def get_safe_gpus() -> tuple[int, ...] | tuple[()]:
         Tuple containing GPU device index (0,) if CUDA is functional, or empty tuple if unavailable.
     """
     if not torch.cuda.is_available():
+        FallbackMonitor.record_fallback(
+            fallback_type="device_cuda_unavailable",
+            message="torch.cuda.is_available() is False; falling back to CPU",
+        )
         return tuple()
     try:
         t = torch.zeros(1, device="cuda:0")
         del t
         return (0,)
-    except Exception:
+    except Exception as e:
+        FallbackMonitor.record_fallback(
+            fallback_type="device_cuda_error",
+            message=f"CUDA test allocation failed: {e}; falling back to CPU",
+        )
         return tuple()
 
 
@@ -116,10 +140,10 @@ class SequenceRNNOptimizer:
     2. Closes Pareto Objective Cheating: Eliminates the counterproductive 2D Novelty objective which
        previously rewarded molecules for structurally diverging from the target volume, allowing the agent
        to game Pareto ranks by producing trivial small fragments.
-    3. Enforces Heavy-Atom Volume Target: Uses a Gaussian modifier centered on EGCG's heavy atom count (33)
+    3. Enforces Heavy-Atom Volume Target: Uses a Gaussian modifier centered on query ligand's heavy atom count
        to physically prevent the generator from collapsing into 15-20 atom fragments that physically cannot
-       match EGCG's steric envelope.
-    4. Dual 3D Alignment: Combines Gaussian volume overlap (ROCS) with rotation-invariant USRCAT moments.
+       match the query steric envelope.
+    4. Dual 3D Alignment: Combines Gaussian volume overlap (ROCS) with rotation-invariant ElectroShape moments.
 
     Attributes:
         ROOT_PATH: Root repository directory.
@@ -135,8 +159,8 @@ class SequenceRNNOptimizer:
         Args:
             output_dir: Optional custom Path to store run outputs and models.
         """
-        self.ROOT_PATH: Path = Path(__file__).resolve().parent.parent
-        self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "outputs_RNN"
+        self.ROOT_PATH: Path = PROJECT_ROOT
+        self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "output" / "stage1_sequence_rnn"
 
         if output_dir is None:
             #? [DateTime] Generates ISO-like timestamp string for unique run output directory naming.
@@ -293,7 +317,7 @@ class SequenceRNNOptimizer:
         """
         ref_sdf = self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf"
         if not ref_sdf.exists():
-            from _david.prepare_query_conformer import QueryConformerPreparer
+            from _david.code.prepare_query_conformer import QueryConformerPreparer
             preparer = QueryConformerPreparer(ref_sdf.parent)
             ref_sdf = preparer.generate_reference_sdf(molecule_smile, ref_sdf)
 
@@ -433,3 +457,4 @@ if __name__ == "__main__":
     optimizer = SequenceRNNOptimizer()
     agent, scored_sample = optimizer.run_reinforcement_learning(MY_MOLECULE, epochs=1, n_samples=50)
     print(f"SequenceRNN test completed. Output saved to: {optimizer.OUTPUT_DIR}")
+    FallbackMonitor.print_summary()

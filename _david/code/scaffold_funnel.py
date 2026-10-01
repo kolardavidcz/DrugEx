@@ -1,3 +1,12 @@
+"""Stage 2 Chemotype Funnel bridging Sequence-RNN exploration and Graph-Transformer optimization.
+
+Decomposes raw candidate hits into Bemis-Murcko core frameworks, purges PAINS
+and target-specific toxicophores, filters by dynamic heavy-atom volume bounds,
+enforces structural hopping distance away from the seed query, and clusters scaffolds
+via Butina sphere exclusion.
+Strictly gates expensive Gaussian volume overlay (RDKit / CDPKit ROCS) to evaluate
+ONLY candidates that pass preceding 3D ElectroShape and property pre-filters.
+"""
 from __future__ import annotations
 
 import argparse
@@ -5,9 +14,9 @@ from pathlib import Path
 import sys
 from typing import List, Sequence, Tuple
 
-# Ensure project root and _david are on sys.path
+# Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent if (SCRIPT_DIR / "drugex").exists() or (SCRIPT_DIR.parent / "drugex").exists() else SCRIPT_DIR
+PROJECT_ROOT = SCRIPT_DIR.parent.parent if (SCRIPT_DIR.parent.parent / "drugex").exists() else SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 if str(SCRIPT_DIR) not in sys.path:
@@ -32,12 +41,14 @@ try:
     from drugex.training.scorers.rocs_cdpkit import CDPKitROCSScorer
     CDPKIT_AVAILABLE: bool = True
 except (ImportError, Exception):
-    CDPKIT_AVAILABLE: bool = False
+    CDPKIT_AVAILABLE = False
 try:
     from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
     RDKIT_ROCS_AVAILABLE: bool = True
 except (ImportError, Exception):
-    RDKIT_ROCS_AVAILABLE: bool = False
+    RDKIT_ROCS_AVAILABLE = False
+
+from _david.code.fallback_monitor import FallbackMonitor
 
 MIN_ROCS_SCORE: float = 0.38
 MIN_ELECTROSHAPE_SCORE: float = 0.45
@@ -87,7 +98,7 @@ class ScaffoldFunnel:
             toxicophore_smarts: Optional SMARTS string or sequence of SMARTS patterns to penalize.
             filter_pains: Whether to apply standard RDKit PAINS filter catalog (default: True).
         """
-        self.ROOT_PATH: Path = Path(__file__).resolve().parent.parent
+        self.ROOT_PATH: Path = PROJECT_ROOT
         self.OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david")
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         self.seed_smiles: str = seed_smiles
@@ -100,153 +111,158 @@ class ScaffoldFunnel:
             AllChem.GetMorganFingerprintAsBitVect(self.SEED_MOL, 2, nBits=2048) if self.SEED_MOL else None
         )
 
-        # Dynamic size envelope derived from seed ligand heavy atom count
+        # Dynamic size envelope derived from seed ligand heavy atom count (HAC)
         self.MIN_CANDIDATE_HEAVY_ATOMS: int = max(8, int(self.SEED_HAC * 0.60))
         self.MAX_CANDIDATE_HEAVY_ATOMS: int = int(self.SEED_HAC * 1.40)
         self.MIN_SCAFFOLD_HEAVY_ATOMS: int = max(6, int(self.SEED_HAC * 0.35))
         self.MAX_SCAFFOLD_HEAVY_ATOMS: int = int(self.SEED_HAC * 0.95)
 
-        # Target-specific toxicophore SMARTS
-        self.toxicophore_mols: list[Chem.Mol] = []
-        if toxicophore_smarts is not None:
-            smarts_list = [toxicophore_smarts] if isinstance(toxicophore_smarts, str) else list(toxicophore_smarts)
-            for s in smarts_list:
-                m = Chem.MolFromSmarts(s)
-                if m is not None:
-                    self.toxicophore_mols.append(m)
-
-        # Universal PAINS catalog
+        # Initialize PAINS filter catalog
         self.filter_pains: bool = filter_pains
-        self.pains_catalog: FilterCatalog | None = None
-        if self.filter_pains:
-            try:
-                #? [RDKit PAINS FilterCatalog] 480 pre-compiled Pan-Assay Interference Compound substructure definitions.
-                params = FilterCatalogParams()
-                params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS)
-                self.pains_catalog = FilterCatalog(params)
-            except Exception:
-                self.pains_catalog = None
+        if filter_pains:
+            params = FilterCatalogParams()
+            params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS)
+            self.pains_catalog: FilterCatalog | None = FilterCatalog(params)
+        else:
+            self.pains_catalog = None
 
-    def is_liability_or_pains(self, mol: Chem.Mol | None) -> bool:
-        """Determine whether a molecule contains user-specified toxicophores or PAINS liabilities.
+        # Custom toxicophore SMARTS patterns
+        self.toxicophore_patterns: List[Chem.Mol] = []
+        if toxicophore_smarts:
+            if isinstance(toxicophore_smarts, str):
+                toxicophore_smarts = [toxicophore_smarts]
+            for pat in toxicophore_smarts:
+                p_mol = Chem.MolFromSmarts(pat)
+                if p_mol:
+                    self.toxicophore_patterns.append(p_mol)
 
-        Skeptical Academic Rationale:
-        Universal LBDD applies the standard medicinal chemistry PAINS (Pan-Assay Interference
-        Compounds) filter catalog alongside any user-defined toxicophore liabilities, preventing
-        false-positive hits, redox cycling compounds, and reactive chemical species.
+    def is_liability_or_pains(self, mol: Chem.Mol | str | None) -> bool:
+        """Check if candidate matches RDKit PAINS filters or target-specific toxicophores.
 
         Args:
-            mol: RDKit Mol to inspect.
+            mol: Molecule object or SMILES string.
 
         Returns:
-            True if molecule matches any toxicophore SMARTS or PAINS definitions.
+            True if any PAINS or toxicophore pattern matches, False otherwise.
         """
         if mol is None:
-            return False
-
-        # Custom toxicophore SMARTS check
-        for tox_mol in self.toxicophore_mols:
-            if mol.HasSubstructMatch(tox_mol):
+            return True
+        if isinstance(mol, str):
+            mol = Chem.MolFromSmiles(mol)
+            if mol is None:
                 return True
 
-        # Generic RDKit PAINS filter check
-        if self.pains_catalog and self.pains_catalog.HasMatch(mol):
-            return True
+        # Check PAINS catalog
+        if self.filter_pains and self.pains_catalog is not None:
+            if self.pains_catalog.HasMatch(mol):
+                return True
+
+        # Check custom toxicophores (e.g. catechol smarts)
+        for pat in self.toxicophore_patterns:
+            if mol.HasSubstructMatch(pat):
+                return True
 
         return False
 
-    def is_catechol_polyphenol(self, mol: Chem.Mol | None) -> bool:
-        """Backward-compatibility alias checking general liabilities or polyphenol counts."""
-        if self.is_liability_or_pains(mol):
-            return True
-        if mol is None:
-            return False
-        phenolic_oh = len(mol.GetSubstructMatches(Chem.MolFromSmarts("c[OH]")))
-        if phenolic_oh >= 3:
-            return True
-        total_oh = len(mol.GetSubstructMatches(Chem.MolFromSmarts("[OH]")))
-        if total_oh >= 4:
-            return True
-        return False
+    def is_polyphenol(self, mol: Chem.Mol | str | None) -> bool:
+        """Check if molecule contains catechol / polyphenol patterns (backward-compatibility alias).
+
+        Args:
+            mol: Molecule object or SMILES string.
+
+        Returns:
+            True if liability detected, False otherwise.
+        """
+        return self.is_liability_or_pains(mol)
 
     def extract_murcko_scaffold(self, smiles: str) -> str | None:
-        """Extract the Bemis-Murcko core framework from a SMILES string.
+        """Extract Bemis-Murcko core scaffold from SMILES string.
 
         Args:
             smiles: Input SMILES string.
 
         Returns:
-            Canonical SMILES of the heavy-atom Murcko scaffold, or None if extraction fails.
+            Scaffold SMILES string without stereochemistry, or None if extraction fails.
         """
-        #? [RDKit] Parse candidate SMILES to construct molecular graph.
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None
         try:
-            #? [RDKit Bemis-Murcko] Decomposes molecule into core ring systems and linkers, stripping exocyclic side chains.
-            scaff = MurckoScaffold.GetScaffoldForMol(mol)
-            if scaff.GetNumHeavyAtoms() == 0:
-                return None
-            return str(Chem.MolToSmiles(scaff))
-        except Exception:
-            return None
+            #? [RDKit Bemis-Murcko] Truncates exocyclic side chains to isolate core rings and linkers.
+            scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+            if scaffold is None or scaffold.GetNumHeavyAtoms() == 0:
+                FallbackMonitor.record_fallback(
+                    fallback_type="murcko_empty_scaffold",
+                    message="Murcko extraction produced 0 heavy atoms; using raw molecule SMILES",
+                    context={"smiles": smiles},
+                )
+                return Chem.MolToSmiles(mol, isomericSmiles=False)
+            return Chem.MolToSmiles(scaffold, isomericSmiles=False)
+        except Exception as e:
+            FallbackMonitor.record_fallback(
+                fallback_type="murcko_extraction_exception",
+                message=f"Murcko extraction exception: {e}; falling back to raw SMILES",
+                context={"smiles": smiles},
+            )
+            return Chem.MolToSmiles(mol, isomericSmiles=False)
 
-    def cluster_scaffolds(self, scaffolds: list[str], cutoff: float = CLUSTER_CUTOFF) -> Sequence[Tuple[int, ...]]:
-        """Cluster scaffold fingerprints using the Butina sphere-exclusion algorithm.
+    def cluster_scaffolds(self, scaffold_smiles: Sequence[str], cutoff: float = CLUSTER_CUTOFF) -> List[Tuple[int, ...]]:
+        """Cluster scaffold SMILES using Butina sphere-exclusion algorithm.
 
         Args:
-            scaffolds: List of scaffold SMILES strings.
-            cutoff: Maximum Tanimoto distance threshold for neighborhood membership.
+            scaffold_smiles: List of unique scaffold SMILES strings.
+            cutoff: Distance cutoff for clustering (1.0 - Tanimoto similarity).
 
         Returns:
-            Sequence of cluster tuples, where each tuple starts with the centroid index.
+            List of cluster tuples containing molecule indices, sorted by cluster size descending.
         """
-        #? [RDKit] Re-parse unique scaffold SMILES into Mol objects.
-        mols = [Chem.MolFromSmiles(s) for s in scaffolds]
+        mols = [Chem.MolFromSmiles(s) for s in scaffold_smiles]
         valid_mols = [m for m in mols if m is not None]
         if not valid_mols:
             return []
 
-        #? [RDKit Morgan Fingerprint] Computes 2048-bit ECFP4 bit vectors for scaffold structural comparison.
         fps = [AllChem.GetMorganFingerprintAsBitVect(m, 2, nBits=2048) for m in valid_mols]
-        num_fps = len(fps)
-        dists: List[float] = []
-        for i in range(1, num_fps):
-            #? [RDKit DataStructs] Computes pairwise lower-triangular Tanimoto distance matrix (d = 1.0 - T).
+        n_fps = len(fps)
+        if n_fps == 1:
+            return [(0,)]
+
+        #? [RDKit Butina] Computes 1D triangular distance matrix for sphere-exclusion clustering.
+        dists = []
+        for i in range(1, n_fps):
             sims = DataStructs.BulkTanimotoSimilarity(fps[i], fps[:i])
-            dists.extend([1.0 - s for s in sims])
+            dists.extend([1.0 - x for x in sims])
 
-        #? [RDKit Butina] Unsupervised sphere-exclusion clustering: groups scaffolds within distance cutoff (1 - Tanimoto) and returns cluster centroids.
-        clusters: Sequence[Tuple[int, ...]] = Butina.ClusterData(dists, num_fps, cutoff, isDistData=True)
-        return clusters
+        clusters = Butina.ClusterData(dists, n_fps, cutoff, isDistData=True)
+        return sorted(clusters, key=len, reverse=True)
 
-    def compute_rocs_scores(self, smiles_list: Sequence[str], ref_sdf: Path | str | None = None) -> np.ndarray:
-        """Compute authentic physical Gaussian volume overlap for candidates.
+    def compute_rocs_scores(self, smiles_list: Sequence[str]) -> np.ndarray:
+        """Compute Gaussian ROCS shape overlay scores for a list of molecules.
 
-        Skeptical Academic Rationale:
-        Decoupled 3D Tier: During Stage 1 RL, USRCAT moments ran in microseconds without
-        conformer generation to accelerate RL rollouts. In Stage 2 Funnel, candidates are
-        subjected to rigorous physical Gaussian volume overlay (CDPKit ROCS: CDPKitROCSScorer
-        + RDKitConformerGenerator) using ETKDGv3 conformer ensembles against the query conformers.
+        Strictly evaluates physical Gaussian volume overlay (RDKit / CDPKit ROCS)
+        against the reference 3D conformer ensemble.
 
         Args:
-            smiles_list: Candidate SMILES strings to evaluate.
-            ref_sdf: Optional custom reference SDF path.
+            smiles_list: List of candidate SMILES strings.
 
         Returns:
-            NumPy array of ROCS TanimotoCombo scores.
+            1D NumPy array of ROCS scores in [0.0, 1.0].
         """
         if not smiles_list:
-            return np.zeros(0, dtype=np.float32)
+            return np.array([], dtype=np.float32)
 
-        ref_path = Path(ref_sdf) if ref_sdf else (self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf")
-        if not ref_path.exists():
-            from _david.prepare_query_conformer import QueryConformerPreparer
-            preparer = QueryConformerPreparer(ref_path.parent)
-            seed_smi = self.seed_smiles if hasattr(self, "seed_smiles") and self.seed_smiles else MY_MOLECULE
-            ref_path = preparer.generate_reference_sdf(seed_smi, ref_path)
+        ref_candidates = [
+            self.OUTPUT_DIR / "references" / "query_molecule_3d.sdf",
+            self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf",
+        ]
+        ref_path = next((p for p in ref_candidates if p.exists()), None)
+        if not ref_path:
+            FallbackMonitor.record_fallback(
+                fallback_type="rocs_missing_reference_sdf",
+                message="No reference SDF found for ROCS overlay; falling back to default score (0.50)",
+                context={"n_molecules": len(smiles_list)},
+            )
+            return np.full(len(smiles_list), 0.5, dtype=np.float32)
 
-        #? [RDKit Conformer Generator] 10 conformers per candidate with ETKDGv3.
         conf_gen = RDKitConformerGenerator(
             max_conformers=10,
             max_isomers=1,
@@ -266,8 +282,12 @@ class ScaffoldFunnel:
                     opt_mode="combo",
                 )
                 return np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
-            except Exception:
-                pass
+            except Exception as e:
+                FallbackMonitor.record_fallback(
+                    fallback_type="rocs_cdpkit_failed",
+                    message=f"CDPKit ROCS failed with exception: {e}; falling back to RDKitROCSScorer",
+                    context={"n_molecules": len(smiles_list)},
+                )
 
         if RDKIT_ROCS_AVAILABLE:
             try:
@@ -281,9 +301,18 @@ class ScaffoldFunnel:
                     n_jobs=2,
                 )
                 return np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
-            except Exception:
-                pass
+            except Exception as e:
+                FallbackMonitor.record_fallback(
+                    fallback_type="rocs_rdkit_failed",
+                    message=f"RDKit ROCS failed with exception: {e}; falling back to default score (0.50)",
+                    context={"n_molecules": len(smiles_list)},
+                )
 
+        FallbackMonitor.record_fallback(
+            fallback_type="rocs_all_engines_failed",
+            message="Both CDPKit and RDKit ROCS engines failed/unavailable; falling back to default 0.50",
+            context={"n_molecules": len(smiles_list)},
+        )
         return np.full(len(smiles_list), 0.5, dtype=np.float32)
 
     def process_candidates_dataframe(self, df: pd.DataFrame, max_scaffolds: int = MAX_OUTPUT_SCAFFOLDS) -> pd.DataFrame:
@@ -320,8 +349,6 @@ class ScaffoldFunnel:
 
         # =========================================================================
         # Tier 1 Pre-Filter: Fast 2D / 1D & 3D Moment Evaluation
-        # Only candidates passing size envelope, synthesizability, drug-likeness,
-        # toxicophore/PAINS absence, and 3D ElectroShape proceed to Tier 2!
         # =========================================================================
         tier1_candidates = []
         for _, row in df.iterrows():
@@ -333,7 +360,7 @@ class ScaffoldFunnel:
             if cand_mol is None:
                 continue
 
-            # Heavy atom envelope check on candidate to prevent tiny fragment collapse or overgrown macromolecules
+            # Heavy atom envelope check
             hac = cand_mol.GetNumHeavyAtoms()
             if hac < self.MIN_CANDIDATE_HEAVY_ATOMS or hac > self.MAX_CANDIDATE_HEAVY_ATOMS:
                 continue
@@ -381,6 +408,11 @@ class ScaffoldFunnel:
 
         # Graceful fallback if strict pre-filtering removed all candidates (e.g. test runs)
         if not tier1_candidates:
+            FallbackMonitor.record_fallback(
+                fallback_type="tier1_prefilter_zero_survivors",
+                message="Zero candidates survived strict Tier 1 pre-filters; falling back to top 50 un-filtered candidates",
+                context={"total_input_rows": len(df)},
+            )
             for _, row in df.head(50).iterrows():
                 smi = str(row["SMILES"]).strip()
                 cand_mol = Chem.MolFromSmiles(smi)
@@ -401,8 +433,7 @@ class ScaffoldFunnel:
 
         # =========================================================================
         # Tier 2 Gated ROCS Evaluation:
-        # Authentic Gaussian volume overlap (RDKit / CDPKit ROCS) is computed
-        # ONLY for molecules that passed Tier 1 pre-filters!
+        # Authentic Gaussian volume overlap computed ONLY for Tier 1 survivors!
         # =========================================================================
         surviving_smiles = [c["SMILES"] for c in tier1_candidates]
         if rocs_col is None and len(surviving_smiles) > 0:
@@ -416,7 +447,15 @@ class ScaffoldFunnel:
 
         # Filter by ROCS threshold if any pass
         rocs_passed = [c for c in tier1_candidates if c["ROCS"] >= MIN_ROCS_SCORE]
-        working_pool = rocs_passed if rocs_passed else tier1_candidates
+        if not rocs_passed:
+            FallbackMonitor.record_fallback(
+                fallback_type="rocs_threshold_zero_survivors",
+                message=f"Zero candidates met ROCS threshold ({MIN_ROCS_SCORE}); falling back to all {len(tier1_candidates)} Tier 1 candidates",
+                context={"min_rocs_threshold": MIN_ROCS_SCORE},
+            )
+            working_pool = tier1_candidates
+        else:
+            working_pool = rocs_passed
 
         # =========================================================================
         # Stage 2 Murcko Framework Extraction & Diversity Clustering
@@ -424,7 +463,6 @@ class ScaffoldFunnel:
         records = []
         for c in working_pool:
             smi = c["SMILES"]
-            cand_mol = c["Mol"]
             scaff = self.extract_murcko_scaffold(smi)
             if not scaff:
                 continue
@@ -465,7 +503,11 @@ class ScaffoldFunnel:
             })
 
         if not records:
-            # Fallback if strict scaffold filters removed all candidates
+            FallbackMonitor.record_fallback(
+                fallback_type="scaffold_filter_zero_survivors",
+                message="Zero scaffolds passed strict size/liability filters; falling back to un-filtered frameworks",
+                context={"working_pool_size": len(working_pool)},
+            )
             for c in working_pool:
                 smi = c["SMILES"]
                 scaff = self.extract_murcko_scaffold(smi) or smi
@@ -554,3 +596,4 @@ if __name__ == "__main__":
         res = funnel.process_candidates_dataframe(dummy_data)
         print("Self-test succeeded! Extracted scaffolds:")
         print(res[["Scaffold_ID", "Scaffold", "Scaffold_HAC", "ROCS", "USRCAT", "RAscore", "Is_Polyphenol", "Seed_Similarity"]])
+        FallbackMonitor.print_summary()

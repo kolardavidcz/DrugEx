@@ -1,3 +1,12 @@
+"""End-to-End Ligand-Based De Novo Drug Design Pipeline in DrugEx.
+
+Executes a 4-stage pipeline:
+- Stage 0: 3D reference conformer ensemble and 75-D ElectroShape moment generation.
+- Stage 1: Unconstrained SMILES generative exploration using Sequence-RNN policy gradient RL.
+- Stage 2: Bemis-Murcko chemotype funnel (gated two-tier 3D ROCS + PAINS removal + Butina clustering).
+- Stage 3: Fragment-conditioned lead optimization using Graph-Transformer on discovered scaffolds.
+- Stage 4: Multi-tier academic thesis benchmarking & publication report generation.
+"""
 from __future__ import annotations
 
 import argparse
@@ -7,9 +16,9 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, List, Sequence, Union
 
-# Ensure project root and _david are on sys.path
+# Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent if (SCRIPT_DIR / "drugex").exists() or (SCRIPT_DIR.parent / "drugex").exists() else SCRIPT_DIR
+PROJECT_ROOT = SCRIPT_DIR.parent.parent if (SCRIPT_DIR.parent.parent / "drugex").exists() else SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 if str(SCRIPT_DIR) not in sys.path:
@@ -23,9 +32,12 @@ import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from _david import prepare_query_conformer
-from _david import scaffold_funnel
-from _david import thesis_benchmark
+from _david.code.fallback_monitor import FallbackMonitor
+from _david.code import prepare_query_conformer
+from _david.code import scaffold_funnel
+from _david.code import thesis_benchmark
+from _david.code import SequenceRNN
+from _david.code import GraphTransformer
 
 DEFAULT_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 DEFAULT_EPOCHS: int = 10
@@ -46,15 +58,15 @@ class MoleculePipeline:
     and conditioned graph lead optimization (Graph-Transformer).
 
     Rejection of Invalid SBDD / 2D Approaches:
-    - Rejects ProLIF: ProLIF requires 3D protein coordinates (PDB 5T1A). In 100% pure LBDD,
+    - Rejects ProLIF: ProLIF requires 3D protein coordinates. In 100% pure LBDD,
       no receptor structure is available. Using docked complexes introduces heavy scoring bias.
     - Rejects 2D Pharmacophore filters: Flatten 3D spatial geometry into 2D topological graph bonds,
       ignoring out-of-plane chiral arrangements and steric envelopes.
-    - Adopts USRCAT & Enhanced ROCS: Employs 60-dimensional Ultrafast Shape Recognition with
-      CREDO Atom Types (USRCAT) alongside 10-conformer Gaussian shape/color overlap (ROCS)
-      and heavy-atom volume constraints to physically prevent fragment collapse.
+    - Adopts ElectroShape & Enhanced ROCS: Employs 75-D ElectroShape moments alongside
+      10-conformer Gaussian shape/color overlap (ROCS) and heavy-atom volume constraints.
     - Eliminates Mock Simulation: Synthetic random-number generators have been completely
       purged; all benchmarks reflect authentic computational evaluations.
+    - Fallback Monitoring: Tracks and alerts whenever any fallback mechanisms are triggered.
 
     Attributes:
         ROOT_PATH: Repository root Path.
@@ -62,7 +74,7 @@ class MoleculePipeline:
         EPOCHS: RL epochs executed per stage.
         N_SAMPLES: Number of candidate trajectories sampled per epoch.
         RUN_ID: Unique ISO-style timestamp for run tracking.
-        BASE_OUTPUT_DIR: Target directory for run artifacts and checkpoints.
+        BASE_OUTPUT_DIR: Target directory for run artifacts, structured as `_david/output/<RUN_ID>/`.
     """
 
     def __init__(
@@ -88,7 +100,7 @@ class MoleculePipeline:
         self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         if output_dir is None:
-            self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "outputs" / "pipeline_runs" / self.RUN_ID
+            self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "output" / self.RUN_ID
         else:
             self.BASE_OUTPUT_DIR = Path(output_dir)
         self.BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -153,7 +165,7 @@ class MoleculePipeline:
         return valid_molecules
 
     def stage0_prepare_reference_conformer(self, primary_molecule: str) -> Path:
-        """Generate 3D reference conformer ensemble and USRCAT moment array for query molecule.
+        """Generate 3D reference conformer ensemble and moments for query molecule.
 
         Args:
             primary_molecule: SMILES of the active query template.
@@ -165,7 +177,7 @@ class MoleculePipeline:
         ref_dir.mkdir(parents=True, exist_ok=True)
         ref_sdf: Path = ref_dir / "query_molecule_3d.sdf"
 
-        print(f"\n[Stage 0] Generating 3D reference conformer ensemble (50 confs) & USRCAT moments...")
+        print(f"\n[Stage 0] Generating 3D reference conformer ensemble & 75-D ElectroShape moments...")
         preparer = prepare_query_conformer.QueryConformerPreparer(references_dir=ref_dir)
         preparer.generate_reference_sdf(smiles=primary_molecule, output_path=ref_sdf)
 
@@ -190,14 +202,13 @@ class MoleculePipeline:
         """
         stage1_dir: Path = self.BASE_OUTPUT_DIR / "stage1_sequence_rnn"
         stage1_dir.mkdir(parents=True, exist_ok=True)
-        scored_tsv: Path = stage1_dir / "rl_generated_candidates_scored.tsv"
+        scored_tsv: Path = stage1_dir / "stage1_hits.tsv"
 
         print(f"\n[Stage 1] Sequence-RNN Global Hit Discovery (Pure RL exploration)...")
         print(f"[Stage 1] Executing Sequence-RNN RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
 
         from drugex.training.explorers import SequenceExplorer
         from drugex.training.monitors import FileMonitor
-        from _david import SequenceRNN
 
         optimizer = SequenceRNN.SequenceRNNOptimizer(output_dir=stage1_dir)
         env = optimizer.build_environment(ref_sdf, seed_smiles=primary_molecule)
@@ -228,20 +239,21 @@ class MoleculePipeline:
         df_hits = optimizer.save_visualizations(
             optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, num_samples=self.N_SAMPLES
         )
-        if not scored_tsv.exists() and (stage1_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv").exists():
-            scored_tsv = stage1_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv"
+        if not scored_tsv.exists() and (stage1_dir / "reinforcement_learning" / "stage1_hits.tsv").exists():
+            scored_tsv = stage1_dir / "reinforcement_learning" / "stage1_hits.tsv"
 
         print(f"[Stage 1] Completed. Generated {len(df_hits)} candidates saved to: {scored_tsv}")
         return df_hits, scored_tsv
 
-    def stage2_bemis_murcko_funnel(self, stage1_df: pd.DataFrame) -> tuple[pd.DataFrame, Path]:
+    def stage2_bemis_murcko_funnel(self, stage1_df: pd.DataFrame, primary_molecule: str) -> tuple[pd.DataFrame, Path]:
         """Process candidate hits through the Bemis-Murcko chemotype funnel.
 
-        Filters out catechol/polyphenol PAINS, enforces heavy-atom volume bounds,
+        Filters out PAINS, enforces heavy-atom volume bounds,
         enforces scaffold hopping distance from seed, and clusters with Butina.
 
         Args:
             stage1_df: DataFrame of candidate molecules from Stage 1.
+            primary_molecule: Seed SMILES string for dynamic volume and hopping bounds.
 
         Returns:
             Tuple containing DataFrame of selected scaffold leads and Path to funnel scaffolds TSV.
@@ -263,9 +275,9 @@ class MoleculePipeline:
             shared_expanded = self.ROOT_PATH / "_david" / "funnel_scaffolds_expanded.tsv"
             pd.read_csv(expanded_tsv, sep="\t").to_csv(shared_expanded, sep="\t", index=False)
 
-        print(f"[Stage 2] Successfully extracted {len(scaff_df)} novel non-polyphenol core frameworks:")
+        print(f"[Stage 2] Successfully extracted {len(scaff_df)} novel core frameworks:")
         for idx, row in scaff_df.iterrows():
-            print(f"  • Framework #{idx+1}: {row['Scaffold']} (HAC: {row.get('Scaffold_HAC', 'N/A')}, ROCS: {row['ROCS']:.2f}, RA: {row['RAscore']:.2f})")
+            print(f"  * Framework #{idx+1}: {row['Scaffold']} (HAC: {row.get('Scaffold_HAC', 'N/A')}, ROCS: {row['ROCS']:.2f}, RA: {row['RAscore']:.2f})")
         print(f"[Stage 2] Scaffolds exported to: {funnel_scaffolds_tsv}")
         return scaff_df, funnel_scaffolds_tsv
 
@@ -284,14 +296,13 @@ class MoleculePipeline:
         """
         stage3_dir: Path = self.BASE_OUTPUT_DIR / "stage3_graph_transformer"
         stage3_dir.mkdir(parents=True, exist_ok=True)
-        leads_tsv: Path = stage3_dir / "rl_generated_candidates_scored.tsv"
+        leads_tsv: Path = stage3_dir / "stage3_leads.tsv"
 
         print(f"\n[Stage 3] Graph-Transformer Lead Optimization on Discovered Scaffolds...")
         print(f"[Stage 3] Executing Graph-Transformer RL lead optimization (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
 
         from drugex.training.explorers import FragGraphExplorer
         from drugex.training.monitors import FileMonitor
-        from _david import GraphTransformer
 
         optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage3_dir)
         env = optimizer.build_environment(ref_sdf, seed_smiles=primary_molecule)
@@ -326,8 +337,8 @@ class MoleculePipeline:
         df_leads = optimizer.save_visualizations(
             optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, input_dataset=seed_dataset, num_samples=self.N_SAMPLES
         )
-        if not leads_tsv.exists() and (stage3_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv").exists():
-            leads_tsv = stage3_dir / "reinforcement_learning" / "rl_generated_candidates_scored.tsv"
+        if not leads_tsv.exists() and (stage3_dir / "reinforcement_learning" / "stage3_leads.tsv").exists():
+            leads_tsv = stage3_dir / "reinforcement_learning" / "stage3_leads.tsv"
 
         print(f"[Stage 3] Completed. Optimized leads saved to: {leads_tsv}")
         return df_leads, leads_tsv
@@ -357,7 +368,7 @@ class MoleculePipeline:
         print(f"[Stage 4] Benchmark suite completed. Figures and tables saved to: {benchmark_dir}")
         return benchmark_dir, table_df
 
-    def run(self, molecules: Union[str, Path, Sequence[str]]) -> Dict[str, Any]:
+    def run(self, molecules: Union[str, Path, Sequence[str]] = DEFAULT_MOLECULE) -> Dict[str, Any]:
         """Execute the complete multi-stage drug design pipeline.
 
         Args:
@@ -393,7 +404,7 @@ class MoleculePipeline:
         df_stage1, stage1_tsv = self.stage1_sequence_rnn_hit_generation(primary_molecule, ref_sdf)
 
         # 4. Stage 2: Bemis-Murcko Funnel
-        df_scaffolds, scaffolds_tsv = self.stage2_bemis_murcko_funnel(df_stage1)
+        df_scaffolds, scaffolds_tsv = self.stage2_bemis_murcko_funnel(df_stage1, primary_molecule)
 
         # 5. Stage 3: Graph-Transformer Lead Optimization
         df_stage3, stage3_tsv = self.stage3_graph_transformer_optimization(primary_molecule, ref_sdf, scaffolds_tsv)
@@ -402,6 +413,11 @@ class MoleculePipeline:
         benchmark_dir, table_df = self.stage4_benchmark_and_visualizations(stage1_tsv, stage3_tsv)
 
         duration = (datetime.now() - start_time).total_seconds()
+
+        # Audit and save fallbacks
+        audit_file = self.BASE_OUTPUT_DIR / "fallback_audit.json"
+        FallbackMonitor.save_audit_json(audit_file)
+        FallbackMonitor.print_summary()
 
         #? [JSON] Save complete run summary metadata.
         summary_info: Dict[str, Any] = {
@@ -416,6 +432,8 @@ class MoleculePipeline:
             "stage2_scaffolds_file": str(scaffolds_tsv),
             "stage3_leads_file": str(stage3_tsv),
             "benchmark_directory": str(benchmark_dir),
+            "fallback_audit_file": str(audit_file),
+            "fallbacks_count": len(FallbackMonitor.get_events()),
         }
         with open(self.BASE_OUTPUT_DIR / "pipeline_summary.json", "w", encoding="utf-8") as f:
             json.dump(summary_info, f, indent=4)

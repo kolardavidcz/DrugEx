@@ -1,4 +1,4 @@
-"""Unit tests for anti-cheating multi-objective rewards and DrugEx v3 API parity in _david.
+"""Unit tests for anti-cheating multi-objective rewards, fallback monitoring, and DrugEx API parity.
 
 These tests empirically verify:
 1. AugmentedChebyshevReward penalizes unbalanced candidates exploiting QED/SA at the expense of 3D shape.
@@ -7,10 +7,18 @@ These tests empirically verify:
 4. Scaffold modifier correctly detects and penalizes PAINS catechol toxicophores.
 5. dummyMolsFromFragments successfully constructs graph fragment datasets from intact Murcko cores.
 6. Edge case handling (empty inputs, zero scores, 1.0 scores).
+7. FallbackMonitor tracks, alerts, counts, and exports fallback audits.
+8. Dynamic size scaling derived from seed heavy atom counts.
+9. ScaffoldFunnel gated two-tier pre-filtering and chemotype extraction.
+10. SequenceRNNOptimizer and GraphTransformerOptimizer environment configurations.
+11. 1-click runner module import and interface compliance.
 """
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
+
 #? [NumPy] Vectorized array test comparisons and assertions.
 import numpy as np
 #? [RDKit] MolFromSmiles validation and Murcko scaffold extraction.
@@ -20,11 +28,24 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from drugex.training.scorers.modifiers import SmoothHump
 from drugex.training.scorers.properties import Scaffold
 from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
-from _david.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
+
+# Import from modular code package
+from _david.code.fallback_monitor import FallbackEvent, FallbackMonitor
+from _david.code.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
+from _david.code.usrcat_scorer import USRCATScorer
+from _david.code.scaffold_funnel import ScaffoldFunnel
+from _david.code.SequenceRNN import SequenceRNNOptimizer
+from _david.code.GraphTransformer import GraphTransformerOptimizer
+from _david.code.prepare_query_conformer import QueryConformerPreparer, MY_MOLECULE
+import _david.run as david_run
 
 
 class TestAntiCheatingRewards(unittest.TestCase):
-    """Test suite for anti-cheating reward schemes and API parity."""
+    """Test suite for anti-cheating reward schemes, fallback monitors, and API parity."""
+
+    def setUp(self) -> None:
+        """Reset FallbackMonitor before each test to ensure clean isolated test state."""
+        FallbackMonitor.reset()
 
     def test_smooth_hump_modifier(self) -> None:
         """Verify SmoothHump yields near 1.0 within optimal range and 0.0 outside."""
@@ -45,7 +66,6 @@ class TestAntiCheatingRewards(unittest.TestCase):
         egcg_smiles = "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1"
         egcg_mol = Chem.MolFromSmiles(egcg_smiles)
         # EGCG contains catechol/gallate rings, is_match=False -> should be penalized (score 0.0)
-        # DrugEx scorers accept a sequence of molecules and return a 1D numpy array.
         scores_egcg = scaffold_filter([egcg_mol])
         self.assertEqual(scores_egcg[0], 0.0)
 
@@ -88,7 +108,6 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_dummy_mols_from_fragments(self) -> None:
         """Verify dummyMolsFromFragments generates valid graph inputs from Murcko core."""
-        import tempfile
         from drugex.data.corpus.vocabulary import VocGraph
         from drugex.data.fragments import FragmentCorpusEncoder, GraphFragmentEncoder
         from drugex.data.datasets import GraphFragDataSet
@@ -158,7 +177,6 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_rocs_flattened_output(self) -> None:
         """Verify compute_rocs_scores outputs a flat 1D array."""
-        from _david.scaffold_funnel import ScaffoldFunnel
         funnel = ScaffoldFunnel()
         rocs = funnel.compute_rocs_scores(["c1ccccc1", "c1ccncc1"])
         self.assertEqual(rocs.ndim, 1)
@@ -166,10 +184,6 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_graph_transformer_prepare_seed_fragments(self) -> None:
         """Verify GraphTransformerOptimizer._prepare_seed_fragments successfully creates DataLoader and dataset."""
-        import tempfile
-        from pathlib import Path
-        from _david.GraphTransformer import GraphTransformerOptimizer, MY_MOLECULE
-
         with tempfile.TemporaryDirectory() as tmp_dir:
             optimizer = GraphTransformerOptimizer(output_dir=Path(tmp_dir))
             scaffolds_file = Path(__file__).parent / "funnel_scaffolds.tsv"
@@ -182,11 +196,8 @@ class TestAntiCheatingRewards(unittest.TestCase):
             batch = next(iter(loader))
             self.assertEqual(batch.ndim, 3)
 
-
     def test_dynamic_size_scaling(self) -> None:
         """Verify ScaffoldFunnel dynamically adapts size envelopes to query seed molecules."""
-        from _david.scaffold_funnel import ScaffoldFunnel
-
         # EGCG seed (33 heavy atoms)
         funnel_egcg = ScaffoldFunnel(seed_smiles="C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O")
         self.assertEqual(funnel_egcg.SEED_HAC, 33)
@@ -202,15 +213,10 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_universal_environment_defaults(self) -> None:
         """Verify SequenceRNNOptimizer builds 5 universal objectives by default and 6 with custom toxicophore."""
-        import tempfile
-        from pathlib import Path
-        from _david.SequenceRNN import SequenceRNNOptimizer
-
         with tempfile.TemporaryDirectory() as tmp_dir:
             optimizer = SequenceRNNOptimizer(output_dir=Path(tmp_dir))
             ref_sdf = Path(__file__).parent / "references" / "my_molecule_3d.sdf"
             if not ref_sdf.exists():
-                from _david.prepare_query_conformer import QueryConformerPreparer
                 QueryConformerPreparer(ref_sdf.parent).generate_reference_sdf(output_path=ref_sdf)
 
             # Default environment: 5 universal objectives (ElectroShape, Heavy, RAscore, QED, SA)
@@ -229,7 +235,6 @@ class TestAntiCheatingRewards(unittest.TestCase):
     def test_scaffold_funnel_gated_execution(self) -> None:
         """Verify ScaffoldFunnel correctly pre-filters candidates before Stage 2 clustering."""
         import pandas as pd
-        from _david.scaffold_funnel import ScaffoldFunnel
 
         funnel = ScaffoldFunnel()
         dummy_df = pd.DataFrame({
@@ -246,10 +251,88 @@ class TestAntiCheatingRewards(unittest.TestCase):
         })
         res = funnel.process_candidates_dataframe(dummy_df)
         self.assertGreater(len(res), 0)
-        # Result scaffolds must have valid SMILES and proper columns
         self.assertIn("Scaffold", res.columns)
         self.assertIn("ElectroShape", res.columns)
         self.assertIn("ROCS", res.columns)
+
+    def test_fallback_monitor_recording_and_audit(self) -> None:
+        """Verify FallbackMonitor records alerts, accumulates counts, and exports audit JSON."""
+        self.assertFalse(FallbackMonitor.has_fallbacks())
+        self.assertEqual(len(FallbackMonitor.get_events()), 0)
+
+        # Record a fallback event
+        ev = FallbackMonitor.record_fallback(
+            fallback_type="test_conformer_random_coords",
+            message="ETKDGv3 embedding failed; relaxed bounds",
+            context={"smiles": "CC1CC1", "num_confs": 10},
+        )
+        self.assertTrue(FallbackMonitor.has_fallbacks())
+        self.assertEqual(len(FallbackMonitor.get_events()), 1)
+        self.assertEqual(ev.fallback_type, "test_conformer_random_coords")
+
+        # Record a second event of different type
+        FallbackMonitor.record_fallback(
+            fallback_type="test_rocs_fallback",
+            message="CDPKit ROCS failed; fell back to RDKit",
+        )
+        counts = FallbackMonitor.get_counts()
+        self.assertEqual(counts["test_conformer_random_coords"], 1)
+        self.assertEqual(counts["test_rocs_fallback"], 1)
+
+        # Test audit JSON export
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_path = Path(tmp_dir) / "audit.json"
+            saved = FallbackMonitor.save_audit_json(audit_path)
+            self.assertTrue(saved.exists())
+            import json
+            with open(saved, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertEqual(data["total_fallbacks"], 2)
+            self.assertIn("test_conformer_random_coords", data["counts_by_type"])
+
+    def test_backward_compatibility_imports(self) -> None:
+        """Verify legacy imports from _david root continue to function via aliasing."""
+        import _david
+        from _david.anti_cheating_rewards import AugmentedChebyshevReward as LegacyCheb
+        from _david.scaffold_funnel import ScaffoldFunnel as LegacyFunnel
+        from _david.fallback_monitor import FallbackMonitor as LegacyMonitor
+
+        self.assertIsNotNone(LegacyCheb)
+        self.assertIsNotNone(LegacyFunnel)
+        self.assertIsNotNone(LegacyMonitor)
+
+    def test_one_click_runner_interface(self) -> None:
+        """Verify 1-click runner _david/run.py exists and exports main entrypoint."""
+        self.assertTrue(hasattr(david_run, "main"))
+        self.assertTrue(callable(david_run.main))
+
+    def test_prepare_regime_dataframe_with_frags(self) -> None:
+        """Verify ThesisBenchmark.prepare_regime_dataframe does not treat FRAGS string column as RAscore."""
+        from _david.code.thesis_benchmark import ThesisBenchmark
+        import pandas as pd
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bench = ThesisBenchmark(output_dir=Path(tmp_dir))
+            raw_df = pd.DataFrame({
+                "SMILES": ["c1ccccc1O", "CC(=O)Oc1ccccc1C(=O)O"],
+                "FRAGS": ["c1ccccc1", "c1ccccc1C(=O)O"],
+                "RAscore": [0.85, 0.92],
+                "ROCS": [0.65, 0.70],
+                "Desired": [1, 1],
+            })
+            clean = bench.prepare_regime_dataframe(raw_df)
+            self.assertEqual(len(clean), 2)
+            self.assertAlmostEqual(clean["RAscore"].iloc[0], 0.85, places=2)
+            self.assertAlmostEqual(clean["RAscore"].iloc[1], 0.92, places=2)
+
+            # Test DataFrame with FRAGS but NO RAscore column (should default safely without crash)
+            raw_no_ra = pd.DataFrame({
+                "SMILES": ["c1ccccc1O"],
+                "FRAGS": ["c1ccccc1"],
+            })
+            clean_no_ra = bench.prepare_regime_dataframe(raw_no_ra)
+            self.assertEqual(len(clean_no_ra), 1)
+            self.assertAlmostEqual(clean_no_ra["RAscore"].iloc[0], 0.50, places=2)
 
 
 if __name__ == "__main__":

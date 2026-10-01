@@ -1,12 +1,17 @@
+"""Pure Ligand-Based 3D Shape and Pharmacophore Scorer using USRCAT and ElectroShape moments.
+
+Calculates ultrafast 60-D USRCAT and 75-D ElectroShape moments (incorporating Gasteiger
+partial charges) for alignment-free 3D molecular shape matching without receptor dependence.
+"""
 from __future__ import annotations
 
 from pathlib import Path
 import sys
 from typing import List, Sequence, Union
 
-# Ensure project root and _david are on sys.path
+# Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent if (SCRIPT_DIR / "drugex").exists() or (SCRIPT_DIR.parent / "drugex").exists() else SCRIPT_DIR
+PROJECT_ROOT = SCRIPT_DIR.parent.parent if (SCRIPT_DIR.parent.parent / "drugex").exists() else SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 if str(SCRIPT_DIR) not in sys.path:
@@ -19,6 +24,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolDescriptors
 
 from drugex.training.scorers.interfaces import ScoreModifier, Scorer
+from _david.code.fallback_monitor import FallbackMonitor
 
 
 class USRCATScorer(Scorer):
@@ -27,7 +33,7 @@ class USRCATScorer(Scorer):
     Skeptical Academic Rationale:
     1. ProLIF (Protein-Ligand Interaction Fingerprints) is strictly designed for Structure-Based
        Drug Design (SBDD) requiring explicit atomic coordinates of the macromolecular receptor binding
-       pocket (e.g., CCR2 5T1A). In 100% pure Ligand-Based Drug Design (LBDD), receptor coordinates do
+       pocket. In 100% pure Ligand-Based Drug Design (LBDD), receptor coordinates do
        not exist. Introducing artificial docked poses or pseudo-receptors introduces scoring function bias
        and violates the pure LBDD premise.
     2. 2D Pharmacophore Filters (e.g. topological distance paths) collapse 3D conformational geometry
@@ -44,15 +50,15 @@ class USRCATScorer(Scorer):
        is an exact O(1) inverse Manhattan distance, executing in microseconds per conformer pair.
 
     Attributes:
-        references: Path to multi-conformer reference SDF or list of Chem.Mol objects.
         num_conformers: Number of 3D conformers to generate for candidate molecules during scoring.
         score_type: Type of 3D moment to calculate ('usrcat', 'usr', or 'electroshape').
-        ref_moments: Pre-computed 2D NumPy array of shape (N_ref_confs, 60) holding reference USRCAT vectors.
+        random_seed: Random seed for stochastic ETKDG conformer embedding.
+        ref_moments: Pre-computed 2D NumPy array holding reference moment vectors.
     """
 
     def __init__(
         self,
-        references: Union[str, Path, Sequence[Chem.Mol]],
+        references: Union[str, Path, Sequence[Chem.Mol], np.ndarray],
         num_conformers: int = 10,
         score_type: str = "electroshape",
         modifier: ScoreModifier | None = None,
@@ -61,7 +67,7 @@ class USRCATScorer(Scorer):
         """Initialize USRCATScorer with reference conformer ensemble.
 
         Args:
-            references: Path to multi-record reference SDF or sequence of RDKit Mol conformers.
+            references: Path to multi-record reference SDF, .npy array, or sequence of RDKit Mol conformers.
             num_conformers: Candidate conformers generated per molecule (default: 10).
             score_type: Descriptor type ('electroshape', 'usrcat', or 'usr').
             modifier: Optional DrugEx ScoreModifier to scale raw similarity into [0.0, 1.0].
@@ -99,11 +105,11 @@ class USRCATScorer(Scorer):
             references: File path (.npy/.sdf), NumPy array, or sequence of Chem.Mol objects.
 
         Returns:
-            2D NumPy array of shape (N_refs, descriptor_dim).
+            2D NumPy array of shape (N_ref_conformers, descriptor_dimension).
 
         Raises:
-            FileNotFoundError: If the specified references file does not exist.
-            ValueError: If no valid conformers or moments can be extracted.
+            FileNotFoundError: If file path cannot be resolved.
+            ValueError: If no valid conformers can be parsed.
         """
         if isinstance(references, np.ndarray):
             if references.ndim == 1:
@@ -113,87 +119,83 @@ class USRCATScorer(Scorer):
         if isinstance(references, (str, Path)):
             ref_path = Path(references)
             if not ref_path.exists():
-                raise FileNotFoundError(f"Reference conformer file not found: {ref_path}")
+                raise FileNotFoundError(f"Reference file not found: {ref_path}")
 
-            # Direct load if reference is pre-computed .npy array
             if ref_path.suffix.lower() == ".npy":
-                #? [NumPy Load] Fast binary deserialization of precomputed reference 3D moments.
-                arr = np.load(str(ref_path))
-                return arr if arr.ndim == 2 else arr.reshape(1, -1)
+                #? [NumPy] Load precomputed moment matrix directly.
+                arr = np.load(ref_path)
+                if arr.ndim == 1:
+                    arr = arr.reshape(1, -1)
+                return arr
 
-            # Auto-load cached .npy next to .sdf if score_type is USRCAT
-            cached_npy = ref_path.parent / f"{ref_path.stem}_{self.score_type}.npy"
-            if cached_npy.exists():
-                arr = np.load(str(cached_npy))
-                return arr if arr.ndim == 2 else arr.reshape(1, -1)
-
-            #? [RDKit SDMolSupplier] Parses MDL multi-record SDF without stripping explicit hydrogens.
+            # Parse reference conformers from multi-record SDF
             suppl = Chem.SDMolSupplier(str(ref_path), removeHs=False)
-            ref_mols = [m for m in suppl if m is not None]
+            ref_mols: List[Chem.Mol] = [m for m in suppl if m is not None]
+            if not ref_mols:
+                raise ValueError(f"No valid RDKit molecules found in SDF: {ref_path}")
+        elif isinstance(references, (list, tuple)):
+            ref_mols = list(references)
         else:
-            ref_mols = [m for m in references if m is not None]
-
-        if not ref_mols:
-            raise ValueError("No valid reference molecules found for USRCAT scoring.")
+            raise TypeError(f"Unsupported references type: {type(references)}")
 
         moments_list: List[np.ndarray] = []
         for mol in ref_mols:
-            #? [RDKit Mol] Iterates through internal 3D conformers stored in the Mol object.
-            for conf_idx in range(mol.GetNumConformers()):
-                desc = self._calc_moments(mol, conf_id=conf_idx)
-                if desc is not None:
-                    moments_list.append(desc)
+            if mol is None:
+                continue
+            # Calculate moments across all conformers of the molecule
+            n_confs = mol.GetNumConformers()
+            if n_confs == 0:
+                continue
+            for conf_idx in range(n_confs):
+                m = self._calc_moments(mol, conf_id=conf_idx)
+                if m is not None:
+                    moments_list.append(m)
 
         if not moments_list:
-            raise ValueError("Could not extract any 3D USRCAT moments from reference conformers.")
+            raise ValueError("Failed to extract any valid 3D moments from reference conformers.")
 
-        #? [NumPy] Stacks individual moment vectors into an (N_refs, dim) matrix.
-        ref_matrix = np.vstack(moments_list)
-
-        # Cache reference moments to .npy if loaded from SDF
-        if isinstance(references, (str, Path)):
-            ref_path = Path(references)
-            if ref_path.suffix.lower() == ".sdf":
-                try:
-                    cache_target = ref_path.parent / f"{ref_path.stem}_{self.score_type}.npy"
-                    np.save(str(cache_target), ref_matrix)
-                except Exception:
-                    pass
-
-        return ref_matrix
+        #? [NumPy] Stack into a 2D matrix of shape (N_confs, dim).
+        return np.vstack(moments_list)
 
     def _calc_electroshape_moments(self, mol: Chem.Mol, conf_id: int = -1) -> np.ndarray:
-        """Calculate authentic 3D spatial electrostatic centroid moments (Armstrong et al., 2010).
+        """Calculate 75-dimensional ElectroShape moments for a single conformer.
 
-        Evaluates distances from 5 reference points:
-        1. Geometric centroid of all atoms
-        2. Positive charge centroid (charge-weighted positive coordinates)
-        3. Negative charge centroid (charge-weighted negative coordinates)
-        4. Coordinate of the atom with highest positive partial charge
-        5. Coordinate of the atom with highest negative partial charge
-
-        For each reference point, calculates the mean, variance, and skewness of the 3D distances
-        across all atoms, producing 15 electrostatic moments, concatenated with 60 USRCAT moments.
+        Authentic Armstrong et al. (2010) ElectroShape implementation:
+        1. Evaluates 5 reference points:
+           - Geometric centroid (c_geom)
+           - Positive charge centroid (c_pos)
+           - Negative charge centroid (c_neg)
+           - Atom with maximum positive partial charge (p_pos)
+           - Atom with maximum negative partial charge (p_neg)
+        2. Calculates 3 distance moments (mean, variance, skewness) to each reference point (15 moments).
+        3. Concatenates with standard 60-dimensional USRCAT shape/pharmacophore moments to yield
+           a comprehensive 75-dimensional shape and electrostatic descriptor vector.
 
         Args:
-            mol: RDKit Mol containing at least one 3D conformer.
-            conf_id: Target conformer index.
+            mol: Molecule with at least one 3D conformer and computed Gasteiger charges.
+            conf_id: Conformer index (-1 for default/first conformer).
 
         Returns:
-            75-dimensional NumPy array combining 60 USRCAT moments and 15 ElectroShape moments.
+            1D NumPy array of shape (75,) holding the ElectroShape descriptor vector.
         """
-        #? [RDKit Gasteiger] Computes partial atomic charges for electrostatic centroid determination.
-        AllChem.ComputeGasteigerCharges(mol)
-        conf = mol.GetConformer(conf_id)
-        n_atoms = mol.GetNumAtoms()
+        # Ensure Gasteiger partial charges are computed
+        if not mol.HasProp("_GasteigerChargesComputed"):
+            try:
+                AllChem.ComputeGasteigerCharges(mol)
+            except Exception:
+                pass
 
-        coords = np.array([list(conf.GetAtomPosition(i)) for i in range(n_atoms)], dtype=np.float64)
-        charges = np.array([
-            float(mol.GetAtomWithIdx(i).GetProp("_GasteigerCharge"))
-            if mol.GetAtomWithIdx(i).HasProp("_GasteigerCharge") else 0.0
-            for i in range(n_atoms)
-        ], dtype=np.float64)
-        charges = np.nan_to_num(charges, nan=0.0, posinf=0.0, neginf=0.0)
+        conf = mol.GetConformer(conf_id)
+        #? [NumPy] Atomic 3D Cartesian coordinates of shape (N_atoms, 3).
+        coords = conf.GetPositions()
+
+        charges: np.ndarray = np.zeros(mol.GetNumAtoms(), dtype=np.float64)
+        for i, atom in enumerate(mol.GetAtoms()):
+            try:
+                val = float(atom.GetProp("_GasteigerCharge"))
+                charges[i] = 0.0 if np.isnan(val) or np.isinf(val) else val
+            except Exception:
+                charges[i] = 0.0
 
         # 1. Geometric centroid
         c_geom = np.mean(coords, axis=0)
@@ -274,8 +276,10 @@ class USRCATScorer(Scorer):
         if isinstance(mol_or_smi, str):
             #? [RDKit] Parses candidate SMILES string into C++ Mol representation.
             mol = Chem.MolFromSmiles(mol_or_smi)
+            smi_str = mol_or_smi
         else:
             mol = Chem.Mol(mol_or_smi) if mol_or_smi is not None else None
+            smi_str = Chem.MolToSmiles(mol) if mol is not None else "unknown"
 
         if mol is None:
             return 0.0
@@ -292,9 +296,19 @@ class USRCATScorer(Scorer):
         conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=self.num_conformers, params=params))
         if not conf_ids:
             #? [RDKit Distance Geometry Fallback] Relax distance geometry bounds with random coords for tough ring systems.
+            FallbackMonitor.record_fallback(
+                fallback_type="conformer_embedding_random_coords",
+                message="Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+                context={"smiles": smi_str, "num_conformers": self.num_conformers},
+            )
             params.useRandomCoords = True
             conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=self.num_conformers, params=params))
             if not conf_ids:
+                FallbackMonitor.record_fallback(
+                    fallback_type="conformer_embedding_failure",
+                    message="Conformer embedding completely failed even with random coordinates; returning score 0.0",
+                    context={"smiles": smi_str},
+                )
                 return 0.0
 
         cand_moments: List[np.ndarray] = []

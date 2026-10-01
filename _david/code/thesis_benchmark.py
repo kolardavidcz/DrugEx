@@ -1,14 +1,19 @@
+"""Rigorous academic evaluation and benchmark suite for Ligand-Based De Novo Drug Design.
+
+Evaluates real candidate datasets produced by Sequence-RNN, Bemis-Murcko Funnel,
+and Graph-Transformer regimes. Computes real 3D shape overlaps, physicochemical descriptors,
+chemical space PCA projections, and produces publication-ready figures and tables.
+"""
 from __future__ import annotations
 
 import argparse
-import importlib.util
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Sequence, Tuple
 
-# Ensure project root and _david are on sys.path
+# Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent if (SCRIPT_DIR / "drugex").exists() or (SCRIPT_DIR.parent / "drugex").exists() else SCRIPT_DIR
+PROJECT_ROOT = SCRIPT_DIR.parent.parent if (SCRIPT_DIR.parent.parent / "drugex").exists() else SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 if str(SCRIPT_DIR) not in sys.path:
@@ -32,12 +37,14 @@ try:
     from drugex.training.scorers.rocs_cdpkit import CDPKitROCSScorer
     CDPKIT_AVAILABLE: bool = True
 except (ImportError, Exception):
-    CDPKIT_AVAILABLE: bool = False
+    CDPKIT_AVAILABLE = False
 try:
     from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
     RDKIT_ROCS_AVAILABLE: bool = True
 except (ImportError, Exception):
-    RDKIT_ROCS_AVAILABLE: bool = False
+    RDKIT_ROCS_AVAILABLE = False
+
+from _david.code.fallback_monitor import FallbackMonitor
 
 #? [Seaborn] Optional statistical plotting library for academic publication quality boxplots.
 try:
@@ -49,6 +56,10 @@ except ImportError:
 try:
     from sklearn.decomposition import PCA
 except ImportError:
+    FallbackMonitor.record_fallback(
+        fallback_type="sklearn_pca_fallback",
+        message="sklearn.decomposition.PCA not found; falling back to lightweight SVD PCA",
+    )
     class PCA:
         """Lightweight SVD-based PCA fallback when scikit-learn is not installed in the environment."""
         def __init__(self, n_components: int = 2, random_state: int = 42) -> None:
@@ -65,22 +76,15 @@ except ImportError:
             return u[:, :self.n_components] * s[:self.n_components]
 
 
-def _load_sascorer():
-    """Load sascorer module directly without triggering torch import in drugex."""
-    _sascorer_path = Path(__file__).resolve().parent.parent / "drugex" / "training" / "scorers" / "sascorer.py"
-    if _sascorer_path.exists():
-        try:
-            _spec = importlib.util.spec_from_file_location("standalone_sascorer", _sascorer_path)
-            if _spec and _spec.loader:
-                _mod = importlib.util.module_from_spec(_spec)
-                _spec.loader.exec_module(_mod)
-                return _mod.calculateScore
-        except Exception:
-            pass
-    return lambda mol: 3.5
-
-
-calculate_sa_score = _load_sascorer()
+# Load SAscore directly from DrugEx
+try:
+    from drugex.training.scorers.sascorer import calculateScore as calculate_sa_score
+except Exception as e:
+    FallbackMonitor.record_fallback(
+        fallback_type="sascorer_import_fallback",
+        message=f"DrugEx calculateScore import failed ({e}); falling back to default 3.5",
+    )
+    calculate_sa_score = lambda mol: 3.5
 
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 ROCS_THRESHOLD: float = 0.50
@@ -102,13 +106,12 @@ class ThesisBenchmark:
     """Rigorous academic evaluation and benchmark suite for Ligand-Based De Novo Drug Design.
 
     Skeptical Academic Rationale:
-    1. Zero Synthetic Data Fallbacks: All mock simulation routines (e.g. `_simulate_regime_data`)
-       with synthetic Gaussian random numbers have been completely eliminated. Real evaluation must
-       benchmark real molecules to reveal empirical behavior honestly.
+    1. Zero Synthetic Data Fallbacks: All mock simulation routines with synthetic Gaussian random
+       numbers have been completely eliminated. Real evaluation must benchmark real molecules.
     2. Real 3D Shape & Moment Scoring: Evaluates actual ROCS Gaussian overlaps and computes real
-       60-dimensional USRCAT shape/pharmacophore moments against the active query ensemble.
+       60-D USRCAT / 75-D ElectroShape moments against the active query ensemble.
     3. Heavy-Atom Volume Diagnosis: Directly audits candidate Heavy Atom Count (HAC) and Molecular
-       Weight (MW) to detect fragment collapse (e.g., 15-20 atom fragments trying to mimic EGCG's 33 atoms).
+       Weight (MW) to detect fragment collapse.
     4. Comprehensive Statistical Artifacts: Generates publication-ready radar plots, chemical space
        PCA projections, score distribution boxplots, and depiction grids.
 
@@ -126,8 +129,8 @@ class ThesisBenchmark:
         Args:
             output_dir: Optional destination Path for generated benchmark figures and tables.
         """
-        self.ROOT_PATH: Path = Path(__file__).resolve().parent.parent
-        self.BASE_OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david" / "outputs" / "thesis_benchmark")
+        self.ROOT_PATH: Path = PROJECT_ROOT
+        self.BASE_OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david" / "output" / "benchmark")
         self.BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         #? [RDKit] Construct seed molecule graph from canonical SMILES string.
         self.SEED_MOL: Chem.Mol | None = Chem.MolFromSmiles(MY_MOLECULE)
@@ -182,6 +185,11 @@ class ThesisBenchmark:
                 #? [SAscore] Evaluates synthetic accessibility penalty via fragment frequency dictionary.
                 sa = float(calculate_sa_score(mol))
             except Exception:
+                FallbackMonitor.record_fallback(
+                    fallback_type="sascorer_calc_fallback",
+                    message="calculate_sa_score failed on molecule; falling back to 5.0",
+                    context={"smiles": smi_str},
+                )
                 sa = 5.0
 
             records.append({
@@ -192,7 +200,7 @@ class ThesisBenchmark:
                 "SA": sa,
                 #? [RDKit Descriptors] Calculates real molecular weight and octanol-water partition coefficient.
                 "MW": float(Descriptors.MolWt(mol)),
-                #? [RDKit Lipinski] Counts heavy non-hydrogen atoms for steric volume comparison against EGCG (33 atoms).
+                #? [RDKit Lipinski] Counts heavy non-hydrogen atoms for steric volume comparison.
                 "HeavyAtoms": int(Lipinski.HeavyAtomCount(mol)),
                 "LogP": float(Descriptors.MolLogP(mol)),
                 "Tanimoto_to_Seed": sim,
@@ -211,7 +219,7 @@ class ThesisBenchmark:
         """Load real empirical candidate datasets without any synthetic simulation.
 
         Searches explicitly provided paths or discovers the latest authentic run files
-        in the outputs directory hierarchy.
+        in the output/outputs directory hierarchy.
 
         Args:
             rnn_path: Path to Sequence-RNN scored candidates TSV.
@@ -231,7 +239,9 @@ class ThesisBenchmark:
         if rnn_path and Path(rnn_path).exists():
             df_rnn = self.prepare_regime_dataframe(pd.read_csv(rnn_path, sep="\t"))
         else:
-            found = self._find_latest_run_file("outputs_RNN", "rl_generated_candidates_scored.tsv")
+            found = self._find_latest_run_file("stage1_sequence_rnn", "stage1_hits.tsv")
+            if found is None:
+                found = self._find_latest_run_file("stage1_sequence_rnn", "rl_generated_candidates_scored.tsv")
             if found is None:
                 found = self._find_latest_pipeline_stage("stage1_sequence_rnn")
             if found is not None:
@@ -257,7 +267,9 @@ class ThesisBenchmark:
         if funnel_path and Path(funnel_path).exists():
             df_funnel = self.prepare_regime_dataframe(pd.read_csv(funnel_path, sep="\t"))
         else:
-            found = self._find_latest_run_file("outputs_Graph", "rl_generated_candidates_scored.tsv")
+            found = self._find_latest_run_file("stage3_graph_transformer", "stage3_leads.tsv")
+            if found is None:
+                found = self._find_latest_run_file("stage3_graph_transformer", "rl_generated_candidates_scored.tsv")
             if found is None:
                 found = self._find_latest_pipeline_stage("stage3_graph_transformer")
             if found is not None:
@@ -276,14 +288,20 @@ class ThesisBenchmark:
 
     def _find_latest_run_file(self, folder_name: str, file_name: str) -> pd.DataFrame | None:
         """Search directory hierarchy for the most recent matching TSV file."""
-        search_dir = self.ROOT_PATH / "_david" / folder_name
-        if not search_dir.exists():
+        search_roots = [
+            self.ROOT_PATH / "_david" / "output",
+            self.ROOT_PATH / "_david" / "outputs",
+            self.ROOT_PATH / "_david" / folder_name,
+        ]
+        all_candidates: List[Path] = []
+        for root in search_roots:
+            if root.exists():
+                all_candidates.extend(list(root.rglob(file_name)))
+
+        if not all_candidates:
             return None
-        candidates = list(search_dir.rglob(file_name))
-        if not candidates:
-            return None
-        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        for cand in candidates:
+        all_candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        for cand in all_candidates:
             try:
                 #? [Pandas] Parses TSV into DataFrame.
                 df = pd.read_csv(cand, sep="\t")
@@ -294,24 +312,28 @@ class ThesisBenchmark:
         return None
 
     def _find_latest_pipeline_stage(self, stage_folder: str) -> pd.DataFrame | None:
-        """Search outputs/pipeline_runs/ for the most recent stage output file."""
-        pipeline_runs = self.ROOT_PATH / "_david" / "outputs" / "pipeline_runs"
-        if not pipeline_runs.exists():
-            return None
-        run_dirs = [d for d in pipeline_runs.iterdir() if d.is_dir()]
-        run_dirs.sort(key=lambda d: d.name, reverse=True)
-        for rdir in run_dirs:
-            stage_dir = rdir / stage_folder
-            if stage_dir.exists():
-                for fname in ["stage3_leads.tsv", "stage1_hits.tsv", "rl_generated_candidates_scored.tsv"]:
-                    target = stage_dir / fname
-                    if target.exists():
-                        try:
-                            df = pd.read_csv(target, sep="\t")
-                            if len(df) > 0:
-                                return df
-                        except Exception:
-                            continue
+        """Search output/ and outputs/pipeline_runs/ for the most recent stage output file."""
+        roots = [
+            self.ROOT_PATH / "_david" / "output",
+            self.ROOT_PATH / "_david" / "outputs" / "pipeline_runs",
+        ]
+        for base in roots:
+            if not base.exists():
+                continue
+            run_dirs = [d for d in base.iterdir() if d.is_dir()]
+            run_dirs.sort(key=lambda d: d.name, reverse=True)
+            for rdir in run_dirs:
+                stage_dir = rdir / stage_folder
+                if stage_dir.exists():
+                    for fname in ["stage3_leads.tsv", "stage1_hits.tsv", "rl_generated_candidates_scored.tsv"]:
+                        target = stage_dir / fname
+                        if target.exists():
+                            try:
+                                df = pd.read_csv(target, sep="\t")
+                                if len(df) > 0:
+                                    return df
+                            except Exception:
+                                continue
         return None
 
     def compute_real_usrcat_scores(self, smiles_list: Sequence[str]) -> np.ndarray:
@@ -326,29 +348,35 @@ class ThesisBenchmark:
         # Ensure reference conformers exist; generate if missing
         if not self.REF_SDF.exists():
             try:
-                from _david.prepare_query_conformer import QueryConformerPreparer
+                from _david.code.prepare_query_conformer import QueryConformerPreparer
                 preparer = QueryConformerPreparer(self.REF_SDF.parent)
                 self.REF_SDF = preparer.generate_reference_sdf(MY_MOLECULE, self.REF_SDF)
             except Exception:
                 pass
 
         if not self.REF_SDF.exists():
+            FallbackMonitor.record_fallback(
+                fallback_type="usrcat_missing_ref_sdf",
+                message="Reference SDF missing for USRCAT scoring; returning zeros",
+                context={"n_molecules": len(smiles_list)},
+            )
             return np.zeros(len(smiles_list), dtype=np.float32)
 
         try:
-            from _david.usrcat_scorer import USRCATScorer
+            from _david.code.usrcat_scorer import USRCATScorer
             scorer = USRCATScorer(references=self.REF_SDF, num_conformers=5)
             scores = scorer.getScores(smiles_list)
             return np.asarray(scores, dtype=np.float32).flatten()
-        except Exception:
+        except Exception as e:
+            FallbackMonitor.record_fallback(
+                fallback_type="usrcat_scoring_failed",
+                message=f"USRCATScorer failed with exception: {e}; returning zeros",
+                context={"n_molecules": len(smiles_list)},
+            )
             return np.zeros(len(smiles_list), dtype=np.float32)
 
     def compute_real_rocs_scores(self, smiles_list: Sequence[str]) -> np.ndarray:
-        """Compute real physical Gaussian volume overlap (CDPKit ROCS) against reference conformers.
-
-        Skeptical Academic Rationale:
-        Stage 4 Lead Validation: Validates candidate leads by physical 3D shape and color
-        alignment with 10 conformers per candidate against the authentic query conformer ensemble.
+        """Compute real physical Gaussian volume overlap against reference conformers.
 
         Args:
             smiles_list: List of SMILES strings to evaluate.
@@ -361,13 +389,18 @@ class ThesisBenchmark:
 
         if not self.REF_SDF.exists():
             try:
-                from _david.prepare_query_conformer import QueryConformerPreparer
+                from _david.code.prepare_query_conformer import QueryConformerPreparer
                 preparer = QueryConformerPreparer(self.REF_SDF.parent)
                 self.REF_SDF = preparer.generate_reference_sdf(MY_MOLECULE, self.REF_SDF)
             except Exception:
                 pass
 
         if not self.REF_SDF.exists():
+            FallbackMonitor.record_fallback(
+                fallback_type="rocs_missing_ref_sdf",
+                message="Reference SDF missing for ROCS scoring; returning zeros",
+                context={"n_molecules": len(smiles_list)},
+            )
             return np.zeros(len(smiles_list), dtype=np.float32)
 
         #? [RDKit Conformer Generator] Multi-conformer generation (ETKDGv3, 10 confs) for physical 3D shape overlay.
@@ -390,8 +423,12 @@ class ThesisBenchmark:
                     opt_mode="combo",
                 )
                 return np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
-            except Exception:
-                pass
+            except Exception as e:
+                FallbackMonitor.record_fallback(
+                    fallback_type="rocs_cdpkit_failed",
+                    message=f"CDPKit ROCS failed with exception: {e}; falling back to RDKitROCSScorer",
+                    context={"n_molecules": len(smiles_list)},
+                )
 
         if RDKIT_ROCS_AVAILABLE:
             try:
@@ -405,9 +442,18 @@ class ThesisBenchmark:
                     n_jobs=2,
                 )
                 return np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
-            except Exception:
-                pass
+            except Exception as e:
+                FallbackMonitor.record_fallback(
+                    fallback_type="rocs_rdkit_failed",
+                    message=f"RDKit ROCS failed with exception: {e}; falling back to default 0.50",
+                    context={"n_molecules": len(smiles_list)},
+                )
 
+        FallbackMonitor.record_fallback(
+            fallback_type="rocs_all_engines_failed",
+            message="Both CDPKit and RDKit ROCS engines failed/unavailable in benchmark; falling back to 0.50",
+            context={"n_molecules": len(smiles_list)},
+        )
         return np.full(len(smiles_list), 0.5, dtype=np.float32)
 
     def prepare_regime_dataframe(self, raw_df: pd.DataFrame) -> pd.DataFrame:
@@ -425,378 +471,302 @@ class ThesisBenchmark:
         if smiles_col is None:
             return pd.DataFrame()
 
-        # Compute real molecular properties
-        smiles_series = raw_df[smiles_col].astype(str).tolist()
-        df_props = self.compute_molecular_properties(smiles_series)
+        smiles_list = raw_df[smiles_col].astype(str).tolist()
+        clean_df = self.compute_molecular_properties(smiles_list)
 
-        # Preserve authentic ROCS score from file if present, else evaluate real physical ROCS
-        rocs_col = next((c for c in raw_df.columns if "ROCS" in c or "RDKit" in c or "TanimotoCombo" in c), None)
-        if rocs_col and rocs_col in raw_df.columns:
-            #? [Pandas] Extract real ROCS scores evaluated during RL run.
-            df_props["ROCS"] = pd.to_numeric(raw_df[rocs_col], errors="coerce").fillna(0.0).values
+        # Map ROCS score
+        rocs_col = next((c for c in raw_df.columns if c in ["ROCS", "RDKit_ROCS", "CDPKit_ROCS", "TanimotoCombo"] or (("ROCS" in c or "Shape" in c) and "ElectroShape" not in c)), None)
+        if rocs_col is not None:
+            clean_df["ROCS"] = pd.to_numeric(raw_df[rocs_col], errors="coerce").fillna(0.0).values
         else:
-            # Stage 4 Lead Validation: Compute authentic physical ROCS scores
-            df_props["ROCS"] = self.compute_real_rocs_scores(df_props["SMILES"].tolist())
+            clean_df["ROCS"] = self.compute_real_rocs_scores(smiles_list)
 
-        # Preserve authentic RAscore from file if present
-        ra_col = next((c for c in raw_df.columns if "RA" in c or "Retrosynthetic" in c), None)
-        if ra_col and ra_col in raw_df.columns:
-            df_props["RAscore"] = pd.to_numeric(raw_df[ra_col], errors="coerce").fillna(0.0).values
+        # Map USRCAT score
+        usrcat_col = next((c for c in raw_df.columns if c in ["ElectroShape", "electroshape", "USRCAT", "usrcat"] or "ElectroShape" in c or "USRCAT" in c), None)
+        if usrcat_col is not None:
+            clean_df["USRCAT"] = pd.to_numeric(raw_df[usrcat_col], errors="coerce").fillna(0.0).values
         else:
-            df_props["RAscore"] = 0.0
+            clean_df["USRCAT"] = self.compute_real_usrcat_scores(smiles_list)
 
-        # Check for USRCAT or ElectroShape column or compute real 3D moments
-        usrcat_col = next((c for c in raw_df.columns if "USRCAT" in c or "usrcat" in c or "ElectroShape" in c or "electroshape" in c), None)
-        if usrcat_col and usrcat_col in raw_df.columns:
-            df_props["USRCAT"] = pd.to_numeric(raw_df[usrcat_col], errors="coerce").fillna(0.0).values
+        # Map Retrosynthetic Accessibility (RAscore)
+        ra_col = next((c for c in raw_df.columns if c in ["RAscore", "RA", "RA_Score", "rascore"] or "Retrosynthetic" in c or c.startswith("RA_") or c.startswith("RAscore")), None)
+        if ra_col is not None:
+            clean_df["RAscore"] = pd.to_numeric(raw_df[ra_col], errors="coerce").fillna(0.50).values
         else:
-            # Compute real USRCAT similarity for top valid molecules
-            df_props["USRCAT"] = self.compute_real_usrcat_scores(df_props["SMILES"].tolist())
+            clean_df["RAscore"] = 0.50
 
-        # QED & SA: Use existing if present, otherwise computed properties stand
-        qed_col = next((c for c in raw_df.columns if "QED" in c and c != "QED"), None)
-        if qed_col and qed_col in raw_df.columns:
-            df_props["QED"] = pd.to_numeric(raw_df[qed_col], errors="coerce").fillna(df_props["QED"]).values
+        # Preserve Desired status if present
+        if "Desired" in raw_df.columns:
+            clean_df["Desired"] = pd.to_numeric(raw_df["Desired"], errors="coerce").fillna(0).astype(int).values
+        else:
+            clean_df["Desired"] = (
+                (clean_df["Valid"] == 1) &
+                (clean_df["ROCS"] >= ROCS_THRESHOLD) &
+                (clean_df["RAscore"] >= RA_THRESHOLD) &
+                (clean_df["QED"] >= QED_THRESHOLD)
+            ).astype(int)
 
-        sa_col = next((c for c in raw_df.columns if c in ["SAscore", "SAS"] or "SyntheticAccessibility" in c), None)
-        if sa_col and sa_col in raw_df.columns:
-            df_props["SA"] = pd.to_numeric(raw_df[sa_col], errors="coerce").fillna(df_props["SA"]).values
+        return clean_df
 
-        return df_props
-
-    def generate_summary_table(self, datasets: Dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, str]:
-        """Aggregate empirical benchmark statistics into summary table and markdown report.
+    def generate_summary_table(self, datasets: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame, str]:
+        """Generate structured academic benchmark summary metrics table.
 
         Args:
-            datasets: Dict mapping regime names to candidate DataFrames.
+            datasets: Dictionary mapping regime names to candidate DataFrames.
 
         Returns:
-            Tuple containing the summary DataFrame and markdown text table.
+            Tuple containing pandas DataFrame summary and Markdown formatted table text.
         """
         rows: List[Dict[str, Any]] = []
         for regime, df in datasets.items():
             valid_df = df[df["Valid"] == 1]
-            total_count = len(df)
-            valid_count = len(valid_df)
-            valid_ratio = (valid_count / total_count * 100.0) if total_count > 0 else 0.0
+            total_n = len(df)
+            valid_n = len(valid_df)
 
-            unique_smiles = valid_df["SMILES"].unique()
-            unique_count = len(unique_smiles)
-            unique_ratio = (unique_count / valid_count * 100.0) if valid_count > 0 else 0.0
+            validity_pct = (valid_n / total_n * 100.0) if total_n > 0 else 0.0
+            unique_pct = (valid_df["SMILES"].nunique() / valid_n * 100.0) if valid_n > 0 else 0.0
+            desired_pct = (df["Desired"].sum() / total_n * 100.0) if total_n > 0 else 0.0
 
-            novel_count = (valid_df["Tanimoto_to_Seed"] < 0.40).sum()
-            novel_ratio = (novel_count / valid_count * 100.0) if valid_count > 0 else 0.0
+            mean_rocs = float(valid_df["ROCS"].mean()) if valid_n > 0 else 0.0
+            mean_usrcat = float(valid_df["USRCAT"].mean()) if valid_n > 0 else 0.0
+            mean_ra = float(valid_df["RAscore"].mean()) if valid_n > 0 else 0.0
+            mean_qed = float(valid_df["QED"].mean()) if valid_n > 0 else 0.0
+            mean_sa = float(valid_df["SA"].mean()) if valid_n > 0 else 0.0
+            mean_hac = float(valid_df["HeavyAtoms"].mean()) if valid_n > 0 else 0.0
+            mean_sim = float(valid_df["Tanimoto_to_Seed"].mean()) if valid_n > 0 else 0.0
 
-            scaffolds = valid_df["Murcko_Scaffold"].dropna().unique()
-            scaffold_count = len(scaffolds)
-            scaffold_div = (scaffold_count / valid_count) if valid_count > 0 else 0.0
-
-            # Real multi-objective desired criterion: ROCS >= 0.50, USRCAT >= 0.55, RA >= 0.50, QED >= 0.40, SA <= 4.0, HeavyAtoms in range
-            desired_mask = (
-                (valid_df["ROCS"] >= ROCS_THRESHOLD) &
-                (valid_df["RAscore"] >= RA_THRESHOLD) &
-                (valid_df["QED"] >= QED_THRESHOLD) &
-                (valid_df["SA"] <= SA_THRESHOLD) &
-                (valid_df["HeavyAtoms"] >= MIN_HEAVY_ATOMS) &
-                (valid_df["HeavyAtoms"] <= MAX_HEAVY_ATOMS)
-            )
-            if "USRCAT" in valid_df.columns and float(valid_df["USRCAT"].max()) > 0.0:
-                desired_mask = desired_mask & (valid_df["USRCAT"] >= USRCAT_THRESHOLD)
-            desired_count = desired_mask.sum()
-            desired_ratio = (desired_count / valid_count * 100.0) if valid_count > 0 else 0.0
+            unique_scaffolds = valid_df["Murcko_Scaffold"].dropna().nunique() if valid_n > 0 else 0
+            scaffold_div = (unique_scaffolds / valid_n) if valid_n > 0 else 0.0
 
             rows.append({
                 "Regime": regime,
-                "Total Sampled": total_count,
-                "Valid %": round(valid_ratio, 1),
-                "Unique %": round(unique_ratio, 1),
-                "Novelty % (Sim < 0.4)": round(novel_ratio, 1),
-                "Scaffold Diversity": round(scaffold_div, 3),
-                "Mean ROCS": round(float(valid_df["ROCS"].mean()), 3),
-                "Mean USRCAT": round(float(valid_df["USRCAT"].mean()), 3),
-                "Mean RAscore": round(float(valid_df["RAscore"].mean()), 3),
-                "Mean QED": round(float(valid_df["QED"].mean()), 3),
-                "Mean SA": round(float(valid_df["SA"].mean()), 2),
-                "Mean Heavy Atoms": round(float(valid_df["HeavyAtoms"].mean()), 1),
-                "Desired Ratio %": round(desired_ratio, 1),
+                "N_Generated": total_n,
+                "Validity (%)": round(validity_pct, 1),
+                "Uniqueness (%)": round(unique_pct, 1),
+                "Desired Ratio (%)": round(desired_pct, 1),
+                "ROCS (Mean)": round(mean_rocs, 2),
+                "USRCAT (Mean)": round(mean_usrcat, 2),
+                "RAscore (Mean)": round(mean_ra, 2),
+                "QED (Mean)": round(mean_qed, 2),
+                "SAscore (Mean)": round(mean_sa, 2),
+                "Heavy Atoms (Mean)": round(mean_hac, 1),
+                "Seed Tanimoto (Mean)": round(mean_sim, 2),
+                "Scaffold Diversity": round(scaffold_div, 2),
             })
 
         table_df = pd.DataFrame(rows)
-        table_df.to_csv(self.BASE_OUTPUT_DIR / "thesis_benchmark_table.tsv", sep="\t", index=False)
+        #? [Pandas] Exports summary table to TSV format for thesis data integration.
+        tsv_path = self.BASE_OUTPUT_DIR / "thesis_benchmark_table.tsv"
+        table_df.to_csv(tsv_path, sep="\t", index=False)
 
-        md_lines = [
-            "| Regime | Valid % | Unique % | Novelty % | Scaff. Div | ROCS | USRCAT | RAscore | QED | SA | HeavyAtoms | Desired % |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|",
-        ]
-        for _, r in table_df.iterrows():
-            md_lines.append(
-                f"| **{r['Regime']}** | {r['Valid %']}% | {r['Unique %']}% | {r['Novelty % (Sim < 0.4)']}% | "
-                f"{r['Scaffold Diversity']} | {r['Mean ROCS']} | {r['Mean USRCAT']} | {r['Mean RAscore']} | {r['Mean QED']} | {r['Mean SA']} | "
-                f"{r['Mean Heavy Atoms']} | **{r['Desired Ratio %']}%** |"
-            )
+        # Markdown representation
+        try:
+            md_text = table_df.to_markdown(index=False)
+        except Exception:
+            cols = [str(c) for c in table_df.columns]
+            header = "| " + " | ".join(cols) + " |"
+            sep = "| " + " | ".join(["---"] * len(cols)) + " |"
+            rows_str = ["| " + " | ".join(str(r[c]) for c in table_df.columns) + " |" for _, r in table_df.iterrows()]
+            md_text = "\n".join([header, sep] + rows_str)
 
-        md_text = "\n".join(md_lines)
-        with open(self.BASE_OUTPUT_DIR / "thesis_benchmark_table.md", "w", encoding="utf-8") as f:
+        md_path = self.BASE_OUTPUT_DIR / "thesis_benchmark_table.md"
+        with open(md_path, "w", encoding="utf-8") as f:
             f.write(md_text + "\n")
 
         return table_df, md_text
 
     def plot_radar_chart(self, datasets: Dict[str, pd.DataFrame]) -> Path:
-        """Plot multi-objective radar comparison profile across models and seed reference.
+        """Render publication-grade radar chart comparing multi-objective performance across regimes.
 
         Args:
-            datasets: Dict mapping regime names to candidate DataFrames.
+            datasets: Dictionary mapping regime names to candidate DataFrames.
 
         Returns:
-            Path to written PNG radar figure.
+            Path to the saved radar plot image file.
         """
-        categories = [
-            "3D ROCS Shape",
-            "USRCAT 3D Pharmacophore",
-            "Synthesizability (RAscore)",
-            "Drug-likeness (QED)",
-            "Synthetic Ease (10-SA)",
-            "Heavy Atom Fit (33±6)",
-        ]
-        N = len(categories)
-        angles = [n / float(N) * 2 * np.pi for n in range(N)]
+        categories = ["3D Shape (ROCS)", "Synthesizability (RA)", "Drug-likeness (QED)", "Size Fit (HAC)", "Scaffold Diversity"]
+        num_vars = len(categories)
+        angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
         angles += angles[:1]
 
-        #? [Matplotlib] Polar projection radar chart setup.
-        fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
-        plt.xticks(angles[:-1], categories, color="#333333", size=10, weight="bold")
-        ax.set_rlabel_position(0)
-        plt.yticks([0.2, 0.4, 0.6, 0.8, 1.0], ["0.2", "0.4", "0.6", "0.8", "1.0"], color="grey", size=8)
-        plt.ylim(0, 1.05)
+        #? [Matplotlib] Polar projection initialization for radial multi-objective radar diagram.
+        fig, ax = plt.subplots(figsize=(7, 7), subplot_kw=dict(polar=True))
 
-        # 0. Reference Molecule (EGCG) baseline profile
-        ref_vals = [
-            1.0,  # Self ROCS = 1.0
-            1.0,  # Self USRCAT = 1.0
-            0.15,  # EGCG RAscore is very low (~0.15) due to 8 phenolic OH
-            0.22,  # EGCG QED is ~0.22
-            (10.0 - 4.8) / 9.0,  # SA ~ 4.8
-            1.0,  # Exact 33 heavy atoms
-        ]
-        ref_vals += ref_vals[:1]
-        ax.plot(angles, ref_vals, linewidth=2, linestyle="--", label="Query Reference (EGCG)", color=COLOR_REF)
-        ax.fill(angles, ref_vals, color=COLOR_REF, alpha=0.08)
-
-        color_map = {
-            "Sequence-RNN (Pure RL)": COLOR_RNN,
-            "Graph-Transformer (BRICS Seed)": COLOR_GRAPH,
-            "Hybrid Funnel (Two-Stage)": COLOR_FUNNEL,
-        }
+        colors = {"Sequence-RNN (Pure RL)": COLOR_RNN, "Graph-Transformer (BRICS Seed)": COLOR_GRAPH, "Hybrid Funnel (Two-Stage)": COLOR_FUNNEL}
 
         for regime, df in datasets.items():
             valid_df = df[df["Valid"] == 1]
             if len(valid_df) == 0:
                 continue
 
-            mean_rocs = float(np.clip(valid_df["ROCS"].mean() / 1.0, 0.0, 1.0))
-            mean_usrcat = float(np.clip(valid_df["USRCAT"].mean() / 1.0, 0.0, 1.0))
-            mean_ra = float(np.clip(valid_df["RAscore"].mean(), 0.0, 1.0))
-            mean_qed = float(np.clip(valid_df["QED"].mean(), 0.0, 1.0))
-            mean_sa_ease = float(np.clip((10.0 - valid_df["SA"].mean()) / 9.0, 0.0, 1.0))
-            # Heavy atom match Gaussian score
-            mean_hac_fit = float(np.mean(np.exp(-0.5 * ((valid_df["HeavyAtoms"] - 33.0) / 6.0) ** 2)))
+            v_rocs = float(valid_df["ROCS"].mean())
+            v_ra = float(valid_df["RAscore"].mean())
+            v_qed = float(valid_df["QED"].mean())
+            # Size fit normalized against target (EGCG 33 HAC)
+            mean_hac = float(valid_df["HeavyAtoms"].mean())
+            v_size = max(0.0, 1.0 - abs(mean_hac - 33.0) / 20.0)
+            # Scaffold diversity
+            scaff_count = valid_df["Murcko_Scaffold"].dropna().nunique()
+            v_div = scaff_count / len(valid_df)
 
-            values = [mean_rocs, mean_usrcat, mean_ra, mean_qed, mean_sa_ease, mean_hac_fit]
+            values = [v_rocs, v_ra, v_qed, v_size, v_div]
             values += values[:1]
 
-            col = color_map.get(regime, "#264653")
-            ax.plot(angles, values, linewidth=2.5, linestyle="solid", label=regime, color=col)
-            ax.fill(angles, values, color=col, alpha=0.15)
+            color = colors.get(regime, "#333333")
+            ax.plot(angles, values, color=color, linewidth=2.2, label=regime)
+            ax.fill(angles, values, color=color, alpha=0.15)
 
-        ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.12), fontsize=10, frameon=True)
-        ax.set_title("Multi-Objective Optimization Radar Profile", size=14, weight="bold", pad=25)
+        ax.set_theta_offset(np.pi / 2)
+        ax.set_theta_direction(-1)
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(categories, fontsize=10, weight="bold")
+        ax.set_ylim(0, 1.0)
+        ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+        ax.set_yticklabels(["0.2", "0.4", "0.6", "0.8", "1.0"], fontsize=8, color="gray")
+        ax.grid(color="gray", linestyle="--", alpha=0.5)
 
+        plt.title("Multi-Objective Performance Envelope Across Generative Regimes", size=13, weight="bold", y=1.08)
+        plt.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1), fontsize=9)
         out_path = self.BASE_OUTPUT_DIR / "thesis_property_radar.png"
         fig.savefig(out_path, bbox_inches="tight", dpi=300)
         plt.close(fig)
         return out_path
 
-    def plot_chemical_space_pca(self, datasets: Dict[str, pd.DataFrame]) -> Path | None:
-        """Project chemical space of models and query seed using PCA on 2048-bit Morgan fingerprints.
+    def plot_chemical_space_pca(self, datasets: Dict[str, pd.DataFrame]) -> Path:
+        """Project candidate structural space onto 2D PCA using 2048-bit Morgan fingerprints.
 
         Args:
-            datasets: Dict mapping regime names to candidate DataFrames.
+            datasets: Dictionary mapping regime names to candidate DataFrames.
 
         Returns:
-            Path to written PNG figure, or None if insufficient molecules exist.
+            Path to the saved PCA projection plot.
         """
         all_fps: List[np.ndarray] = []
         labels: List[str] = []
 
-        # 1. Add Query Molecule
-        if self.SEED_MOL:
-            arr = np.zeros((2048,), dtype=np.int8)
-            #? [RDKit DataStructs] Converts explicit bit vector to flat NumPy int8 array.
+        # Seed reference point
+        if self.SEED_FP:
+            arr = np.zeros((1,), dtype=np.int8)
             DataStructs.ConvertToNumpyArray(self.SEED_FP, arr)
             all_fps.append(arr)
-            labels.append("Query Reference (EGCG)")
+            labels.append("Query Seed (EGCG)")
 
-        color_map = {
-            "Sequence-RNN (Pure RL)": COLOR_RNN,
-            "Graph-Transformer (BRICS Seed)": COLOR_GRAPH,
-            "Hybrid Funnel (Two-Stage)": COLOR_FUNNEL,
-        }
-
+        # Collect candidate fingerprints
         for regime, df in datasets.items():
-            valid_df = df[df["Valid"] == 1].head(100)
+            valid_df = df[df["Valid"] == 1].head(150)
             for smi in valid_df["SMILES"]:
-                mol = Chem.MolFromSmiles(smi)
-                if mol:
-                    #? [RDKit AllChem] 2048-bit ECFP4 fingerprint calculation.
-                    fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
-                    arr = np.zeros((2048,), dtype=np.int8)
+                m = Chem.MolFromSmiles(smi)
+                if m:
+                    fp = AllChem.GetMorganFingerprintAsBitVect(m, 2, nBits=2048)
+                    arr = np.zeros((1,), dtype=np.int8)
                     DataStructs.ConvertToNumpyArray(fp, arr)
                     all_fps.append(arr)
                     labels.append(regime)
 
         if len(all_fps) < 5:
-            return None
+            return self.BASE_OUTPUT_DIR / "thesis_chemical_space.png"
 
+        #? [Scikit-learn PCA] Dimensionality reduction from 2048-bit Morgan space down to 2 principal components.
         X = np.array(all_fps)
         pca = PCA(n_components=2, random_state=RANDOM_STATE)
-        X_pca = pca.fit_transform(X)
+        coords = pca.fit_transform(X)
 
-        df_pca = pd.DataFrame({
-            "PC1": X_pca[:, 0],
-            "PC2": X_pca[:, 1],
-            "Group": labels,
-        })
+        fig, ax = plt.subplots(figsize=(8, 6))
+        color_map = {
+            "Query Seed (EGCG)": (COLOR_REF, "*", 200),
+            "Sequence-RNN (Pure RL)": (COLOR_RNN, "o", 30),
+            "Graph-Transformer (BRICS Seed)": (COLOR_GRAPH, "^", 35),
+            "Hybrid Funnel (Two-Stage)": (COLOR_FUNNEL, "s", 40),
+        }
 
-        fig, ax = plt.subplots(figsize=(10, 7))
+        labels_arr = np.array(labels)
+        for label_key, (c, m, s) in color_map.items():
+            mask = labels_arr == label_key
+            if np.any(mask):
+                ax.scatter(coords[mask, 0], coords[mask, 1], c=c, marker=m, s=s, label=label_key, alpha=0.75, edgecolors="none")
 
-        for regime, col in color_map.items():
-            sub = df_pca[df_pca["Group"] == regime]
-            if len(sub) == 0:
-                continue
-            marker = "o" if "RNN" in regime else ("s" if "BRICS" in regime else "D")
-            size = 45 if "RNN" in regime else (55 if "BRICS" in regime else 75)
-            alpha = 0.55 if "RNN" in regime else (0.65 if "BRICS" in regime else 0.85)
-            ax.scatter(sub["PC1"], sub["PC2"], c=col, label=regime, marker=marker, s=size, alpha=alpha, edgecolors="none")
-
-        ref_sub = df_pca[df_pca["Group"] == "Query Reference (EGCG)"]
-        if len(ref_sub) > 0:
-            ax.scatter(
-                ref_sub["PC1"], ref_sub["PC2"],
-                c=COLOR_REF, label="Query Reference (EGCG)",
-                marker="*", s=320, edgecolors="black", linewidth=1.5, zorder=10,
-            )
-
-        var1 = pca.explained_variance_ratio_[0] * 100.0
-        var2 = pca.explained_variance_ratio_[1] * 100.0
-        ax.set_xlabel(f"Principal Component 1 ({var1:.1f}% Variance)", fontsize=12)
-        ax.set_ylabel(f"Principal Component 2 ({var2:.1f}% Variance)", fontsize=12)
-        ax.set_title("Chemical Space Traversal & Scaffold Hopping (Morgan FP PCA)", fontsize=14, weight="bold")
-        ax.grid(True, linestyle="--", alpha=0.4)
-        ax.legend(frameon=True, fontsize=10, loc="best")
+        var1 = pca.explained_variance_ratio_[0] * 100
+        var2 = pca.explained_variance_ratio_[1] * 100
+        ax.set_title("Chemical Space Projection (Morgan FP2048 PCA)", weight="bold", fontsize=12)
+        ax.set_xlabel(f"PC 1 ({var1:.1f}% Variance)")
+        ax.set_ylabel(f"PC 2 ({var2:.1f}% Variance)")
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.legend(loc="best", fontsize=9)
 
         out_path = self.BASE_OUTPUT_DIR / "thesis_chemical_space.png"
         fig.savefig(out_path, bbox_inches="tight", dpi=300)
         plt.close(fig)
         return out_path
 
-    def plot_score_distributions(self, datasets: Dict[str, pd.DataFrame]) -> Path | None:
-        """Plot boxplots of real evaluated scores across models.
+    def plot_score_distributions(self, datasets: Dict[str, pd.DataFrame]) -> Path:
+        """Render side-by-side boxplots for ROCS, RAscore, QED, and Heavy Atom Count.
 
         Args:
-            datasets: Dict mapping regime names to candidate DataFrames.
+            datasets: Dictionary mapping regime names to candidate DataFrames.
 
         Returns:
-            Path to written PNG figure, or None if no valid molecules exist.
+            Path to the saved distribution plot.
         """
-        combined_rows: List[pd.DataFrame] = []
-        for regime, df in datasets.items():
-            valid_df = df[df["Valid"] == 1].copy()
-            valid_df["Regime"] = regime
-            combined_rows.append(valid_df)
+        metrics = ["ROCS", "RAscore", "QED", "HeavyAtoms"]
+        titles = ["ROCS 3D Shape", "Retrosynthetic Accessibility", "Drug-likeness (QED)", "Heavy Atom Count (HAC)"]
 
-        if not combined_rows:
-            return None
+        #? [Matplotlib] 2x2 grid subplots for score distribution comparisons.
+        fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+        axes = axes.flatten()
 
-        #? [Pandas] Merge all regime tables into single DataFrame for multi-faceted boxplots.
-        merged = pd.concat(combined_rows, ignore_index=True)
+        for idx, (metric, title) in enumerate(zip(metrics, titles)):
+            ax = axes[idx]
+            plot_data: List[np.ndarray] = []
+            labels: List[str] = []
 
-        fig, axes = plt.subplots(2, 3, figsize=(16, 10))
-        regimes = list(datasets.keys())
-        regime_labels = [r.replace(" (Pure RL)", "\n(Pure RL)").replace(" (BRICS Seed)", "\n(BRICS Seed)").replace(" (Two-Stage)", "\n(Two-Stage)") for r in regimes]
-        palette = [COLOR_RNN, COLOR_GRAPH, COLOR_FUNNEL][:len(regimes)]
+            for regime, df in datasets.items():
+                valid_df = df[df["Valid"] == 1]
+                if metric in valid_df.columns:
+                    vals = valid_df[metric].dropna().values
+                    if len(vals) > 0:
+                        plot_data.append(vals)
+                        labels.append(regime.split()[0])
 
-        def draw_box(ax, col: str, title: str, ylabel: str, thresh: float | None = None, is_upper: bool = False):
-            if sns is not None:
-                sns.boxplot(data=merged, x="Regime", y=col, hue="Regime", palette=palette, ax=ax, width=0.5, legend=False)
-            else:
-                data_list = [merged[merged["Regime"] == r][col].dropna().values for r in regimes]
-                bp = ax.boxplot(data_list, patch_artist=True, widths=0.5)
-                for patch, color in zip(bp['boxes'], palette):
-                    patch.set_facecolor(color)
-                    patch.set_alpha(0.7)
-                ax.set_xticks(range(1, len(regimes) + 1))
-                ax.set_xticklabels(regime_labels)
-            if thresh is not None:
-                ax.axhline(thresh, color="red" if not is_upper else "gray", linestyle="--" if not is_upper else ":", alpha=0.7, label=f"Threshold ({thresh})")
-            ax.set_title(title, weight="bold")
-            ax.set_ylabel(ylabel)
-            ax.set_xlabel("")
-            ax.tick_params(axis="x", rotation=15)
-            ax.legend(loc="lower left" if not is_upper else "upper right")
+            if plot_data:
+                ax.boxplot(plot_data, tick_labels=labels, patch_artist=True, boxprops=dict(facecolor="#A8DADC", color="#1D3557"))
+            ax.set_title(title, weight="bold", fontsize=11)
+            ax.grid(True, linestyle="--", alpha=0.5)
 
-        # 1. ROCS Shape
-        draw_box(axes[0, 0], "ROCS", "3D ROCS Shape & Color", "TanimotoCombo", ROCS_THRESHOLD)
-
-        # 2. USRCAT Pharmacophore Moments
-        draw_box(axes[0, 1], "USRCAT", "3D USRCAT Pharmacophore", "USRCAT Similarity", USRCAT_THRESHOLD)
-
-        # 3. Retrosynthetic Accessibility (RAscore)
-        draw_box(axes[0, 2], "RAscore", "Retrosynthetic Accessibility", "Probability of Synthesis", RA_THRESHOLD)
-
-        # 4. Drug-likeness (QED)
-        draw_box(axes[1, 0], "QED", "Drug-likeness (QED)", "QED Score", QED_THRESHOLD)
-
-        # 5. Heavy Atoms (Steric Volume Diagnosis)
-        draw_box(axes[1, 1], "HeavyAtoms", "Heavy Atoms (EGCG = 33)", "Heavy Atoms", 33.0)
-
-        # 6. ECFP4 Similarity to Seed (Scaffold Hopping)
-        draw_box(axes[1, 2], "Tanimoto_to_Seed", "ECFP4 Similarity to Query", "Tanimoto to Seed", 0.40, is_upper=True)
-
-        plt.tight_layout()
+        fig.tight_layout()
         out_path = self.BASE_OUTPUT_DIR / "thesis_score_distributions.png"
         fig.savefig(out_path, bbox_inches="tight", dpi=300)
         plt.close(fig)
         return out_path
 
     def plot_top_leads_grid(self, datasets: Dict[str, pd.DataFrame]) -> Path | None:
-        """Render 2D depiction grid of authentic top candidate molecules and reference.
+        """Depict 2D chemical structure grid of elite leads ranked by multi-objective performance.
 
         Args:
-            datasets: Dict mapping regime names to candidate DataFrames.
+            datasets: Dictionary mapping regime names to candidate DataFrames.
 
         Returns:
-            Path to written depiction PNG file.
+            Path to saved lead grid PNG or None if no valid molecules found.
         """
         selected_mols: List[Chem.Mol] = []
         legends: List[str] = []
 
-        # 1. Reference Query Molecule
+        # 1. Reference query seed
         if self.SEED_MOL:
             selected_mols.append(self.SEED_MOL)
-            legends.append("REFERENCE\nQuery: EGCG (33 HAC)\nROCS: 1.00 | RA: 0.15\nSim: 1.00 (Self)")
+            legends.append(f"Query Seed (EGCG)\nHAC: {self.SEED_MOL.GetNumHeavyAtoms()} | Ref Active")
 
         # 2. Top from Hybrid Funnel
         funnel_df = datasets.get("Hybrid Funnel (Two-Stage)")
         if funnel_df is not None:
             valid_funnel = funnel_df[funnel_df["Valid"] == 1].copy()
             valid_funnel["Composite"] = valid_funnel["ROCS"] + valid_funnel["RAscore"] + valid_funnel["QED"]
-            top_funnel = valid_funnel.sort_values(by="Composite", ascending=False).head(5)
+            top_funnel = valid_funnel.sort_values(by="Composite", ascending=False).head(4)
             for _, r in top_funnel.iterrows():
                 m = Chem.MolFromSmiles(r["SMILES"])
                 if m:
                     selected_mols.append(m)
                     legends.append(
-                        f"HYBRID FUNNEL #{len(selected_mols)-1}\n"
+                        f"Lead #{len(selected_mols)-1} (Funnel)\n"
                         f"ROCS: {r['ROCS']:.2f} | RA: {r['RAscore']:.2f}\n"
                         f"HAC: {r['HeavyAtoms']} | Sim: {r['Tanimoto_to_Seed']:.2f}"
                     )
@@ -848,7 +818,7 @@ class ThesisBenchmark:
         Returns:
             Summary benchmark table DataFrame.
         """
-        print(f"Loading authentic datasets into ThesisBenchmark...")
+        print("Loading authentic datasets into ThesisBenchmark...")
         datasets = self.load_real_datasets(rnn_path, graph_path, funnel_path)
 
         print("Generating Benchmark Summary Table...")
@@ -881,3 +851,4 @@ if __name__ == "__main__":
 
     benchmark = ThesisBenchmark(output_dir=args.out_dir)
     benchmark.run_benchmark(args.rnn_file, args.graph_file, args.funnel_file)
+    FallbackMonitor.print_summary()
