@@ -79,20 +79,19 @@ ROCS_LOWER_X: float = 0.45
 ROCS_UPPER_X: float = 1.10
 ROCS_THRESHOLD: float = 0.50
 
-# --- USRCAT 3D Pharmacophore Bounds (Ultrafast Decoupled RL Tier) ---
-USRCAT_LOWER_X: float = 0.50
-USRCAT_UPPER_X: float = 0.85
-USRCAT_THRESHOLD: float = 0.55
+# --- ElectroShape 3D Shape & Electrostatic Moment Bounds (Ultrafast Decoupled RL Tier) ---
+ELECTROSHAPE_LOWER_X: float = 0.50
+ELECTROSHAPE_UPPER_X: float = 0.85
+ELECTROSHAPE_THRESHOLD: float = 0.55
+# Backward compatibility aliases
+USRCAT_LOWER_X: float = ELECTROSHAPE_LOWER_X
+USRCAT_UPPER_X: float = ELECTROSHAPE_UPPER_X
+USRCAT_THRESHOLD: float = ELECTROSHAPE_THRESHOLD
 
-# --- Physical Size / Volume Bounds (Native SmoothHump on HAC: plateau [28, 38], sigma=4) ---
-SIZE_LOWER_X: float = 28.0
-SIZE_UPPER_X: float = 38.0
-SIZE_SIGMA: float = 4.0
+# --- Universal Physical Size Envelope Defaults ---
 HEAVY_THRESHOLD: float = 0.50
-
-# --- Toxicophore Suppression Bounds (Catechol PAINS filter: threshold 0.99) ---
-TOXICOPHORE_SMARTS: str = "c1c([OH])c([OH])ccc1"
-TOXICOPHORE_THRESHOLD: float = 0.99
+SIZE_SIGMA: float = 4.0
+SIZE_DELTA: float = 5.0  # Dynamic plateau width: [seed_hac - SIZE_DELTA, seed_hac + SIZE_DELTA]
 
 # --- Synthesizability & Drug-likeness Bounds ---
 RA_LOWER_X: float = 0.30
@@ -166,21 +165,24 @@ class SequenceRNNOptimizer:
         self,
         ref_sdf_path: Path | str,
         seed_smiles: str = MY_MOLECULE,
+        toxicophore_smarts: str | Sequence[str] | None = None,
         reward_scheme: RewardScheme | None = None,
     ) -> DrugExEnvironment:
         """Construct multi-objective DrugExEnvironment for reinforcement learning.
 
-        Builds an un-cheatable multi-objective environment incorporating ultrafast 3D USRCAT
-        moments (rotationally/translationally invariant, 100x faster than full ROCS conformer
-        search), heavy atom volume plateau (SmoothHump [28, 38], sigma=4), active toxicophore
-        suppression (Scaffold catechol SMARTS filter, threshold 0.99), retrosynthetic
-        accessibility (RAscore), QED drug-likeness, and synthetic accessibility (SA).
+        Builds a universal, un-cheatable multi-objective environment incorporating ultrafast 3D
+        ElectroShape moments (75-D shape + Gasteiger partial charge centroids, 100x faster than
+        iterative ROCS conformer optimization), dynamic heavy atom volume plateau (SmoothHump
+        centered on the query ligand's heavy atom count), retrosynthetic accessibility (RAscore),
+        QED drug-likeness, and synthetic accessibility (SA).
+        Optionally incorporates custom toxicophore/liability suppression via Scaffold if specified.
         Uses AugmentedChebyshevReward scalarization to prevent small fragments from gaming
         the Pareto frontier.
 
         Args:
-            ref_sdf_path: Path to reference multi-conformer 3D SDF for USRCAT.
-            seed_smiles: SMILES string of active seed query for reference.
+            ref_sdf_path: Path to reference multi-conformer 3D SDF for ElectroShape.
+            seed_smiles: SMILES string of active seed query for dynamic size plateau derivation.
+            toxicophore_smarts: Optional SMARTS pattern or sequence of patterns to penalize (default: None).
             reward_scheme: Optional custom RewardScheme (defaults to AugmentedChebyshevReward).
 
         Returns:
@@ -189,30 +191,30 @@ class SequenceRNNOptimizer:
         ref_path_str: str = str(ref_sdf_path)
 
         #? [Pure LBDD ElectroShape Scorer] Ultrafast 75-dimensional shape and partial charge centroid moment similarity.
-        usrcat_scorer = USRCATScorer(
+        electroshape_scorer = USRCATScorer(
             references=ref_path_str,
             num_conformers=ROCS_MAX_CONFS,
             score_type="electroshape",
             modifier=SmoothClippedScore(
-                lower_x=USRCAT_LOWER_X,
-                upper_x=USRCAT_UPPER_X,
+                lower_x=ELECTROSHAPE_LOWER_X,
+                upper_x=ELECTROSHAPE_UPPER_X,
             ),
         )
 
-        #? [Heavy Atom Volume Scorer] Native SmoothHump modifier with plateau [28, 38] and sigma=4.
+        # Dynamic size envelope derived from seed ligand heavy atom count
+        seed_mol = Chem.MolFromSmiles(seed_smiles) if seed_smiles else None
+        seed_hac = seed_mol.GetNumHeavyAtoms() if seed_mol else 33
+        lower_size = max(6.0, float(seed_hac - SIZE_DELTA))
+        upper_size = float(seed_hac + SIZE_DELTA)
+
+        #? [Heavy Atom Volume Scorer] Native SmoothHump modifier dynamically centered on seed heavy atom count.
         size_scorer = Property(
             prop="Heavy",
             modifier=SmoothHump(
-                lower_x=SIZE_LOWER_X,
-                upper_x=SIZE_UPPER_X,
+                lower_x=lower_size,
+                upper_x=upper_size,
                 sigma=SIZE_SIGMA,
             ),
-        )
-
-        #? [Toxicophore Suppression Scorer] Native Scaffold scorer penalizing catechol (1,2-dihydroxybenzene) liabilities.
-        toxicophore_scorer = Scaffold(
-            smart=TOXICOPHORE_SMARTS,
-            is_match=False,
         )
 
         #? [Retrosynthetic Accessibility Scorer] RAscore machine-learning model estimating synthesizability probability.
@@ -241,15 +243,27 @@ class SequenceRNNOptimizer:
             ),
         )
 
-        scorers = [usrcat_scorer, size_scorer, toxicophore_scorer, ra_scorer_inst, qed_scorer, sa_scorer]
-        thresholds = [
-            USRCAT_THRESHOLD,
+        scorers: list[Scorer] = [electroshape_scorer, size_scorer, ra_scorer_inst, qed_scorer, sa_scorer]
+        thresholds: list[float] = [
+            ELECTROSHAPE_THRESHOLD,
             HEAVY_THRESHOLD,
-            TOXICOPHORE_THRESHOLD,
             RA_THRESHOLD,
             QED_THRESHOLD,
             SA_THRESHOLD,
         ]
+
+        # Optional target-specific toxicophore suppression
+        if toxicophore_smarts is not None:
+            smarts_list = [toxicophore_smarts] if isinstance(toxicophore_smarts, str) else list(toxicophore_smarts)
+            for smart in smarts_list:
+                #? [Toxicophore Suppression Scorer] Native Scaffold scorer penalizing user-specified substructure liabilities.
+                toxicophore_scorer = Scaffold(
+                    smart=smart,
+                    is_match=False,
+                )
+                scorers.append(toxicophore_scorer)
+                thresholds.append(0.99)
+
         scheme = reward_scheme if reward_scheme is not None else AugmentedChebyshevReward()
 
         env = DrugExEnvironment(
@@ -260,7 +274,11 @@ class SequenceRNNOptimizer:
         return env
 
     def run_reinforcement_learning(
-        self, molecule_smile: str = MY_MOLECULE, epochs: int = RL_EPOCHS, n_samples: int = RL_N_SAMPLES
+        self,
+        molecule_smile: str = MY_MOLECULE,
+        epochs: int = RL_EPOCHS,
+        n_samples: int = RL_N_SAMPLES,
+        toxicophore_smarts: str | Sequence[str] | None = None,
     ) -> tuple[SequenceRNN, pd.DataFrame]:
         """Execute policy-gradient reinforcement learning using SequenceExplorer.
 
@@ -268,6 +286,7 @@ class SequenceRNNOptimizer:
             molecule_smile: SMILES string of active query molecule.
             epochs: Total policy gradient training epochs.
             n_samples: Trajectories sampled per epoch.
+            toxicophore_smarts: Optional substructure SMARTS pattern to penalize.
 
         Returns:
             Tuple containing trained SequenceRNN agent and scored candidates DataFrame.
@@ -278,7 +297,7 @@ class SequenceRNNOptimizer:
             preparer = QueryConformerPreparer(ref_sdf.parent)
             ref_sdf = preparer.generate_reference_sdf(molecule_smile, ref_sdf)
 
-        env = self.build_environment(ref_sdf, seed_smiles=molecule_smile)
+        env = self.build_environment(ref_sdf, seed_smiles=molecule_smile, toxicophore_smarts=toxicophore_smarts)
 
         explorer = SequenceExplorer(
             agent=self.AGENT,

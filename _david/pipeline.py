@@ -250,7 +250,7 @@ class MoleculePipeline:
         stage2_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"\n[Stage 2] Bemis-Murcko Framework Extraction & Chemotype Funnel...")
-        funnel = scaffold_funnel.ScaffoldFunnel(output_dir=stage2_dir)
+        funnel = scaffold_funnel.ScaffoldFunnel(output_dir=stage2_dir, seed_smiles=primary_molecule)
         scaff_df = funnel.process_candidates_dataframe(stage1_df, max_scaffolds=MAX_SCAFFOLDS)
 
         funnel_scaffolds_tsv: Path = stage2_dir / "funnel_scaffolds.tsv"
@@ -294,7 +294,7 @@ class MoleculePipeline:
         from _david import GraphTransformer
 
         optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage3_dir)
-        env = optimizer.build_environment(ref_sdf)
+        env = optimizer.build_environment(ref_sdf, seed_smiles=primary_molecule)
         seed_loader, seed_dataset = optimizer._prepare_seed_fragments(
             primary_molecule, n_prompts=self.N_SAMPLES, scaffolds_path=scaffolds_path
         )

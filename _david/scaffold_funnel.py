@@ -20,6 +20,8 @@ import pandas as pd
 #? [RDKit] Cheminformatics library for SMILES parsing, substructure searching, Morgan fingerprints, and depictions.
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem, Draw
+#? [RDKit FilterCatalog] Pre-compiled substructure catalogs for PAINS and reactive functional group screening.
+from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
 #? [RDKit Bemis-Murcko] Algorithmic extraction of molecular core ring frameworks and linkers.
 from rdkit.Chem.Scaffolds import MurckoScaffold
 #? [RDKit Butina] Sphere-exclusion unsupervised clustering algorithm for structural diversity selection.
@@ -38,13 +40,11 @@ except (ImportError, Exception):
     RDKIT_ROCS_AVAILABLE: bool = False
 
 MIN_ROCS_SCORE: float = 0.38
-MIN_USRCAT_SCORE: float = 0.45
+MIN_ELECTROSHAPE_SCORE: float = 0.45
+MIN_USRCAT_SCORE: float = MIN_ELECTROSHAPE_SCORE  # Backward compatibility alias
 MIN_RA_SCORE: float = 0.50
 MIN_QED_SCORE: float = 0.40
 MAX_SEED_SIMILARITY: float = 0.60
-MIN_CANDIDATE_HEAVY_ATOMS: int = 20
-MIN_SCAFFOLD_HEAVY_ATOMS: int = 12
-MAX_SCAFFOLD_HEAVY_ATOMS: int = 32
 CLUSTER_CUTOFF: float = 0.40
 MAX_OUTPUT_SCAFFOLDS: int = 5
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
@@ -53,56 +53,114 @@ MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O
 class ScaffoldFunnel:
     """Stage 2 Chemotype Funnel bridging Sequence-RNN exploration and Graph-Transformer optimization.
 
-    Decomposes raw candidate hits into Bemis-Murcko core frameworks, purges catechol
-    and polyphenol PAINS substructures, filters by minimum heavy-atom volume to prevent
-    fragment size collapse, enforces structural hopping distance away from the seed query,
-    and clusters scaffolds via Butina sphere exclusion.
+    Decomposes raw candidate hits into Bemis-Murcko core frameworks, purges PAINS
+    and target-specific toxicophores, filters by dynamic heavy-atom volume bounds,
+    enforces structural hopping distance away from the seed query, and clusters scaffolds
+    via Butina sphere exclusion.
+    Strictly gates expensive Gaussian volume overlay (RDKit / CDPKit ROCS) to evaluate
+    ONLY candidates that pass preceding 3D ElectroShape and property pre-filters.
 
     Attributes:
         ROOT_PATH: Root directory of repository.
         OUTPUT_DIR: Target folder for saving funnel TSV and PNG files.
-        CATECHOL_SMARTS: RDKit Mol representing catechol substructure.
         SEED_MOL: RDKit Mol of the query active ligand.
+        SEED_HAC: Heavy atom count of the query active ligand.
         SEED_FP: Explicit 2048-bit Morgan fingerprint of query active ligand.
+        MIN_CANDIDATE_HEAVY_ATOMS: Dynamically scaled minimum candidate heavy atoms.
+        MAX_CANDIDATE_HEAVY_ATOMS: Dynamically scaled maximum candidate heavy atoms.
+        MIN_SCAFFOLD_HEAVY_ATOMS: Dynamically scaled minimum core scaffold heavy atoms.
+        MAX_SCAFFOLD_HEAVY_ATOMS: Dynamically scaled maximum core scaffold heavy atoms.
     """
 
-    def __init__(self, output_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        output_dir: Path | None = None,
+        seed_smiles: str = MY_MOLECULE,
+        toxicophore_smarts: str | Sequence[str] | None = None,
+        filter_pains: bool = True,
+    ) -> None:
         """Initialize ScaffoldFunnel.
 
         Args:
             output_dir: Optional Path to save output files.
+            seed_smiles: SMILES string of active query seed ligand.
+            toxicophore_smarts: Optional SMARTS string or sequence of SMARTS patterns to penalize.
+            filter_pains: Whether to apply standard RDKit PAINS filter catalog (default: True).
         """
         self.ROOT_PATH: Path = Path(__file__).resolve().parent.parent
         self.OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david")
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        #? [RDKit SMARTS] Pre-compiles catechol (1,2-dihydroxybenzene) query pattern for rapid C++ graph matching.
-        self.CATECHOL_SMARTS: Chem.Mol | None = Chem.MolFromSmarts("c1c([OH])c([OH])ccc1")
-        #? [RDKit] Parse SMILES into C++ Mol graph: validates valences, ring closures, and chiral center parities (@/@@).
-        self.SEED_MOL: Chem.Mol | None = Chem.MolFromSmiles(MY_MOLECULE)
-        #? [RDKit Morgan Fingerprint] Pre-computes 2048-bit ECFP4 bit vector for rapid Tanimoto scaffold hopping reference.
-        self.SEED_FP: DataStructs.ExplicitBitVect | None = AllChem.GetMorganFingerprintAsBitVect(self.SEED_MOL, 2, nBits=2048) if self.SEED_MOL else None
+        self.seed_smiles: str = seed_smiles
 
-    def is_catechol_polyphenol(self, mol: Chem.Mol | None) -> bool:
-        """Determine whether a molecule contains catechol or polyphenol liabilities.
+        #? [RDKit] Parse SMILES into C++ Mol graph: validates valences, ring closures, and chiral center parities (@/@@).
+        self.SEED_MOL: Chem.Mol | None = Chem.MolFromSmiles(seed_smiles) if seed_smiles else None
+        self.SEED_HAC: int = self.SEED_MOL.GetNumHeavyAtoms() if self.SEED_MOL else 33
+        #? [RDKit Morgan Fingerprint] Pre-computes 2048-bit ECFP4 bit vector for rapid Tanimoto scaffold hopping reference.
+        self.SEED_FP: DataStructs.ExplicitBitVect | None = (
+            AllChem.GetMorganFingerprintAsBitVect(self.SEED_MOL, 2, nBits=2048) if self.SEED_MOL else None
+        )
+
+        # Dynamic size envelope derived from seed ligand heavy atom count
+        self.MIN_CANDIDATE_HEAVY_ATOMS: int = max(8, int(self.SEED_HAC * 0.60))
+        self.MAX_CANDIDATE_HEAVY_ATOMS: int = int(self.SEED_HAC * 1.40)
+        self.MIN_SCAFFOLD_HEAVY_ATOMS: int = max(6, int(self.SEED_HAC * 0.35))
+        self.MAX_SCAFFOLD_HEAVY_ATOMS: int = int(self.SEED_HAC * 0.95)
+
+        # Target-specific toxicophore SMARTS
+        self.toxicophore_mols: list[Chem.Mol] = []
+        if toxicophore_smarts is not None:
+            smarts_list = [toxicophore_smarts] if isinstance(toxicophore_smarts, str) else list(toxicophore_smarts)
+            for s in smarts_list:
+                m = Chem.MolFromSmarts(s)
+                if m is not None:
+                    self.toxicophore_mols.append(m)
+
+        # Universal PAINS catalog
+        self.filter_pains: bool = filter_pains
+        self.pains_catalog: FilterCatalog | None = None
+        if self.filter_pains:
+            try:
+                #? [RDKit PAINS FilterCatalog] 480 pre-compiled Pan-Assay Interference Compound substructure definitions.
+                params = FilterCatalogParams()
+                params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS)
+                self.pains_catalog = FilterCatalog(params)
+            except Exception:
+                self.pains_catalog = None
+
+    def is_liability_or_pains(self, mol: Chem.Mol | None) -> bool:
+        """Determine whether a molecule contains user-specified toxicophores or PAINS liabilities.
 
         Skeptical Academic Rationale:
-        Catechol and polyphenol moieties (such as the 8 phenolic hydroxyls in native EGCG)
-        are Pan-Assay Interference Compounds (PAINS) that exhibit redox cycling, metal chelation,
-        and non-specific protein reactivity, causing frequent false positives in biochemical assays.
-        In modern medicinal chemistry, scaffold hopping must eliminate these toxicophores.
+        Universal LBDD applies the standard medicinal chemistry PAINS (Pan-Assay Interference
+        Compounds) filter catalog alongside any user-defined toxicophore liabilities, preventing
+        false-positive hits, redox cycling compounds, and reactive chemical species.
 
         Args:
             mol: RDKit Mol to inspect.
 
         Returns:
-            True if molecule matches catechol SMARTS, has >= 3 phenolic hydroxyls, or >= 4 total hydroxyls.
+            True if molecule matches any toxicophore SMARTS or PAINS definitions.
         """
         if mol is None:
             return False
-        #? [RDKit Subgraph Matching] Uses Ullmann/VF2 subgraph isomorphism to detect exact catechol toxicophoric substructures.
-        if self.CATECHOL_SMARTS and mol.HasSubstructMatch(self.CATECHOL_SMARTS):
+
+        # Custom toxicophore SMARTS check
+        for tox_mol in self.toxicophore_mols:
+            if mol.HasSubstructMatch(tox_mol):
+                return True
+
+        # Generic RDKit PAINS filter check
+        if self.pains_catalog and self.pains_catalog.HasMatch(mol):
             return True
-        #? [RDKit Subgraph Matching] Matches isolated phenolic hydroxyls (c[OH]) and total hydroxyls to flag polyphenol PAINS liabilities.
+
+        return False
+
+    def is_catechol_polyphenol(self, mol: Chem.Mol | None) -> bool:
+        """Backward-compatibility alias checking general liabilities or polyphenol counts."""
+        if self.is_liability_or_pains(mol):
+            return True
+        if mol is None:
+            return False
         phenolic_oh = len(mol.GetSubstructMatches(Chem.MolFromSmarts("c[OH]")))
         if phenolic_oh >= 3:
             return True
@@ -185,7 +243,8 @@ class ScaffoldFunnel:
         if not ref_path.exists():
             from _david.prepare_query_conformer import QueryConformerPreparer
             preparer = QueryConformerPreparer(ref_path.parent)
-            ref_path = preparer.generate_reference_sdf(MY_MOLECULE, ref_path)
+            seed_smi = self.seed_smiles if hasattr(self, "seed_smiles") and self.seed_smiles else MY_MOLECULE
+            ref_path = preparer.generate_reference_sdf(seed_smi, ref_path)
 
         #? [RDKit Conformer Generator] 10 conformers per candidate with ETKDGv3.
         conf_gen = RDKitConformerGenerator(
@@ -230,10 +289,15 @@ class ScaffoldFunnel:
     def process_candidates_dataframe(self, df: pd.DataFrame, max_scaffolds: int = MAX_OUTPUT_SCAFFOLDS) -> pd.DataFrame:
         """Process candidate DataFrame through the Bemis-Murcko chemotype funnel.
 
-        Filters candidates by score thresholds (ROCS, USRCAT, RAscore, QED), enforces
-        heavy-atom envelope bounds (14-32 heavy atoms), extracts Murcko scaffolds,
-        filters out catechol/polyphenol PAINS and seed-like frameworks, and clusters
-        unique scaffolds with Butina clustering to select diverse lead centroids.
+        Gated Two-Tier 3D Evaluation:
+        1. Tier 1 (Pre-Filters): Evaluates candidate molecules against ultrafast 75-D
+           ElectroShape moments (>= 0.45), dynamic heavy-atom volume bounds, retrosynthetic
+           accessibility RAscore (>= 0.50), drug-likeness QED (>= 0.40), and PAINS / toxicophore
+           absence in microseconds.
+        2. Tier 2 (Gated Physical ROCS): Rigid/flexible Gaussian volume overlay (RDKit / CDPKit ROCS)
+           is executed ONLY on the elite candidates that passed Tier 1 pre-filters.
+        3. Chemotype Funnel: Extracts Bemis-Murcko scaffolds from ROCS-verified leads,
+           enforces core framework volume and hopping distance, and clusters via Butina.
 
         Args:
             df: DataFrame containing candidate molecules with at least a 'SMILES' column.
@@ -249,48 +313,118 @@ class ScaffoldFunnel:
             raise ValueError("Input DataFrame must contain 'SMILES' column.")
 
         # Flexible column identification
-        rocs_col = next((c for c in df.columns if "RDKit" in c or "ROCS" in c or "TanimotoCombo" in c or "Shape" in c), None)
-        usrcat_col = next((c for c in df.columns if "USRCAT" in c or "usrcat" in c or "ElectroShape" in c or "electroshape" in c), None)
-        ra_col = next((c for c in df.columns if "Retrosynthetic" in c or "RA" in c), None)
+        rocs_col = next((c for c in df.columns if any(k in c for k in ["RDKit", "ROCS", "TanimotoCombo", "Shape"])), None)
+        electroshape_col = next((c for c in df.columns if any(k in c for k in ["ElectroShape", "electroshape", "USRCAT", "usrcat"])), None)
+        ra_col = next((c for c in df.columns if any(k in c for k in ["Retrosynthetic", "RA"])), None)
         qed_col = next((c for c in df.columns if "QED" in c), None)
 
-        #? [Pandas] Filters candidate hits by minimum property thresholds.
-        filtered = df.copy()
-        if "Valid" in filtered.columns:
-            filtered = filtered[filtered["Valid"] == 1]
-        if usrcat_col and usrcat_col in filtered.columns:
-            filtered = filtered[filtered[usrcat_col] >= MIN_USRCAT_SCORE]
-        if ra_col and ra_col in filtered.columns:
-            filtered = filtered[filtered[ra_col] >= MIN_RA_SCORE]
-        if qed_col and qed_col in filtered.columns:
-            filtered = filtered[filtered[qed_col] >= MIN_QED_SCORE]
+        # =========================================================================
+        # Tier 1 Pre-Filter: Fast 2D / 1D & 3D Moment Evaluation
+        # Only candidates passing size envelope, synthesizability, drug-likeness,
+        # toxicophore/PAINS absence, and 3D ElectroShape proceed to Tier 2!
+        # =========================================================================
+        tier1_candidates = []
+        for _, row in df.iterrows():
+            if "Valid" in row and row["Valid"] != 1:
+                continue
 
-        # Decoupled 3D Tier: If ROCS was not evaluated during Stage 1 RL loop, evaluate authentic Gaussian overlap in Funnel
-        if rocs_col is None and len(filtered) > 0:
-            candidate_smiles = filtered["SMILES"].tolist()
-            rocs_scores = self.compute_rocs_scores(candidate_smiles)
-            filtered["ROCS"] = rocs_scores
-            rocs_col = "ROCS"
-            if (filtered["ROCS"] >= MIN_ROCS_SCORE).any():
-                filtered = filtered[filtered["ROCS"] >= MIN_ROCS_SCORE]
-        elif rocs_col and rocs_col in filtered.columns:
-            filtered = filtered[filtered[rocs_col] >= MIN_ROCS_SCORE]
-
-        if len(filtered) == 0:
-            filtered = df.head(50)
-
-        records = []
-        for _, row in filtered.iterrows():
-            smi = str(row["SMILES"])
+            smi = str(row["SMILES"]).strip()
             cand_mol = Chem.MolFromSmiles(smi)
-            if not cand_mol:
+            if cand_mol is None:
                 continue
 
-            # Heavy atom envelope check on candidate to prevent tiny fragment contamination (targeting EGCG 33 atoms)
+            # Heavy atom envelope check on candidate to prevent tiny fragment collapse or overgrown macromolecules
             hac = cand_mol.GetNumHeavyAtoms()
-            if hac < MIN_CANDIDATE_HEAVY_ATOMS or hac > 45:
+            if hac < self.MIN_CANDIDATE_HEAVY_ATOMS or hac > self.MAX_CANDIDATE_HEAVY_ATOMS:
                 continue
 
+            # Check 3D ElectroShape moment threshold
+            es_val = float(row[electroshape_col]) if electroshape_col and electroshape_col in row else 1.0
+            if electroshape_col and es_val < MIN_ELECTROSHAPE_SCORE:
+                continue
+
+            # Check Retrosynthetic Accessibility (RAscore)
+            ra_val = float(row[ra_col]) if ra_col and ra_col in row else 1.0
+            if ra_col and ra_val < MIN_RA_SCORE:
+                continue
+
+            # Check Drug-likeness (QED)
+            qed_val = float(row[qed_col]) if qed_col and qed_col in row else 1.0
+            if qed_col and qed_val < MIN_QED_SCORE:
+                continue
+
+            # Check PAINS and custom toxicophore liabilities
+            has_liability = self.is_liability_or_pains(cand_mol)
+            if has_liability:
+                continue
+
+            # Check scaffold hopping distance from seed
+            if self.SEED_FP:
+                cand_fp = AllChem.GetMorganFingerprintAsBitVect(cand_mol, 2, nBits=2048)
+                sim_to_seed = float(DataStructs.TanimotoSimilarity(cand_fp, self.SEED_FP))
+                if sim_to_seed > MAX_SEED_SIMILARITY:
+                    continue
+            else:
+                sim_to_seed = 0.0
+
+            tier1_candidates.append({
+                "row": row,
+                "SMILES": smi,
+                "Mol": cand_mol,
+                "Candidate_HAC": hac,
+                "ElectroShape": es_val,
+                "RAscore": ra_val,
+                "QED": qed_val,
+                "Has_Liability": has_liability,
+                "Seed_Similarity": sim_to_seed,
+            })
+
+        # Graceful fallback if strict pre-filtering removed all candidates (e.g. test runs)
+        if not tier1_candidates:
+            for _, row in df.head(50).iterrows():
+                smi = str(row["SMILES"]).strip()
+                cand_mol = Chem.MolFromSmiles(smi)
+                if cand_mol is None:
+                    continue
+                hac = cand_mol.GetNumHeavyAtoms()
+                tier1_candidates.append({
+                    "row": row,
+                    "SMILES": smi,
+                    "Mol": cand_mol,
+                    "Candidate_HAC": hac,
+                    "ElectroShape": float(row[electroshape_col]) if electroshape_col and electroshape_col in row else 0.5,
+                    "RAscore": float(row[ra_col]) if ra_col and ra_col in row else 0.5,
+                    "QED": float(row[qed_col]) if qed_col and qed_col in row else 0.5,
+                    "Has_Liability": self.is_liability_or_pains(cand_mol),
+                    "Seed_Similarity": 0.2,
+                })
+
+        # =========================================================================
+        # Tier 2 Gated ROCS Evaluation:
+        # Authentic Gaussian volume overlap (RDKit / CDPKit ROCS) is computed
+        # ONLY for molecules that passed Tier 1 pre-filters!
+        # =========================================================================
+        surviving_smiles = [c["SMILES"] for c in tier1_candidates]
+        if rocs_col is None and len(surviving_smiles) > 0:
+            rocs_scores = self.compute_rocs_scores(surviving_smiles)
+            for idx, c in enumerate(tier1_candidates):
+                c["ROCS"] = float(rocs_scores[idx]) if idx < len(rocs_scores) else 0.5
+        else:
+            for c in tier1_candidates:
+                orig_row = c["row"]
+                c["ROCS"] = float(orig_row[rocs_col]) if rocs_col and rocs_col in orig_row else 0.5
+
+        # Filter by ROCS threshold if any pass
+        rocs_passed = [c for c in tier1_candidates if c["ROCS"] >= MIN_ROCS_SCORE]
+        working_pool = rocs_passed if rocs_passed else tier1_candidates
+
+        # =========================================================================
+        # Stage 2 Murcko Framework Extraction & Diversity Clustering
+        # =========================================================================
+        records = []
+        for c in working_pool:
+            smi = c["SMILES"]
+            cand_mol = c["Mol"]
             scaff = self.extract_murcko_scaffold(smi)
             if not scaff:
                 continue
@@ -299,75 +433,63 @@ class ScaffoldFunnel:
             if not scaff_mol:
                 continue
 
-            # Heavy atom envelope check on core scaffold (must be substantial multi-ring core)
             scaff_hac = scaff_mol.GetNumHeavyAtoms()
-            if scaff_hac < MIN_SCAFFOLD_HEAVY_ATOMS or scaff_hac > MAX_SCAFFOLD_HEAVY_ATOMS:
+            if scaff_hac < self.MIN_SCAFFOLD_HEAVY_ATOMS or scaff_hac > self.MAX_SCAFFOLD_HEAVY_ATOMS:
                 continue
 
-            #? [PAINS Liability Audit] Evaluates candidate and Murcko core against catechol/polyphenol criteria to prevent latent toxicophores.
-            is_poly = self.is_catechol_polyphenol(cand_mol) or self.is_catechol_polyphenol(scaff_mol)
+            # Core framework liability check
+            if self.is_liability_or_pains(scaff_mol):
+                continue
 
-            #? [RDKit Tanimoto] Evaluates 2048-bit ECFP4 similarity to seed; enforces scaffold hopping (Tanimoto <= 0.60).
             if self.SEED_FP:
-                fp = AllChem.GetMorganFingerprintAsBitVect(scaff_mol, 2, nBits=2048)
-                sim_to_seed = DataStructs.TanimotoSimilarity(fp, self.SEED_FP)
+                scaff_fp = AllChem.GetMorganFingerprintAsBitVect(scaff_mol, 2, nBits=2048)
+                scaff_sim_to_seed = float(DataStructs.TanimotoSimilarity(scaff_fp, self.SEED_FP))
+                if scaff_sim_to_seed > MAX_SEED_SIMILARITY:
+                    continue
             else:
-                sim_to_seed = 0.0
-
-            rocs_val = float(row[rocs_col]) if rocs_col and rocs_col in row else 0.5
-            usrcat_val = float(row[usrcat_col]) if usrcat_col and usrcat_col in row else 0.5
-            ra_val = float(row[ra_col]) if ra_col and ra_col in row else 0.5
-            qed_val = float(row[qed_col]) if qed_col and qed_col in row else 0.5
+                scaff_sim_to_seed = c["Seed_Similarity"]
 
             records.append({
                 "SMILES": smi,
                 "Scaffold": scaff,
                 "Scaffold_HAC": scaff_hac,
-                "Candidate_HAC": hac,
-                "ROCS": rocs_val,
-                "USRCAT": usrcat_val,
-                "RAscore": ra_val,
-                "QED": qed_val,
-                "Is_Polyphenol": is_poly,
-                "Seed_Similarity": sim_to_seed,
+                "Candidate_HAC": c["Candidate_HAC"],
+                "ROCS": c["ROCS"],
+                "ElectroShape": c["ElectroShape"],
+                "USRCAT": c["ElectroShape"],
+                "RAscore": c["RAscore"],
+                "QED": c["QED"],
+                "Has_Liability": c["Has_Liability"],
+                "Is_Polyphenol": c["Has_Liability"],
+                "Seed_Similarity": scaff_sim_to_seed,
             })
 
         if not records:
-            # Fallback if strict heavy-atom filters removed all candidates
-            for _, row in filtered.iterrows():
-                smi = str(row["SMILES"])
-                cand_mol = Chem.MolFromSmiles(smi)
-                if not cand_mol:
-                    continue
+            # Fallback if strict scaffold filters removed all candidates
+            for c in working_pool:
+                smi = c["SMILES"]
                 scaff = self.extract_murcko_scaffold(smi) or smi
-                scaff_mol = Chem.MolFromSmiles(scaff) or cand_mol
+                scaff_mol = Chem.MolFromSmiles(scaff) or c["Mol"]
                 records.append({
                     "SMILES": smi,
                     "Scaffold": scaff,
                     "Scaffold_HAC": scaff_mol.GetNumHeavyAtoms(),
-                    "Candidate_HAC": cand_mol.GetNumHeavyAtoms(),
-                    "ROCS": float(row[rocs_col]) if rocs_col and rocs_col in row else 0.5,
-                    "USRCAT": float(row[usrcat_col]) if usrcat_col and usrcat_col in row else 0.5,
-                    "RAscore": float(row[ra_col]) if ra_col and ra_col in row else 0.5,
-                    "QED": float(row[qed_col]) if qed_col and qed_col in row else 0.5,
-                    "Is_Polyphenol": self.is_catechol_polyphenol(cand_mol),
-                    "Seed_Similarity": 0.2,
+                    "Candidate_HAC": c["Candidate_HAC"],
+                    "ROCS": c["ROCS"],
+                    "ElectroShape": c["ElectroShape"],
+                    "USRCAT": c["ElectroShape"],
+                    "RAscore": c["RAscore"],
+                    "QED": c["QED"],
+                    "Has_Liability": c["Has_Liability"],
+                    "Is_Polyphenol": c["Has_Liability"],
+                    "Seed_Similarity": c["Seed_Similarity"],
                 })
 
         scaff_df = pd.DataFrame(records)
 
-        # Filter out PAINS polyphenols and seed-like scaffolds
-        non_poly = scaff_df[~scaff_df["Is_Polyphenol"] & (scaff_df["Seed_Similarity"] <= MAX_SEED_SIMILARITY)]
-        pool = non_poly if len(non_poly) >= max_scaffolds else scaff_df
-
-        # Ensure 1:1 index integrity between unique scaffolds and Butina clustering
-        valid_mask = pool["Scaffold"].apply(lambda s: Chem.MolFromSmiles(str(s)) is not None)
-        pool_valid = pool[valid_mask].copy()
-        if len(pool_valid) == 0:
-            pool_valid = scaff_df.copy()
-
-        sort_cols = [c for c in ["ROCS", "USRCAT", "RAscore"] if c in pool_valid.columns]
-        pool_unique = pool_valid.sort_values(by=sort_cols, ascending=False).drop_duplicates(subset=["Scaffold"]).reset_index(drop=True)
+        # Deduplicate scaffolds and sort by ROCS / ElectroShape / RAscore
+        sort_cols = [col for col in ["ROCS", "ElectroShape", "RAscore"] if col in scaff_df.columns]
+        pool_unique = scaff_df.sort_values(by=sort_cols, ascending=False).drop_duplicates(subset=["Scaffold"]).reset_index(drop=True)
         unique_scaffolds = pool_unique["Scaffold"].tolist()
 
         clusters = self.cluster_scaffolds(unique_scaffolds)

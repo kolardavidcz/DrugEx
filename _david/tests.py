@@ -183,5 +183,74 @@ class TestAntiCheatingRewards(unittest.TestCase):
             self.assertEqual(batch.ndim, 3)
 
 
+    def test_dynamic_size_scaling(self) -> None:
+        """Verify ScaffoldFunnel dynamically adapts size envelopes to query seed molecules."""
+        from _david.scaffold_funnel import ScaffoldFunnel
+
+        # EGCG seed (33 heavy atoms)
+        funnel_egcg = ScaffoldFunnel(seed_smiles="C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O")
+        self.assertEqual(funnel_egcg.SEED_HAC, 33)
+        self.assertEqual(funnel_egcg.MIN_CANDIDATE_HEAVY_ATOMS, 19)
+        self.assertEqual(funnel_egcg.MAX_CANDIDATE_HEAVY_ATOMS, 46)
+
+        # Caffeine seed (14 heavy atoms)
+        caffeine_smiles = "Cn1cnc2c1c(=O)n(c(=O)n2C)C"
+        funnel_caffeine = ScaffoldFunnel(seed_smiles=caffeine_smiles)
+        self.assertEqual(funnel_caffeine.SEED_HAC, 14)
+        self.assertEqual(funnel_caffeine.MIN_CANDIDATE_HEAVY_ATOMS, 8)
+        self.assertEqual(funnel_caffeine.MAX_CANDIDATE_HEAVY_ATOMS, 19)
+
+    def test_universal_environment_defaults(self) -> None:
+        """Verify SequenceRNNOptimizer builds 5 universal objectives by default and 6 with custom toxicophore."""
+        import tempfile
+        from pathlib import Path
+        from _david.SequenceRNN import SequenceRNNOptimizer
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            optimizer = SequenceRNNOptimizer(output_dir=Path(tmp_dir))
+            ref_sdf = Path(__file__).parent / "references" / "my_molecule_3d.sdf"
+            if not ref_sdf.exists():
+                from _david.prepare_query_conformer import QueryConformerPreparer
+                QueryConformerPreparer(ref_sdf.parent).generate_reference_sdf(output_path=ref_sdf)
+
+            # Default environment: 5 universal objectives (ElectroShape, Heavy, RAscore, QED, SA)
+            env_default = optimizer.build_environment(ref_sdf)
+            self.assertEqual(len(env_default.scorers), 5)
+            scorer_keys = [s.getKey() for s in env_default.scorers]
+            self.assertIn("ElectroShape", scorer_keys)
+            self.assertIn("Heavy", scorer_keys)
+            self.assertIn("QED", scorer_keys)
+            self.assertIn("SA", scorer_keys)
+
+            # Environment with optional toxicophore: 6 objectives
+            env_tox = optimizer.build_environment(ref_sdf, toxicophore_smarts="c1c([OH])c([OH])ccc1")
+            self.assertEqual(len(env_tox.scorers), 6)
+
+    def test_scaffold_funnel_gated_execution(self) -> None:
+        """Verify ScaffoldFunnel correctly pre-filters candidates before Stage 2 clustering."""
+        import pandas as pd
+        from _david.scaffold_funnel import ScaffoldFunnel
+
+        funnel = ScaffoldFunnel()
+        dummy_df = pd.DataFrame({
+            "SMILES": [
+                "C",  # Methane: tiny fragment, should fail size envelope
+                "invalid_smiles_string",  # Invalid chemical graph
+                "c1ccccc1NC(=O)c1ccc(cn1)C1CC1",  # Valid drug-like molecule
+                "Cc1ccc(cc1)N1CCN(CC1)c1nc2ccccc2n1C",  # Valid drug-like molecule
+            ],
+            "Valid": [1, 0, 1, 1],
+            "ElectroShape": [0.10, 0.00, 0.65, 0.72],
+            "RAscore": [0.10, 0.00, 0.88, 0.78],
+            "QED": [0.10, 0.00, 0.75, 0.65],
+        })
+        res = funnel.process_candidates_dataframe(dummy_df)
+        self.assertGreater(len(res), 0)
+        # Result scaffolds must have valid SMILES and proper columns
+        self.assertIn("Scaffold", res.columns)
+        self.assertIn("ElectroShape", res.columns)
+        self.assertIn("ROCS", res.columns)
+
+
 if __name__ == "__main__":
     unittest.main()

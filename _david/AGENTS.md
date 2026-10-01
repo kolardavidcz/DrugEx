@@ -5,10 +5,9 @@ Guide for AI agents working in `/home/kolar/build_projects/drugex_edu/repo/_davi
 ---
 
 ## 1. Mission & Goal
-- **Core Task**: Pure Ligand-Based *De Novo* Drug Design (LBDD) centered around **exactly 1 seed query ligand**:
-  EGCG derivative (`my_molecule` / SMILES: `C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O`).
+- **Core Task**: Pure Universal Ligand-Based *De Novo* Drug Design (LBDD) centered around an arbitrary seed query ligand (defaulting to EGCG: `MY_MOLECULE`).
 - **Strict Constraint**: 100% Pure LBDD with zero receptor coordinates, crystal complexes, or docking grids.
-- **Target Objective**: Generate novel, synthetically accessible modulators preserving the 3D shape, volume, and pharmacophore features of the query ligand without PAINS liabilities (e.g. catechol/polyphenol groups).
+- **Target Objective**: Generate novel, synthetically accessible modulators preserving the 3D shape, volume, and electrostatic pharmacophore features of the query ligand without PAINS liabilities or structural degradation.
 
 ---
 
@@ -20,16 +19,20 @@ Guide for AI agents working in `/home/kolar/build_projects/drugex_edu/repo/_davi
 2. **Rejection of 2D Pharmacophore Filters**:
    - Flatten 3D spatial conformation into 2D topological graph distance pairs.
    - Ignore out-of-plane orientations, chiral arrangements, and steric volume, leading to high false-positive rates.
-3. **Adoption of USRCAT & ElectroShape**:
-   - Pure 3D ligand-based methods implemented in RDKit (`rdkit.Chem.rdMolDescriptors.GetUSRCAT` and `GetUSR`).
-   - 60-dimensional rotationally/translationally invariant moment vectors across 5 pharmacophore atom types.
-   - Exact $O(1)$ inverse Manhattan distance ($S = \frac{1}{1 + \frac{1}{60} \sum |u_i - v_i|}$) executing in microseconds without alignment search traps.
-4. **Resolution of Previous RL Failure Modes**:
+3. **Adoption of 75-D ElectroShape Moments**:
+   - Superior to 60-D USRCAT by evaluating both 3D steric envelope and Gasteiger partial charge distributions across 5 spatial centroids (geometric centroid, positive/negative centroids, extreme charge positions).
+   - Prevents uncharged, non-polar lipophilic decoys from gaming shape metrics in $<0.08\text{ ms}$ per conformer.
+4. **Gated Two-Tier 3D Shape Strategy**:
+   - **Tier 1 (RL & Pre-Filters)**: Ultrafast rotation/translation-invariant 75-D ElectroShape moments in RL inner loops (Stages 1 and 3) provide ~100x speedup.
+   - **Tier 2 (Gated Physical Gaussian Overlay)**: Physical Gaussian volume overlay (RDKit / CDPKit ROCS) in Stage 2 Chemotype Funnel is **strictly gated to run ONLY on candidate molecules that pass all Tier 1 checks** (valid graph, dynamic size bounds, ElectroShape >= 0.45, RAscore >= 0.50, QED >= 0.40, PAINS absence).
+5. **Universal LBDD Architecture (Root Improvements)**:
+   - **Dynamic Size Envelope**: Size modifier is dynamically centered on the query seed's heavy atom count (`SmoothHump(lower_x=max(6.0, seed_hac-5), upper_x=seed_hac+5, sigma=4)`).
+   - **Universal 5-Objective RL Environment**: Defaults to 5 universal small-molecule drug design objectives: `[ElectroShape, Heavy, RAscore, QED, SA]`.
+   - **Optional Target Toxicophores**: Target-specific liabilities are decoupled via optional parameter `toxicophore_smarts: str | Sequence[str] | None = None`.
+   - **Universal PAINS Screening**: `ScaffoldFunnel` applies RDKit's standard 480-rule `FilterCatalog` PAINS library alongside user-specified toxicophores.
+6. **Resolution of Previous RL Failure Modes**:
    - Conformer under-sampling resolved: Increased reference conformers to 50 with ETKDGv3 and MMFF94 minimization.
-   - Decoupled 3D shape tiers: Ultrafast rotation-invariant USRCAT moments in RL inner loops (Stages 1 and 3) provide ~100x speedup; physical Gaussian volume overlay (CDPKit ROCS: `CDPKitROCSScorer` + `RDKitConformerGenerator`) is reserved for Stage 2 scaffold funnel and Stage 4 lead validation.
-   - Pareto reward hacking resolved: Replaced vulnerable Pareto ranking with `AugmentedChebyshevReward` and `GeometricMeanReward` scalarization. Extreme single-objective cheats (e.g. 0.98 QED but 0.05 3D shape) are severely penalized.
-   - Fragment collapse resolved: Upgraded to native `SmoothHump(lower_x=28, upper_x=38, sigma=4)` on heavy atom count.
-   - Toxicophore suppression: Integrated native `Scaffold(smart="c1c([OH])c([OH])ccc1", is_match=False)` with threshold 0.99 into RL environment to actively suppress catechol PAINS liabilities.
+   - Pareto reward hacking resolved: Replaced vulnerable Pareto ranking with `AugmentedChebyshevReward` scalarization. Extreme single-objective cheats (e.g. 0.98 QED but 0.05 3D shape) are severely penalized.
    - Native scaffold encoding: Replaced BRICS/RECAP cleavage in Graph-Transformer with DrugEx native `dummyMolsFromFragments()`, ensuring intact Bemis-Murcko frameworks are directly elaborated.
    - Mock simulation eliminated: All synthetic random-number generation in `thesis_benchmark.py` has been removed.
 
@@ -39,15 +42,15 @@ Guide for AI agents working in `/home/kolar/build_projects/drugex_edu/repo/_davi
 
 | File / Folder | Role | Status |
 |---|---|---|
-| `_david/prepare_query_conformer.py` | Stage 0: 3D reference conformer ensemble (50 confs, MMFF94) & USRCAT moment array generation. | **Active** |
-| `_david/SequenceRNN.py` | Stage 1: Global hit discovery via Sequence-RNN policy gradient RL (USRCAT, SmoothHump, Scaffold). | **Active** |
-| `_david/scaffold_funnel.py` | Stage 2: Bemis-Murcko framework extraction, heavy-atom volume filter, PAINS purge, CDPKit ROCS, Butina clustering. | **Active** |
+| `_david/prepare_query_conformer.py` | Stage 0: 3D reference conformer ensemble (50 confs, MMFF94) & ElectroShape/USRCAT moment arrays. | **Active** |
+| `_david/SequenceRNN.py` | Stage 1: Global hit discovery via Sequence-RNN policy gradient RL (75-D ElectroShape, dynamic SmoothHump). | **Active** |
+| `_david/scaffold_funnel.py` | Stage 2: Bemis-Murcko framework extraction, dynamic size envelope, PAINS purge, gated ROCS, Butina clustering. | **Active** |
 | `_david/GraphTransformer.py` | Stage 3: Fragment-conditioned lead optimization on discovered funnel scaffolds using `dummyMolsFromFragments()`. | **Active** |
 | `_david/anti_cheating_rewards.py` | Augmented Chebyshev & Geometric Mean scalarization schemes preventing Pareto reward hacking. | **Active Tool** |
-| `_david/usrcat_scorer.py` | Pure LBDD 3D shape and pharmacophore moment scorer (`drugex.training.scorers.interfaces.Scorer`). | **Active Tool** |
+| `_david/usrcat_scorer.py` | Pure LBDD 3D shape and electrostatic moment scorer (`drugex.training.scorers.interfaces.Scorer`). | **Active Tool** |
 | `_david/pipeline.py` | Unified end-to-end multi-stage pipeline orchestrator (Stages 0 -> 1 -> 2 -> 3 -> 4). | **Active Production** |
 | `_david/thesis_benchmark.py` | Stage 4: Publication benchmark suite (CDPKit ROCS, radar, PCA, boxplots, grids) on real empirical data. | **Active Production** |
-| `_david/test_anti_cheating_and_api.py` | Unit tests for anti-cheating rewards, SmoothHump, toxicophore Scaffold, and dummyMolsFromFragments. | **Active Test** |
+| `_david/tests.py` | Empirical unit test suite verifying anti-cheating rewards, dynamic size bounds, gated ROCS, and API parity. | **Active Test** |
 | `_david/dodo_notes.md` | Academic evaluation notes, query molecule SMILES, and failure mode documentation. | **Reference** |
 | `_david/outputs/` | Pipeline runs, benchmark tables, and generated molecule figures. | **Output Storage** |
 
