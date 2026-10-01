@@ -24,10 +24,12 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.ML.Cluster import Butina
 
 MIN_ROCS_SCORE: float = 0.38
+MIN_USRCAT_SCORE: float = 0.45
 MIN_RA_SCORE: float = 0.50
 MIN_QED_SCORE: float = 0.40
 MAX_SEED_SIMILARITY: float = 0.60
-MIN_SCAFFOLD_HEAVY_ATOMS: int = 14
+MIN_CANDIDATE_HEAVY_ATOMS: int = 20
+MIN_SCAFFOLD_HEAVY_ATOMS: int = 12
 MAX_SCAFFOLD_HEAVY_ATOMS: int = 32
 CLUSTER_CUTOFF: float = 0.40
 MAX_OUTPUT_SCAFFOLDS: int = 5
@@ -169,6 +171,7 @@ class ScaffoldFunnel:
 
         # Flexible column identification
         rocs_col = next((c for c in df.columns if "RDKit" in c or "ROCS" in c or "TanimotoCombo" in c or "Shape" in c), None)
+        usrcat_col = next((c for c in df.columns if "USRCAT" in c or "usrcat" in c), None)
         ra_col = next((c for c in df.columns if "Retrosynthetic" in c or "RA" in c), None)
         qed_col = next((c for c in df.columns if "QED" in c), None)
 
@@ -178,6 +181,8 @@ class ScaffoldFunnel:
             filtered = filtered[filtered["Valid"] == 1]
         if rocs_col and rocs_col in filtered.columns:
             filtered = filtered[filtered[rocs_col] >= MIN_ROCS_SCORE]
+        if usrcat_col and usrcat_col in filtered.columns:
+            filtered = filtered[filtered[usrcat_col] >= MIN_USRCAT_SCORE]
         if ra_col and ra_col in filtered.columns:
             filtered = filtered[filtered[ra_col] >= MIN_RA_SCORE]
         if qed_col and qed_col in filtered.columns:
@@ -193,9 +198,9 @@ class ScaffoldFunnel:
             if not cand_mol:
                 continue
 
-            # Heavy atom envelope check on candidate to prevent tiny fragment contamination
+            # Heavy atom envelope check on candidate to prevent tiny fragment contamination (targeting EGCG 33 atoms)
             hac = cand_mol.GetNumHeavyAtoms()
-            if hac < MIN_SCAFFOLD_HEAVY_ATOMS or hac > 45:
+            if hac < MIN_CANDIDATE_HEAVY_ATOMS or hac > 45:
                 continue
 
             scaff = self.extract_murcko_scaffold(smi)
@@ -222,6 +227,7 @@ class ScaffoldFunnel:
                 sim_to_seed = 0.0
 
             rocs_val = float(row[rocs_col]) if rocs_col and rocs_col in row else 0.5
+            usrcat_val = float(row[usrcat_col]) if usrcat_col and usrcat_col in row else 0.5
             ra_val = float(row[ra_col]) if ra_col and ra_col in row else 0.5
             qed_val = float(row[qed_col]) if qed_col and qed_col in row else 0.5
 
@@ -231,6 +237,7 @@ class ScaffoldFunnel:
                 "Scaffold_HAC": scaff_hac,
                 "Candidate_HAC": hac,
                 "ROCS": rocs_val,
+                "USRCAT": usrcat_val,
                 "RAscore": ra_val,
                 "QED": qed_val,
                 "Is_Polyphenol": is_poly,
@@ -252,6 +259,7 @@ class ScaffoldFunnel:
                     "Scaffold_HAC": scaff_mol.GetNumHeavyAtoms(),
                     "Candidate_HAC": cand_mol.GetNumHeavyAtoms(),
                     "ROCS": float(row[rocs_col]) if rocs_col and rocs_col in row else 0.5,
+                    "USRCAT": float(row[usrcat_col]) if usrcat_col and usrcat_col in row else 0.5,
                     "RAscore": float(row[ra_col]) if ra_col and ra_col in row else 0.5,
                     "QED": float(row[qed_col]) if qed_col and qed_col in row else 0.5,
                     "Is_Polyphenol": self.is_catechol_polyphenol(cand_mol),
@@ -260,17 +268,27 @@ class ScaffoldFunnel:
 
         scaff_df = pd.DataFrame(records)
 
-        #? [RDKit Butina] Clusters deduplicated Murcko scaffolds and extracts cluster centroids (cluster[0]) as structurally distinct leads.
+        # Filter out PAINS polyphenols and seed-like scaffolds
         non_poly = scaff_df[~scaff_df["Is_Polyphenol"] & (scaff_df["Seed_Similarity"] <= MAX_SEED_SIMILARITY)]
         pool = non_poly if len(non_poly) >= max_scaffolds else scaff_df
 
-        pool_unique = pool.sort_values(by=["ROCS", "RAscore"], ascending=False).drop_duplicates(subset=["Scaffold"])
+        # Ensure 1:1 index integrity between unique scaffolds and Butina clustering
+        valid_mask = pool["Scaffold"].apply(lambda s: Chem.MolFromSmiles(str(s)) is not None)
+        pool_valid = pool[valid_mask].copy()
+        if len(pool_valid) == 0:
+            pool_valid = scaff_df.copy()
+
+        sort_cols = [c for c in ["ROCS", "USRCAT", "RAscore"] if c in pool_valid.columns]
+        pool_unique = pool_valid.sort_values(by=sort_cols, ascending=False).drop_duplicates(subset=["Scaffold"]).reset_index(drop=True)
         unique_scaffolds = pool_unique["Scaffold"].tolist()
 
         clusters = self.cluster_scaffolds(unique_scaffolds)
-        selected_indices = [cluster[0] for cluster in clusters[:max_scaffolds]]
+        if clusters:
+            selected_indices = [cluster[0] for cluster in clusters[:max_scaffolds]]
+            final_df = pool_unique.iloc[selected_indices].copy().reset_index(drop=True)
+        else:
+            final_df = pool_unique.head(max_scaffolds).copy().reset_index(drop=True)
 
-        final_df = pool_unique.iloc[selected_indices].copy().reset_index(drop=True)
         final_df["Scaffold_ID"] = [f"Funnel_Scaffold_{i+1}" for i in range(len(final_df))]
 
         tsv_out = self.OUTPUT_DIR / "funnel_scaffolds.tsv"
@@ -287,10 +305,10 @@ class ScaffoldFunnel:
                 shared_expanded = self.ROOT_PATH / "_david" / "funnel_scaffolds_expanded.tsv"
                 expanded_df.to_csv(shared_expanded, sep="\t", index=False)
 
-        #? [RDKit Draw] Renders 2D depiction grid PNG of lead scaffolds with ROCS and RAscore legends.
+        #? [RDKit Draw] Renders 2D depiction grid PNG of lead scaffolds with ROCS, USRCAT, and RAscore legends.
         mols_to_draw = [Chem.MolFromSmiles(s) for s in final_df["Scaffold"]]
         legends = [
-            f"{row['Scaffold_ID']} (HAC: {row['Scaffold_HAC']})\nROCS: {row['ROCS']:.2f} | RA: {row['RAscore']:.2f}"
+            f"{row['Scaffold_ID']} (HAC: {row['Scaffold_HAC']})\nROCS: {row['ROCS']:.2f} | USRCAT: {row.get('USRCAT', 0.0):.2f} | RA: {row['RAscore']:.2f}"
             for _, row in final_df.iterrows()
         ]
         img = Draw.MolsToGridImage(mols_to_draw, molsPerRow=min(5, len(mols_to_draw)), subImgSize=(300, 300), legends=legends)
@@ -319,9 +337,10 @@ if __name__ == "__main__":
             ],
             "Valid": [1, 1, 1, 1, 1, 1],
             "RDKit_ROCS": [0.65, 0.72, 0.45, 0.90, 0.58, 0.61],
+            "USRCAT": [0.65, 0.70, 0.48, 0.88, 0.58, 0.62],
             "RAscore": [0.85, 0.78, 0.60, 0.35, 0.88, 0.82],
             "QED": [0.70, 0.65, 0.40, 0.50, 0.75, 0.68],
         })
         res = funnel.process_candidates_dataframe(dummy_data)
         print("Self-test succeeded! Extracted scaffolds:")
-        print(res[["Scaffold_ID", "Scaffold", "Scaffold_HAC", "ROCS", "RAscore", "Is_Polyphenol", "Seed_Similarity"]])
+        print(res[["Scaffold_ID", "Scaffold", "Scaffold_HAC", "ROCS", "USRCAT", "RAscore", "Is_Polyphenol", "Seed_Similarity"]])

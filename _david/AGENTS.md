@@ -27,7 +27,7 @@ Guide for AI agents working in `/home/kolar/build_projects/drugex_edu/repo/_davi
 4. **Resolution of Previous RL Failure Modes**:
    - Conformer under-sampling resolved: Increased RL conformers from 2 to 10 (with 50 reference conformers).
    - Pareto reward hacking resolved: Purged counter-productive 2D novelty objective from RL; scaffold hopping is enforced structurally in Stage 2 funnel.
-   - Fragment collapse resolved: Added Gaussian heavy-atom volume constraint (`Property("Heavy", Gaussian(33, 6))`) and scaffold heavy-atom filter (14–32 atoms) so small 15-atom fragments cannot cheat.
+   - Fragment collapse resolved: Added Gaussian heavy-atom volume constraint (`Property("Heavy", Gaussian(33, 6))`), candidate heavy-atom filter ($\ge 20$ atoms), and scaffold core filter (12-32 atoms) so small 15-atom fragments cannot cheat.
    - Mock simulation eliminated: All synthetic random-number generation in `thesis_benchmark.py` has been removed.
 
 ---

@@ -311,6 +311,15 @@ class ThesisBenchmark:
         Returns:
             1D NumPy array of USRCAT similarities.
         """
+        # Ensure reference conformers exist; generate if missing
+        if not self.REF_SDF.exists():
+            try:
+                from _david.prepare_query_conformer import QueryConformerPreparer
+                preparer = QueryConformerPreparer(self.REF_SDF.parent)
+                self.REF_SDF = preparer.generate_reference_sdf(MY_MOLECULE, self.REF_SDF)
+            except Exception:
+                pass
+
         if not self.REF_SDF.exists():
             return np.zeros(len(smiles_list), dtype=np.float32)
 
@@ -402,7 +411,7 @@ class ThesisBenchmark:
             scaffold_count = len(scaffolds)
             scaffold_div = (scaffold_count / valid_count) if valid_count > 0 else 0.0
 
-            # Real multi-objective desired criterion: ROCS >= 0.50, RA >= 0.50, QED >= 0.40, SA <= 4.0, HeavyAtoms in range
+            # Real multi-objective desired criterion: ROCS >= 0.50, USRCAT >= 0.55, RA >= 0.50, QED >= 0.40, SA <= 4.0, HeavyAtoms in range
             desired_mask = (
                 (valid_df["ROCS"] >= ROCS_THRESHOLD) &
                 (valid_df["RAscore"] >= RA_THRESHOLD) &
@@ -411,6 +420,8 @@ class ThesisBenchmark:
                 (valid_df["HeavyAtoms"] >= MIN_HEAVY_ATOMS) &
                 (valid_df["HeavyAtoms"] <= MAX_HEAVY_ATOMS)
             )
+            if "USRCAT" in valid_df.columns and float(valid_df["USRCAT"].max()) > 0.0:
+                desired_mask = desired_mask & (valid_df["USRCAT"] >= USRCAT_THRESHOLD)
             desired_count = desired_mask.sum()
             desired_ratio = (desired_count / valid_count * 100.0) if valid_count > 0 else 0.0
 
@@ -629,7 +640,7 @@ class ThesisBenchmark:
         #? [Pandas] Merge all regime tables into single DataFrame for multi-faceted boxplots.
         merged = pd.concat(combined_rows, ignore_index=True)
 
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        fig, axes = plt.subplots(2, 3, figsize=(16, 10))
         regimes = list(datasets.keys())
         regime_labels = [r.replace(" (Pure RL)", "\n(Pure RL)").replace(" (BRICS Seed)", "\n(BRICS Seed)").replace(" (Two-Stage)", "\n(Two-Stage)") for r in regimes]
         palette = [COLOR_RNN, COLOR_GRAPH, COLOR_FUNNEL][:len(regimes)]
@@ -653,17 +664,23 @@ class ThesisBenchmark:
             ax.tick_params(axis="x", rotation=15)
             ax.legend(loc="lower left" if not is_upper else "upper right")
 
-        # 1. ROCS
-        draw_box(axes[0, 0], "ROCS", "3D ROCS Shape & Color Similarity", "TanimotoCombo", ROCS_THRESHOLD)
+        # 1. ROCS Shape
+        draw_box(axes[0, 0], "ROCS", "3D ROCS Shape & Color", "TanimotoCombo", ROCS_THRESHOLD)
 
-        # 2. RAscore
-        draw_box(axes[0, 1], "RAscore", "Retrosynthetic Accessibility (RAscore)", "Probability of Synthesis", RA_THRESHOLD)
+        # 2. USRCAT Pharmacophore Moments
+        draw_box(axes[0, 1], "USRCAT", "3D USRCAT Pharmacophore", "USRCAT Similarity", USRCAT_THRESHOLD)
 
-        # 3. Heavy Atoms (Steric Volume Diagnosis)
-        draw_box(axes[1, 0], "HeavyAtoms", "Heavy Atom Count (EGCG = 33 atoms)", "Heavy Atoms", 33.0)
+        # 3. Retrosynthetic Accessibility (RAscore)
+        draw_box(axes[0, 2], "RAscore", "Retrosynthetic Accessibility", "Probability of Synthesis", RA_THRESHOLD)
 
-        # 4. Tanimoto to Seed
-        draw_box(axes[1, 1], "Tanimoto_to_Seed", "ECFP4 Similarity to Query (Scaffold Hopping)", "Tanimoto Similarity to Seed", 0.40, is_upper=True)
+        # 4. Drug-likeness (QED)
+        draw_box(axes[1, 0], "QED", "Drug-likeness (QED)", "QED Score", QED_THRESHOLD)
+
+        # 5. Heavy Atoms (Steric Volume Diagnosis)
+        draw_box(axes[1, 1], "HeavyAtoms", "Heavy Atoms (EGCG = 33)", "Heavy Atoms", 33.0)
+
+        # 6. ECFP4 Similarity to Seed (Scaffold Hopping)
+        draw_box(axes[1, 2], "Tanimoto_to_Seed", "ECFP4 Similarity to Query", "Tanimoto to Seed", 0.40, is_upper=True)
 
         plt.tight_layout()
         out_path = self.BASE_OUTPUT_DIR / "thesis_score_distributions.png"

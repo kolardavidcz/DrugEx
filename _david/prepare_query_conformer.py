@@ -85,7 +85,11 @@ class QueryConformerPreparer:
         #? [RDKit Distance Geometry] Embeds 3D coordinates via Floyd-Warshall triangle bounds smoothing + metric matrix PCA projection.
         conf_ids: List[int] = list(AllChem.EmbedMultipleConfs(mol, numConfs=NUM_CONFORMERS, params=params))
         if len(conf_ids) == 0:
-            raise RuntimeError(f"ETKDGv3 conformer embedding failed for: {smiles}")
+            #? [RDKit Distance Geometry Fallback] Relax distance constraints with random coordinates if initial projection encounters metric matrix bounds violations.
+            params.useRandomCoords = True
+            conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=NUM_CONFORMERS, params=params))
+            if len(conf_ids) == 0:
+                raise RuntimeError(f"ETKDGv3 conformer embedding failed for: {smiles}")
 
         energies: List[Tuple[float, int]] = []
         for cid in conf_ids:
@@ -161,6 +165,7 @@ class QueryConformerPreparer:
         conf_gen = RDKitConformerGenerator(
             max_conformers=10,
             max_isomers=1,
+            max_heavy_atoms=50,
             num_threads=0,
             timeout=15,
             show_progress=False,

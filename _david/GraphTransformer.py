@@ -268,8 +268,9 @@ class GraphTransformerOptimizer:
         """
         seed_tsv: Path = self.MODEL_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
+        #? [DrugEx FragmentCorpusEncoder] Decomposes prompts into graph fragments; allow_single=True enables single-ring retention.
         corpus_encoder = fragments.FragmentCorpusEncoder(
-            fragmenter=Fragmenter(FRAG_MIN_FRAGS, FRAG_MAX_FRAGS, FRAG_METHOD),
+            fragmenter=Fragmenter(FRAG_MIN_FRAGS, FRAG_MAX_FRAGS, FRAG_METHOD, allow_single=True),
             encoder=fragments.GraphFragmentEncoder(self.VOC),
             pairs_splitter=None,
             n_proc=1,
@@ -294,12 +295,27 @@ class GraphTransformerOptimizer:
                         n_repeats = max(1, n_prompts // len(std_scaffolds) + 1)
                         expanded_prompts = (std_scaffolds * n_repeats)[:n_prompts]
                         corpus_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
-                        seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
-                        return seed_loader, seed_dataset
+                        if len(seed_dataset) > 0:
+                            seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
+                            return seed_loader, seed_dataset
 
+        # Fallback to seed molecule fragmentation (EGCG possesses ester/ether bonds readily cleaved by BRICS/RECAP)
         standardized_smile = processing.Standardization(n_proc=1).apply([molecule_smile])[0]
         expanded_prompts = [standardized_smile] * max(1, n_prompts // 5)
         corpus_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
+        if len(seed_dataset) == 0:
+            # Fallback to RECAP method if BRICS produced 0 pairs
+            recap_encoder = fragments.FragmentCorpusEncoder(
+                fragmenter=Fragmenter(FRAG_MIN_FRAGS, FRAG_MAX_FRAGS, "recap", allow_single=True),
+                encoder=fragments.GraphFragmentEncoder(self.VOC),
+                pairs_splitter=None,
+                n_proc=1,
+            )
+            recap_encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
+
+        if len(seed_dataset) == 0:
+            raise RuntimeError(f"Could not encode any valid fragment prompts from scaffolds or {molecule_smile}")
+
         seed_loader = seed_dataset.asDataLoader(RL_BATCH_SIZE)
         return seed_loader, seed_dataset
 

@@ -77,25 +77,57 @@ class USRCATScorer(Scorer):
         self.random_seed: int = random_seed
         self.ref_moments: np.ndarray = self._load_reference_moments(references)
 
-    def _load_reference_moments(self, references: Union[str, Path, Sequence[Chem.Mol]]) -> np.ndarray:
+    def getKey(self) -> str:
+        """Return the unique objective identifier key for this scorer.
+
+        Returns:
+            String key name identifying this scorer in DrugExEnvironment ('USRCAT' or 'USRCAT_<TYPE>').
+        """
+        if self.score_type == "usrcat":
+            return "USRCAT"
+        return f"USRCAT_{self.score_type.upper()}"
+
+    def _load_reference_moments(self, references: Union[str, Path, Sequence[Chem.Mol], np.ndarray]) -> np.ndarray:
         """Extract and cache 3D moments for all reference conformers.
 
+        Supports precomputed NumPy array files (.npy), direct 2D NumPy arrays,
+        MDL multi-record SDF files (.sdf), or lists of RDKit Chem.Mol objects.
+
         Args:
-            references: File path to reference SDF or sequence of Chem.Mol objects.
+            references: File path (.npy/.sdf), NumPy array, or sequence of Chem.Mol objects.
 
         Returns:
             2D NumPy array of shape (N_refs, descriptor_dim).
+
+        Raises:
+            FileNotFoundError: If the specified references file does not exist.
+            ValueError: If no valid conformers or moments can be extracted.
         """
-        ref_mols: List[Chem.Mol] = []
+        if isinstance(references, np.ndarray):
+            if references.ndim == 1:
+                return references.reshape(1, -1)
+            return references
+
         if isinstance(references, (str, Path)):
             ref_path = Path(references)
             if not ref_path.exists():
                 raise FileNotFoundError(f"Reference conformer file not found: {ref_path}")
+
+            # Direct load if reference is pre-computed .npy array
+            if ref_path.suffix.lower() == ".npy":
+                #? [NumPy Load] Fast binary deserialization of precomputed reference 3D moments.
+                arr = np.load(str(ref_path))
+                return arr if arr.ndim == 2 else arr.reshape(1, -1)
+
+            # Auto-load cached .npy next to .sdf if score_type is USRCAT
+            cached_npy = ref_path.parent / f"{ref_path.stem}_{self.score_type}.npy"
+            if cached_npy.exists():
+                arr = np.load(str(cached_npy))
+                return arr if arr.ndim == 2 else arr.reshape(1, -1)
+
             #? [RDKit SDMolSupplier] Parses MDL multi-record SDF without stripping explicit hydrogens.
             suppl = Chem.SDMolSupplier(str(ref_path), removeHs=False)
-            for m in suppl:
-                if m is not None:
-                    ref_mols.append(m)
+            ref_mols = [m for m in suppl if m is not None]
         else:
             ref_mols = [m for m in references if m is not None]
 
@@ -113,8 +145,96 @@ class USRCATScorer(Scorer):
         if not moments_list:
             raise ValueError("Could not extract any 3D USRCAT moments from reference conformers.")
 
-        #? [NumPy] Stacks individual 60-dim moment vectors into an (N_refs, 60) matrix.
-        return np.vstack(moments_list)
+        #? [NumPy] Stacks individual moment vectors into an (N_refs, dim) matrix.
+        ref_matrix = np.vstack(moments_list)
+
+        # Cache reference moments to .npy if loaded from SDF
+        if isinstance(references, (str, Path)):
+            ref_path = Path(references)
+            if ref_path.suffix.lower() == ".sdf":
+                try:
+                    cache_target = ref_path.parent / f"{ref_path.stem}_{self.score_type}.npy"
+                    np.save(str(cache_target), ref_matrix)
+                except Exception:
+                    pass
+
+        return ref_matrix
+
+    def _calc_electroshape_moments(self, mol: Chem.Mol, conf_id: int = -1) -> np.ndarray:
+        """Calculate authentic 3D spatial electrostatic centroid moments (Armstrong et al., 2010).
+
+        Evaluates distances from 5 reference points:
+        1. Geometric centroid of all atoms
+        2. Positive charge centroid (charge-weighted positive coordinates)
+        3. Negative charge centroid (charge-weighted negative coordinates)
+        4. Coordinate of the atom with highest positive partial charge
+        5. Coordinate of the atom with highest negative partial charge
+
+        For each reference point, calculates the mean, variance, and skewness of the 3D distances
+        across all atoms, producing 15 electrostatic moments, concatenated with 60 USRCAT moments.
+
+        Args:
+            mol: RDKit Mol containing at least one 3D conformer.
+            conf_id: Target conformer index.
+
+        Returns:
+            75-dimensional NumPy array combining 60 USRCAT moments and 15 ElectroShape moments.
+        """
+        #? [RDKit Gasteiger] Computes partial atomic charges for electrostatic centroid determination.
+        AllChem.ComputeGasteigerCharges(mol)
+        conf = mol.GetConformer(conf_id)
+        n_atoms = mol.GetNumAtoms()
+
+        coords = np.array([list(conf.GetAtomPosition(i)) for i in range(n_atoms)], dtype=np.float64)
+        charges = np.array([
+            float(mol.GetAtomWithIdx(i).GetProp("_GasteigerCharge"))
+            if mol.GetAtomWithIdx(i).HasProp("_GasteigerCharge") else 0.0
+            for i in range(n_atoms)
+        ], dtype=np.float64)
+        charges = np.nan_to_num(charges, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # 1. Geometric centroid
+        c_geom = np.mean(coords, axis=0)
+
+        # 2. Positive charge centroid
+        pos_mask = charges > 1e-4
+        if np.any(pos_mask):
+            c_pos = np.sum(coords[pos_mask] * charges[pos_mask, np.newaxis], axis=0) / np.sum(charges[pos_mask])
+        else:
+            c_pos = c_geom
+
+        # 3. Negative charge centroid
+        neg_mask = charges < -1e-4
+        if np.any(neg_mask):
+            abs_neg = np.abs(charges[neg_mask])
+            c_neg = np.sum(coords[neg_mask] * abs_neg[:, np.newaxis], axis=0) / np.sum(abs_neg)
+        else:
+            c_neg = c_geom
+
+        # 4 & 5. Highest positive and negative charge atom coordinates
+        idx_max_pos = int(np.argmax(charges))
+        idx_max_neg = int(np.argmin(charges))
+        p_max_pos = coords[idx_max_pos]
+        p_max_neg = coords[idx_max_neg]
+
+        ref_points = [c_geom, c_pos, c_neg, p_max_pos, p_max_neg]
+        es_moments: List[float] = []
+
+        for p in ref_points:
+            #? [NumPy] Euclidean distance vector from reference point to all atoms.
+            dists = np.linalg.norm(coords - p, axis=1)
+            mu1 = float(np.mean(dists))
+            mu2 = float(np.var(dists))
+            std = np.sqrt(mu2)
+            if std > 1e-6:
+                mu3 = float(np.mean(((dists - mu1) / std) ** 3))
+            else:
+                mu3 = 0.0
+            es_moments.extend([mu1, mu2, mu3])
+
+        #? [RDKit USRCAT] 60-dimensional Ultrafast Shape Recognition with CREDO Atom Types.
+        usrcat = np.array(rdMolDescriptors.GetUSRCAT(mol, confId=conf_id), dtype=np.float64)
+        return np.concatenate([usrcat, np.array(es_moments, dtype=np.float64)])
 
     def _calc_moments(self, mol: Chem.Mol, conf_id: int = -1) -> np.ndarray | None:
         """Calculate 3D shape/pharmacophore moments for a single molecular conformer.
@@ -132,15 +252,7 @@ class USRCATScorer(Scorer):
                 usr = rdMolDescriptors.GetUSR(mol, confId=conf_id)
                 return np.array(usr, dtype=np.float64)
             elif self.score_type == "electroshape":
-                #? [RDKit Gasteiger] Computes partial atomic charges for electrostatic moment calculation.
-                AllChem.ComputeGasteigerCharges(mol)
-                usr = rdMolDescriptors.GetUSRCAT(mol, confId=conf_id)
-                # Compute charge moments across atoms
-                conf = mol.GetConformer(conf_id)
-                charges = [float(atom.GetProp("_GasteigerCharge")) if atom.HasProp("_GasteigerCharge") else 0.0 for atom in mol.GetAtoms()]
-                q_arr = np.nan_to_num(np.array(charges, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
-                q_moments = [float(np.mean(q_arr)), float(np.var(q_arr)), float(np.mean(np.abs(q_arr)))]
-                return np.concatenate([np.array(usr, dtype=np.float64), np.array(q_moments, dtype=np.float64)])
+                return self._calc_electroshape_moments(mol, conf_id=conf_id)
             else:
                 #? [RDKit USRCAT] 60-dimensional Ultrafast Shape Recognition with CREDO Atom Types.
                 usrcat = rdMolDescriptors.GetUSRCAT(mol, confId=conf_id)
@@ -174,10 +286,14 @@ class USRCATScorer(Scorer):
         params.randomSeed = self.random_seed
         params.pruneRmsThresh = 0.50
 
-        # Embed candidate conformers
+        # Embed candidate conformers with standard ETKDGv3
         conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=self.num_conformers, params=params))
         if not conf_ids:
-            return 0.0
+            #? [RDKit Distance Geometry Fallback] Relax distance geometry bounds with random coords for tough ring systems.
+            params.useRandomCoords = True
+            conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=self.num_conformers, params=params))
+            if not conf_ids:
+                return 0.0
 
         cand_moments: List[np.ndarray] = []
         for cid in conf_ids:
