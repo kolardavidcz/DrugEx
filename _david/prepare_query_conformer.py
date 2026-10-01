@@ -132,6 +132,7 @@ class QueryConformerPreparer:
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
         from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 
+        #? [RDKit ROCS Scorer] Generates conformers and evaluates 3D Gaussian shape/color TanimotoCombo overlap against reference SDF.
         conf_gen = RDKitConformerGenerator(
             max_conformers=2,
             max_isomers=1,
