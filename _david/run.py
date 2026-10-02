@@ -71,11 +71,18 @@ def main() -> int:
     output_dir = args.out_dir if args.out_dir is not None else (SCRIPT_DIR / "output" / timestamp)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Determine input molecules: explicitly passed > in_molecule.txt (if present) > default MY_MOLECULE
+    in_mol_file = SCRIPT_DIR / "in_molecule.txt"
+    if args.molecules == MY_MOLECULE and in_mol_file.exists():
+        molecules_input = in_mol_file
+    else:
+        molecules_input = args.molecules
+
     print("=" * 80)
     print(" DRUGEX LBDD PIPELINE - 1-CLICK AUTOMATED RUNNER")
     print("=" * 80)
     print(f" Execution Mode:   {mode.upper()}")
-    print(f" Query Molecule:   {args.molecules}")
+    print(f" Query Molecule:   {molecules_input}")
     print(f" Target Output:    {output_dir}")
     print(f" Epochs / Stage:   {epochs}")
     print(f" Samples / Epoch:  {n_samples}")
@@ -89,7 +96,7 @@ def main() -> int:
             epochs=epochs,
             n_samples=n_samples,
         )
-        summary = pipeline.run(molecules=args.molecules)
+        summary = pipeline.run(molecules=molecules_input)
 
         print("\n" + "=" * 80)
         print(" 1-CLICK PIPELINE EXECUTION COMPLETED")

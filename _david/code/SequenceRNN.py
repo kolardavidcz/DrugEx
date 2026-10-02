@@ -104,9 +104,9 @@ ROCS_UPPER_X: float = 1.10
 ROCS_THRESHOLD: float = 0.50
 
 # --- ElectroShape 3D Shape & Electrostatic Moment Bounds (Ultrafast Decoupled RL Tier) ---
-ELECTROSHAPE_LOWER_X: float = 0.50
-ELECTROSHAPE_UPPER_X: float = 0.85
-ELECTROSHAPE_THRESHOLD: float = 0.55
+ELECTROSHAPE_LOWER_X: float = 0.12
+ELECTROSHAPE_UPPER_X: float = 0.35
+ELECTROSHAPE_THRESHOLD: float = 0.22
 # Backward compatibility aliases
 USRCAT_LOWER_X: float = ELECTROSHAPE_LOWER_X
 USRCAT_UPPER_X: float = ELECTROSHAPE_UPPER_X

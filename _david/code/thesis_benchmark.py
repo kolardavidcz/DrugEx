@@ -88,7 +88,7 @@ except Exception as e:
 
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 ROCS_THRESHOLD: float = 0.50
-USRCAT_THRESHOLD: float = 0.55
+USRCAT_THRESHOLD: float = 0.22
 RA_THRESHOLD: float = 0.50
 QED_THRESHOLD: float = 0.40
 SA_THRESHOLD: float = 4.0

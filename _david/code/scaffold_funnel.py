@@ -52,7 +52,7 @@ except (ImportError, Exception):
 from _david.code.fallback_monitor import FallbackMonitor
 
 MIN_ROCS_SCORE: float = 0.38
-MIN_ELECTROSHAPE_SCORE: float = 0.45
+MIN_ELECTROSHAPE_SCORE: float = 0.20
 MIN_USRCAT_SCORE: float = MIN_ELECTROSHAPE_SCORE  # Backward compatibility alias
 MIN_RA_SCORE: float = 0.50
 MIN_QED_SCORE: float = 0.40
@@ -485,10 +485,12 @@ class ScaffoldFunnel:
         if not tier1_candidates:
             FallbackMonitor.record_fallback(
                 fallback_type="tier1_prefilter_zero_survivors",
-                message="Zero candidates survived strict Tier 1 pre-filters; falling back to top 50 un-filtered candidates",
+                message="Zero candidates survived strict Tier 1 pre-filters; falling back to top candidates ranked by 3D similarity",
                 context={"total_input_rows": len(df)},
             )
-            for _, row in df.head(50).iterrows():
+            sort_key = electroshape_col if (electroshape_col and electroshape_col in df.columns) else None
+            fallback_df = df.sort_values(by=sort_key, ascending=False).head(50) if sort_key else df.head(50)
+            for _, row in fallback_df.iterrows():
                 smi = str(row["SMILES"]).strip()
                 cand_mol = Chem.MolFromSmiles(smi)
                 if cand_mol is None:
