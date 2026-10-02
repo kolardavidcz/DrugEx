@@ -1,23 +1,11 @@
-"""One-Click Runner for DrugEx Ligand-Based De Novo Drug Design Pipeline.
-
-Executes the complete end-to-end LBDD pipeline with ZERO command-line arguments required.
-Outputs are automatically written to `_david/output/<YYYYMMDD_HHMMSS>/...`.
-
-Stages executed:
-1. Stage 0: 3D reference conformer ensemble, 75-D ElectroShape moments & seed core Murcko scaffold.
-2. Stage 1: Sequence-RNN global hit discovery via unconstrained policy-gradient RL (Regime 1).
-3. Stage 2: Graph-Transformer fragment-conditioned lead optimization directly on query seed core (Regime 2).
-4. Stage 3: Post-generation lead selection & diversity clustering (continuous desirability ranking, non-gating).
-5. Stage 4: Publication benchmark suite & statistical figure generation.
-6. Health & Fallback Audit Report.
-"""
+"""One-Click Runner for DrugEx Ligand-Based De Novo Drug Design Pipeline."""
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import os
-from pathlib import Path
 import sys
+from datetime import datetime
+from pathlib import Path
 
 # Ensure repository root and _david/code are on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -33,11 +21,7 @@ from _david.code.prepare_query_conformer import MY_MOLECULE
 
 
 def main() -> int:
-    """Execute the end-to-end pipeline with zero command-line arguments.
-
-    Returns:
-        Exit code: 0 on success, non-zero on failure.
-    """
+    """Execute the end-to-end pipeline with zero command-line arguments."""
     parser = argparse.ArgumentParser(
         description="One-Click Runner for DrugEx Ligand-Based De Novo Drug Design Pipeline",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -101,7 +85,7 @@ def main() -> int:
         print("\n" + "=" * 80)
         print(" 1-CLICK PIPELINE EXECUTION COMPLETED")
         print("=" * 80)
-        print(f" Status:            SUCCESS")
+        print(" Status:            SUCCESS")
         print(f" Run Directory:     {output_dir}")
         print(f" Summary Metadata:  {output_dir / 'pipeline_summary.json'}")
         print(f" Fallback Audit:    {output_dir / 'fallback_audit.json'}")

@@ -1,19 +1,13 @@
-"""Live Terminal Monitor and Dashboard for DrugEx LBDD Pipeline.
-
-Monitors active or completed pipeline runs by inspecting `pipeline_status.json`,
-`pipeline.log`, `pipeline_summary.json`, `funnel_attrition.json`, `fallback_audit.json`,
-and RL training logs (`david_agent_fit.tsv`).
-Supports one-shot inspection and real-time live refresh via `--watch`.
-"""
+"""Live Terminal Monitor and Dashboard for DrugEx LBDD Pipeline."""
 from __future__ import annotations
 
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any
 
 # Ensure repository root and _david/code are on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -27,15 +21,8 @@ if str(SCRIPT_DIR) not in sys.path:
 import pandas as pd
 
 
-def find_latest_run_dir(base_dir: Path | None = None) -> Optional[Path]:
-    """Locate the most recent pipeline run output directory.
-
-    Args:
-        base_dir: Optional base directory to search. Defaults to `_david/output/`.
-
-    Returns:
-        Path to the latest run directory, or None if no runs exist.
-    """
+def find_latest_run_dir(base_dir: Path | None = None) -> Path | None:
+    """Locate the most recent pipeline run output directory."""
     search_root = base_dir or (SCRIPT_DIR.parent / "output")
     if not search_root.exists():
         return None
@@ -49,14 +36,7 @@ def find_latest_run_dir(base_dir: Path | None = None) -> Optional[Path]:
 
 
 def format_duration(seconds: float) -> str:
-    """Format duration in seconds into human-readable MM:SS or HH:MM:SS string.
-
-    Args:
-        seconds: Elapsed seconds.
-
-    Returns:
-        Formatted time string.
-    """
+    """Format duration in seconds into human-readable MM:SS or HH:MM:SS string."""
     total_sec = int(round(seconds))
     hrs = total_sec // 3600
     mins = (total_sec % 3600) // 60
@@ -67,37 +47,33 @@ def format_duration(seconds: float) -> str:
 
 
 def display_dashboard(run_dir: Path) -> None:
-    """Read all telemetry files and print a formatted pipeline status dashboard.
-
-    Args:
-        run_dir: Path to the target pipeline run directory.
-    """
+    """Read all telemetry files and print a formatted pipeline status dashboard."""
     status_file = run_dir / "pipeline_status.json"
     summary_file = run_dir / "pipeline_summary.json"
     audit_file = run_dir / "fallback_audit.json"
     log_file = run_dir / "pipeline.log"
     attrition_file = run_dir / "stage2_scaffold_funnel" / "funnel_attrition.json"
 
-    status_data: Dict[str, Any] = {}
+    status_data: dict[str, Any] = {}
     if status_file.exists():
         try:
-            with open(status_file, "r", encoding="utf-8") as f:
+            with open(status_file, encoding="utf-8") as f:
                 status_data = json.load(f)
         except Exception:
             pass
 
-    summary_data: Dict[str, Any] = {}
+    summary_data: dict[str, Any] = {}
     if summary_file.exists():
         try:
-            with open(summary_file, "r", encoding="utf-8") as f:
+            with open(summary_file, encoding="utf-8") as f:
                 summary_data = json.load(f)
         except Exception:
             pass
 
-    audit_data: Dict[str, Any] = {}
+    audit_data: dict[str, Any] = {}
     if audit_file.exists():
         try:
-            with open(audit_file, "r", encoding="utf-8") as f:
+            with open(audit_file, encoding="utf-8") as f:
                 audit_data = json.load(f)
         except Exception:
             pass
@@ -113,7 +89,6 @@ def display_dashboard(run_dir: Path) -> None:
     green = "\033[92m" if is_tty else ""
     yellow = "\033[93m" if is_tty else ""
     red = "\033[91m" if is_tty else ""
-    blue = "\033[94m" if is_tty else ""
     bold = "\033[1m" if is_tty else ""
     reset = "\033[0m" if is_tty else ""
 
@@ -154,7 +129,7 @@ def display_dashboard(run_dir: Path) -> None:
         print("-" * 80)
 
     # 3. RL Training Convergence (Stage 1 & Stage 3)
-    for st_num, st_name, st_path in [
+    for _, st_name, st_path in [
         (1, "Stage 1: Sequence-RNN", run_dir / "stage1_sequence_rnn" / "reinforcement_learning" / "david_agent_fit.tsv"),
         (3, "Stage 3: Graph-Transformer", run_dir / "stage3_graph_transformer" / "reinforcement_learning" / "david_agent_fit.tsv"),
     ]:
@@ -177,7 +152,7 @@ def display_dashboard(run_dir: Path) -> None:
     # 4. Stage 2 Funnel Attrition
     if attrition_file.exists():
         try:
-            with open(attrition_file, "r", encoding="utf-8") as f:
+            with open(attrition_file, encoding="utf-8") as f:
                 att = json.load(f)
             total_cand = att.get("total_input_candidates", 0)
             tier1 = att.get("tier1_survivors_count", 0)
@@ -206,24 +181,20 @@ def display_dashboard(run_dir: Path) -> None:
     # 6. Recent Log Lines
     if log_file.exists():
         try:
-            with open(log_file, "r", encoding="utf-8") as f:
+            with open(log_file, encoding="utf-8") as f:
                 lines = f.readlines()
-            recent_lines = [l.strip() for l in lines[-6:] if l.strip()]
+            recent_lines = [line.strip() for line in lines[-6:] if line.strip()]
             if recent_lines:
                 print(f" {bold}Recent Pipeline Log Entries:{reset}")
-                for l in recent_lines:
-                    print(f"  {l}")
+                for line in recent_lines:
+                    print(f"  {line}")
                 print("-" * 80)
         except Exception:
             pass
 
 
 def main() -> int:
-    """CLI entrypoint for pipeline monitoring.
-
-    Returns:
-        Exit code: 0 on success.
-    """
+    """CLI entrypoint for pipeline monitoring."""
     parser = argparse.ArgumentParser(description="Live Terminal Monitor for DrugEx LBDD Pipeline")
     parser.add_argument("--dir", "-d", type=Path, default=None, help="Target run directory to monitor")
     parser.add_argument("--watch", "-w", action="store_true", help="Continuously refresh and watch telemetry")

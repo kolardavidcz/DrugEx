@@ -1,14 +1,10 @@
-"""Prepares low-energy 3D conformer ensembles and USRCAT/ElectroShape descriptors for LBDD seed ligands.
-
-Uses ETKDGv3 (CSD experimental torsional potentials) and MMFF94 force field minimization,
-applying heavy-atom RMSD pruning and thermodynamic energy window filtering.
-Pre-computes 60-D USRCAT and 75-D ElectroShape moments for alignment-free 3D similarity evaluations.
-"""
+"""Prepares low-energy 3D conformer ensembles and moments for seed ligands."""
 from __future__ import annotations
 
-from pathlib import Path
+import contextlib
+import hashlib
 import sys
-from typing import List, Tuple
+from pathlib import Path
 
 # Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -18,10 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import hashlib
-#? [NumPy] Array operations for saving and loading pre-computed moment vectors.
 import numpy as np
-#? [RDKit] Cheminformatics foundation for molecule parsing, conformer embedding, force-field optimization, and SDF I/O.
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolDescriptors
 from rdkit.Chem.Scaffolds import MurckoScaffold
@@ -36,43 +29,18 @@ MAX_ENERGY_DELTA: float = 8.0
 
 
 def get_seed_hash(smiles: str, length: int = 8) -> str:
-    """Compute deterministic short hash for query seed SMILES.
-
-    Args:
-        smiles: Input SMILES string.
-        length: Length of hex hash string to return (default: 8).
-
-    Returns:
-        Deterministic hex hash string.
-    """
+    """Compute deterministic short hash for query seed SMILES."""
     mol = Chem.MolFromSmiles(smiles)
     can_smi = Chem.MolToSmiles(mol, isomericSmiles=True) if mol is not None else smiles.strip()
     return hashlib.sha256(can_smi.encode("utf-8")).hexdigest()[:length]
 
 
 class QueryConformerPreparer:
-    """Prepares low-energy 3D conformer ensembles and USRCAT/ElectroShape descriptors for LBDD seed ligands.
-
-    Uses ETKDGv3 (CSD experimental torsional potentials) and MMFF94 force field
-    minimization, applying heavy-atom RMSD pruning and thermodynamic energy window filtering.
-    Additionally pre-computes 60-D USRCAT and 75-D ElectroShape shape/pharmacophore moments to enable
-    ultrafast alignment-free 3D similarity evaluations.
-
-    Attributes:
-        REFERENCES_DIR: Path to directory where reference SDFs and moment arrays are stored.
-        OUTPUT_SDF: Path to default output multi-conformer SDF file.
-        OUTPUT_USRCAT: Path to precomputed reference USRCAT moments array (.npy).
-        OUTPUT_ELECTROSHAPE: Path to precomputed reference ElectroShape moments array (.npy).
-    """
+    """Prepares low-energy 3D conformer ensembles and USRCAT/ElectroShape moments."""
 
     get_seed_hash = staticmethod(get_seed_hash)
 
     def __init__(self, references_dir: Path | None = None) -> None:
-        """Initialize QueryConformerPreparer.
-
-        Args:
-            references_dir: Optional custom path for storing reference SDF and moment files.
-        """
         if references_dir is None:
             self.REFERENCES_DIR: Path = SCRIPT_DIR.parent / "references"
         else:
@@ -83,38 +51,20 @@ class QueryConformerPreparer:
         self.OUTPUT_ELECTROSHAPE: Path = self.REFERENCES_DIR / "my_molecule_electroshape.npy"
 
     def generate_reference_sdf(self, smiles: str = MY_MOLECULE, output_path: Path | None = None) -> Path:
-        """Generate a low-energy 3D conformer ensemble, USRCAT, and ElectroShape moments for query SMILES.
-
-        Args:
-            smiles: SMILES string of the query active ligand.
-            output_path: Optional destination Path for writing the .sdf file.
-
-        Returns:
-            Path to the written .sdf file.
-
-        Raises:
-            ValueError: If SMILES cannot be parsed into an RDKit Mol.
-            RuntimeError: If conformer embedding yields zero conformers.
-        """
+        """Generate a low-energy 3D conformer ensemble and moments for query SMILES."""
         target_path: Path = output_path or self.OUTPUT_SDF
-        #? [RDKit] Parse SMILES into C++ Mol graph: validates valences, ring closures, and chiral center parities (@/@@).
         mol: Chem.Mol | None = Chem.MolFromSmiles(smiles)
         if mol is None:
             raise ValueError(f"Could not parse SMILES: {smiles}")
 
-        #? [RDKit] Adds explicit hydrogen vertices to 2D graph: required for 3D force-field charges, van der Waals radii, and H-bond donors.
         mol = Chem.AddHs(mol)
 
-        #? [RDKit ETKDGv3] Experimental-Torsion Knowledge Distance Geometry: incorporates CSD dihedral potentials.
         params = AllChem.ETKDGv3()
         params.randomSeed = RANDOM_SEED
-        #? [RDKit] Heavy-atom Kabsch RMSD threshold: prunes duplicate conformers with RMSD < 0.5 Å on-the-fly during stochastic embedding.
         params.pruneRmsThresh = PRUNE_RMS_THRESH
 
-        #? [RDKit Distance Geometry] Embeds 3D coordinates via Floyd-Warshall triangle bounds smoothing + metric matrix PCA projection.
-        conf_ids: List[int] = list(AllChem.EmbedMultipleConfs(mol, numConfs=NUM_CONFORMERS, params=params))
+        conf_ids: list[int] = list(AllChem.EmbedMultipleConfs(mol, numConfs=NUM_CONFORMERS, params=params))
         if len(conf_ids) == 0:
-            #? [RDKit Distance Geometry Fallback] Relax distance constraints with random coordinates if initial projection encounters metric matrix bounds violations.
             FallbackMonitor.record_fallback(
                 fallback_type="conformer_embedding_random_coords",
                 message=f"Standard ETKDGv3 embedding yielded 0 conformers for seed {smiles}; falling back to useRandomCoords=True",
@@ -130,7 +80,7 @@ class QueryConformerPreparer:
                 )
                 raise RuntimeError(f"ETKDGv3 conformer embedding failed for: {smiles}")
 
-        energies: List[Tuple[float, int]] = []
+        energies: list[tuple[float, int]] = []
         for cid in conf_ids:
             #? [RDKit MMFF94] Computes Merck Molecular Force Field atom types and partial charges; returns None if elements unparameterized.
             props = AllChem.MMFFGetMoleculeProperties(mol)
@@ -160,8 +110,7 @@ class QueryConformerPreparer:
 
         energies.sort(key=lambda x: x[0])
         min_e: float = energies[0][0]
-        #? [Thermodynamic Filtering] Retains conformers within Boltzmann thermal energy window (delta <= 8.0 kcal/mol) of global minimum.
-        accepted_cids: List[int] = [cid for e, cid in energies if (e - min_e) <= MAX_ENERGY_DELTA]
+        accepted_cids: list[int] = [cid for e, cid in energies if (e - min_e) <= MAX_ENERGY_DELTA]
 
         target_path.parent.mkdir(parents=True, exist_ok=True)
         #? [RDKit SDWriter] Serializes accepted 3D Cartesian coordinates into MDL multi-record SDF v2000 structure blocks.
@@ -171,29 +120,23 @@ class QueryConformerPreparer:
         writer.close()
 
         # Compute Gasteiger charges once for ElectroShape moment evaluations
-        try:
+        with contextlib.suppress(Exception):
             AllChem.ComputeGasteigerCharges(mol)
-        except Exception:
-            pass
 
         # Precompute 60-D USRCAT and 75-D ElectroShape moments for cached alignment-free scoring
-        usrcat_moments: List[np.ndarray] = []
-        electroshape_moments: List[np.ndarray] = []
+        usrcat_moments: list[np.ndarray] = []
+        electroshape_moments: list[np.ndarray] = []
         for cid in accepted_cids:
-            # 60-D USRCAT moments
             usrcat_vec = np.array(rdMolDescriptors.GetUSRCAT(mol, confId=cid), dtype=np.float64)
             usrcat_moments.append(usrcat_vec)
 
-            # 75-D ElectroShape moments
             conf = mol.GetConformer(cid)
             coords = conf.GetPositions()
             charges = np.zeros(mol.GetNumAtoms(), dtype=np.float64)
             for i, atom in enumerate(mol.GetAtoms()):
-                try:
+                with contextlib.suppress(Exception):
                     val = float(atom.GetProp("_GasteigerCharge"))
                     charges[i] = 0.0 if np.isnan(val) or np.isinf(val) else val
-                except Exception:
-                    charges[i] = 0.0
 
             c_geom = np.mean(coords, axis=0)
             pos_mask = charges > 1e-4
@@ -203,7 +146,7 @@ class QueryConformerPreparer:
             p_pos = coords[int(np.argmax(charges))]
             p_neg = coords[int(np.argmin(charges))]
 
-            es_extra: List[float] = []
+            es_extra: list[float] = []
             for p in [c_geom, c_pos, c_neg, p_pos, p_neg]:
                 dists = np.linalg.norm(coords - p, axis=1)
                 mu1 = float(np.mean(dists))
@@ -232,21 +175,8 @@ class QueryConformerPreparer:
 
         return target_path
 
-
-
     def extract_seed_core_scaffold(self, smiles: str = MY_MOLECULE, output_path: Path | None = None) -> str:
-        """Extract canonical Bemis-Murcko core scaffold of query seed ligand.
-
-        Args:
-            smiles: SMILES string of active seed query.
-            output_path: Optional Path to save scaffold TSV.
-
-        Returns:
-            Canonical SMILES string of the core scaffold.
-
-        Raises:
-            ValueError: If input SMILES cannot be parsed into an RDKit Mol.
-        """
+        """Extract canonical Bemis-Murcko core scaffold of query seed ligand."""
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             raise ValueError(f"Could not parse query SMILES: {smiles}")

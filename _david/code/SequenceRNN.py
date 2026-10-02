@@ -1,17 +1,11 @@
-"""Stage 1 Generative Optimizer executing policy-gradient RL on a SequenceRNN model.
-
-Combines unconstrained SMILES exploration with multi-objective reward environments
-featuring ultrafast 75-D ElectroShape moments, dynamic heavy-atom volume plateau,
-retrosynthetic accessibility, and Augmented Chebyshev anti-cheating scalarization.
-"""
+"""Stage 1 Generative Optimizer executing policy-gradient RL on a SequenceRNN model."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+import sys
+import warnings
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-import sys
-from typing import List, Tuple, Union
-import warnings
 
 # Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -21,36 +15,26 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-#? [Matplotlib] Non-interactive Agg backend: disables GUI window requirement for headless server execution.
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-#? [NumPy] Vector numerical arrays for score manipulation and metric tracking.
-import numpy as np
-#? [Pandas] Tabular data structures for candidate hit tables and training logs.
 import pandas as pd
-#? [RDKit] Cheminformatics toolkit for molecule graph validation, 2D depictions, and property scoring.
-from rdkit import Chem
-from rdkit.Chem import Draw
-#? [PyTorch] Deep learning framework for tensor calculations, GPU memory probing, and LSTM gradients.
 import torch
-
-from drugex.data.corpus import vocabulary
 from drugex.data.corpus.vocabulary import VocSmiles
-from drugex.data.datasets import SmilesDataSet
-from drugex.training import environment, explorers, generators, monitors, rewards
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import SequenceExplorer
 from drugex.training.generators import SequenceRNN
 from drugex.training.interfaces import RewardScheme
 from drugex.training.monitors import FileMonitor
-from drugex.training.rewards import ParetoTanimotoDistance
-from drugex.training.scorers import modifiers, properties, ra_scorer
+from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import SmoothClippedScore, SmoothHump
 from drugex.training.scorers.properties import Property, Scaffold
 from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
+from rdkit import Chem
+from rdkit.Chem import Draw
 
-from _david.code.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
+from _david.code.anti_cheating_rewards import AugmentedChebyshevReward
 from _david.code.fallback_monitor import FallbackMonitor
 from _david.code.usrcat_scorer import USRCATScorer
 
@@ -59,11 +43,7 @@ warnings.filterwarnings("ignore")
 
 #? [PyTorch CUDA] Lightweight device probe: tests tensor allocation on GPU 0 to safely catch driver faults and fall back to CPU.
 def get_safe_gpus() -> tuple[int, ...] | tuple[()]:
-    """Safely detect available and functioning CUDA devices.
-
-    Returns:
-        Tuple containing GPU device index (0,) if CUDA is functional, or empty tuple if unavailable.
-    """
+    """Safely detect available and functioning CUDA devices."""
     if not torch.cuda.is_available():
         FallbackMonitor.record_fallback(
             fallback_type="device_cuda_unavailable",
@@ -132,33 +112,10 @@ SA_THRESHOLD: float = 0.50
 
 
 class SequenceRNNOptimizer:
-    """Stage 1 Generative Optimizer executing policy-gradient RL on a SequenceRNN model.
-
-    Skeptical Academic Rationale:
-    1. Addresses RL Conformer Undersampling: Upgrades conformer generation from max_confs=2 to 10,
-       resolving the severe conformer desert where flexible molecules failed 3D alignment.
-    2. Closes Pareto Objective Cheating: Eliminates the counterproductive 2D Novelty objective which
-       previously rewarded molecules for structurally diverging from the target volume, allowing the agent
-       to game Pareto ranks by producing trivial small fragments.
-    3. Enforces Heavy-Atom Volume Target: Uses a Gaussian modifier centered on query ligand's heavy atom count
-       to physically prevent the generator from collapsing into 15-20 atom fragments that physically cannot
-       match the query steric envelope.
-    4. Dual 3D Alignment: Combines Gaussian volume overlap (ROCS) with rotation-invariant ElectroShape moments.
-
-    Attributes:
-        ROOT_PATH: Root repository directory.
-        OUTPUT_DIR: Target folder for saving training logs, checkpoints, and generated candidate tables.
-        VOC: SMILES vocabulary object loaded from pretrained Papyrus model.
-        AGENT: Trainable SequenceRNN policy model.
-        PRIOR: Frozen SequenceRNN prior model providing mutation and KL penalty anchor.
-    """
+    """Stage 1 Generative Optimizer executing policy-gradient RL on a SequenceRNN model."""
 
     def __init__(self, output_dir: Path | None = None) -> None:
-        """Initialize SequenceRNNOptimizer with pretrained models and vocabularies.
-
-        Args:
-            output_dir: Optional custom Path to store run outputs and models.
-        """
+        """Initialize SequenceRNNOptimizer with pretrained models and vocabularies."""
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "output" / "stage1_sequence_rnn"
 
@@ -192,26 +149,7 @@ class SequenceRNNOptimizer:
         toxicophore_smarts: str | Sequence[str] | None = None,
         reward_scheme: RewardScheme | None = None,
     ) -> DrugExEnvironment:
-        """Construct multi-objective DrugExEnvironment for reinforcement learning.
-
-        Builds a universal, un-cheatable multi-objective environment incorporating ultrafast 3D
-        ElectroShape moments (75-D shape + Gasteiger partial charge centroids, 100x faster than
-        iterative ROCS conformer optimization), dynamic heavy atom volume plateau (SmoothHump
-        centered on the query ligand's heavy atom count), retrosynthetic accessibility (RAscore),
-        QED drug-likeness, and synthetic accessibility (SA).
-        Optionally incorporates custom toxicophore/liability suppression via Scaffold if specified.
-        Uses AugmentedChebyshevReward scalarization to prevent small fragments from gaming
-        the Pareto frontier.
-
-        Args:
-            ref_sdf_path: Path to reference multi-conformer 3D SDF for ElectroShape.
-            seed_smiles: SMILES string of active seed query for dynamic size plateau derivation.
-            toxicophore_smarts: Optional SMARTS pattern or sequence of patterns to penalize (default: None).
-            reward_scheme: Optional custom RewardScheme (defaults to AugmentedChebyshevReward).
-
-        Returns:
-            Configured DrugExEnvironment with anti-cheating reward scheme.
-        """
+        """Construct multi-objective DrugExEnvironment for reinforcement learning."""
         ref_path_str: str = str(ref_sdf_path)
 
         #? [Pure LBDD ElectroShape Scorer] Ultrafast 75-dimensional shape and partial charge centroid moment similarity.
@@ -306,17 +244,7 @@ class SequenceRNNOptimizer:
         n_samples: int = RL_N_SAMPLES,
         toxicophore_smarts: str | Sequence[str] | None = None,
     ) -> tuple[SequenceRNN, pd.DataFrame]:
-        """Execute policy-gradient reinforcement learning using SequenceExplorer.
-
-        Args:
-            molecule_smile: SMILES string of active query molecule.
-            epochs: Total policy gradient training epochs.
-            n_samples: Trajectories sampled per epoch.
-            toxicophore_smarts: Optional substructure SMARTS pattern to penalize.
-
-        Returns:
-            Tuple containing trained SequenceRNN agent and scored candidates DataFrame.
-        """
+        """Execute policy-gradient reinforcement learning using SequenceExplorer."""
         from _david.code.prepare_query_conformer import QueryConformerPreparer
         preparer = QueryConformerPreparer(self.ROOT_PATH / "_david" / "references")
         seed_hash = preparer.get_seed_hash(molecule_smile)
@@ -363,16 +291,7 @@ class SequenceRNNOptimizer:
     def RAINFORCEMENT_LEARNING(
         self, molecule_smile: str, epochs: int | None = None, n_samples: int | None = None
     ) -> tuple[SequenceRNN, pd.DataFrame]:
-        """Backward-compatibility wrapper for legacy pipeline calls.
-
-        Args:
-            molecule_smile: Query molecule SMILES.
-            epochs: Optional custom epoch count.
-            n_samples: Optional custom sample count.
-
-        Returns:
-            Tuple of trained SequenceRNN agent and scored DataFrame.
-        """
+        """Backward-compatibility wrapper for legacy pipeline calls."""
         ep = epochs if epochs is not None else RL_EPOCHS
         ns = n_samples if n_samples is not None else RL_N_SAMPLES
         return self.run_reinforcement_learning(molecule_smile=molecule_smile, epochs=ep, n_samples=ns)
@@ -380,18 +299,7 @@ class SequenceRNNOptimizer:
     def save_visualizations(
         self, agent: SequenceRNN, env: DrugExEnvironment, model_prefix: Path, out_dir: Path, num_samples: int = 100
     ) -> pd.DataFrame:
-        """Generate candidates, evaluate multi-objective scores, and save diagnostic plots.
-
-        Args:
-            agent: Trained SequenceRNN generator.
-            env: Multi-objective DrugExEnvironment.
-            model_prefix: File prefix where FileMonitor logged training data.
-            out_dir: Directory where plots, tables, and depiction grids are stored.
-            num_samples: Number of de novo SMILES to sample.
-
-        Returns:
-            DataFrame of scored generated candidates.
-        """
+        """Generate candidates, evaluate multi-objective scores, and save diagnostic plots."""
         fit_file = Path(f"{model_prefix}_fit.tsv")
         if fit_file.exists():
             #? [Pandas] Parses TSV training monitor log file into DataFrame.
@@ -417,7 +325,7 @@ class SequenceRNNOptimizer:
         if out_dir.name == "reinforcement_learning" and out_dir.parent != out_dir:
             scored_df.to_csv(out_dir.parent / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
             scored_df.to_csv(out_dir.parent / "stage1_hits.tsv", sep="\t", index=False)
-        if self.OUTPUT_DIR != out_dir and self.OUTPUT_DIR != out_dir.parent:
+        if out_dir != self.OUTPUT_DIR and out_dir.parent != self.OUTPUT_DIR:
             scored_df.to_csv(self.OUTPUT_DIR / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
             scored_df.to_csv(self.OUTPUT_DIR / "stage1_hits.tsv", sep="\t", index=False)
 
@@ -439,14 +347,7 @@ class MY_TRANSFER_LEARNING(SequenceRNNOptimizer):
     """Adapter for legacy transfer learning calls."""
 
     def TRANSFER_LEARNING(self, molecule_smile: str) -> tuple[SequenceRNN, pd.DataFrame, Path]:
-        """Execute legacy transfer learning placeholder.
-
-        Args:
-            molecule_smile: Query molecule SMILES.
-
-        Returns:
-            Tuple of agent, DataFrame, and output directory.
-        """
+        """Execute legacy transfer learning placeholder."""
         return self.AGENT, pd.DataFrame({"SMILES": [molecule_smile]}), self.OUTPUT_DIR
 
 
@@ -454,12 +355,7 @@ class RAINFORCMENT_LEARNING(SequenceRNNOptimizer):
     """Adapter for legacy reinforcement learning class naming."""
 
     def __init__(self, finetuned: SequenceRNN | Path, output_dir: Path | None = None) -> None:
-        """Initialize adapter.
-
-        Args:
-            finetuned: Trained agent or path.
-            output_dir: Optional output directory.
-        """
+        """Initialize adapter."""
         super().__init__(output_dir=output_dir)
         if isinstance(finetuned, SequenceRNN):
             self.AGENT = finetuned

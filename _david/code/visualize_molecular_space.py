@@ -1,14 +1,11 @@
 """Molecular chemical space visualization using Scaffviz t-SNE and Plotly dashboards."""
 from __future__ import annotations
 
-from dataclasses import dataclass
-import json
-import os
-from pathlib import Path
 import sys
-import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 # Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -19,12 +16,11 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import polars as pl
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdShapeAlign
@@ -93,7 +89,7 @@ class MolecularSpaceConfig:
 
 class ConformerSimilarityEngine:
     @staticmethod
-    def generate_3d_conformer(smiles: str, random_seed: int = RANDOM_STATE) -> Optional[Chem.Mol]:
+    def generate_3d_conformer(smiles: str, random_seed: int = RANDOM_STATE) -> Chem.Mol | None:
         try:
             mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
             params = AllChem.ETKDGv3()
@@ -116,12 +112,12 @@ class ConformerSimilarityEngine:
     @classmethod
     def compute_3d_similarities(
         cls, ref_smiles: str, candidate_smiles: list[str], n_jobs: int = N_JOBS
-    ) -> Tuple[List[float], List[float], List[float]]:
+    ) -> tuple[list[float], list[float], list[float]]:
         ref_mol = cls.generate_3d_conformer(ref_smiles)
         if ref_mol is None:
             return [0.0] * len(candidate_smiles), [0.0] * len(candidate_smiles), [0.0] * len(candidate_smiles)
 
-        def _score_single(smi: str) -> Tuple[float, float, float]:
+        def _score_single(smi: str) -> tuple[float, float, float]:
             if smi == ref_smiles:
                 return 1.0, 1.0, 1.0
             try:
@@ -149,7 +145,7 @@ class ChemicalSpaceDataset:
         self.config: MolecularSpaceConfig = config
 
     def sample_background_molecules(
-        self, n_samples: int, exclude_smiles: Set[str], random_seed: int = RANDOM_STATE
+        self, n_samples: int, exclude_smiles: set[str], random_seed: int = RANDOM_STATE
     ) -> pd.DataFrame:
         exclude = exclude_smiles or set()
         raw_papyrus = read_papyrus(
@@ -257,7 +253,7 @@ class ChemicalSpaceDataset:
         query_df: pd.DataFrame,
         table_name: str,
         store_dir: Path,
-    ) -> Tuple[Any, pd.DataFrame]:
+    ) -> tuple[Any, pd.DataFrame]:
         combined = pd.concat([background_df, candidates_df, query_df], ignore_index=True)
         combined = combined.drop_duplicates(subset=["SMILES"], keep="last").reset_index(drop=True)
 
@@ -280,7 +276,7 @@ class ChemicalSpaceDataset:
 
 class ManifoldEmbeddingEngine:
     @staticmethod
-    def compute_tsne_coordinates(table: Any, config: MolecularSpaceConfig) -> Tuple[str, str, pd.DataFrame]:
+    def compute_tsne_coordinates(table: Any, config: MolecularSpaceConfig) -> tuple[str, str, pd.DataFrame]:
         manifold_tab = ManifoldTable.fromMolTable(table)
         tsne_manifold = TSNE(
             perplexity=config.tsne_perplexity,

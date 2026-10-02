@@ -13,12 +13,10 @@ These tests empirically verify:
 10. SequenceRNNOptimizer and GraphTransformerOptimizer environment configurations.
 11. 1-click runner module import and interface compliance.
 """
-from __future__ import annotations
-
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-import sys
 
 # Ensure repository root is on sys.path for direct execution
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -26,26 +24,25 @@ PROJECT_ROOT = SCRIPT_DIR.parent if (SCRIPT_DIR.parent / "drugex").exists() else
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-#? [NumPy] Vectorized array test comparisons and assertions.
 import numpy as np
-#? [RDKit] MolFromSmiles validation and Murcko scaffold extraction.
+from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
+from drugex.training.scorers.modifiers import SmoothHump
+from drugex.training.scorers.properties import Scaffold
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
-from drugex.training.scorers.modifiers import SmoothHump
-from drugex.training.scorers.properties import Scaffold
-from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
-
-# Import from modular code package
-from _david.code.fallback_monitor import FallbackEvent, FallbackMonitor
-from _david.code.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
-from _david.code.usrcat_scorer import USRCATScorer
+import _david.run as david_run
+from _david.code.anti_cheating_rewards import (
+    AugmentedChebyshevReward,
+    GeometricMeanReward,
+)
+from _david.code.fallback_monitor import FallbackMonitor
+from _david.code.GraphTransformer import GraphTransformerOptimizer
+from _david.code.prepare_query_conformer import MY_MOLECULE, QueryConformerPreparer
 from _david.code.scaffold_funnel import ScaffoldFunnel
 from _david.code.SequenceRNN import SequenceRNNOptimizer
-from _david.code.GraphTransformer import GraphTransformerOptimizer
-from _david.code.prepare_query_conformer import QueryConformerPreparer, MY_MOLECULE
-import _david.run as david_run
+from _david.code.usrcat_scorer import USRCATScorer
 
 
 class TestAntiCheatingRewards(unittest.TestCase):
@@ -117,8 +114,8 @@ class TestAntiCheatingRewards(unittest.TestCase):
     def test_dummy_mols_from_fragments(self) -> None:
         """Verify dummyMolsFromFragments generates valid graph inputs from Murcko core."""
         from drugex.data.corpus.vocabulary import VocGraph
-        from drugex.data.fragments import FragmentCorpusEncoder, GraphFragmentEncoder
         from drugex.data.datasets import GraphFragDataSet
+        from drugex.data.fragments import FragmentCorpusEncoder, GraphFragmentEncoder
 
         egcg_smiles = "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1"
         mol = Chem.MolFromSmiles(egcg_smiles)
@@ -293,17 +290,17 @@ class TestAntiCheatingRewards(unittest.TestCase):
             saved = FallbackMonitor.save_audit_json(audit_path)
             self.assertTrue(saved.exists())
             import json
-            with open(saved, "r", encoding="utf-8") as f:
+
+            with open(saved, encoding="utf-8") as f:
                 data = json.load(f)
             self.assertEqual(data["total_fallbacks"], 2)
             self.assertIn("test_conformer_random_coords", data["counts_by_type"])
 
     def test_backward_compatibility_imports(self) -> None:
         """Verify legacy imports from _david root continue to function via aliasing."""
-        import _david
         from _david.anti_cheating_rewards import AugmentedChebyshevReward as LegacyCheb
-        from _david.scaffold_funnel import ScaffoldFunnel as LegacyFunnel
         from _david.fallback_monitor import FallbackMonitor as LegacyMonitor
+        from _david.scaffold_funnel import ScaffoldFunnel as LegacyFunnel
 
         self.assertIsNotNone(LegacyCheb)
         self.assertIsNotNone(LegacyFunnel)
@@ -316,8 +313,9 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_prepare_regime_dataframe_with_frags(self) -> None:
         """Verify ThesisBenchmark.prepare_regime_dataframe does not treat FRAGS string column as RAscore."""
-        from _david.code.thesis_benchmark import ThesisBenchmark
         import pandas as pd
+
+        from _david.code.thesis_benchmark import ThesisBenchmark
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             bench = ThesisBenchmark(output_dir=Path(tmp_dir))
@@ -344,8 +342,8 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_ligand_efficiency_scorer_handles_strings_and_mols(self) -> None:
         """Verify drugex LigandEfficiency computes correct scores and handles strings, Mols, and None."""
-        from drugex.training.scorers.properties import LigandEfficiency
         from drugex.training.scorers.interfaces import Scorer
+        from drugex.training.scorers.properties import LigandEfficiency
 
         class DummyQSAR(Scorer):
             def getScores(self, mols, frags=None):
@@ -432,8 +430,10 @@ class TestAntiCheatingRewards(unittest.TestCase):
             bench_dir = pipe_dir / "benchmark"
             bench_dir.mkdir(parents=True, exist_ok=True)
             pipe = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
-            import pandas as pd
             from unittest.mock import patch
+
+            import pandas as pd
+
             with patch("drugex.training.scorers.sascorer.calculateScore", return_value=3.0), \
                  patch("_david.code.thesis_benchmark.ThesisBenchmark.run_benchmark", return_value=pd.DataFrame()):
                 summary = pipe.run(molecules="c1ccccc1O")
@@ -446,7 +446,9 @@ class TestAntiCheatingRewards(unittest.TestCase):
     def test_scaffold_funnel_attrition_tracking(self) -> None:
         """Verify ScaffoldFunnel generates funnel_attrition.json with complete cascade statistics."""
         import json
+
         import pandas as pd
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             funnel = ScaffoldFunnel(output_dir=Path(tmp_dir), seed_smiles="c1ccccc1")
             dummy_df = pd.DataFrame({
@@ -462,7 +464,7 @@ class TestAntiCheatingRewards(unittest.TestCase):
             funnel.process_candidates_dataframe(dummy_df)
             attrition_path = Path(tmp_dir) / "funnel_attrition.json"
             self.assertTrue(attrition_path.exists())
-            with open(attrition_path, "r", encoding="utf-8") as f:
+            with open(attrition_path, encoding="utf-8") as f:
                 data = json.load(f)
             self.assertEqual(data["total_input_candidates"], 2)
             self.assertEqual(data["passed_chemical_validity"], 2)
@@ -471,8 +473,10 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_thesis_benchmark_regime_deduplication(self) -> None:
         """Verify ThesisBenchmark avoids duplicating identical datasets under separate regime names."""
-        from _david.code.thesis_benchmark import ThesisBenchmark
         import pandas as pd
+
+        from _david.code.thesis_benchmark import ThesisBenchmark
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             bench = ThesisBenchmark(output_dir=Path(tmp_dir))
             tsv_path_rnn = Path(tmp_dir) / "rnn_hits.tsv"
@@ -512,7 +516,10 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_seed_hash_and_core_scaffold_extraction(self) -> None:
         """Verify deterministic seed hashing and Murcko core scaffold extraction for universal seeds."""
-        from _david.code.prepare_query_conformer import get_seed_hash, QueryConformerPreparer
+        from _david.code.prepare_query_conformer import (
+            QueryConformerPreparer,
+            get_seed_hash,
+        )
         caffeine_smiles = "Cn1cnc2c1c(=O)n(c(=O)n2C)C"
         caffeine_hash = get_seed_hash(caffeine_smiles)
         self.assertIsInstance(caffeine_hash, str)

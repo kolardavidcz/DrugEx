@@ -1,20 +1,13 @@
-"""End-to-End Ligand-Based De Novo Drug Design Pipeline in DrugEx.
-
-Executes a 4-stage pipeline:
-- Stage 0: 3D reference conformer ensemble and 75-D ElectroShape moment generation.
-- Stage 1: Unconstrained SMILES generative exploration using Sequence-RNN policy gradient RL.
-- Stage 2: Bemis-Murcko chemotype funnel (gated two-tier 3D ROCS + PAINS removal + Butina clustering).
-- Stage 3: Fragment-conditioned lead optimization using Graph-Transformer on discovered scaffolds.
-- Stage 4: Multi-tier academic thesis benchmarking & publication report generation.
-"""
+"""End-to-End Ligand-Based De Novo Drug Design Pipeline in DrugEx."""
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import json
-from pathlib import Path
 import sys
-from typing import Any, Dict, List, Sequence, Union
+from collections.abc import Sequence
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 # Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -24,31 +17,23 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-#? [NumPy] Array operations for numerical conversions and pipeline metrics.
-import numpy as np
-#? [Pandas] Tabular data parsing for candidate hits and leads.
 import pandas as pd
-#? [RDKit] Chemical structure validation, SMILES standardization, and multi-record SDF suppliers.
-from rdkit import Chem
-from rdkit.Chem import AllChem
-#? [PyTorch CUDA] GPU hardware & memory telemetry probing.
 import torch
+from rdkit import Chem
 
+from _david.code import (
+    GraphTransformer,
+    SequenceRNN,
+    prepare_query_conformer,
+    scaffold_funnel,
+    thesis_benchmark,
+)
 from _david.code.fallback_monitor import FallbackMonitor
-from _david.code import prepare_query_conformer
-from _david.code import scaffold_funnel
-from _david.code import thesis_benchmark
-from _david.code import SequenceRNN
-from _david.code import GraphTransformer
 
 
-def get_gpu_telemetry() -> Dict[str, Any]:
-    """Gather current GPU device and memory metrics.
-
-    Returns:
-        Dictionary containing CUDA availability, device count, and per-device memory stats.
-    """
-    telemetry: Dict[str, Any] = {
+def get_gpu_telemetry() -> dict[str, Any]:
+    """Gather current GPU device and memory metrics."""
+    telemetry: dict[str, Any] = {
         "cuda_available": torch.cuda.is_available(),
         "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
         "devices": [],
@@ -82,32 +67,7 @@ RANDOM_STATE: int = 42
 
 
 class MoleculePipeline:
-    """End-to-End Ligand-Based De Novo Drug Design Pipeline in DrugEx.
-
-    Skeptical Academic Architecture:
-    Combines global unconstrained SMILES exploration (Sequence-RNN) with medicinal-chemistry
-    chemotype filtering (Bemis-Murcko funnel, PAINS elimination, heavy-atom volume gating)
-    and conditioned graph lead optimization (Graph-Transformer).
-
-    Rejection of Invalid SBDD / 2D Approaches:
-    - Rejects ProLIF: ProLIF requires 3D protein coordinates. In 100% pure LBDD,
-      no receptor structure is available. Using docked complexes introduces heavy scoring bias.
-    - Rejects 2D Pharmacophore filters: Flatten 3D spatial geometry into 2D topological graph bonds,
-      ignoring out-of-plane chiral arrangements and steric envelopes.
-    - Adopts ElectroShape & Enhanced ROCS: Employs 75-D ElectroShape moments alongside
-      10-conformer Gaussian shape/color overlap (ROCS) and heavy-atom volume constraints.
-    - Eliminates Mock Simulation: Synthetic random-number generators have been completely
-      purged; all benchmarks reflect authentic computational evaluations.
-    - Fallback Monitoring: Tracks and alerts whenever any fallback mechanisms are triggered.
-
-    Attributes:
-        ROOT_PATH: Repository root Path.
-        MODE: Execution regime ('full', 'test', or 'benchmark_only').
-        EPOCHS: RL epochs executed per stage.
-        N_SAMPLES: Number of candidate trajectories sampled per epoch.
-        RUN_ID: Unique ISO-style timestamp for run tracking.
-        BASE_OUTPUT_DIR: Target directory for run artifacts, structured as `_david/output/<RUN_ID>/`.
-    """
+    """End-to-End Ligand-Based De Novo Drug Design Pipeline in DrugEx."""
 
     def __init__(
         self,
@@ -116,14 +76,7 @@ class MoleculePipeline:
         epochs: int = DEFAULT_EPOCHS,
         n_samples: int = DEFAULT_N_SAMPLES,
     ) -> None:
-        """Initialize MoleculePipeline.
-
-        Args:
-            output_dir: Optional custom Path for storing all run artifacts.
-            mode: Pipeline mode ('full' for production RL, 'test' for rapid 1-epoch test, 'benchmark_only').
-            epochs: RL training epochs.
-            n_samples: Sample count per RL epoch.
-        """
+        """Initialize MoleculePipeline with execution mode and hyperparameter settings."""
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.MODE: str = mode.lower()
         self.EPOCHS: int = TEST_EPOCHS if self.MODE == "test" else epochs
@@ -142,7 +95,7 @@ class MoleculePipeline:
 
         # Execution tracking and telemetry
         self._start_time: datetime = datetime.now()
-        self._stage_statuses: Dict[str, str] = {}
+        self._stage_statuses: dict[str, str] = {}
         self.update_status("INITIALIZING", "RUNNING")
 
     def log(self, message: str) -> None:
@@ -158,18 +111,12 @@ class MoleculePipeline:
             f.write(f"[{ts}] {message}\n")
 
     def update_status(
-        self, current_stage: str, status: str, details: Dict[str, Any] | None = None
+        self, current_stage: str, status: str, details: dict[str, Any] | None = None
     ) -> None:
-        """Update live status file pipeline_status.json for external monitoring.
-
-        Args:
-            current_stage: Name or description of current execution stage.
-            status: Stage status ('INITIALIZING', 'RUNNING', 'SUCCESS', 'FAILED').
-            details: Optional dictionary of extra metadata or metrics.
-        """
+        """Update live status file pipeline_status.json for external monitoring."""
         elapsed = (datetime.now() - self._start_time).total_seconds() if hasattr(self, "_start_time") else 0.0
         self._stage_statuses[current_stage] = status
-        status_data: Dict[str, Any] = {
+        status_data: dict[str, Any] = {
             "run_id": self.RUN_ID,
             "mode": self.MODE,
             "current_stage": current_stage,
@@ -184,19 +131,9 @@ class MoleculePipeline:
         with open(status_file, "w", encoding="utf-8") as f:
             json.dump(status_data, f, indent=4)
 
-    def parse_molecules(self, molecules_input: Union[str, Path, Sequence[str]]) -> List[str]:
-        """Parse, validate, and standardize input query molecules from string, file, or list.
-
-        Args:
-            molecules_input: Input SMILES string, path to .sdf/.tsv/.smi file, or sequence of SMILES.
-
-        Returns:
-            List of unique, valid canonical SMILES strings.
-
-        Raises:
-            ValueError: If no chemically valid molecules can be parsed.
-        """
-        raw_smiles: List[str] = []
+    def parse_molecules(self, molecules_input: str | Path | Sequence[str]) -> list[str]:
+        """Parse, validate, and standardize input query molecules from string, file, or list."""
+        raw_smiles: list[str] = []
 
         if isinstance(molecules_input, (list, tuple)):
             for item in molecules_input:
@@ -212,7 +149,7 @@ class MoleculePipeline:
                     if m is not None:
                         raw_smiles.append(Chem.MolToSmiles(m))
             else:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line or line.startswith("#"):
@@ -226,7 +163,7 @@ class MoleculePipeline:
                 if part:
                     raw_smiles.append(part)
 
-        valid_molecules: List[str] = []
+        valid_molecules: list[str] = []
         for smi in raw_smiles:
             #? [RDKit] Validates chemical syntax and converts to canonical isomeric SMILES.
             m = Chem.MolFromSmiles(smi)
@@ -241,20 +178,13 @@ class MoleculePipeline:
         return valid_molecules
 
     def stage0_prepare_reference_conformer(self, primary_molecule: str) -> tuple[Path, Path]:
-        """Generate 3D reference conformer ensemble, moments, and core scaffold for query molecule.
-
-        Args:
-            primary_molecule: SMILES of the active query template.
-
-        Returns:
-            Tuple of (Path to written multi-conformer reference SDF file, Path to seed core scaffold TSV).
-        """
+        """Generate 3D reference conformer ensemble, moments, and core scaffold for query molecule."""
         ref_dir: Path = self.BASE_OUTPUT_DIR / "references"
         ref_dir.mkdir(parents=True, exist_ok=True)
         ref_sdf: Path = ref_dir / "query_molecule_3d.sdf"
         seed_core_tsv: Path = ref_dir / "seed_core_scaffold.tsv"
 
-        print(f"\n[Stage 0] Generating 3D reference conformer ensemble & 75-D ElectroShape moments...")
+        print("\n[Stage 0] Generating 3D reference conformer ensemble & 75-D ElectroShape moments...")
         preparer = prepare_query_conformer.QueryConformerPreparer(references_dir=ref_dir)
         preparer.generate_reference_sdf(smiles=primary_molecule, output_path=ref_sdf)
         preparer.extract_seed_core_scaffold(smiles=primary_molecule, output_path=seed_core_tsv)
@@ -270,20 +200,12 @@ class MoleculePipeline:
         return ref_sdf, seed_core_tsv
 
     def stage1_sequence_rnn_hit_generation(self, primary_molecule: str, ref_sdf: Path) -> tuple[pd.DataFrame, Path]:
-        """Execute Stage 1 global hit exploration using Sequence-RNN policy gradient RL.
-
-        Args:
-            primary_molecule: Query active SMILES string.
-            ref_sdf: Path to 3D reference conformer SDF.
-
-        Returns:
-            Tuple containing DataFrame of generated candidate hits and Path to scored TSV.
-        """
+        """Execute Stage 1 global hit exploration using Sequence-RNN policy gradient RL."""
         stage1_dir: Path = self.BASE_OUTPUT_DIR / "stage1_sequence_rnn"
         stage1_dir.mkdir(parents=True, exist_ok=True)
         scored_tsv: Path = stage1_dir / "stage1_hits.tsv"
 
-        print(f"\n[Stage 1] Sequence-RNN Global Hit Discovery (Pure RL exploration)...")
+        print("\n[Stage 1] Sequence-RNN Global Hit Discovery (Pure RL exploration)...")
         print(f"[Stage 1] Executing Sequence-RNN RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
 
         from drugex.training.explorers import SequenceExplorer
@@ -330,24 +252,12 @@ class MoleculePipeline:
         ref_sdf: Path,
         scaffolds_path: Path | str | None = None,
     ) -> tuple[pd.DataFrame, Path]:
-        """Execute Stage 2 fragment-conditioned lead optimization directly on seed core framework.
-
-        Regime 2: Explores chemical space around the active seed's core framework directly,
-        without requiring or gating on Stage 1 outputs.
-
-        Args:
-            primary_molecule: Query active SMILES string.
-            ref_sdf: Path to 3D reference conformer SDF.
-            scaffolds_path: Optional explicit Path to seed core scaffold TSV.
-
-        Returns:
-            Tuple containing DataFrame of optimized leads and Path to scored TSV file.
-        """
+        """Execute Stage 2 fragment-conditioned lead optimization directly on seed core framework."""
         stage2_dir: Path = self.BASE_OUTPUT_DIR / "stage2_graph_transformer"
         stage2_dir.mkdir(parents=True, exist_ok=True)
         leads_tsv: Path = stage2_dir / "stage2_leads.tsv"
 
-        print(f"\n[Stage 2] Graph-Transformer Lead Optimization (Regime 2: Scaffold-Conditioned RL)...")
+        print("\n[Stage 2] Graph-Transformer Lead Optimization (Regime 2: Scaffold-Conditioned RL)...")
         print(f"[Stage 2] Executing Graph-Transformer RL lead optimization (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
 
         from drugex.training.explorers import FragGraphExplorer
@@ -398,23 +308,11 @@ class MoleculePipeline:
         primary_molecule: str,
         ref_sdf: Path | None = None,
     ) -> tuple[pd.DataFrame, Path]:
-        """Execute Stage 3 post-generation lead prioritization and diversity clustering.
-
-        Continuous multi-objective desirability ranking and Butina sphere-exclusion clustering
-        on generated candidates. Non-gating analysis selecting top elite leads.
-
-        Args:
-            candidate_df: Combined DataFrame of candidates from Stage 1 and Stage 2.
-            primary_molecule: Seed SMILES string for dynamic volume and hopping bounds.
-            ref_sdf: Optional explicit path to reference 3D conformer ensemble SDF.
-
-        Returns:
-            Tuple containing DataFrame of selected leads and Path to selected leads TSV.
-        """
+        """Execute Stage 3 post-generation lead prioritization and diversity clustering."""
         stage3_dir: Path = self.BASE_OUTPUT_DIR / "stage3_lead_selection"
         stage3_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"\n[Stage 3] Post-Generation Lead Prioritization & Diversity Selection (Non-Gating)...")
+        print("\n[Stage 3] Post-Generation Lead Prioritization & Diversity Selection (Non-Gating)...")
         selector = scaffold_funnel.ScaffoldFunnel(
             output_dir=stage3_dir,
             seed_smiles=primary_molecule,
@@ -452,22 +350,11 @@ class MoleculePipeline:
         ref_sdf: Path | None = None,
         primary_molecule: str = DEFAULT_MOLECULE,
     ) -> tuple[Path, pd.DataFrame]:
-        """Execute Stage 4 publication benchmark suite on authentic candidate data.
-
-        Args:
-            stage1_tsv: Path to Stage 1 Sequence-RNN hits TSV file.
-            stage2_tsv: Optional Path to Stage 2 Graph-Transformer leads TSV file.
-            leads_tsv: Optional Path to Stage 3 selected leads TSV file.
-            ref_sdf: Optional explicit Path to reference 3D conformer ensemble SDF.
-            primary_molecule: Query active SMILES string.
-
-        Returns:
-            Tuple containing benchmark output directory and summary table DataFrame.
-        """
+        """Execute Stage 4 publication benchmark suite on authentic candidate data."""
         benchmark_dir: Path = self.BASE_OUTPUT_DIR / "benchmark"
         benchmark_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"\n[Stage 4] Generating Publication Benchmark & Visualizations (Empirical Only)...")
+        print("\n[Stage 4] Generating Publication Benchmark & Visualizations (Empirical Only)...")
         benchmark = thesis_benchmark.ThesisBenchmark(
             output_dir=benchmark_dir,
             ref_sdf=ref_sdf,
@@ -481,15 +368,8 @@ class MoleculePipeline:
         print(f"[Stage 4] Benchmark suite completed. Figures and tables saved to: {benchmark_dir}")
         return benchmark_dir, table_df
 
-    def run(self, molecules: Union[str, Path, Sequence[str]] = DEFAULT_MOLECULE) -> Dict[str, Any]:
-        """Execute the complete multi-stage drug design pipeline.
-
-        Args:
-            molecules: Query SMILES string, path to molecule file, or sequence of SMILES.
-
-        Returns:
-            Dictionary containing run summary metadata and output paths.
-        """
+    def run(self, molecules: str | Path | Sequence[str] = DEFAULT_MOLECULE) -> dict[str, Any]:
+        """Execute the complete multi-stage drug design pipeline."""
         self._start_time = datetime.now()
         self.log("=" * 80)
         self.log(" DRUGEX LIGAND-BASED DE NOVO DRUG DESIGN PIPELINE")
@@ -567,7 +447,7 @@ class MoleculePipeline:
             FallbackMonitor.print_summary()
 
             #? [JSON] Save complete run summary metadata.
-            summary_info: Dict[str, Any] = {
+            summary_info: dict[str, Any] = {
                 "run_id": self.RUN_ID,
                 "mode": self.MODE,
                 "input_molecules_count": len(valid_molecules),

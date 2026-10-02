@@ -1,18 +1,11 @@
-"""Stage 3 Lead Optimization executing fragment-conditioned RL on GraphTransformer.
-
-Elaborates chemical decorations onto discovered Stage 2 Bemis-Murcko core frameworks
-using self-attention graph autoregressive generation, optimized against a multi-objective
-environment with 75-D ElectroShape moments, dynamic heavy-atom volume plateau, and
-Augmented Chebyshev anti-cheating scalarization.
-"""
+"""Stage 3 Lead Optimization executing fragment-conditioned RL on GraphTransformer."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+import sys
+import warnings
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-import sys
-from typing import List, Tuple, Union
-import warnings
 
 # Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -22,38 +15,29 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-#? [Matplotlib] Non-interactive Agg backend: disables GUI window requirement for headless server execution.
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-#? [NumPy] Array operations for score manipulations and numerical metrics.
-import numpy as np
-#? [Pandas] Tabular DataFrame operations for generated molecule logging, sorting, and TSV export.
 import pandas as pd
-#? [RDKit] Molecular graph operations, chemical sanitization, and 2D grid depictions.
-from rdkit import Chem
-from rdkit.Chem import Draw
-#? [PyTorch] Deep learning library for GPU device querying and graph transformer tensor allocations.
 import torch
-
-from drugex.data import datasets, fragments, processing
-from drugex.data.corpus import vocabulary
+from drugex.data import fragments, processing
 from drugex.data.corpus.vocabulary import VocGraph
 from drugex.data.datasets import GraphFragDataSet
 from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
-from drugex.training import environment, explorers, generators, monitors, rewards
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
 from drugex.training.interfaces import RewardScheme
 from drugex.training.monitors import FileMonitor
-from drugex.training.rewards import ParetoTanimotoDistance
-from drugex.training.scorers import modifiers, properties, ra_scorer
+from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import SmoothClippedScore, SmoothHump
 from drugex.training.scorers.properties import Property, Scaffold
 from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
+from rdkit import Chem
+from rdkit.Chem import Draw
 
-from _david.code.anti_cheating_rewards import AugmentedChebyshevReward, GeometricMeanReward
+from _david.code.anti_cheating_rewards import AugmentedChebyshevReward
 from _david.code.fallback_monitor import FallbackMonitor
 from _david.code.usrcat_scorer import USRCATScorer
 
@@ -70,11 +54,7 @@ warnings.filterwarnings("ignore")
 
 #? [PyTorch CUDA] Lightweight device probe: tests tensor allocation on GPU 0 to safely catch driver faults and fall back to CPU.
 def get_safe_gpus() -> tuple[int, ...] | tuple[()]:
-    """Safely detect available and functioning CUDA devices.
-
-    Returns:
-        Tuple containing GPU device index (0,) if CUDA is functional, or empty tuple if unavailable.
-    """
+    """Safely detect available and functioning CUDA devices."""
     if not torch.cuda.is_available():
         FallbackMonitor.record_fallback(
             fallback_type="device_cuda_unavailable",
@@ -148,31 +128,10 @@ SA_THRESHOLD: float = 0.50
 
 
 class GraphTransformerOptimizer:
-    """Stage 3 Generative Optimizer executing fragment-conditioned RL on GraphTransformer.
-
-    Skeptical Academic Rationale:
-    1. Addresses RL Conformer Undersampling: Upgrades conformer generation from max_confs=2 to 10.
-    2. Replaces BRICS Leaf Fragmenter with dummyMolsFromFragments: Instead of shredding discovered
-       Bemis-Murcko frameworks into tiny fragments, feeds intact core scaffolds with dummy attachment
-       points to the GraphTransformer.
-    3. Eliminates Counterproductive 2D Novelty Objective: Prevents agent from gaming Pareto ranks.
-    4. Enforces Heavy-Atom Volume Target: Uses a Gaussian modifier centered on query heavy atom count.
-    5. Dual 3D Alignment: Combines Gaussian volume overlap (ROCS) with rotation-invariant ElectroShape moments.
-
-    Attributes:
-        ROOT_PATH: Root repository directory.
-        OUTPUT_DIR: Target folder for saving training logs, checkpoints, and generated candidate tables.
-        VOC: Graph vocabulary object loaded from pretrained Papyrus model.
-        AGENT: Trainable GraphTransformer policy model.
-        PRIOR: Frozen GraphTransformer prior model providing mutation and KL penalty anchor.
-    """
+    """Stage 3 Generative Optimizer executing fragment-conditioned RL on GraphTransformer."""
 
     def __init__(self, output_dir: Path | None = None) -> None:
-        """Initialize GraphTransformerOptimizer with pretrained models and vocabularies.
-
-        Args:
-            output_dir: Optional custom Path to store run outputs and models.
-        """
+        """Initialize GraphTransformerOptimizer with pretrained models and vocabularies."""
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "output" / "stage3_graph_transformer"
 
@@ -206,24 +165,7 @@ class GraphTransformerOptimizer:
         toxicophore_smarts: str | Sequence[str] | None = None,
         reward_scheme: RewardScheme | None = None,
     ) -> DrugExEnvironment:
-        """Construct multi-objective DrugExEnvironment for reinforcement learning.
-
-        Builds a universal, un-cheatable multi-objective environment incorporating ultrafast 3D
-        ElectroShape moments, dynamic heavy atom volume plateau (SmoothHump centered on query HAC),
-        retrosynthetic accessibility (RAscore), QED drug-likeness, and synthetic accessibility (SA).
-        Optionally incorporates custom toxicophore suppression via Scaffold if specified.
-        Uses AugmentedChebyshevReward scalarization to prevent small fragments from gaming
-        the Pareto frontier.
-
-        Args:
-            ref_sdf_path: Path to reference multi-conformer 3D SDF for ElectroShape.
-            seed_smiles: SMILES string of active seed query for dynamic size plateau derivation.
-            toxicophore_smarts: Optional SMARTS pattern or sequence of patterns to penalize (default: None).
-            reward_scheme: Optional custom RewardScheme (defaults to AugmentedChebyshevReward).
-
-        Returns:
-            Configured DrugExEnvironment with anti-cheating reward scheme.
-        """
+        """Construct multi-objective DrugExEnvironment for reinforcement learning."""
         ref_path_str: str = str(ref_sdf_path)
 
         #? [Pure LBDD ElectroShape Scorer] Ultrafast 75-dimensional shape and partial charge centroid moment similarity.
@@ -317,19 +259,7 @@ class GraphTransformerOptimizer:
         n_prompts: int = 100,
         scaffolds_path: Path | str | None = None,
     ) -> tuple[torch.utils.data.DataLoader, GraphFragDataSet]:
-        """Prepare fragment dataset and DataLoader from Stage 2 funnel scaffolds.
-
-        Uses DrugEx's native `dummyMolsFromFragments` to preserve intact core frameworks,
-        enabling Graph-Transformer to elaborate decorations directly onto discovered leads.
-
-        Args:
-            molecule_smile: Active seed query SMILES string.
-            n_prompts: Target prompt batch count.
-            scaffolds_path: Optional explicit Path to funnel scaffolds TSV file.
-
-        Returns:
-            Tuple containing PyTorch DataLoader and GraphFragDataSet.
-        """
+        """Prepare fragment dataset and DataLoader from Stage 2 funnel scaffolds."""
         seed_tsv: Path = self.MODEL_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
 
@@ -341,7 +271,7 @@ class GraphTransformerOptimizer:
             n_proc=1,
         )
 
-        scaffolds: List[str] = []
+        scaffolds: list[str] = []
         if scaffolds_path is not None and Path(scaffolds_path).exists():
             try:
                 df_scaff = pd.read_csv(scaffolds_path, sep="\t")
@@ -365,7 +295,7 @@ class GraphTransformerOptimizer:
 
         # Standardize scaffolds and remove stereochemistry (VocGraph operates on 2D constitution/valences only)
         std_raw = processing.Standardization(n_proc=1).apply(scaffolds)
-        std_scaffolds: List[str] = []
+        std_scaffolds: list[str] = []
         for s in (std_raw or scaffolds):
             m = Chem.MolFromSmiles(s)
             if m is not None:
@@ -393,18 +323,7 @@ class GraphTransformerOptimizer:
         scaffolds_path: Path | str | None = None,
         toxicophore_smarts: str | Sequence[str] | None = None,
     ) -> tuple[GraphTransformer, pd.DataFrame]:
-        """Execute fragment-conditioned RL exploration on GraphTransformer.
-
-        Args:
-            molecule_smile: Active seed query SMILES.
-            epochs: Total training epochs.
-            n_samples: Number of samples generated per epoch.
-            scaffolds_path: Optional Path to Stage 2 funnel scaffolds.
-            toxicophore_smarts: Optional substructure SMARTS pattern to penalize.
-
-        Returns:
-            Tuple containing trained GraphTransformer agent and scored DataFrame.
-        """
+        """Execute fragment-conditioned RL exploration on GraphTransformer."""
         from _david.code.prepare_query_conformer import QueryConformerPreparer
         preparer = QueryConformerPreparer(self.ROOT_PATH / "_david" / "references")
         seed_hash = preparer.get_seed_hash(molecule_smile)
@@ -459,17 +378,7 @@ class GraphTransformerOptimizer:
         n_samples: int | None = None,
         scaffolds_path: Path | str | None = None,
     ) -> tuple[GraphTransformer, pd.DataFrame]:
-        """Backward-compatibility wrapper for legacy pipeline calls.
-
-        Args:
-            molecule_smile: Query molecule SMILES.
-            epochs: Optional custom epoch count.
-            n_samples: Optional custom sample count.
-            scaffolds_path: Optional custom scaffolds path.
-
-        Returns:
-            Tuple of trained GraphTransformer agent and scored DataFrame.
-        """
+        """Backward-compatibility wrapper for legacy pipeline calls."""
         ep = epochs if epochs is not None else RL_EPOCHS
         ns = n_samples if n_samples is not None else RL_N_SAMPLES
         return self.run_reinforcement_learning(
@@ -485,19 +394,7 @@ class GraphTransformerOptimizer:
         input_dataset: GraphFragDataSet | None = None,
         num_samples: int = 100,
     ) -> pd.DataFrame:
-        """Generate leads, evaluate multi-objective scores, and save diagnostic plots.
-
-        Args:
-            agent: Trained GraphTransformer generator.
-            env: Multi-objective DrugExEnvironment.
-            model_prefix: File prefix where FileMonitor logged training data.
-            out_dir: Directory where plots, tables, and depiction grids are stored.
-            input_dataset: Optional encoded fragment dataset for sampling seeds.
-            num_samples: Number of de novo SMILES to sample.
-
-        Returns:
-            DataFrame of scored generated leads.
-        """
+        """Generate leads, evaluate multi-objective scores, and save diagnostic plots."""
         fit_file = Path(f"{model_prefix}_fit.tsv")
         if fit_file.exists():
             #? [Pandas] Parses TSV training monitor log file into DataFrame.
@@ -535,7 +432,7 @@ class GraphTransformerOptimizer:
         if out_dir.name == "reinforcement_learning" and out_dir.parent != out_dir:
             scored_df.to_csv(out_dir.parent / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
             scored_df.to_csv(out_dir.parent / "stage3_leads.tsv", sep="\t", index=False)
-        if self.OUTPUT_DIR != out_dir and self.OUTPUT_DIR != out_dir.parent:
+        if out_dir != self.OUTPUT_DIR and out_dir.parent != self.OUTPUT_DIR:
             scored_df.to_csv(self.OUTPUT_DIR / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
             scored_df.to_csv(self.OUTPUT_DIR / "stage3_leads.tsv", sep="\t", index=False)
 
@@ -557,14 +454,7 @@ class MY_TRANSFER_LEARNING(GraphTransformerOptimizer):
     """Adapter for legacy transfer learning calls."""
 
     def TRANSFER_LEARNING(self, molecule_smile: str) -> tuple[GraphTransformer, pd.DataFrame, Path]:
-        """Execute legacy transfer learning placeholder.
-
-        Args:
-            molecule_smile: Query molecule SMILES.
-
-        Returns:
-            Tuple of agent, DataFrame, and output directory.
-        """
+        """Execute legacy transfer learning placeholder."""
         return self.AGENT, pd.DataFrame({"SMILES": [molecule_smile]}), self.OUTPUT_DIR
 
 
@@ -572,12 +462,7 @@ class RAINFORCMENT_LEARNING(GraphTransformerOptimizer):
     """Adapter for legacy reinforcement learning class naming."""
 
     def __init__(self, finetuned: GraphTransformer | Path, output_dir: Path | None = None) -> None:
-        """Initialize adapter.
-
-        Args:
-            finetuned: Trained agent or path.
-            output_dir: Optional output directory.
-        """
+        """Initialize adapter."""
         super().__init__(output_dir=output_dir)
         if isinstance(finetuned, GraphTransformer):
             self.AGENT = finetuned

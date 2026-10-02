@@ -1,15 +1,11 @@
-"""Rigorous academic evaluation and benchmark suite for Ligand-Based De Novo Drug Design.
-
-Evaluates real candidate datasets produced by Sequence-RNN, Bemis-Murcko Funnel,
-and Graph-Transformer regimes. Computes real 3D shape overlaps, physicochemical descriptors,
-chemical space PCA projections, and produces publication-ready figures and tables.
-"""
+"""Academic evaluation and benchmark suite for Ligand-Based De Novo Drug Design."""
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
-from typing import Any, Dict, List, Sequence, Tuple
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
 
 # Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -19,20 +15,17 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-#? [Matplotlib] Agg backend selection: ensures non-interactive image generation for headless academic cluster environments.
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-#? [NumPy] Vector array operations, Euclidean norms, and statistical aggregations for benchmarking.
 import numpy as np
-#? [Pandas] Tabular data structures for candidate dataframes, summary metrics, and markdown table generation.
 import pandas as pd
-#? [RDKit] Cheminformatics foundation: SMILES parsing, Morgan fingerprints, QED, Murcko scaffolds, and 2D depictions.
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem, Descriptors, Draw, Lipinski, QED, rdMolDescriptors
+from rdkit.Chem import QED, AllChem, Descriptors, Draw, Lipinski
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
-from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 try:
     from drugex.training.scorers.rocs_cdpkit import CDPKitROCSScorer
     CDPKIT_AVAILABLE: bool = True
@@ -46,13 +39,11 @@ except (ImportError, Exception):
 
 from _david.code.fallback_monitor import FallbackMonitor
 
-#? [Seaborn] Optional statistical plotting library for academic publication quality boxplots.
 try:
     import seaborn as sns
 except ImportError:
     sns = None
 
-#? [Scikit-learn PCA] Dimensionality reduction on 2048-bit Morgan fingerprint vectors for chemical space projections.
 try:
     from sklearn.decomposition import PCA
 except ImportError:
@@ -84,7 +75,9 @@ except Exception as e:
         fallback_type="sascorer_import_fallback",
         message=f"DrugEx calculateScore import failed ({e}); falling back to default 3.5",
     )
-    calculate_sa_score = lambda mol: 3.5
+
+    def calculate_sa_score(mol: Any) -> float:
+        return 3.5
 
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 ROCS_THRESHOLD: float = 0.50
@@ -101,25 +94,7 @@ COLOR_FUNNEL: str = "#2A9D8F"
 
 
 class ThesisBenchmark:
-    """Rigorous academic evaluation and benchmark suite for Ligand-Based De Novo Drug Design.
-
-    Skeptical Academic Rationale:
-    1. Zero Synthetic Data Fallbacks: All mock simulation routines with synthetic Gaussian random
-       numbers have been completely eliminated. Real evaluation must benchmark real molecules.
-    2. Real 3D Shape & Moment Scoring: Evaluates actual ROCS Gaussian overlaps and computes real
-       60-D USRCAT / 75-D ElectroShape moments against the active query ensemble.
-    3. Heavy-Atom Volume Diagnosis: Directly audits candidate Heavy Atom Count (HAC) and Molecular
-       Weight (MW) to detect fragment collapse.
-    4. Comprehensive Statistical Artifacts: Generates publication-ready radar plots, chemical space
-       PCA projections, score distribution boxplots, and depiction grids.
-
-    Attributes:
-        ROOT_PATH: Repository root Path.
-        BASE_OUTPUT_DIR: Target folder for saving figures and summary tables.
-        SEED_MOL: RDKit Mol object of query reference molecule.
-        SEED_FP: Explicit 2048-bit Morgan fingerprint vector of query molecule.
-        REF_SDF: Path to 3D reference conformer ensemble SDF.
-    """
+    """Academic evaluation and benchmark suite for Ligand-Based De Novo Drug Design."""
 
     def __init__(
         self,
@@ -127,13 +102,6 @@ class ThesisBenchmark:
         ref_sdf: Path | str | None = None,
         seed_smiles: str = MY_MOLECULE,
     ) -> None:
-        """Initialize ThesisBenchmark suite.
-
-        Args:
-            output_dir: Optional destination Path for generated benchmark figures and tables.
-            ref_sdf: Optional explicit Path to 3D reference conformer ensemble SDF.
-            seed_smiles: SMILES string of query reference molecule (defaults to EGCG).
-        """
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.BASE_OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david" / "output" / "benchmark")
         self.BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -159,7 +127,7 @@ class ThesisBenchmark:
                     seed_hash = get_seed_hash(self.seed_smiles)
                 except Exception:
                     pass
-            candidates: List[Path] = []
+            candidates: list[Path] = []
             if seed_hash:
                 candidates.extend([
                     self.BASE_OUTPUT_DIR.parent / "references" / f"seed_{seed_hash}_3d.sdf",
@@ -173,19 +141,10 @@ class ThesisBenchmark:
             self.REF_SDF = next((p for p in candidates if p.exists()), candidates[-1])
 
     def compute_molecular_properties(self, smiles_list: Sequence[str]) -> pd.DataFrame:
-        """Compute real physicochemical and cheminformatics descriptors for candidate SMILES.
-
-        Args:
-            smiles_list: Sequence of candidate SMILES strings.
-
-        Returns:
-            DataFrame containing real calculated metrics: Valid, QED, SA, MW, HeavyAtoms,
-            LogP, Tanimoto_to_Seed, and Murcko_Scaffold.
-        """
-        records: List[Dict[str, Any]] = []
+        """Compute real physicochemical and cheminformatics descriptors for candidate SMILES."""
+        records: list[dict[str, Any]] = []
         for smi in smiles_list:
             smi_str = str(smi).strip()
-            #? [RDKit] Validates chemical syntax and builds C++ molecular graph.
             mol = Chem.MolFromSmiles(smi_str)
             if mol is None:
                 records.append({
@@ -201,20 +160,16 @@ class ThesisBenchmark:
                 })
                 continue
 
-            #? [RDKit Morgan Fingerprint] Computes 2048-bit ECFP4 bit vector for candidate.
             fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
-            #? [RDKit DataStructs] Computes exact Tanimoto bit similarity against the seed active query.
             sim = float(DataStructs.TanimotoSimilarity(self.SEED_FP, fp)) if self.SEED_FP else 0.0
 
             try:
-                #? [RDKit Bemis-Murcko] Extracts core ring-and-linker scaffold.
                 scaff = MurckoScaffold.GetScaffoldForMol(mol)
                 scaff_smi = Chem.MolToSmiles(scaff) if scaff.GetNumHeavyAtoms() > 0 else None
             except Exception:
                 scaff_smi = None
 
             try:
-                #? [SAscore] Evaluates synthetic accessibility penalty via fragment frequency dictionary.
                 sa = float(calculate_sa_score(mol))
             except Exception:
                 FallbackMonitor.record_fallback(
@@ -227,19 +182,15 @@ class ThesisBenchmark:
             records.append({
                 "SMILES": smi_str,
                 "Valid": 1,
-                #? [RDKit QED] Evaluates Quantitative Estimate of Drug-likeness.
                 "QED": float(QED.qed(mol)),
                 "SA": sa,
-                #? [RDKit Descriptors] Calculates real molecular weight and octanol-water partition coefficient.
                 "MW": float(Descriptors.MolWt(mol)),
-                #? [RDKit Lipinski] Counts heavy non-hydrogen atoms for steric volume comparison.
                 "HeavyAtoms": int(Lipinski.HeavyAtomCount(mol)),
                 "LogP": float(Descriptors.MolLogP(mol)),
                 "Tanimoto_to_Seed": sim,
                 "Murcko_Scaffold": scaff_smi,
             })
 
-        #? [Pandas] Returns assembled property table as DataFrame.
         return pd.DataFrame(records)
 
     def load_real_datasets(
@@ -248,26 +199,9 @@ class ThesisBenchmark:
         graph_path: Path | None = None,
         funnel_path: Path | None = None,
         leads_path: Path | None = None,
-    ) -> Dict[str, pd.DataFrame]:
-        """Load real empirical candidate datasets without any synthetic simulation.
-
-        Searches explicitly provided paths or discovers the latest authentic run files
-        in the output/outputs directory hierarchy. Supports both new decoupled regimes
-        and backward-compatible file naming.
-
-        Args:
-            rnn_path: Path to Sequence-RNN scored candidates TSV.
-            graph_path: Path to Graph-Transformer scored candidates TSV.
-            funnel_path: Backward-compatibility alias for leads_path.
-            leads_path: Path to Prioritized Leads scored candidates TSV.
-
-        Returns:
-            Dictionary mapping regime name to prepared candidate DataFrame.
-
-        Raises:
-            FileNotFoundError: If no authentic candidate files can be located.
-        """
-        data: Dict[str, pd.DataFrame] = {}
+    ) -> dict[str, pd.DataFrame]:
+        """Load real empirical candidate datasets without any synthetic simulation."""
+        data: dict[str, pd.DataFrame] = {}
         target_leads_path = leads_path or funnel_path
 
         # 1. Sequence-RNN (Regime 1: Unconstrained SMILES RL)
@@ -323,11 +257,15 @@ class ThesisBenchmark:
 
         if df_leads is not None and len(df_leads) > 0:
             is_duplicate = False
-            for existing_name, existing_df in list(data.items()):
-                if len(df_leads) == len(existing_df) and "SMILES" in df_leads.columns and "SMILES" in existing_df.columns:
-                    if df_leads["SMILES"].equals(existing_df["SMILES"]):
-                        is_duplicate = True
-                        break
+            for _, existing_df in list(data.items()):
+                if (
+                    len(df_leads) == len(existing_df)
+                    and "SMILES" in df_leads.columns
+                    and "SMILES" in existing_df.columns
+                    and df_leads["SMILES"].equals(existing_df["SMILES"])
+                ):
+                    is_duplicate = True
+                    break
             if not is_duplicate:
                 data["Prioritized Leads (Top Desirability)"] = df_leads
 
@@ -346,7 +284,7 @@ class ThesisBenchmark:
             self.ROOT_PATH / "_david" / "outputs",
             self.ROOT_PATH / "_david" / folder_name,
         ]
-        all_candidates: List[Path] = []
+        all_candidates: list[Path] = []
         for root in search_roots:
             if root.exists():
                 all_candidates.extend(list(root.rglob(file_name)))
@@ -356,7 +294,6 @@ class ThesisBenchmark:
         all_candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         for cand in all_candidates:
             try:
-                #? [Pandas] Parses TSV into DataFrame.
                 df = pd.read_csv(cand, sep="\t")
                 if len(df) > 0 and ("SMILES" in df.columns or "smiles" in df.columns):
                     return df
@@ -390,15 +327,7 @@ class ThesisBenchmark:
         return None
 
     def compute_real_usrcat_scores(self, smiles_list: Sequence[str]) -> np.ndarray:
-        """Compute real USRCAT 3D shape/pharmacophore similarity against reference conformers.
-
-        Args:
-            smiles_list: List of SMILES strings to evaluate.
-
-        Returns:
-            1D NumPy array of USRCAT similarities.
-        """
-        # Ensure reference conformers exist; generate if missing
+        """Compute real USRCAT 3D shape/pharmacophore similarity against reference conformers."""
         if not self.REF_SDF.exists():
             try:
                 from _david.code.prepare_query_conformer import QueryConformerPreparer
@@ -429,14 +358,7 @@ class ThesisBenchmark:
             return np.zeros(len(smiles_list), dtype=np.float32)
 
     def compute_real_rocs_scores(self, smiles_list: Sequence[str]) -> np.ndarray:
-        """Compute real physical Gaussian volume overlap against reference conformers.
-
-        Args:
-            smiles_list: List of SMILES strings to evaluate.
-
-        Returns:
-            1D NumPy array of ROCS TanimotoCombo similarity scores.
-        """
+        """Compute real physical Gaussian volume overlap against reference conformers."""
         if not smiles_list:
             return np.zeros(0, dtype=np.float32)
 
@@ -456,7 +378,6 @@ class ThesisBenchmark:
             )
             return np.zeros(len(smiles_list), dtype=np.float32)
 
-        #? [RDKit Conformer Generator] Multi-conformer generation (ETKDGv3, 10 confs) with stereoisomer enumeration.
         conf_gen = RDKitConformerGenerator(
             max_conformers=10,
             max_isomers=4,
@@ -468,7 +389,6 @@ class ThesisBenchmark:
 
         if CDPKIT_AVAILABLE:
             try:
-                #? [CDPKit ROCS Scorer] Rigorous physical Gaussian volume overlap.
                 scorer = CDPKitROCSScorer(
                     conformer_generator=conf_gen,
                     references=str(self.REF_SDF),
@@ -493,7 +413,6 @@ class ThesisBenchmark:
 
         if RDKIT_ROCS_AVAILABLE:
             try:
-                #? [RDKit ROCS Scorer] Robust fallback Gaussian shape aligner.
                 scorer = RDKitROCSScorer(
                     conformer_generator=conf_gen,
                     references=str(self.REF_SDF),
@@ -518,14 +437,7 @@ class ThesisBenchmark:
         return np.full(len(smiles_list), 0.5, dtype=np.float32)
 
     def prepare_regime_dataframe(self, raw_df: pd.DataFrame) -> pd.DataFrame:
-        """Process raw candidate TSV, calculate missing properties, and preserve authentic scores.
-
-        Args:
-            raw_df: Raw DataFrame loaded from TSV run file.
-
-        Returns:
-            Cleaned DataFrame containing real calculated properties and objective metrics.
-        """
+        """Process raw candidate TSV, calculate missing properties, and preserve authentic scores."""
         # Deduplicate columns
         raw_df = raw_df.loc[:, ~raw_df.columns.duplicated()].copy()
         smiles_col = "SMILES" if "SMILES" in raw_df.columns else ("smiles" if "smiles" in raw_df.columns else None)
@@ -571,16 +483,9 @@ class ThesisBenchmark:
 
         return clean_df
 
-    def generate_summary_table(self, datasets: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame, str]:
-        """Generate structured academic benchmark summary metrics table.
-
-        Args:
-            datasets: Dictionary mapping regime names to candidate DataFrames.
-
-        Returns:
-            Tuple containing pandas DataFrame summary and Markdown formatted table text.
-        """
-        rows: List[Dict[str, Any]] = []
+    def generate_summary_table(self, datasets: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, str]:
+        """Generate structured academic benchmark summary metrics table."""
+        rows: list[dict[str, Any]] = []
         for regime, df in datasets.items():
             valid_df = df[df["Valid"] == 1]
             total_n = len(df)
@@ -618,7 +523,6 @@ class ThesisBenchmark:
             })
 
         table_df = pd.DataFrame(rows)
-        #? [Pandas] Exports summary table to TSV format for thesis data integration.
         tsv_path = self.BASE_OUTPUT_DIR / "thesis_benchmark_table.tsv"
         table_df.to_csv(tsv_path, sep="\t", index=False)
 
@@ -638,15 +542,8 @@ class ThesisBenchmark:
 
         return table_df, md_text
 
-    def plot_radar_chart(self, datasets: Dict[str, pd.DataFrame]) -> Path:
-        """Render publication-grade radar chart comparing multi-objective performance across regimes.
-
-        Args:
-            datasets: Dictionary mapping regime names to candidate DataFrames.
-
-        Returns:
-            Path to the saved radar plot image file.
-        """
+    def plot_radar_chart(self, datasets: dict[str, pd.DataFrame]) -> Path:
+        """Render publication-grade radar chart comparing multi-objective performance across regimes."""
         categories = ["3D Shape (ROCS)", "Synthesizability (RA)", "Drug-likeness (QED)", "Size Fit (HAC)", "Scaffold Diversity"]
         num_vars = len(categories)
         angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
@@ -701,17 +598,10 @@ class ThesisBenchmark:
         plt.close(fig)
         return out_path
 
-    def plot_chemical_space_pca(self, datasets: Dict[str, pd.DataFrame]) -> Path:
-        """Project candidate structural space onto 2D PCA using 2048-bit Morgan fingerprints.
-
-        Args:
-            datasets: Dictionary mapping regime names to candidate DataFrames.
-
-        Returns:
-            Path to the saved PCA projection plot.
-        """
-        all_fps: List[np.ndarray] = []
-        labels: List[str] = []
+    def plot_chemical_space_pca(self, datasets: dict[str, pd.DataFrame]) -> Path:
+        """Project candidate structural space onto 2D PCA using 2048-bit Morgan fingerprints."""
+        all_fps: list[np.ndarray] = []
+        labels: list[str] = []
 
         # Seed reference point
         seed_label = f"Query Seed (HAC={self.seed_hac})"
@@ -736,7 +626,6 @@ class ThesisBenchmark:
         if len(all_fps) < 5:
             return self.BASE_OUTPUT_DIR / "thesis_chemical_space.png"
 
-        #? [Scikit-learn PCA] Dimensionality reduction from 2048-bit Morgan space down to 2 principal components.
         X = np.array(all_fps)
         pca = PCA(n_components=2, random_state=RANDOM_STATE)
         coords = pca.fit_transform(X)
@@ -770,26 +659,18 @@ class ThesisBenchmark:
         plt.close(fig)
         return out_path
 
-    def plot_score_distributions(self, datasets: Dict[str, pd.DataFrame]) -> Path:
-        """Render side-by-side boxplots for ROCS, RAscore, QED, and Heavy Atom Count.
-
-        Args:
-            datasets: Dictionary mapping regime names to candidate DataFrames.
-
-        Returns:
-            Path to the saved distribution plot.
-        """
+    def plot_score_distributions(self, datasets: dict[str, pd.DataFrame]) -> Path:
+        """Render side-by-side boxplots for ROCS, RAscore, QED, and Heavy Atom Count."""
         metrics = ["ROCS", "RAscore", "QED", "HeavyAtoms"]
         titles = ["ROCS 3D Shape", "Retrosynthetic Accessibility", "Drug-likeness (QED)", "Heavy Atom Count (HAC)"]
 
-        #? [Matplotlib] 2x2 grid subplots for score distribution comparisons.
         fig, axes = plt.subplots(2, 2, figsize=(10, 8))
         axes = axes.flatten()
 
-        for idx, (metric, title) in enumerate(zip(metrics, titles)):
+        for idx, (metric, title) in enumerate(zip(metrics, titles, strict=True)):
             ax = axes[idx]
-            plot_data: List[np.ndarray] = []
-            labels: List[str] = []
+            plot_data: list[np.ndarray] = []
+            labels: list[str] = []
 
             for regime, df in datasets.items():
                 valid_df = df[df["Valid"] == 1]
@@ -810,17 +691,10 @@ class ThesisBenchmark:
         plt.close(fig)
         return out_path
 
-    def plot_top_leads_grid(self, datasets: Dict[str, pd.DataFrame]) -> Path | None:
-        """Depict 2D chemical structure grid of elite leads ranked by multi-objective performance.
-
-        Args:
-            datasets: Dictionary mapping regime names to candidate DataFrames.
-
-        Returns:
-            Path to saved lead grid PNG or None if no valid molecules found.
-        """
-        selected_mols: List[Chem.Mol] = []
-        legends: List[str] = []
+    def plot_top_leads_grid(self, datasets: dict[str, pd.DataFrame]) -> Path | None:
+        """Depict 2D chemical structure grid of elite leads ranked by multi-objective performance."""
+        selected_mols: list[Chem.Mol] = []
+        legends: list[str] = []
 
         # 1. Reference query seed
         if self.SEED_MOL:
@@ -910,17 +784,7 @@ class ThesisBenchmark:
         funnel_path: Path | None = None,
         leads_path: Path | None = None,
     ) -> pd.DataFrame:
-        """Execute end-to-end benchmark suite on real empirical candidate data.
-
-        Args:
-            rnn_path: Optional explicit Path to Sequence-RNN TSV.
-            graph_path: Optional explicit Path to Graph-Transformer TSV.
-            funnel_path: Optional explicit Path to Prioritized Leads TSV (backward compatible).
-            leads_path: Optional explicit Path to Prioritized Leads TSV.
-
-        Returns:
-            Summary benchmark table DataFrame.
-        """
+        """Execute end-to-end benchmark suite on real empirical candidate data."""
         print("Loading authentic datasets into ThesisBenchmark...")
         datasets = self.load_real_datasets(
             rnn_path=rnn_path,

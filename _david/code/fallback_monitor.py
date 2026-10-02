@@ -1,44 +1,28 @@
-"""Fallback monitoring and alerting system for DrugEx LBDD pipeline.
-
-Tracks and alerts when fallback mechanisms (e.g., conformer embedding random coordinates,
-ROCS fallback to RDKit or default score, scaffold extraction fallback, candidate pre-filter
-relaxation) are triggered so researchers can monitor, detect, and audit them.
-"""
+"""Fallback monitoring and alerting system for DrugEx LBDD pipeline."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
 import json
 import logging
-from pathlib import Path
 import threading
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("DrugEx.FallbackMonitor")
 
 
 @dataclass
 class FallbackEvent:
-    """Record of a single fallback mechanism invocation.
-
-    Attributes:
-        fallback_type: Categorical identifier of the fallback mechanism.
-        message: Descriptive explanation of why the fallback occurred.
-        timestamp: ISO format string indicating when the event was recorded.
-        context: Optional dictionary of contextual metadata (e.g. molecule SMILES, score).
-    """
+    """Record of a single fallback mechanism invocation."""
 
     fallback_type: str
     message: str
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    context: Dict[str, Any] = field(default_factory=dict)
+    context: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert fallback event to serializable dictionary.
-
-        Returns:
-            Dictionary containing event attributes.
-        """
+    def to_dict(self) -> dict[str, Any]:
+        """Convert fallback event to serializable dictionary."""
         return {
             "fallback_type": self.fallback_type,
             "message": self.message,
@@ -48,14 +32,9 @@ class FallbackEvent:
 
 
 class FallbackMonitor:
-    """Centralized observable monitor and auditor for fallback mechanisms.
+    """Centralized observable monitor and auditor for fallback mechanisms."""
 
-    Maintains a thread-safe in-memory log of all triggered fallback events,
-    emits loud observable console warnings with visual indicators, logs to Python
-    logger, and generates post-run audit reports for pipeline validation.
-    """
-
-    _events: List[FallbackEvent] = []
+    _events: list[FallbackEvent] = []
     _lock: threading.RLock = threading.RLock()
 
     @classmethod
@@ -63,21 +42,9 @@ class FallbackMonitor:
         cls,
         fallback_type: str,
         message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> FallbackEvent:
-        """Record and alert an observable fallback mechanism invocation.
-
-        Prints a high-visibility warning banner to stdout, logs via logger.warning,
-        and records the event in the audit registry.
-
-        Args:
-            fallback_type: Short identifier for the fallback category.
-            message: User-facing explanation of why the fallback occurred.
-            context: Optional contextual parameters (SMILES, values, etc.).
-
-        Returns:
-            The recorded FallbackEvent instance.
-        """
+        """Record and alert an observable fallback mechanism invocation."""
         event = FallbackEvent(
             fallback_type=fallback_type,
             message=message,
@@ -86,7 +53,6 @@ class FallbackMonitor:
         with cls._lock:
             cls._events.append(event)
 
-            # High-visibility console alert for terminal monitoring
             alert_msg = (
                 f"\n{'!' * 70}\n"
                 f"[FALLBACK MONITOR ALERT] Category: {fallback_type}\n"
@@ -108,44 +74,28 @@ class FallbackMonitor:
 
     @classmethod
     def has_fallbacks(cls) -> bool:
-        """Check if any fallback events have been recorded.
-
-        Returns:
-            True if one or more fallbacks occurred, False otherwise.
-        """
+        """Check if any fallback events have been recorded."""
         with cls._lock:
             return len(cls._events) > 0
 
     @classmethod
-    def get_events(cls) -> List[FallbackEvent]:
-        """Retrieve all recorded fallback events.
-
-        Returns:
-            List of FallbackEvent objects.
-        """
+    def get_events(cls) -> list[FallbackEvent]:
+        """Retrieve all recorded fallback events."""
         with cls._lock:
             return list(cls._events)
 
     @classmethod
-    def get_counts(cls) -> Dict[str, int]:
-        """Aggregate fallback events by type.
-
-        Returns:
-            Dictionary mapping fallback_type to event occurrence count.
-        """
+    def get_counts(cls) -> dict[str, int]:
+        """Aggregate fallback events by type."""
         with cls._lock:
-            counts: Dict[str, int] = {}
+            counts: dict[str, int] = {}
             for ev in cls._events:
                 counts[ev.fallback_type] = counts.get(ev.fallback_type, 0) + 1
             return counts
 
     @classmethod
-    def get_summary(cls) -> Dict[str, Any]:
-        """Generate structured audit summary dictionary.
-
-        Returns:
-            Dictionary with total_count, counts_by_type, and event details.
-        """
+    def get_summary(cls) -> dict[str, Any]:
+        """Generate structured audit summary dictionary."""
         with cls._lock:
             return {
                 "total_fallbacks": len(cls._events),
@@ -178,14 +128,7 @@ class FallbackMonitor:
 
     @classmethod
     def save_audit_json(cls, output_path: Path) -> Path:
-        """Persist structured fallback audit to JSON file.
-
-        Args:
-            output_path: Target Path for writing JSON report.
-
-        Returns:
-            Resolved Path of the saved file.
-        """
+        """Persist structured fallback audit to JSON file."""
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         summary = cls.get_summary()
