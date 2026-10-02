@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DrugEx C++ & Chemoinformatics Reference Documentation</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="logo.png">
+  <link rel="apple-touch-icon" href="logo.png">
+  <link rel="shortcut icon" href="favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -16112,7 +16116,7 @@ for idx, smi in enumerate(items, 1):
           {/* Top Bar */}
           <header className="top-header">
             <div className="brand-title" style={{ cursor: "pointer" }} onClick={goToMain} title="Return to Main Index">
-              <span style={{ color: "#38bdf8", fontFamily: "var(--font-mono)", fontSize: "16px" }}>[D]</span>
+              <img src="logo.png" alt="DrugEx Logo" style={{ width: "22px", height: "22px", borderRadius: "4px", objectFit: "contain", verticalAlign: "middle" }} onError={(e) => { e.target.style.display = 'none'; }} />
               <span className="brand-text-full">DrugEx C++ & Chemoinformatics Reference</span>
               <span className="brand-text-short">DrugEx Reference</span>
               <span className="brand-pill">v3.4 Complete Reference • {counts.all} Symbols</span>
