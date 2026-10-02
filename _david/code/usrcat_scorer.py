@@ -316,6 +316,8 @@ class USRCATScorer(Scorer):
         params = AllChem.ETKDGv3()
         params.randomSeed = self.random_seed
         params.pruneRmsThresh = 0.50
+        params.maxIterations = 200
+        params.numThreads = 1
 
         # Embed candidate conformers with standard ETKDGv3
         conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=self.num_conformers, params=params))
@@ -327,7 +329,9 @@ class USRCATScorer(Scorer):
                 context={"smiles": smi_str, "num_conformers": self.num_conformers},
             )
             params.useRandomCoords = True
-            conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=self.num_conformers, params=params))
+            params.maxIterations = 50
+            num_fallback_confs = min(self.num_conformers, 3)
+            conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=num_fallback_confs, params=params))
             if not conf_ids:
                 FallbackMonitor.record_fallback(
                     fallback_type="conformer_embedding_failure",
@@ -375,6 +379,8 @@ class USRCATScorer(Scorer):
         Returns:
             1D NumPy array of shape (len(mols),) containing raw USRCAT similarities in [0.0, 1.0].
         """
+        if not mols:
+            return np.array([], dtype=np.float32)
         scores = [self._score_single_molecule(m) for m in mols]
         #? [NumPy] Converts Python score list to float32 NumPy vector for DrugEx Environment compatibility.
         return np.array(scores, dtype=np.float32)

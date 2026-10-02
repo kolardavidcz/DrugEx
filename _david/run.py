@@ -13,6 +13,7 @@ Stages executed:
 """
 from __future__ import annotations
 
+import argparse
 from datetime import datetime
 import os
 from pathlib import Path
@@ -37,21 +38,47 @@ def main() -> int:
     Returns:
         Exit code: 0 on success, non-zero on failure.
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = SCRIPT_DIR / "output" / timestamp
-    output_dir.mkdir(parents=True, exist_ok=True)
+    parser = argparse.ArgumentParser(
+        description="One-Click Runner for DrugEx Ligand-Based De Novo Drug Design Pipeline",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--molecules", "-m", type=str, default=MY_MOLECULE, help="Active query seed SMILES string")
+    parser.add_argument("--mode", choices=["full", "test", "benchmark_only"], default=None, help="Execution mode")
+    parser.add_argument("--test", action="store_true", help="Shortcut for --mode test (1 epoch, 50 samples)")
+    parser.add_argument("--epochs", "-e", type=int, default=None, help="RL epochs per stage")
+    parser.add_argument("--n-samples", "-n", type=int, default=None, help="Samples generated per RL epoch")
+    parser.add_argument("--out-dir", "-o", type=Path, default=None, help="Custom output directory")
+    args = parser.parse_args()
 
-    # Check execution mode: default to 'full', allow 'test' via env var or --test flag for quick verification
-    mode = os.getenv("DRUGEX_RUN_MODE", "full").lower()
-    if "--test" in sys.argv:
+    # Determine execution mode: command-line flag > argument > env var > default "full"
+    env_mode = os.getenv("DRUGEX_RUN_MODE", "full").lower()
+    if args.test:
         mode = "test"
+    elif args.mode:
+        mode = args.mode.lower()
+    else:
+        mode = env_mode
+
+    # Configure epochs and sample counts
+    if mode == "test":
+        epochs = args.epochs if args.epochs is not None else 1
+        n_samples = args.n_samples if args.n_samples is not None else 50
+    else:
+        epochs = args.epochs if args.epochs is not None else 10
+        n_samples = args.n_samples if args.n_samples is not None else 200
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = args.out_dir if args.out_dir is not None else (SCRIPT_DIR / "output" / timestamp)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 80)
     print(" DRUGEX LBDD PIPELINE - 1-CLICK AUTOMATED RUNNER")
     print("=" * 80)
     print(f" Execution Mode:   {mode.upper()}")
-    print(f" Query Molecule:   {MY_MOLECULE}")
+    print(f" Query Molecule:   {args.molecules}")
     print(f" Target Output:    {output_dir}")
+    print(f" Epochs / Stage:   {epochs}")
+    print(f" Samples / Epoch:  {n_samples}")
     print(f" Started At:       {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 80)
 
@@ -59,8 +86,10 @@ def main() -> int:
         pipeline = MoleculePipeline(
             output_dir=output_dir,
             mode=mode,
+            epochs=epochs,
+            n_samples=n_samples,
         )
-        summary = pipeline.run(molecules=MY_MOLECULE)
+        summary = pipeline.run(molecules=args.molecules)
 
         print("\n" + "=" * 80)
         print(" 1-CLICK PIPELINE EXECUTION COMPLETED")

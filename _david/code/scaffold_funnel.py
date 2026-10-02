@@ -10,9 +10,10 @@ ONLY candidates that pass preceding 3D ElectroShape and property pre-filters.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
-from typing import List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 # Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -408,6 +409,15 @@ class ScaffoldFunnel:
         # =========================================================================
         # Tier 1 Pre-Filter: Fast 2D / 1D & 3D Moment Evaluation
         # =========================================================================
+        total_input: int = len(df)
+        passed_valid: int = 0
+        passed_hac: int = 0
+        passed_es: int = 0
+        passed_ra: int = 0
+        passed_qed: int = 0
+        passed_liability: int = 0
+        passed_seed_sim: int = 0
+
         tier1_candidates = []
         for _, row in df.iterrows():
             if "Valid" in row and row["Valid"] != 1:
@@ -417,31 +427,37 @@ class ScaffoldFunnel:
             cand_mol = Chem.MolFromSmiles(smi)
             if cand_mol is None:
                 continue
+            passed_valid += 1
 
             # Heavy atom envelope check
             hac = cand_mol.GetNumHeavyAtoms()
             if hac < self.MIN_CANDIDATE_HEAVY_ATOMS or hac > self.MAX_CANDIDATE_HEAVY_ATOMS:
                 continue
+            passed_hac += 1
 
             # Check 3D ElectroShape moment threshold
             es_val = self._safe_float(row.get(electroshape_col), 1.0) if electroshape_col else 1.0
             if electroshape_col and es_val < MIN_ELECTROSHAPE_SCORE:
                 continue
+            passed_es += 1
 
             # Check Retrosynthetic Accessibility (RAscore)
             ra_val = self._safe_float(row.get(ra_col), 1.0) if ra_col else 1.0
             if ra_col and ra_val < MIN_RA_SCORE:
                 continue
+            passed_ra += 1
 
             # Check Drug-likeness (QED)
             qed_val = self._safe_float(row.get(qed_col), 1.0) if qed_col else 1.0
             if qed_col and qed_val < MIN_QED_SCORE:
                 continue
+            passed_qed += 1
 
             # Check PAINS and custom toxicophore liabilities
             has_liability = self.is_liability_or_pains(cand_mol)
             if has_liability:
                 continue
+            passed_liability += 1
 
             # Check scaffold hopping distance from seed
             if self.SEED_FP:
@@ -451,6 +467,7 @@ class ScaffoldFunnel:
                     continue
             else:
                 sim_to_seed = 0.0
+            passed_seed_sim += 1
 
             tier1_candidates.append({
                 "row": row,
@@ -477,6 +494,8 @@ class ScaffoldFunnel:
                 if cand_mol is None:
                     continue
                 hac = cand_mol.GetNumHeavyAtoms()
+                cand_fp = AllChem.GetMorganFingerprintAsBitVect(cand_mol, 2, nBits=2048) if self.SEED_FP else None
+                sim_to_seed = float(DataStructs.TanimotoSimilarity(cand_fp, self.SEED_FP)) if (self.SEED_FP and cand_fp) else 0.0
                 tier1_candidates.append({
                     "row": row,
                     "SMILES": smi,
@@ -486,7 +505,7 @@ class ScaffoldFunnel:
                     "RAscore": self._safe_float(row.get(ra_col), 0.5) if ra_col else 0.5,
                     "QED": self._safe_float(row.get(qed_col), 0.5) if qed_col else 0.5,
                     "Has_Liability": self.is_liability_or_pains(cand_mol),
-                    "Seed_Similarity": 0.2,
+                    "Seed_Similarity": sim_to_seed,
                 })
 
         # =========================================================================
@@ -603,6 +622,41 @@ class ScaffoldFunnel:
 
         tsv_out = self.OUTPUT_DIR / "funnel_scaffolds.tsv"
         final_df.to_csv(tsv_out, sep="\t", index=False)
+
+        # Export structured attrition statistics
+        attrition_stats: Dict[str, Any] = {
+            "total_input_candidates": total_input,
+            "passed_chemical_validity": passed_valid,
+            "passed_hac_envelope": passed_hac,
+            "passed_electroshape_threshold": passed_es,
+            "passed_rascore_threshold": passed_ra,
+            "passed_qed_threshold": passed_qed,
+            "passed_pains_and_toxicophores": passed_liability,
+            "passed_scaffold_hopping_distance": passed_seed_sim,
+            "tier1_survivors_count": len(tier1_candidates),
+            "tier2_rocs_survivors_count": len(working_pool),
+            "murcko_frameworks_extracted": len(records),
+            "unique_scaffolds_count": len(unique_scaffolds),
+            "butina_clusters_count": len(clusters),
+            "final_scaffolds_selected": len(final_df),
+        }
+        attrition_file = self.OUTPUT_DIR / "funnel_attrition.json"
+        with open(attrition_file, "w", encoding="utf-8") as f:
+            json.dump(attrition_stats, f, indent=4)
+
+        pct = lambda n: f"{(n / total_input * 100.0):.1f}%" if total_input > 0 else "0.0%"
+        print("\n[Stage 2] Chemotype Funnel Filter Attrition Cascade:")
+        print(f"  • Total input candidates:       {total_input} (100.0%)")
+        print(f"  • Passed chemical validity:     {passed_valid} ({pct(passed_valid)})")
+        print(f"  • Passed HAC envelope:          {passed_hac} ({pct(passed_hac)})")
+        print(f"  • Passed 3D ElectroShape:       {passed_es} ({pct(passed_es)})")
+        print(f"  • Passed synthesizability (RA): {passed_ra} ({pct(passed_ra)})")
+        print(f"  • Passed drug-likeness (QED):   {passed_qed} ({pct(passed_qed)})")
+        print(f"  • Passed PAINS/toxicophores:    {passed_liability} ({pct(passed_liability)})")
+        print(f"  • Passed hopping distance:      {passed_seed_sim} ({pct(passed_seed_sim)})")
+        print(f"  • Tier 1 survivors:             {len(tier1_candidates)}")
+        print(f"  • Tier 2 ROCS survivors:        {len(working_pool)}")
+        print(f"  • Unique Murcko frameworks:     {len(unique_scaffolds)} in {len(clusters)} Butina cluster(s)")
 
         #? [Statistical Prompt Expansion] Replicates top lead scaffolds to N=200 prompts for stable mini-batch tensor distribution in Stage 3.
         n_prompts: int = 200

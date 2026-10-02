@@ -439,7 +439,111 @@ class TestAntiCheatingRewards(unittest.TestCase):
                 summary = pipe.run(molecules="c1ccccc1O")
                 self.assertTrue((pipe_dir / "pipeline_summary.json").exists())
                 self.assertTrue((pipe_dir / "fallback_audit.json").exists())
+                self.assertTrue((pipe_dir / "pipeline_status.json").exists())
+                self.assertTrue((pipe_dir / "pipeline.log").exists())
                 self.assertEqual(summary["mode"], "benchmark_only")
+
+    def test_scaffold_funnel_attrition_tracking(self) -> None:
+        """Verify ScaffoldFunnel generates funnel_attrition.json with complete cascade statistics."""
+        import json
+        import pandas as pd
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            funnel = ScaffoldFunnel(output_dir=Path(tmp_dir), seed_smiles="c1ccccc1")
+            dummy_df = pd.DataFrame({
+                "SMILES": [
+                    "c1ccccc1NC(=O)c1ccc(cn1)C1CC1",
+                    "Cc1ccc(cc1)N1CCN(CC1)c1nc2ccccc2n1C",
+                ],
+                "Valid": [1, 1],
+                "ElectroShape": [0.70, 0.75],
+                "RAscore": [0.85, 0.80],
+                "QED": [0.65, 0.70],
+            })
+            funnel.process_candidates_dataframe(dummy_df)
+            attrition_path = Path(tmp_dir) / "funnel_attrition.json"
+            self.assertTrue(attrition_path.exists())
+            with open(attrition_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertEqual(data["total_input_candidates"], 2)
+            self.assertEqual(data["passed_chemical_validity"], 2)
+            self.assertIn("tier1_survivors_count", data)
+            self.assertIn("unique_scaffolds_count", data)
+
+    def test_thesis_benchmark_regime_deduplication(self) -> None:
+        """Verify ThesisBenchmark avoids duplicating identical datasets under separate regime names."""
+        from _david.code.thesis_benchmark import ThesisBenchmark
+        import pandas as pd
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bench = ThesisBenchmark(output_dir=Path(tmp_dir))
+            tsv_path = Path(tmp_dir) / "leads.tsv"
+            df = pd.DataFrame({
+                "SMILES": ["c1ccccc1O", "CC(=O)Oc1ccccc1C(=O)O"],
+                "Valid": [1, 1],
+                "ROCS": [0.65, 0.70],
+                "RAscore": [0.80, 0.85],
+                "QED": [0.60, 0.65],
+            })
+            df.to_csv(tsv_path, sep="\t", index=False)
+
+            # Passing same TSV to graph_path and funnel_path should NOT result in duplicate entries
+            loaded = bench.load_real_datasets(
+                rnn_path=tsv_path,
+                graph_path=tsv_path,
+                funnel_path=tsv_path,
+            )
+            self.assertIn("Sequence-RNN (Pure RL)", loaded)
+            self.assertIn("Hybrid Funnel (Two-Stage)", loaded)
+            self.assertNotIn("Graph-Transformer (BRICS Seed)", loaded)
+
+    def test_monitor_dashboard_display(self) -> None:
+        """Verify monitor tool display_dashboard runs without exception on pipeline run directory."""
+        from _david.code.monitor import display_dashboard
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            run_dir = Path(tmp_dir)
+            # Create minimal status and summary files
+            import json
+            with open(run_dir / "pipeline_status.json", "w", encoding="utf-8") as f:
+                json.dump({
+                    "run_id": "test_run",
+                    "mode": "test",
+                    "current_stage": "COMPLETED",
+                    "overall_status": "SUCCESS",
+                    "elapsed_seconds": 12.5,
+                    "stages": {"Stage 0": "SUCCESS"},
+                    "gpu_telemetry": {"cuda_available": False, "devices": []},
+                }, f)
+            with open(run_dir / "pipeline.log", "w", encoding="utf-8") as f:
+                f.write("[2026-10-02 00:00:00] Pipeline test run\n")
+            # Should execute smoothly without throwing exceptions
+            display_dashboard(run_dir)
+
+    def test_usrcat_scorer_strained_molecule_fast_embedding(self) -> None:
+        """Verify USRCATScorer handles highly strained bridged polycycles rapidly without hanging."""
+        strained_smi = "CC(O)(C1CCC(Oc2cccc3c2nc2n3-c3ccc(cn3)C23CCNCC3)C1)C(F)(F)NC(N)=O"
+        # Reference moments: 1x75 array
+        ref_moments = np.ones((1, 75), dtype=np.float64)
+        scorer = USRCATScorer(references=ref_moments, num_conformers=5, score_type="electroshape")
+        # Should complete within a few hundred ms and return a float score in [0.0, 1.0]
+        score = scorer._score_single_molecule(strained_smi)
+        self.assertIsInstance(score, float)
+        self.assertGreaterEqual(score, 0.0)
+        self.assertLessEqual(score, 1.0)
+
+    def test_usrcat_scorer_batch(self) -> None:
+        """Verify USRCATScorer getScores evaluates multiple molecules in batch."""
+        mols = [
+            "c1ccccc1",
+            "c1ccccc1O",
+            "c1ccccc1C(=O)O",
+            "c1ccccc1NC(=O)C",
+        ]
+        ref_moments = np.ones((1, 75), dtype=np.float64)
+        scorer = USRCATScorer(references=ref_moments, num_conformers=3, score_type="electroshape")
+        scores = scorer.getScores(mols)
+        self.assertEqual(len(scores), 4)
+        for s in scores:
+            self.assertGreater(s, 0.0)
+            self.assertLessEqual(s, 1.0)
 
 
 if __name__ == "__main__":

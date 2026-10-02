@@ -42,20 +42,22 @@ Guide for AI agents working in `/home/kolar/build_projects/drugex_edu/repo/_davi
 
 | File / Folder | Role | Status |
 |---|---|---|
-| `_david/run.py` | 1-click execution entrypoint (zero CLI arguments needed, runs full pipeline or test mode via `DRUGEX_RUN_MODE=test`). | **Active Runner** |
+| `_david/run.py` | 1-click execution entrypoint (zero CLI arguments needed, runs full pipeline or test mode via `DRUGEX_RUN_MODE=test` or `--test`). | **Active Runner** |
+| `_david/monitor.py` | Live terminal telemetry monitor and dashboard for active/completed runs (`python _david/monitor.py --watch`). | **Active Monitor** |
+| `_david/code/monitor.py` | Core implementation of terminal dashboard, GPU/CUDA stats, stage status, and RL convergence tracker. | **Active Tool** |
 | `_david/code/prepare_query_conformer.py` | Stage 0: 3D reference conformer ensemble (50 confs, MMFF94) & ElectroShape/USRCAT moment arrays. | **Active** |
 | `_david/code/SequenceRNN.py` | Stage 1: Global hit discovery via Sequence-RNN policy gradient RL (75-D ElectroShape, dynamic SmoothHump). | **Active** |
-| `_david/code/scaffold_funnel.py` | Stage 2: Bemis-Murcko framework extraction, dynamic size envelope, PAINS purge, gated ROCS, Butina clustering. | **Active** |
+| `_david/code/scaffold_funnel.py` | Stage 2: Bemis-Murcko framework extraction, dynamic size envelope, PAINS purge, gated ROCS, Butina clustering, and filter attrition cascade tracking. | **Active** |
 | `_david/code/GraphTransformer.py` | Stage 3: Fragment-conditioned lead optimization on discovered funnel scaffolds using `dummyMolsFromFragments()`. | **Active** |
 | `_david/code/fallback_monitor.py` | Central monitoring and alert system tracking conformer, ROCS, scaffold, and filter fallbacks. | **Active Tool** |
 | `_david/code/anti_cheating_rewards.py` | Augmented Chebyshev & Geometric Mean scalarization schemes preventing Pareto reward hacking. | **Active Tool** |
 | `_david/code/usrcat_scorer.py` | Pure LBDD 3D shape and electrostatic moment scorer (`drugex.training.scorers.interfaces.Scorer`). | **Active Tool** |
-| `_david/code/pipeline.py` | Unified end-to-end multi-stage pipeline orchestrator (Stages 0 -> 1 -> 2 -> 3 -> 4). | **Active Production** |
-| `_david/code/thesis_benchmark.py` | Stage 4: Publication benchmark suite (CDPKit ROCS, radar, PCA, boxplots, grids) on real empirical data. | **Active Production** |
+| `_david/code/pipeline.py` | Unified end-to-end multi-stage pipeline orchestrator (Stages 0 -> 1 -> 2 -> 3 -> 4) with `pipeline.log`, `pipeline_status.json`, and GPU telemetry. | **Active Production** |
+| `_david/code/thesis_benchmark.py` | Stage 4: Publication benchmark suite (CDPKit ROCS, radar, PCA, boxplots, grids) on real empirical data with deduplication. | **Active Production** |
 | `_david/code/visualize_molecular_space.py` | Chemical space manifold explorer and 3D property manifold visualization. | **Active Tool** |
-| `_david/tests.py` | Empirical unit test suite verifying anti-cheating rewards, dynamic size bounds, gated ROCS, FallbackMonitor, and runners. | **Active Test** |
+| `_david/tests.py` | Empirical unit test suite verifying anti-cheating rewards, dynamic size bounds, gated ROCS, FallbackMonitor, attrition cascade, and runners. | **Active Test** |
 | `_david/dodo_notes.md` | Academic evaluation notes, query molecule SMILES, and failure mode documentation. | **Reference** |
-| `_david/output/<YYYYMMDD_HHMMSS>/` | Timestamped run directory for logs, checkpoints, plots, summary tables, and fallback audit JSON. | **Output Storage** |
+| `_david/output/<YYYYMMDD_HHMMSS>/` | Timestamped run directory containing `pipeline.log`, `pipeline_status.json`, `pipeline_summary.json`, `fallback_audit.json`, and per-stage artifacts. | **Output Storage** |
 
 ---
 

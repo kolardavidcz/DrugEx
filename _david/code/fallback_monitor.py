@@ -11,6 +11,7 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
+import threading
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("DrugEx.FallbackMonitor")
@@ -55,6 +56,7 @@ class FallbackMonitor:
     """
 
     _events: List[FallbackEvent] = []
+    _lock: threading.RLock = threading.RLock()
 
     @classmethod
     def record_fallback(
@@ -81,26 +83,27 @@ class FallbackMonitor:
             message=message,
             context=context or {},
         )
-        cls._events.append(event)
+        with cls._lock:
+            cls._events.append(event)
 
-        # High-visibility console alert for terminal monitoring
-        alert_msg = (
-            f"\n{'!' * 70}\n"
-            f"[FALLBACK MONITOR ALERT] Category: {fallback_type}\n"
-            f"Reason: {message}\n"
-        )
-        if context:
-            ctx_str = ", ".join(f"{k}={v}" for k, v in context.items())
-            alert_msg += f"Context: {ctx_str}\n"
-        alert_msg += f"{'!' * 70}\n"
+            # High-visibility console alert for terminal monitoring
+            alert_msg = (
+                f"\n{'!' * 70}\n"
+                f"[FALLBACK MONITOR ALERT] Category: {fallback_type}\n"
+                f"Reason: {message}\n"
+            )
+            if context:
+                ctx_str = ", ".join(f"{k}={v}" for k, v in context.items())
+                alert_msg += f"Context: {ctx_str}\n"
+            alert_msg += f"{'!' * 70}\n"
 
-        print(alert_msg)
-        logger.warning(
-            "Fallback triggered: %s | %s | context=%s",
-            fallback_type,
-            message,
-            context,
-        )
+            print(alert_msg)
+            logger.warning(
+                "Fallback triggered: %s | %s | context=%s",
+                fallback_type,
+                message,
+                context,
+            )
         return event
 
     @classmethod
@@ -110,7 +113,8 @@ class FallbackMonitor:
         Returns:
             True if one or more fallbacks occurred, False otherwise.
         """
-        return len(cls._events) > 0
+        with cls._lock:
+            return len(cls._events) > 0
 
     @classmethod
     def get_events(cls) -> List[FallbackEvent]:
@@ -119,7 +123,8 @@ class FallbackMonitor:
         Returns:
             List of FallbackEvent objects.
         """
-        return list(cls._events)
+        with cls._lock:
+            return list(cls._events)
 
     @classmethod
     def get_counts(cls) -> Dict[str, int]:
@@ -128,10 +133,11 @@ class FallbackMonitor:
         Returns:
             Dictionary mapping fallback_type to event occurrence count.
         """
-        counts: Dict[str, int] = {}
-        for ev in cls._events:
-            counts[ev.fallback_type] = counts.get(ev.fallback_type, 0) + 1
-        return counts
+        with cls._lock:
+            counts: Dict[str, int] = {}
+            for ev in cls._events:
+                counts[ev.fallback_type] = counts.get(ev.fallback_type, 0) + 1
+            return counts
 
     @classmethod
     def get_summary(cls) -> Dict[str, Any]:
@@ -140,33 +146,35 @@ class FallbackMonitor:
         Returns:
             Dictionary with total_count, counts_by_type, and event details.
         """
-        return {
-            "total_fallbacks": len(cls._events),
-            "counts_by_type": cls.get_counts(),
-            "events": [ev.to_dict() for ev in cls._events],
-        }
+        with cls._lock:
+            return {
+                "total_fallbacks": len(cls._events),
+                "counts_by_type": cls.get_counts(),
+                "events": [ev.to_dict() for ev in cls._events],
+            }
 
     @classmethod
     def print_summary(cls) -> None:
         """Print a formatted post-run audit report to stdout."""
-        counts = cls.get_counts()
-        print("\n" + "=" * 80)
-        print(" DRUGEX LBDD FALLBACK & HEALTH AUDIT REPORT")
-        print("=" * 80)
-        if not cls._events:
-            print(" [OK] Zero fallback mechanisms triggered.")
-            print(" All calculations executed strictly on primary optimal algorithms.")
-        else:
-            print(f" [WARNING] Total fallback events recorded: {len(cls._events)}")
-            print("-" * 80)
-            for f_type, count in counts.items():
-                print(f"   • {f_type}: {count} event(s)")
-            print("-" * 80)
-            print(" Detailed Fallback Log:")
-            for idx, ev in enumerate(cls._events, start=1):
-                ctx_detail = f" | context: {ev.context}" if ev.context else ""
-                print(f"   [{idx}] {ev.timestamp} | {ev.fallback_type}: {ev.message}{ctx_detail}")
-        print("=" * 80 + "\n")
+        with cls._lock:
+            counts = cls.get_counts()
+            print("\n" + "=" * 80)
+            print(" DRUGEX LBDD FALLBACK & HEALTH AUDIT REPORT")
+            print("=" * 80)
+            if not cls._events:
+                print(" [OK] Zero fallback mechanisms triggered.")
+                print(" All calculations executed strictly on primary optimal algorithms.")
+            else:
+                print(f" [WARNING] Total fallback events recorded: {len(cls._events)}")
+                print("-" * 80)
+                for f_type, count in counts.items():
+                    print(f"   • {f_type}: {count} event(s)")
+                print("-" * 80)
+                print(" Detailed Fallback Log:")
+                for idx, ev in enumerate(cls._events, start=1):
+                    ctx_detail = f" | context: {ev.context}" if ev.context else ""
+                    print(f"   [{idx}] {ev.timestamp} | {ev.fallback_type}: {ev.message}{ctx_detail}")
+            print("=" * 80 + "\n")
 
     @classmethod
     def save_audit_json(cls, output_path: Path) -> Path:
@@ -188,4 +196,5 @@ class FallbackMonitor:
     @classmethod
     def reset(cls) -> None:
         """Clear all recorded fallback events for clean test runs."""
-        cls._events.clear()
+        with cls._lock:
+            cls._events.clear()

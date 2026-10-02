@@ -266,19 +266,7 @@ class ThesisBenchmark:
         if df_rnn is not None and len(df_rnn) > 0:
             data["Sequence-RNN (Pure RL)"] = df_rnn
 
-        # 2. Graph-Transformer (Direct / BRICS seed)
-        df_graph = None
-        if graph_path and Path(graph_path).exists():
-            df_graph = self.prepare_regime_dataframe(pd.read_csv(graph_path, sep="\t"))
-        else:
-            found = self._find_latest_run_file("outputs", "rl_generated_candidates_scored.tsv")
-            if found is not None:
-                df_graph = self.prepare_regime_dataframe(found)
-
-        if df_graph is not None and len(df_graph) > 0:
-            data["Graph-Transformer (BRICS Seed)"] = df_graph
-
-        # 3. Hybrid Funnel (Stage 3 Lead Optimization)
+        # 2. Hybrid Funnel (Stage 3 Lead Optimization)
         df_funnel = None
         if funnel_path and Path(funnel_path).exists():
             df_funnel = self.prepare_regime_dataframe(pd.read_csv(funnel_path, sep="\t"))
@@ -293,6 +281,24 @@ class ThesisBenchmark:
 
         if df_funnel is not None and len(df_funnel) > 0:
             data["Hybrid Funnel (Two-Stage)"] = df_funnel
+
+        # 3. Graph-Transformer (Direct / BRICS seed baseline control)
+        df_graph = None
+        if graph_path and Path(graph_path).exists():
+            df_graph = self.prepare_regime_dataframe(pd.read_csv(graph_path, sep="\t"))
+        elif graph_path is not None:
+            # Explicit path provided but not found; do not fallback to arbitrary run
+            df_graph = None
+
+        # Verify that Graph-Transformer baseline is genuinely distinct from Hybrid Funnel
+        if df_graph is not None and len(df_graph) > 0:
+            is_duplicate = False
+            if df_funnel is not None and len(df_graph) == len(df_funnel):
+                if "SMILES" in df_graph.columns and "SMILES" in df_funnel.columns:
+                    if df_graph["SMILES"].equals(df_funnel["SMILES"]):
+                        is_duplicate = True
+            if not is_duplicate:
+                data["Graph-Transformer (BRICS Seed)"] = df_graph
 
         if not data:
             raise FileNotFoundError(
