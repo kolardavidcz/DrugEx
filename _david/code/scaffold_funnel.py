@@ -61,7 +61,7 @@ class ScaffoldFunnel:
         ref_sdf_path: Path | str | None = None,
     ) -> None:
         self.ROOT_PATH: Path = PROJECT_ROOT
-        self.OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david")
+        self.OUTPUT_DIR: Path = output_dir or (self.ROOT_PATH / "_david" / "output")
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         self.seed_smiles: str = seed_smiles
         self.ref_sdf_path: Path | None = Path(ref_sdf_path) if ref_sdf_path else None

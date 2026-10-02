@@ -182,10 +182,11 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_rocs_flattened_output(self) -> None:
         """Verify compute_rocs_scores outputs a flat 1D array."""
-        funnel = ScaffoldFunnel()
-        rocs = funnel.compute_rocs_scores(["c1ccccc1", "c1ccncc1"])
-        self.assertEqual(rocs.ndim, 1)
-        self.assertEqual(len(rocs), 2)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            funnel = ScaffoldFunnel(output_dir=Path(tmp_dir))
+            rocs = funnel.compute_rocs_scores(["c1ccccc1", "c1ccncc1"])
+            self.assertEqual(rocs.ndim, 1)
+            self.assertEqual(len(rocs), 2)
 
     def test_graph_transformer_prepare_seed_fragments(self) -> None:
         """Verify GraphTransformerOptimizer._prepare_seed_fragments successfully creates DataLoader and dataset."""
@@ -205,18 +206,22 @@ class TestAntiCheatingRewards(unittest.TestCase):
 
     def test_dynamic_size_scaling(self) -> None:
         """Verify ScaffoldFunnel dynamically adapts size envelopes to query seed molecules."""
-        # EGCG seed (33 heavy atoms)
-        funnel_egcg = ScaffoldFunnel(seed_smiles="C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O")
-        self.assertEqual(funnel_egcg.SEED_HAC, 33)
-        self.assertEqual(funnel_egcg.MIN_CANDIDATE_HEAVY_ATOMS, 19)
-        self.assertEqual(funnel_egcg.MAX_CANDIDATE_HEAVY_ATOMS, 46)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # EGCG seed (33 heavy atoms)
+            funnel_egcg = ScaffoldFunnel(
+                output_dir=Path(tmp_dir),
+                seed_smiles="C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O",
+            )
+            self.assertEqual(funnel_egcg.SEED_HAC, 33)
+            self.assertEqual(funnel_egcg.MIN_CANDIDATE_HEAVY_ATOMS, 19)
+            self.assertEqual(funnel_egcg.MAX_CANDIDATE_HEAVY_ATOMS, 46)
 
-        # Caffeine seed (14 heavy atoms)
-        caffeine_smiles = "Cn1cnc2c1c(=O)n(c(=O)n2C)C"
-        funnel_caffeine = ScaffoldFunnel(seed_smiles=caffeine_smiles)
-        self.assertEqual(funnel_caffeine.SEED_HAC, 14)
-        self.assertEqual(funnel_caffeine.MIN_CANDIDATE_HEAVY_ATOMS, 8)
-        self.assertEqual(funnel_caffeine.MAX_CANDIDATE_HEAVY_ATOMS, 19)
+            # Caffeine seed (14 heavy atoms)
+            caffeine_smiles = "Cn1cnc2c1c(=O)n(c(=O)n2C)C"
+            funnel_caffeine = ScaffoldFunnel(output_dir=Path(tmp_dir), seed_smiles=caffeine_smiles)
+            self.assertEqual(funnel_caffeine.SEED_HAC, 14)
+            self.assertEqual(funnel_caffeine.MIN_CANDIDATE_HEAVY_ATOMS, 8)
+            self.assertEqual(funnel_caffeine.MAX_CANDIDATE_HEAVY_ATOMS, 19)
 
     def test_universal_environment_defaults(self) -> None:
         """Verify SequenceRNNOptimizer builds 5 universal objectives by default and 6 with custom toxicophore."""
@@ -243,24 +248,25 @@ class TestAntiCheatingRewards(unittest.TestCase):
         """Verify ScaffoldFunnel correctly pre-filters candidates before Stage 2 clustering."""
         import pandas as pd
 
-        funnel = ScaffoldFunnel()
-        dummy_df = pd.DataFrame({
-            "SMILES": [
-                "C",  # Methane: tiny fragment, should fail size envelope
-                "invalid_smiles_string",  # Invalid chemical graph
-                "c1ccccc1NC(=O)c1ccc(cn1)C1CC1",  # Valid drug-like molecule
-                "Cc1ccc(cc1)N1CCN(CC1)c1nc2ccccc2n1C",  # Valid drug-like molecule
-            ],
-            "Valid": [1, 0, 1, 1],
-            "ElectroShape": [0.10, 0.00, 0.65, 0.72],
-            "RAscore": [0.10, 0.00, 0.88, 0.78],
-            "QED": [0.10, 0.00, 0.75, 0.65],
-        })
-        res = funnel.process_candidates_dataframe(dummy_df)
-        self.assertGreater(len(res), 0)
-        self.assertIn("Scaffold", res.columns)
-        self.assertIn("ElectroShape", res.columns)
-        self.assertIn("ROCS", res.columns)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            funnel = ScaffoldFunnel(output_dir=Path(tmp_dir))
+            dummy_df = pd.DataFrame({
+                "SMILES": [
+                    "C",  # Methane: tiny fragment, should fail size envelope
+                    "invalid_smiles_string",  # Invalid chemical graph
+                    "c1ccccc1NC(=O)c1ccc(cn1)C1CC1",  # Valid drug-like molecule
+                    "Cc1ccc(cc1)N1CCN(CC1)c1nc2ccccc2n1C",  # Valid drug-like molecule
+                ],
+                "Valid": [1, 0, 1, 1],
+                "ElectroShape": [0.10, 0.00, 0.65, 0.72],
+                "RAscore": [0.10, 0.00, 0.88, 0.78],
+                "QED": [0.10, 0.00, 0.75, 0.65],
+            })
+            res = funnel.process_candidates_dataframe(dummy_df)
+            self.assertGreater(len(res), 0)
+            self.assertIn("Scaffold", res.columns)
+            self.assertIn("ElectroShape", res.columns)
+            self.assertIn("ROCS", res.columns)
 
     def test_fallback_monitor_recording_and_audit(self) -> None:
         """Verify FallbackMonitor records alerts, accumulates counts, and exports audit JSON."""
@@ -541,17 +547,19 @@ class TestAntiCheatingRewards(unittest.TestCase):
     def test_composite_desirability_continuous_ranking(self) -> None:
         """Verify continuous geometric desirability yields smooth ranking without binary cliff thresholds."""
         from _david.code.scaffold_funnel import ScaffoldFunnel
-        funnel = ScaffoldFunnel(seed_smiles="c1ccccc1")
-        # Candidate 1: balanced excellent scores
-        d1 = funnel.compute_composite_desirability(es_score=0.8, ra_score=0.8, qed_score=0.8, hac=6, seed_sim=0.3)
-        # Candidate 2: moderate scores
-        d2 = funnel.compute_composite_desirability(es_score=0.5, ra_score=0.5, qed_score=0.5, hac=6, seed_sim=0.3)
-        # Candidate 3: low scores
-        d3 = funnel.compute_composite_desirability(es_score=0.2, ra_score=0.2, qed_score=0.2, hac=6, seed_sim=0.3)
 
-        self.assertGreater(d1, d2)
-        self.assertGreater(d2, d3)
-        self.assertGreater(d3, 0.0)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            funnel = ScaffoldFunnel(output_dir=Path(tmp_dir), seed_smiles="c1ccccc1")
+            # Candidate 1: balanced excellent scores
+            d1 = funnel.compute_composite_desirability(es_score=0.8, ra_score=0.8, qed_score=0.8, hac=6, seed_sim=0.3)
+            # Candidate 2: moderate scores
+            d2 = funnel.compute_composite_desirability(es_score=0.5, ra_score=0.5, qed_score=0.5, hac=6, seed_sim=0.3)
+            # Candidate 3: low scores
+            d3 = funnel.compute_composite_desirability(es_score=0.2, ra_score=0.2, qed_score=0.2, hac=6, seed_sim=0.3)
+
+            self.assertGreater(d1, d2)
+            self.assertGreater(d2, d3)
+            self.assertGreater(d3, 0.0)
 
     def test_monitor_dashboard_display(self) -> None:
         """Verify monitor tool display_dashboard runs without exception on pipeline run directory."""
