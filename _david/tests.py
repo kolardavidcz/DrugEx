@@ -475,25 +475,74 @@ class TestAntiCheatingRewards(unittest.TestCase):
         import pandas as pd
         with tempfile.TemporaryDirectory() as tmp_dir:
             bench = ThesisBenchmark(output_dir=Path(tmp_dir))
-            tsv_path = Path(tmp_dir) / "leads.tsv"
-            df = pd.DataFrame({
+            tsv_path_rnn = Path(tmp_dir) / "rnn_hits.tsv"
+            tsv_path_leads = Path(tmp_dir) / "leads.tsv"
+            df_rnn = pd.DataFrame({
                 "SMILES": ["c1ccccc1O", "CC(=O)Oc1ccccc1C(=O)O"],
                 "Valid": [1, 1],
                 "ROCS": [0.65, 0.70],
                 "RAscore": [0.80, 0.85],
                 "QED": [0.60, 0.65],
             })
-            df.to_csv(tsv_path, sep="\t", index=False)
+            df_leads = pd.DataFrame({
+                "SMILES": ["c1ccncc1", "c1ccc(cc1)Cl"],
+                "Valid": [1, 1],
+                "ROCS": [0.72, 0.75],
+                "RAscore": [0.88, 0.82],
+                "QED": [0.70, 0.68],
+            })
+            df_rnn.to_csv(tsv_path_rnn, sep="\t", index=False)
+            df_leads.to_csv(tsv_path_leads, sep="\t", index=False)
 
-            # Passing same TSV to graph_path and funnel_path should NOT result in duplicate entries
+            # 1. Distinct datasets loaded correctly under decoupled regimes
             loaded = bench.load_real_datasets(
-                rnn_path=tsv_path,
-                graph_path=tsv_path,
-                funnel_path=tsv_path,
+                rnn_path=tsv_path_rnn,
+                leads_path=tsv_path_leads,
             )
             self.assertIn("Sequence-RNN (Pure RL)", loaded)
-            self.assertIn("Hybrid Funnel (Two-Stage)", loaded)
-            self.assertNotIn("Graph-Transformer (BRICS Seed)", loaded)
+            self.assertIn("Prioritized Leads (Top Desirability)", loaded)
+
+            # 2. Passing duplicate TSV to leads_path should deduplicate and avoid redundant overlay
+            loaded_dup = bench.load_real_datasets(
+                rnn_path=tsv_path_rnn,
+                leads_path=tsv_path_rnn,
+            )
+            self.assertIn("Sequence-RNN (Pure RL)", loaded_dup)
+            self.assertNotIn("Prioritized Leads (Top Desirability)", loaded_dup)
+
+    def test_seed_hash_and_core_scaffold_extraction(self) -> None:
+        """Verify deterministic seed hashing and Murcko core scaffold extraction for universal seeds."""
+        from _david.code.prepare_query_conformer import get_seed_hash, QueryConformerPreparer
+        caffeine_smiles = "Cn1cnc2c1c(=O)n(c(=O)n2C)C"
+        caffeine_hash = get_seed_hash(caffeine_smiles)
+        self.assertIsInstance(caffeine_hash, str)
+        self.assertEqual(len(caffeine_hash), 8)
+
+        # Check deterministic hash consistency
+        self.assertEqual(caffeine_hash, get_seed_hash(caffeine_smiles))
+
+        # Check Murcko core extraction
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_tsv = Path(tmp_dir) / "caffeine_core.tsv"
+            preparer = QueryConformerPreparer(Path(tmp_dir))
+            extracted_smi = preparer.extract_seed_core_scaffold(caffeine_smiles, out_tsv)
+            self.assertTrue(out_tsv.exists())
+            self.assertGreater(len(extracted_smi), 0)
+
+    def test_composite_desirability_continuous_ranking(self) -> None:
+        """Verify continuous geometric desirability yields smooth ranking without binary cliff thresholds."""
+        from _david.code.scaffold_funnel import ScaffoldFunnel
+        funnel = ScaffoldFunnel(seed_smiles="c1ccccc1")
+        # Candidate 1: balanced excellent scores
+        d1 = funnel.compute_composite_desirability(es_score=0.8, ra_score=0.8, qed_score=0.8, hac=6, seed_sim=0.3)
+        # Candidate 2: moderate scores
+        d2 = funnel.compute_composite_desirability(es_score=0.5, ra_score=0.5, qed_score=0.5, hac=6, seed_sim=0.3)
+        # Candidate 3: low scores
+        d3 = funnel.compute_composite_desirability(es_score=0.2, ra_score=0.2, qed_score=0.2, hac=6, seed_sim=0.3)
+
+        self.assertGreater(d1, d2)
+        self.assertGreater(d2, d3)
+        self.assertGreater(d3, 0.0)
 
     def test_monitor_dashboard_display(self) -> None:
         """Verify monitor tool display_dashboard runs without exception on pipeline run directory."""

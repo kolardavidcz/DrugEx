@@ -7,86 +7,72 @@ Definitive operational manual and architecture guide for AI agents working in `/
 ## 1. Mission, Scope & Academic Rigor
 
 - **Academic Context**: Bachelor Thesis — *Ligand-Based De Novo Drug Design (LBDD) implementation in DrugEx*.
-- **Quality Mandate**: **Bulletproof engineering**. Zero broken tests, zero unhandled exceptions, zero lint errors, and zero synthetic/mocked fallbacks.
+- **Quality Mandate**: **Bulletproof engineering**. Zero broken tests, zero unhandled exceptions, zero lint errors, zero synthetic/mocked fallbacks, and zero unscientific heuristics.
 - **Pure LBDD Principle**: Strictly 100% ligand-based drug design centered around an arbitrary seed query ligand (defaulting to EGCG: `MY_MOLECULE`).
   - **Strict Prohibition**: Zero receptor atomic coordinates, zero docking grids, zero crystal complexes, and zero structure-based interaction fingerprints (ProLIF / PLIF).
 - **Core Scientific Objective**: Discover novel, synthetically accessible modulators that preserve the 3D electrostatic pharmacophore, steric envelope, and volume of the query seed while escaping toxicophoric liabilities and structural degradation.
 
 ---
 
-## 2. Four Core Academic Thesis Recommendations & Rationales
+## 2. Core Academic Thesis Architecture & Scientific Decisions
 
-### 1. Dynamic Size Envelope Rationale (`SmoothHump`)
-- **Limitation of Standard Modifiers**: Single-point Gaussian modifiers or fixed hard-cutoff bounds cause severe penalty drift or arbitrarily discard valid bioisosteres of different molecular weights.
-- **Our Solution**: Dynamic `SmoothHump` modifier centered on the query seed's Heavy Atom Count (HAC):
-  $$\text{lower\_x} = \max(6.0, \text{seed\_hac} - 5), \quad \text{upper\_x} = \text{seed\_hac} + 5, \quad \sigma = 4$$
-- **Academic Rationale**: Provides a flat reward plateau around the seed's steric volume, ensuring the RL policy gradient explores ring-expansions and contractions without premature size penalty while sharply penalizing trivial mono/di-atomic fragments.
+### 1. Two Decoupled Generative Regimes
+- **The Information Destruction Paradox**: The legacy design forced an intermediate "Chemotype Funnel" gating step between Sequence-RNN and Graph-Transformer. Decomposing early hits into bare Murcko scaffolds discarded functional pharmacophoric groups and created a fragile cliff (0-survivor crashes on realistic distributions).
+- **Our Solution**: Two decoupled, independent generative regimes:
+  - **Regime 1 (Sequence-RNN Pure RL)**: Unconstrained global hit exploration in SMILES space optimizing multi-objective reward against the 3D reference query.
+  - **Regime 2 (Graph-Transformer Scaffold RL)**: Fragment-conditioned lead optimization directly seeded by the active query ligand's Bemis-Murcko core scaffold (from Stage 0).
+- **Academic Impact**: Both models explore chemical space concurrently without blocking each other. Neither regime is held hostage by intermediate filtering.
 
-### 2. Augmented Chebyshev Multi-Objective Scalarization
-- **Vulnerability of Pareto Ranking & Naive Sums**: Standard Pareto-dominance ranking and linear weighted sums in multi-objective RL allow "boundary hacking." Candidates optimize easy objectives (e.g., QED $\ge 0.95$, SA $\ge 0.90$) while completely collapsing the hard 3D shape objective ($\text{ElectroShape} \le 0.05$).
-- **Our Solution**: `AugmentedChebyshevReward` scalarization:
-  $$R(\mathbf{x}) = 1.0 - \left( \max_{i} w_i |z_i^* - f_i(\mathbf{x})| + \rho \sum_{i} w_i |z_i^* - f_i(\mathbf{x})| \right)$$
-  where ideal target vector $z_i^* = 1.0$, weights $w_i = 1 / m$, and augmentation coefficient $\rho = 0.05$.
-- **Academic Rationale**: Minimizes the maximum distance to the ideal point, guaranteeing that a candidate is severely penalized if *any single objective* collapses. Prevents Pareto hacking.
+### 2. Elimination of the Binary Chemotype Funnel Gate
+- **The Cliff Filter Vulnerability**: A cascading binary filter ($ROCS \ge 0.38 \land ElectroShape \ge 0.20 \land RA \ge 0.50 \dots$) creates artificial discontinuities and catastrophic attrition.
+- **Our Solution**: Post-generation continuous geometric desirability ranking (`compute_composite_desirability`):
+  $$D = \left( d_{\text{ES}}^{0.30} \times d_{\text{RA}}^{0.25} \times d_{\text{QED}}^{0.25} \times d_{\text{Size}}^{0.20} \right) \times \text{NoveltyPenalty}$$
+- **Academic Impact**: Replaces fragile gating with smooth continuous ranking. Top-K elite leads are prioritized, evaluated with physical ROCS, and clustered via Butina sphere exclusion without arbitrary cliff crashes.
 
-### 3. Decoupled Two-Tier 3D Shape Strategy
-- **Computational Bottleneck**: Physical Gaussian volume overlays (CDPKit/RDKit ROCS) require full flexible conformer generation and rotational rigid-body alignment, taking $\sim 100\text{ ms}$ per candidate. Running ROCS directly inside the RL policy gradient loop for 200–1000 candidates/epoch across 100 epochs takes hours and hits rotational local minima.
-- **Our Solution**: Decouple 3D shape into two distinct tiers:
-  - **Tier 1 (RL Inner Loop & Pre-Filters)**: Ultrafast 75-D ElectroShape moments ($<0.08\text{ ms}$ per conformer). Evaluates both steric volume and Gasteiger partial charge distributions across 5 centroids ($c_{geom}, c_{pos}, c_{neg}, p_{q_{max}}, p_{q_{min}}$). Prevents uncharged lipophilic decoys from gaming shape metrics at $\sim 100\times$ speedup.
-  - **Tier 2 (Gated Physical Gaussian Overlay)**: Physical Gaussian ROCS overlay in Stage 2 Chemotype Funnel is **strictly gated to run ONLY on candidates surviving all Tier 1 filters** (chemical validity, HAC bounds, ElectroShape $\ge 0.45$, RAscore $\ge 0.50$, QED $\ge 0.40$, PAINS absence).
-- **Academic Rationale**: Cuts $>90\%$ of unnecessary physical volume overlay compute while maintaining strict 3D physical overlay validation for final lead selection.
+### 3. Tiered 3D Conformer Scoring & Ground-Truth Realities
+- **75-D ElectroShape as Ultrafast Screening Pre-Filter**: 75-D ElectroShape moments are coarse 1D centroid projections ($<0.08\text{ ms}$ per conformer). They are reserved strictly for high-throughput Tier 1 RL rollouts to prevent uncharged lipophilic decoys from gaming volume metrics.
+- **Physical Gaussian Overlay (ROCS) as Ground-Truth Evaluation**: Ground-truth evaluation and lead selection require authentic physical Gaussian volume overlap (CDPKit / RDKit ROCS) evaluated across multi-isomer ensembles (`max_isomers=4`, evaluating stereoisomers) with MMFF94 force-field relaxation within a thermodynamic Boltzmann window ($\Delta E \le 8.0\text{ kcal/mol}$).
 
-### 4. Empirical Filter Attrition Cascade & Thesis Reporting
-- **Transparency in Lead Generation**: Rather than presenting an arbitrary final molecule table, the chemotype funnel tracks step-by-step candidate retention in `funnel_attrition.json`.
-- **Recorded Cascade Steps**:
-  1. Total input candidates generated by Sequence-RNN
-  2. Chemical validity & graph sanitization
-  3. Heavy atom count (HAC) envelope compliance
-  4. 3D ElectroShape similarity threshold ($\ge 0.45$)
-  5. Synthetic accessibility / synthesizability (RAscore $\ge 0.50$)
-  6. Small-molecule drug-likeness (QED $\ge 0.40$)
-  7. PAINS & target toxicophore clearance (RDKit 480-rule `FilterCatalog`)
-  8. Scaffold hopping distance bounds (ECFP4 Tanimoto divergence)
-  9. Tier 1 survivors count
-  10. Tier 2 physical ROCS survivors count
-  11. Bemis-Murcko framework extraction & Butina clustering (cutoff 0.35)
-- **Thesis Impact**: Provides quantitative empirical data for Sankey diagrams and funnel charts in the thesis defense, demonstrating non-degeneracy of discovered scaffolds.
+### 4. Dynamic Size Envelope & Universal Multi-Seed Generalization
+- **Dynamic Size Plateau**: Rather than hardcoding heavy atom bounds (e.g. 24–42 HAC), bounds are dynamically scaled relative to any query seed molecule:
+  $$\text{min\_hac} = \max(6, \text{int}(\text{seed\_hac} \times 0.50)), \quad \text{max\_hac} = \text{int}(\text{seed\_hac} \times 1.50)$$
+- **Deterministic Hashing**: Seed conformers and moments are resolved and cached via deterministic SHA-256 hashes (`get_seed_hash(smiles)`), ensuring bulletproof isolation across arbitrary active query templates.
 
 ---
 
 ## 3. DrugEx Native Library Parity & Audit
 
-To prevent redundant reimplementation and maintain complete architectural purity, our code directly reuses native DrugEx v3 APIs:
+To prevent redundant reimplementation and maintain architectural purity, our code directly reuses native DrugEx v3 APIs:
 
 | Native DrugEx API / Class | Usage in `_david/` | Audit Note / Justification |
 |---|---|---|
-| `drugex.training.generators.SequenceExplorer` | Stage 1 policy gradient RL exploration | Direct instantiation; redundant subclass wrappers eliminated. |
-| `drugex.training.generators.FragGraphExplorer` | Stage 3 fragment-conditioned RL optimization | Direct instantiation conditioned on Stage 2 funnel scaffolds. |
+| `drugex.training.explorers.SequenceExplorer` | Stage 1 policy gradient RL exploration | Direct instantiation; redundant subclass wrappers eliminated. |
+| `drugex.training.explorers.FragGraphExplorer` | Stage 2 fragment-conditioned RL optimization | Direct instantiation conditioned on seed core scaffold. |
 | `drugex.training.scorers.modifiers.SmoothHump` | Dynamic size envelope & property thresholds | Native Gaussian-bell plateau modifier replacing custom math. |
 | `drugex.training.scorers.properties.Property` | Heavy atoms, QED, SA score evaluation | Native DrugEx property calculators. |
 | `drugex.training.scorers.ra_score.RAScoreModel` | Synthesizability assessment | Native forward-synthesis predictor model. |
-| `drugex.molecules.converters.dummy_molecules.dummyMolsFromFragments` | Murcko scaffold fragment conversion | Native DrugEx fragment encoder; replaces custom BRICS cleavage and fixes Murcko graph conversion. |
+| `drugex.molecules.converters.dummy_molecules.dummyMolsFromFragments` | Murcko scaffold fragment conversion | Native DrugEx fragment encoder; constructs graph fragments from intact Murcko cores. |
 | `drugex.training.scorers.interfaces.Scorer` | Base class for `USRCATScorer` | Cleanly implements `getScores()` and `getKey()`. |
 | Upstream Bug Fix in `drugex/training/scorers/properties.py` | Fixed `mol.GerNumAtoms()` typo | Corrected to `mol.GetNumHeavyAtoms()` and guarded division by zero in `LigandEfficiency`. |
 
 ---
 
-## 4. Directory Architecture & File Roles Map
+## 4. Directory Architecture & Decoupled Stages Map
 
 ```
 _david/
 ├── run.py                          # 1-Click execution entrypoint (zero CLI args needed)
 ├── monitor.py                      # Live terminal telemetry dashboard (`--watch`)
-├── tests.py                        # Empirical unit test suite (25 passing tests)
+├── tests.py                        # Empirical unit test suite (27 passing tests)
 ├── in_molecule.txt                 # Input query molecule SMILES / configuration
 ├── AGENTS.md                       # Definitive agent manual & architectural spec
 ├── dodo_notes.md                   # Academic research notes & failure mode audits
 ├── code/                           # Modular implementation package
 │   ├── __init__.py                 # Re-exports public classes
 │   ├── pipeline.py                 # Multi-stage orchestrator (Stages 0 -> 4)
-│   ├── SequenceRNN.py              # Stage 1: Sequence-RNN global hit generator
-│   ├── scaffold_funnel.py          # Stage 2: Gated ROCS chemotype funnel & attrition tracker
-│   ├── GraphTransformer.py         # Stage 3: Fragment-conditioned lead optimizer
+│   ├── SequenceRNN.py              # Stage 1: Sequence-RNN global hit generator (Regime 1)
+│   ├── GraphTransformer.py         # Stage 2: Fragment-conditioned lead optimizer (Regime 2)
+│   ├── scaffold_funnel.py          # Stage 3: Top-K lead selection & diversity clustering
 │   ├── thesis_benchmark.py         # Stage 4: Publication benchmark suite (ROCS, PCA, radar)
 │   ├── fallback_monitor.py         # Observable fallback alert & audit registry
 │   ├── monitor.py                  # Live telemetry, GPU stats, and convergence dashboard
@@ -100,11 +86,11 @@ _david/
         ├── pipeline_status.json    # Live stage progress & GPU telemetry
         ├── pipeline_summary.json   # Final execution summary & metrics
         ├── fallback_audit.json     # Comprehensive fallback audit record
-        ├── stage0_conformers/      # 3D reference SDF & moment arrays
-        ├── stage1_sequence_rnn/    # Stage 1 models & generated candidate TSV
-        ├── stage2_scaffold_funnel/ # Discovered scaffolds & funnel_attrition.json
-        ├── stage3_graph_transformer/# Stage 3 optimized lead TSVs & checkpoints
-        └── stage4_thesis_benchmark/# Publication radar charts, PCA plots, benchmark TSVs
+        ├── references/             # 3D reference SDF & seed core scaffold TSV (Stage 0)
+        ├── stage1_sequence_rnn/    # Stage 1 models & generated candidate TSV (Stage 1)
+        ├── stage2_graph_transformer/# Stage 2 models & optimized lead TSV (Stage 2)
+        ├── stage3_lead_selection/  # Prioritized elite leads & diversity clusters (Stage 3)
+        └── benchmark/              # Publication radar charts, PCA plots, benchmark TSVs (Stage 4)
 ```
 
 ---
@@ -124,9 +110,8 @@ _david/
 - **Monitored Categories**:
   - `conformer_embedding_random_coords`: Standard ETKDGv3 failed; relaxed distance geometry with random coordinates.
   - `conformer_embedding_failure`: Molecule failed all embedding passes; zero-score assigned.
-  - `tier1_prefilter_zero_survivors`: Zero candidates passed strict Tier 1; relaxed to top 50 un-filtered candidates.
-  - `scaffold_filter_zero_survivors`: Zero scaffolds passed strict size/liability checks; relaxed to raw frameworks.
-  - `rocs_alignment_failure`: Physical ROCS alignment failure on single conformer.
+  - `rocs_cdpkit_failed`: CDPKit ROCS encountered an exception; fell back to RDKit ROCS.
+  - `rocs_all_engines_failed`: Both CDPKit and RDKit ROCS engines failed; fell back to default 0.50.
 - **Audit Export**: Persisted to `fallback_audit.json` in the run directory for thesis integrity validation.
 
 ### Telemetry Dashboard (`_david/code/monitor.py` & `_david/monitor.py`)
@@ -136,7 +121,6 @@ _david/
   - Hardware & GPU telemetry: CUDA availability, GPU device name, memory allocated (MB), memory reserved (MB), total memory (MB) on NVIDIA RTX PRO 4000 Blackwell.
   - Per-stage execution status (`SUCCESS`, `RUNNING`, `FAILED`).
   - RL Convergence: Latest epoch, `loss_train`, `valid_ratio`, `unique_ratio`, `desired_ratio` from `david_agent_fit.tsv`.
-  - Chemotype Funnel Attrition summary from `funnel_attrition.json`.
   - Fallback counts and recent log tail.
 
 ---
@@ -147,14 +131,15 @@ _david/
 - **Bounded ETKDGv3 Implementation** in `_david/code/usrcat_scorer.py`:
   - Primary pass: `AllChem.ETKDGv3()`, `maxIterations=200`, `randomSeed=42`.
   - Fallback pass: `useRandomCoords=True`, `maxIterations=50`, capped at 3 conformers.
-  - Catastrophic fallback: If conformer generation fails completely, assign score 0.0 and record event in `FallbackMonitor`. Never hang or block worker threads.
+  - Multi-isomer evaluation: `max_isomers=4` with MMFF94 force-field relaxation (UFF fallback).
+  - Catastrophic fallback: If conformer generation fails completely across all isomers, assign score 0.0 and record event in `FallbackMonitor`. Never hang or block worker threads.
 - **Reference Ensemble (Stage 0)**: Generates 50 energy-minimized conformers (MMFF94) for the seed molecule and precomputes 75-D ElectroShape moments cached as `query_molecule_3d_electroshape.npy` for sub-millisecond retrieval.
 
 ---
 
 ## 7. Unit Test Suite & Empirical Verification
 
-- **Test Suite**: `_david/tests.py` containing **25 empirical unit tests**.
+- **Test Suite**: `_david/tests.py` containing **27 empirical unit tests**.
 - **Execution**:
   - From repository root: `python _david/tests.py` or `.venv/bin/python _david/tests.py`.
   - Direct execution supported via `sys.path` bootstrap.
@@ -167,7 +152,7 @@ _david/
   6. `test_edge_cases`: Verifies empty arrays, NaNs, and 1D score matrices.
   7. `test_dynamic_size_scaling`: Verifies HAC envelope adaptation across different seeds.
   8. `test_universal_environment_defaults`: Verifies 5 default SmallMolecule objectives.
-  9. `test_scaffold_funnel_gated_execution`: Verifies Tier 1 pre-filtering before clustering.
+  9. `test_scaffold_funnel_gated_execution`: Verifies candidate pre-filtering before clustering.
   10. `test_fallback_monitor_recording_and_audit`: Verifies thread-safe alerts and JSON export.
   11. `test_backward_compatibility_imports`: Verifies aliased root imports (`from _david import ...`).
   12. `test_one_click_runner_interface`: Verifies `_david/run.py` main callable.
@@ -178,10 +163,12 @@ _david/
   17. `test_thesis_benchmark_ref_sdf_and_seed_isolation`: Verifies arbitrary query seed propagation.
   18. `test_pipeline_benchmark_only_creates_summaries`: Verifies end-to-end report generation in benchmark mode.
   19. `test_scaffold_funnel_attrition_tracking`: Verifies `funnel_attrition.json` creation and schema.
-  20. `test_thesis_benchmark_regime_deduplication`: Verifies no duplicate regime evaluations.
-  21. `test_monitor_dashboard_display`: Verifies dashboard rendering without exceptions.
-  22. `test_usrcat_scorer_strained_molecule_fast_embedding`: Verifies rapid bounded ETKDGv3 on strained polycycles.
-  23. `test_usrcat_scorer_batch`: Verifies batch evaluation of molecular lists.
+  20. `test_thesis_benchmark_regime_deduplication`: Verifies distinct decoupled regime loading and duplicate suppression.
+  21. `test_seed_hash_and_core_scaffold_extraction`: Verifies deterministic seed hashing and core extraction.
+  22. `test_composite_desirability_continuous_ranking`: Verifies smooth continuous desirability ranking.
+  23. `test_monitor_dashboard_display`: Verifies dashboard rendering without exceptions.
+  24. `test_usrcat_scorer_strained_molecule_fast_embedding`: Verifies rapid bounded ETKDGv3 on strained polycycles.
+  25. `test_usrcat_scorer_batch`: Verifies batch evaluation of molecular lists.
 
 ---
 
@@ -198,9 +185,13 @@ _david/
   # or via environment variable:
   DRUGEX_RUN_MODE=test .venv/bin/python _david/run.py
   ```
+- **Custom Query Molecule**:
+  ```bash
+  .venv/bin/python _david/run.py --molecules "c1ccccc1NC(=O)c1ccc(cn1)C1CC1"
+  ```
 - **Benchmark-Only Mode** (generates publication plots on existing outputs):
   ```bash
-  .venv/bin/python _david/run.py --benchmark-only
+  .venv/bin/python _david/run.py --mode benchmark_only
   ```
 
 ### Remote Server Operations (`dichtator`)

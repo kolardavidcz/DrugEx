@@ -63,6 +63,8 @@ class USRCATScorer(Scorer):
         score_type: str = "electroshape",
         modifier: ScoreModifier | None = None,
         random_seed: int = 42,
+        max_isomers: int = 1,
+        optimize_energy: bool = False,
     ) -> None:
         """Initialize USRCATScorer with reference conformer ensemble.
 
@@ -72,6 +74,8 @@ class USRCATScorer(Scorer):
             score_type: Descriptor type ('electroshape', 'usrcat', or 'usr').
             modifier: Optional DrugEx ScoreModifier to scale raw similarity into [0.0, 1.0].
             random_seed: Random seed for stochastic ETKDG conformer embedding.
+            max_isomers: Maximum stereoisomers to enumerate per molecule (default: 1 for fast RL).
+            optimize_energy: Whether to minimize conformers with MMFF94 force field (default: False for fast RL).
 
         Raises:
             FileNotFoundError: If references path does not exist.
@@ -81,6 +85,8 @@ class USRCATScorer(Scorer):
         self.num_conformers: int = num_conformers
         self.score_type: str = score_type.lower()
         self.random_seed: int = random_seed
+        self.max_isomers: int = max_isomers
+        self.optimize_energy: bool = optimize_energy
         self.ref_moments: np.ndarray = self._load_reference_moments(references)
 
     def getKey(self) -> str:
@@ -309,48 +315,81 @@ class USRCATScorer(Scorer):
         if mol is None:
             return 0.0
 
-        #? [RDKit] Adds explicit hydrogens required for geometric centroids and pharmacophore H-bonds.
-        mol = Chem.AddHs(mol)
+        # Enumerate stereoisomers if requested
+        if self.max_isomers > 1:
+            try:
+                from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
+                opts = StereoEnumerationOptions(maxIsomers=self.max_isomers, onlyUnassigned=True, rand=self.random_seed)
+                target_mols = list(EnumerateStereoisomers(mol, options=opts))
+                if not target_mols:
+                    target_mols = [mol]
+            except Exception:
+                target_mols = [mol]
+        else:
+            target_mols = [mol]
 
-        #? [RDKit ETKDGv3] Experimental-Torsion Knowledge Distance Geometry conformer embedding.
+        cand_moments: List[np.ndarray] = []
         params = AllChem.ETKDGv3()
         params.randomSeed = self.random_seed
         params.pruneRmsThresh = 0.50
         params.maxIterations = 200
         params.numThreads = 1
 
-        # Embed candidate conformers with standard ETKDGv3
-        conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=self.num_conformers, params=params))
-        if not conf_ids:
-            #? [RDKit Distance Geometry Fallback] Relax distance geometry bounds with random coords for tough ring systems.
-            FallbackMonitor.record_fallback(
-                fallback_type="conformer_embedding_random_coords",
-                message="Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
-                context={"smiles": smi_str, "num_conformers": self.num_conformers},
-            )
-            params.useRandomCoords = True
-            params.maxIterations = 50
-            num_fallback_confs = min(self.num_conformers, 3)
-            conf_ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=num_fallback_confs, params=params))
-            if not conf_ids:
-                FallbackMonitor.record_fallback(
-                    fallback_type="conformer_embedding_failure",
-                    message="Conformer embedding completely failed even with random coordinates; returning score 0.0",
-                    context={"smiles": smi_str},
-                )
-                return 0.0
+        confs_per_iso = max(1, self.num_conformers // len(target_mols))
 
-        cand_moments: List[np.ndarray] = []
-        for cid in conf_ids:
-            m = self._calc_moments(mol, conf_id=cid)
-            if m is not None:
-                cand_moments.append(m)
+        for iso_mol in target_mols:
+            #? [RDKit] Adds explicit hydrogens required for geometric centroids and pharmacophore H-bonds.
+            iso_mol = Chem.AddHs(iso_mol)
+
+            # Embed candidate conformers with standard ETKDGv3
+            conf_ids = list(AllChem.EmbedMultipleConfs(iso_mol, numConfs=confs_per_iso, params=params))
+            if not conf_ids:
+                #? [RDKit Distance Geometry Fallback] Relax distance geometry bounds with random coords for tough ring systems.
+                FallbackMonitor.record_fallback(
+                    fallback_type="conformer_embedding_random_coords",
+                    message="Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+                    context={"smiles": smi_str, "num_conformers": confs_per_iso},
+                )
+                params.useRandomCoords = True
+                params.maxIterations = 50
+                num_fallback_confs = min(confs_per_iso, 3)
+                conf_ids = list(AllChem.EmbedMultipleConfs(iso_mol, numConfs=num_fallback_confs, params=params))
+                params.useRandomCoords = False
+                params.maxIterations = 200
+
+            if not conf_ids:
+                continue
+
+            # Optional MMFF94 force-field relaxation
+            if self.optimize_energy:
+                for cid in conf_ids:
+                    try:
+                        res = AllChem.MMFFOptimizeMolecule(iso_mol, confId=cid, maxIters=200)
+                        if res == -1:
+                            AllChem.UFFOptimizeMolecule(iso_mol, confId=cid, maxIters=200)
+                    except Exception:
+                        pass
+
+            for cid in conf_ids:
+                m = self._calc_moments(iso_mol, conf_id=cid)
+                if m is not None:
+                    cand_moments.append(m)
 
         if not cand_moments:
+            FallbackMonitor.record_fallback(
+                fallback_type="conformer_embedding_failure",
+                message="Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+                context={"smiles": smi_str},
+            )
             return 0.0
 
         #? [NumPy] Array of candidate moments of shape (N_cand_confs, dim).
         cand_mat = np.vstack(cand_moments)
+        if cand_mat.shape[1] != self.ref_moments.shape[1]:
+            raise ValueError(
+                f"Descriptor dimension mismatch: candidate produced {cand_mat.shape[1]} moments, "
+                f"but reference ensemble has {self.ref_moments.shape[1]} moments."
+            )
         dim = cand_mat.shape[1]
 
         #? [NumPy Broadcasting] Computes pairwise L1 Manhattan distances between all candidate and reference conformers:

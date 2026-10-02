@@ -240,22 +240,24 @@ class MoleculePipeline:
 
         return valid_molecules
 
-    def stage0_prepare_reference_conformer(self, primary_molecule: str) -> Path:
-        """Generate 3D reference conformer ensemble and moments for query molecule.
+    def stage0_prepare_reference_conformer(self, primary_molecule: str) -> tuple[Path, Path]:
+        """Generate 3D reference conformer ensemble, moments, and core scaffold for query molecule.
 
         Args:
             primary_molecule: SMILES of the active query template.
 
         Returns:
-            Path to the written multi-conformer reference SDF file.
+            Tuple of (Path to written multi-conformer reference SDF file, Path to seed core scaffold TSV).
         """
         ref_dir: Path = self.BASE_OUTPUT_DIR / "references"
         ref_dir.mkdir(parents=True, exist_ok=True)
         ref_sdf: Path = ref_dir / "query_molecule_3d.sdf"
+        seed_core_tsv: Path = ref_dir / "seed_core_scaffold.tsv"
 
         print(f"\n[Stage 0] Generating 3D reference conformer ensemble & 75-D ElectroShape moments...")
         preparer = prepare_query_conformer.QueryConformerPreparer(references_dir=ref_dir)
         preparer.generate_reference_sdf(smiles=primary_molecule, output_path=ref_sdf)
+        preparer.extract_seed_core_scaffold(smiles=primary_molecule, output_path=seed_core_tsv)
 
         # Ensure shared references directory is also populated
         shared_ref = self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf"
@@ -264,7 +266,8 @@ class MoleculePipeline:
             preparer.generate_reference_sdf(smiles=primary_molecule, output_path=shared_ref)
 
         print(f"[Stage 0] Reference conformers saved to: {ref_sdf}")
-        return ref_sdf
+        print(f"[Stage 0] Seed core scaffold saved to: {seed_core_tsv}")
+        return ref_sdf, seed_core_tsv
 
     def stage1_sequence_rnn_hit_generation(self, primary_molecule: str, ref_sdf: Path) -> tuple[pd.DataFrame, Path]:
         """Execute Stage 1 global hit exploration using Sequence-RNN policy gradient RL.
@@ -321,76 +324,36 @@ class MoleculePipeline:
         print(f"[Stage 1] Completed. Generated {len(df_hits)} candidates saved to: {scored_tsv}")
         return df_hits, scored_tsv
 
-    def stage2_bemis_murcko_funnel(
+    def stage2_graph_transformer_optimization(
         self,
-        stage1_df: pd.DataFrame,
         primary_molecule: str,
-        ref_sdf: Path | None = None,
+        ref_sdf: Path,
+        scaffolds_path: Path | str | None = None,
     ) -> tuple[pd.DataFrame, Path]:
-        """Process candidate hits through the Bemis-Murcko chemotype funnel.
+        """Execute Stage 2 fragment-conditioned lead optimization directly on seed core framework.
 
-        Filters out PAINS, enforces heavy-atom volume bounds,
-        enforces scaffold hopping distance from seed, and clusters with Butina.
-
-        Args:
-            stage1_df: DataFrame of candidate molecules from Stage 1.
-            primary_molecule: Seed SMILES string for dynamic volume and hopping bounds.
-            ref_sdf: Optional explicit path to reference 3D conformer ensemble SDF.
-
-        Returns:
-            Tuple containing DataFrame of selected scaffold leads and Path to funnel scaffolds TSV.
-        """
-        stage2_dir: Path = self.BASE_OUTPUT_DIR / "stage2_scaffold_funnel"
-        stage2_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"\n[Stage 2] Bemis-Murcko Framework Extraction & Chemotype Funnel...")
-        funnel = scaffold_funnel.ScaffoldFunnel(
-            output_dir=stage2_dir,
-            seed_smiles=primary_molecule,
-            ref_sdf_path=ref_sdf,
-        )
-        scaff_df = funnel.process_candidates_dataframe(stage1_df, max_scaffolds=MAX_SCAFFOLDS)
-
-        funnel_scaffolds_tsv: Path = stage2_dir / "funnel_scaffolds.tsv"
-
-        # Copy to shared _david folder for downstream scripts
-        shared_scaff = self.ROOT_PATH / "_david" / "funnel_scaffolds.tsv"
-        scaff_df.to_csv(shared_scaff, sep="\t", index=False)
-        expanded_tsv = stage2_dir / "funnel_scaffolds_expanded.tsv"
-        if expanded_tsv.exists():
-            shared_expanded = self.ROOT_PATH / "_david" / "funnel_scaffolds_expanded.tsv"
-            pd.read_csv(expanded_tsv, sep="\t").to_csv(shared_expanded, sep="\t", index=False)
-
-        print(f"[Stage 2] Successfully extracted {len(scaff_df)} novel core frameworks:")
-        for idx, row in scaff_df.iterrows():
-            print(f"  * Framework #{idx+1}: {row['Scaffold']} (HAC: {row.get('Scaffold_HAC', 'N/A')}, ROCS: {row['ROCS']:.2f}, RA: {row['RAscore']:.2f})")
-        print(f"[Stage 2] Scaffolds exported to: {funnel_scaffolds_tsv}")
-        return scaff_df, funnel_scaffolds_tsv
-
-    def stage3_graph_transformer_optimization(
-        self, primary_molecule: str, ref_sdf: Path, scaffolds_path: Path
-    ) -> tuple[pd.DataFrame, Path]:
-        """Execute Stage 3 fragment-conditioned lead optimization on discovered scaffolds.
+        Regime 2: Explores chemical space around the active seed's core framework directly,
+        without requiring or gating on Stage 1 outputs.
 
         Args:
             primary_molecule: Query active SMILES string.
             ref_sdf: Path to 3D reference conformer SDF.
-            scaffolds_path: Path to funnel scaffolds TSV.
+            scaffolds_path: Optional explicit Path to seed core scaffold TSV.
 
         Returns:
             Tuple containing DataFrame of optimized leads and Path to scored TSV file.
         """
-        stage3_dir: Path = self.BASE_OUTPUT_DIR / "stage3_graph_transformer"
-        stage3_dir.mkdir(parents=True, exist_ok=True)
-        leads_tsv: Path = stage3_dir / "stage3_leads.tsv"
+        stage2_dir: Path = self.BASE_OUTPUT_DIR / "stage2_graph_transformer"
+        stage2_dir.mkdir(parents=True, exist_ok=True)
+        leads_tsv: Path = stage2_dir / "stage2_leads.tsv"
 
-        print(f"\n[Stage 3] Graph-Transformer Lead Optimization on Discovered Scaffolds...")
-        print(f"[Stage 3] Executing Graph-Transformer RL lead optimization (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
+        print(f"\n[Stage 2] Graph-Transformer Lead Optimization (Regime 2: Scaffold-Conditioned RL)...")
+        print(f"[Stage 2] Executing Graph-Transformer RL lead optimization (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
 
         from drugex.training.explorers import FragGraphExplorer
         from drugex.training.monitors import FileMonitor
 
-        optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage3_dir)
+        optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage2_dir)
         env = optimizer.build_environment(ref_sdf, seed_smiles=primary_molecule)
         seed_loader, seed_dataset = optimizer._prepare_seed_fragments(
             primary_molecule, n_prompts=self.N_SAMPLES, scaffolds_path=scaffolds_path
@@ -423,24 +386,78 @@ class MoleculePipeline:
         df_leads = optimizer.save_visualizations(
             optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, input_dataset=seed_dataset, num_samples=self.N_SAMPLES
         )
-        if not leads_tsv.exists() and (stage3_dir / "reinforcement_learning" / "stage3_leads.tsv").exists():
-            leads_tsv = stage3_dir / "reinforcement_learning" / "stage3_leads.tsv"
+        if not leads_tsv.exists() and (stage2_dir / "reinforcement_learning" / "stage2_leads.tsv").exists():
+            leads_tsv = stage2_dir / "reinforcement_learning" / "stage2_leads.tsv"
 
-        print(f"[Stage 3] Completed. Optimized leads saved to: {leads_tsv}")
+        print(f"[Stage 2] Completed. Optimized leads saved to: {leads_tsv}")
         return df_leads, leads_tsv
+
+    def stage3_post_generation_lead_selection(
+        self,
+        candidate_df: pd.DataFrame,
+        primary_molecule: str,
+        ref_sdf: Path | None = None,
+    ) -> tuple[pd.DataFrame, Path]:
+        """Execute Stage 3 post-generation lead prioritization and diversity clustering.
+
+        Continuous multi-objective desirability ranking and Butina sphere-exclusion clustering
+        on generated candidates. Non-gating analysis selecting top elite leads.
+
+        Args:
+            candidate_df: Combined DataFrame of candidates from Stage 1 and Stage 2.
+            primary_molecule: Seed SMILES string for dynamic volume and hopping bounds.
+            ref_sdf: Optional explicit path to reference 3D conformer ensemble SDF.
+
+        Returns:
+            Tuple containing DataFrame of selected leads and Path to selected leads TSV.
+        """
+        stage3_dir: Path = self.BASE_OUTPUT_DIR / "stage3_lead_selection"
+        stage3_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n[Stage 3] Post-Generation Lead Prioritization & Diversity Selection (Non-Gating)...")
+        selector = scaffold_funnel.ScaffoldFunnel(
+            output_dir=stage3_dir,
+            seed_smiles=primary_molecule,
+            ref_sdf_path=ref_sdf,
+        )
+        leads_df = selector.process_candidates_dataframe(candidate_df, max_scaffolds=MAX_SCAFFOLDS)
+
+        leads_tsv: Path = stage3_dir / "selected_leads.tsv"
+        leads_df.to_csv(leads_tsv, sep="\t", index=False)
+
+        print(f"[Stage 3] Successfully prioritized {len(leads_df)} top elite lead scaffolds:")
+        for idx, row in leads_df.iterrows():
+            print(f"  * Lead #{idx+1}: {row['Scaffold']} (HAC: {row.get('Scaffold_HAC', 'N/A')}, ROCS: {row['ROCS']:.2f}, RA: {row['RAscore']:.2f})")
+        print(f"[Stage 3] Leads exported to: {leads_tsv}")
+        return leads_df, leads_tsv
+
+    # Backward-compatibility wrappers
+    def stage2_bemis_murcko_funnel(
+        self, stage1_df: pd.DataFrame, primary_molecule: str, ref_sdf: Path | None = None
+    ) -> tuple[pd.DataFrame, Path]:
+        """Backward-compatibility alias."""
+        return self.stage3_post_generation_lead_selection(stage1_df, primary_molecule, ref_sdf=ref_sdf)
+
+    def stage3_graph_transformer_optimization(
+        self, primary_molecule: str, ref_sdf: Path, scaffolds_path: Path | str | None = None
+    ) -> tuple[pd.DataFrame, Path]:
+        """Backward-compatibility alias."""
+        return self.stage2_graph_transformer_optimization(primary_molecule, ref_sdf, scaffolds_path=scaffolds_path)
 
     def stage4_benchmark_and_visualizations(
         self,
         stage1_tsv: Path,
-        stage3_tsv: Path,
+        stage2_tsv: Path | None = None,
+        leads_tsv: Path | None = None,
         ref_sdf: Path | None = None,
         primary_molecule: str = DEFAULT_MOLECULE,
     ) -> tuple[Path, pd.DataFrame]:
         """Execute Stage 4 publication benchmark suite on authentic candidate data.
 
         Args:
-            stage1_tsv: Path to Stage 1 hits TSV file.
-            stage3_tsv: Path to Stage 3 leads TSV file.
+            stage1_tsv: Path to Stage 1 Sequence-RNN hits TSV file.
+            stage2_tsv: Optional Path to Stage 2 Graph-Transformer leads TSV file.
+            leads_tsv: Optional Path to Stage 3 selected leads TSV file.
             ref_sdf: Optional explicit Path to reference 3D conformer ensemble SDF.
             primary_molecule: Query active SMILES string.
 
@@ -458,8 +475,8 @@ class MoleculePipeline:
         )
         table_df = benchmark.run_benchmark(
             rnn_path=stage1_tsv,
-            graph_path=None,
-            funnel_path=stage3_tsv,
+            graph_path=stage2_tsv,
+            funnel_path=leads_tsv,
         )
         print(f"[Stage 4] Benchmark suite completed. Figures and tables saved to: {benchmark_dir}")
         return benchmark_dir, table_df
@@ -492,9 +509,9 @@ class MoleculePipeline:
             self.log(f"Input molecules loaded: {len(valid_molecules)}")
             self.log(f"Primary query molecule: {primary_molecule}")
 
-            # 2. Stage 0: 3D reference conformer generation
+            # 2. Stage 0: 3D reference conformer and core scaffold generation
             self.update_status("Stage 0: 3D Reference Conformation", "RUNNING")
-            ref_sdf = self.stage0_prepare_reference_conformer(primary_molecule)
+            ref_sdf, seed_core_tsv = self.stage0_prepare_reference_conformer(primary_molecule)
             self.update_status("Stage 0: 3D Reference Conformation", "SUCCESS")
 
             if self.MODE == "benchmark_only":
@@ -510,27 +527,36 @@ class MoleculePipeline:
                 table_df = benchmark.run_benchmark()
                 self.update_status("Stage 4: Thesis Benchmark", "SUCCESS")
                 stage1_tsv = self.BASE_OUTPUT_DIR / "stage1_sequence_rnn" / "stage1_hits.tsv"
-                scaffolds_tsv = self.BASE_OUTPUT_DIR / "stage2_scaffold_funnel" / "funnel_scaffolds.tsv"
-                stage3_tsv = self.BASE_OUTPUT_DIR / "stage3_graph_transformer" / "stage3_leads.tsv"
+                stage2_tsv = self.BASE_OUTPUT_DIR / "stage2_graph_transformer" / "stage2_leads.tsv"
+                leads_tsv = self.BASE_OUTPUT_DIR / "stage3_lead_selection" / "selected_leads.tsv"
             else:
-                # 3. Stage 1: Sequence-RNN Hit Generation
+                # 3. Stage 1: Sequence-RNN Hit Discovery (Regime 1: Unconstrained SMILES RL)
                 self.update_status("Stage 1: Sequence-RNN Hit Discovery", "RUNNING")
                 df_stage1, stage1_tsv = self.stage1_sequence_rnn_hit_generation(primary_molecule, ref_sdf)
                 self.update_status("Stage 1: Sequence-RNN Hit Discovery", "SUCCESS", {"stage1_hits_count": len(df_stage1)})
 
-                # 4. Stage 2: Bemis-Murcko Funnel
-                self.update_status("Stage 2: Scaffold Funnel", "RUNNING")
-                df_scaffolds, scaffolds_tsv = self.stage2_bemis_murcko_funnel(df_stage1, primary_molecule, ref_sdf=ref_sdf)
-                self.update_status("Stage 2: Scaffold Funnel", "SUCCESS", {"scaffolds_count": len(df_scaffolds)})
+                # 4. Stage 2: Graph-Transformer Scaffold RL (Regime 2: Directly seeded by Query Seed Core)
+                self.update_status("Stage 2: Graph-Transformer Scaffold RL", "RUNNING")
+                df_stage2, stage2_tsv = self.stage2_graph_transformer_optimization(
+                    primary_molecule, ref_sdf, scaffolds_path=seed_core_tsv
+                )
+                self.update_status("Stage 2: Graph-Transformer Scaffold RL", "SUCCESS", {"stage2_leads_count": len(df_stage2)})
 
-                # 5. Stage 3: Graph-Transformer Lead Optimization
-                self.update_status("Stage 3: Graph-Transformer Optimization", "RUNNING")
-                df_stage3, stage3_tsv = self.stage3_graph_transformer_optimization(primary_molecule, ref_sdf, scaffolds_tsv)
-                self.update_status("Stage 3: Graph-Transformer Optimization", "SUCCESS", {"stage3_leads_count": len(df_stage3)})
+                # 5. Stage 3: Post-Generation Lead Prioritization & Diversity Selection
+                self.update_status("Stage 3: Lead Selection & Diversity", "RUNNING")
+                candidate_pool = pd.concat([df_stage1, df_stage2], ignore_index=True).drop_duplicates(subset=["SMILES"]).reset_index(drop=True)
+                df_leads, leads_tsv = self.stage3_post_generation_lead_selection(candidate_pool, primary_molecule, ref_sdf=ref_sdf)
+                self.update_status("Stage 3: Lead Selection & Diversity", "SUCCESS", {"selected_leads_count": len(df_leads)})
 
-                # 6. Stage 4: Publication Benchmark & Figures
+                # 6. Stage 4: Publication Benchmark & Head-to-Head Comparison
                 self.update_status("Stage 4: Thesis Benchmark", "RUNNING")
-                benchmark_dir, table_df = self.stage4_benchmark_and_visualizations(stage1_tsv, stage3_tsv, ref_sdf=ref_sdf, primary_molecule=primary_molecule)
+                benchmark_dir, table_df = self.stage4_benchmark_and_visualizations(
+                    stage1_tsv=stage1_tsv,
+                    stage2_tsv=stage2_tsv,
+                    leads_tsv=leads_tsv,
+                    ref_sdf=ref_sdf,
+                    primary_molecule=primary_molecule,
+                )
                 self.update_status("Stage 4: Thesis Benchmark", "SUCCESS")
 
             duration = (datetime.now() - self._start_time).total_seconds()
@@ -549,9 +575,12 @@ class MoleculePipeline:
                 "duration_seconds": round(duration, 2),
                 "output_directory": str(self.BASE_OUTPUT_DIR),
                 "reference_sdf": str(ref_sdf),
+                "seed_core_scaffold_file": str(seed_core_tsv),
                 "stage1_hits_file": str(stage1_tsv),
-                "stage2_scaffolds_file": str(scaffolds_tsv),
-                "stage3_leads_file": str(stage3_tsv),
+                "stage2_leads_file": str(stage2_tsv),
+                "stage3_selected_leads_file": str(leads_tsv),
+                "stage2_scaffolds_file": str(seed_core_tsv),
+                "stage3_leads_file": str(leads_tsv),
                 "benchmark_directory": str(benchmark_dir),
                 "fallback_audit_file": str(audit_file),
                 "fallbacks_count": len(FallbackMonitor.get_events()),

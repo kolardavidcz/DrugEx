@@ -92,8 +92,6 @@ USRCAT_THRESHOLD: float = 0.22
 RA_THRESHOLD: float = 0.50
 QED_THRESHOLD: float = 0.40
 SA_THRESHOLD: float = 4.0
-MIN_HEAVY_ATOMS: int = 24
-MAX_HEAVY_ATOMS: int = 42
 RANDOM_STATE: int = 42
 
 COLOR_REF: str = "#E63946"
@@ -146,14 +144,32 @@ class ThesisBenchmark:
         self.SEED_FP: DataStructs.ExplicitBitVect | None = (
             AllChem.GetMorganFingerprintAsBitVect(self.SEED_MOL, 2, nBits=2048) if self.SEED_MOL else None
         )
+        # Dynamic heavy-atom bounds scaled relative to query active
+        self.seed_hac: int = int(self.SEED_MOL.GetNumHeavyAtoms()) if self.SEED_MOL else 33
+        self.min_heavy_atoms: int = max(6, int(self.seed_hac * 0.50))
+        self.max_heavy_atoms: int = int(self.seed_hac * 1.50)
+
         if ref_sdf is not None:
             self.REF_SDF: Path = Path(ref_sdf)
         else:
-            candidates = [
+            seed_hash = None
+            if self.seed_smiles:
+                try:
+                    from _david.code.prepare_query_conformer import get_seed_hash
+                    seed_hash = get_seed_hash(self.seed_smiles)
+                except Exception:
+                    pass
+            candidates: List[Path] = []
+            if seed_hash:
+                candidates.extend([
+                    self.BASE_OUTPUT_DIR.parent / "references" / f"seed_{seed_hash}_3d.sdf",
+                    self.ROOT_PATH / "_david" / "references" / f"seed_{seed_hash}_3d.sdf",
+                ])
+            candidates.extend([
                 self.BASE_OUTPUT_DIR.parent / "references" / "query_molecule_3d.sdf",
                 self.ROOT_PATH / "_david" / "references" / "query_molecule_3d.sdf",
                 self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf",
-            ]
+            ])
             self.REF_SDF = next((p for p in candidates if p.exists()), candidates[-1])
 
     def compute_molecular_properties(self, smiles_list: Sequence[str]) -> pd.DataFrame:
@@ -231,16 +247,19 @@ class ThesisBenchmark:
         rnn_path: Path | None = None,
         graph_path: Path | None = None,
         funnel_path: Path | None = None,
+        leads_path: Path | None = None,
     ) -> Dict[str, pd.DataFrame]:
         """Load real empirical candidate datasets without any synthetic simulation.
 
         Searches explicitly provided paths or discovers the latest authentic run files
-        in the output/outputs directory hierarchy.
+        in the output/outputs directory hierarchy. Supports both new decoupled regimes
+        and backward-compatible file naming.
 
         Args:
             rnn_path: Path to Sequence-RNN scored candidates TSV.
             graph_path: Path to Graph-Transformer scored candidates TSV.
-            funnel_path: Path to Hybrid Funnel scored candidates TSV.
+            funnel_path: Backward-compatibility alias for leads_path.
+            leads_path: Path to Prioritized Leads scored candidates TSV.
 
         Returns:
             Dictionary mapping regime name to prepared candidate DataFrame.
@@ -249,8 +268,9 @@ class ThesisBenchmark:
             FileNotFoundError: If no authentic candidate files can be located.
         """
         data: Dict[str, pd.DataFrame] = {}
+        target_leads_path = leads_path or funnel_path
 
-        # 1. Sequence-RNN
+        # 1. Sequence-RNN (Regime 1: Unconstrained SMILES RL)
         df_rnn = None
         if rnn_path and Path(rnn_path).exists():
             df_rnn = self.prepare_regime_dataframe(pd.read_csv(rnn_path, sep="\t"))
@@ -266,43 +286,54 @@ class ThesisBenchmark:
         if df_rnn is not None and len(df_rnn) > 0:
             data["Sequence-RNN (Pure RL)"] = df_rnn
 
-        # 2. Hybrid Funnel (Stage 3 Lead Optimization)
-        df_funnel = None
-        if funnel_path and Path(funnel_path).exists():
-            df_funnel = self.prepare_regime_dataframe(pd.read_csv(funnel_path, sep="\t"))
-        else:
-            found = self._find_latest_run_file("stage3_graph_transformer", "stage3_leads.tsv")
-            if found is None:
-                found = self._find_latest_run_file("stage3_graph_transformer", "rl_generated_candidates_scored.tsv")
-            if found is None:
-                found = self._find_latest_pipeline_stage("stage3_graph_transformer")
-            if found is not None:
-                df_funnel = self.prepare_regime_dataframe(found)
-
-        if df_funnel is not None and len(df_funnel) > 0:
-            data["Hybrid Funnel (Two-Stage)"] = df_funnel
-
-        # 3. Graph-Transformer (Direct / BRICS seed baseline control)
+        # 2. Graph-Transformer (Regime 2: Direct Seed Scaffold RL)
         df_graph = None
         if graph_path and Path(graph_path).exists():
             df_graph = self.prepare_regime_dataframe(pd.read_csv(graph_path, sep="\t"))
-        elif graph_path is not None:
-            # Explicit path provided but not found; do not fallback to arbitrary run
-            df_graph = None
+        else:
+            found = self._find_latest_run_file("stage2_graph_transformer", "stage2_leads.tsv")
+            if found is None:
+                found = self._find_latest_run_file("stage2_graph_transformer", "rl_generated_candidates_scored.tsv")
+            if found is None:
+                found = self._find_latest_run_file("stage3_graph_transformer", "stage3_leads.tsv")
+            if found is None:
+                found = self._find_latest_pipeline_stage("stage2_graph_transformer")
+            if found is None:
+                found = self._find_latest_pipeline_stage("stage3_graph_transformer")
+            if found is not None:
+                df_graph = self.prepare_regime_dataframe(found)
 
-        # Verify that Graph-Transformer baseline is genuinely distinct from Hybrid Funnel
         if df_graph is not None and len(df_graph) > 0:
+            data["Graph-Transformer (Scaffold RL)"] = df_graph
+
+        # 3. Prioritized Leads (Post-Generation Lead Selection)
+        df_leads = None
+        if target_leads_path and Path(target_leads_path).exists():
+            df_leads = self.prepare_regime_dataframe(pd.read_csv(target_leads_path, sep="\t"))
+        else:
+            found = self._find_latest_run_file("stage3_lead_selection", "selected_leads.tsv")
+            if found is None:
+                found = self._find_latest_run_file("stage2_bemis_murcko", "funnel_scaffolds.tsv")
+            if found is None:
+                found = self._find_latest_pipeline_stage("stage3_lead_selection")
+            if found is None:
+                found = self._find_latest_pipeline_stage("stage2_bemis_murcko")
+            if found is not None:
+                df_leads = self.prepare_regime_dataframe(found)
+
+        if df_leads is not None and len(df_leads) > 0:
             is_duplicate = False
-            if df_funnel is not None and len(df_graph) == len(df_funnel):
-                if "SMILES" in df_graph.columns and "SMILES" in df_funnel.columns:
-                    if df_graph["SMILES"].equals(df_funnel["SMILES"]):
+            for existing_name, existing_df in list(data.items()):
+                if len(df_leads) == len(existing_df) and "SMILES" in df_leads.columns and "SMILES" in existing_df.columns:
+                    if df_leads["SMILES"].equals(existing_df["SMILES"]):
                         is_duplicate = True
+                        break
             if not is_duplicate:
-                data["Graph-Transformer (BRICS Seed)"] = df_graph
+                data["Prioritized Leads (Top Desirability)"] = df_leads
 
         if not data:
             raise FileNotFoundError(
-                "No real candidate datasets found to benchmark! Please provide valid TSV paths (--rnn-file, --graph-file, or --funnel-file), "
+                "No real candidate datasets found to benchmark! Please provide valid TSV paths (--rnn-file, --graph-file, or --leads-file), "
                 "or run the pipeline to generate real candidate files. Synthetic mock simulation has been eliminated."
             )
 
@@ -347,7 +378,7 @@ class ThesisBenchmark:
             for rdir in run_dirs:
                 stage_dir = rdir / stage_folder
                 if stage_dir.exists():
-                    for fname in ["stage3_leads.tsv", "stage1_hits.tsv", "rl_generated_candidates_scored.tsv"]:
+                    for fname in ["selected_leads.tsv", "stage2_leads.tsv", "stage1_hits.tsv", "stage3_leads.tsv", "funnel_scaffolds.tsv", "rl_generated_candidates_scored.tsv"]:
                         target = stage_dir / fname
                         if target.exists():
                             try:
@@ -425,11 +456,11 @@ class ThesisBenchmark:
             )
             return np.zeros(len(smiles_list), dtype=np.float32)
 
-        #? [RDKit Conformer Generator] Multi-conformer generation (ETKDGv3, 10 confs) for physical 3D shape overlay.
+        #? [RDKit Conformer Generator] Multi-conformer generation (ETKDGv3, 10 confs) with stereoisomer enumeration.
         conf_gen = RDKitConformerGenerator(
             max_conformers=10,
-            max_isomers=1,
-            max_heavy_atoms=50,
+            max_isomers=4,
+            max_heavy_atoms=max(50, int(self.seed_hac * 1.8)),
             num_threads=0,
             timeout=15,
             show_progress=False,
@@ -533,7 +564,9 @@ class ThesisBenchmark:
                 (clean_df["Valid"] == 1) &
                 (clean_df["ROCS"] >= ROCS_THRESHOLD) &
                 (clean_df["RAscore"] >= RA_THRESHOLD) &
-                (clean_df["QED"] >= QED_THRESHOLD)
+                (clean_df["QED"] >= QED_THRESHOLD) &
+                (clean_df["HeavyAtoms"] >= self.min_heavy_atoms) &
+                (clean_df["HeavyAtoms"] <= self.max_heavy_atoms)
             ).astype(int)
 
         return clean_df
@@ -622,7 +655,13 @@ class ThesisBenchmark:
         #? [Matplotlib] Polar projection initialization for radial multi-objective radar diagram.
         fig, ax = plt.subplots(figsize=(7, 7), subplot_kw=dict(polar=True))
 
-        colors = {"Sequence-RNN (Pure RL)": COLOR_RNN, "Graph-Transformer (BRICS Seed)": COLOR_GRAPH, "Hybrid Funnel (Two-Stage)": COLOR_FUNNEL}
+        colors = {
+            "Sequence-RNN (Pure RL)": COLOR_RNN,
+            "Graph-Transformer (Scaffold RL)": COLOR_GRAPH,
+            "Graph-Transformer (BRICS Seed)": COLOR_GRAPH,
+            "Prioritized Leads (Top Desirability)": COLOR_FUNNEL,
+            "Hybrid Funnel (Two-Stage)": COLOR_FUNNEL,
+        }
 
         for regime, df in datasets.items():
             valid_df = df[df["Valid"] == 1]
@@ -632,9 +671,9 @@ class ThesisBenchmark:
             v_rocs = float(valid_df["ROCS"].mean())
             v_ra = float(valid_df["RAscore"].mean())
             v_qed = float(valid_df["QED"].mean())
-            # Size fit normalized against target (EGCG 33 HAC)
+            # Size fit normalized dynamically against query seed heavy atom count
             mean_hac = float(valid_df["HeavyAtoms"].mean())
-            v_size = max(0.0, 1.0 - abs(mean_hac - 33.0) / 20.0)
+            v_size = max(0.0, 1.0 - abs(mean_hac - float(self.seed_hac)) / max(10.0, self.seed_hac * 0.5))
             # Scaffold diversity
             scaff_count = valid_df["Murcko_Scaffold"].dropna().nunique()
             v_div = scaff_count / len(valid_df)
@@ -675,11 +714,12 @@ class ThesisBenchmark:
         labels: List[str] = []
 
         # Seed reference point
+        seed_label = f"Query Seed (HAC={self.seed_hac})"
         if self.SEED_FP:
             arr = np.zeros((1,), dtype=np.int8)
             DataStructs.ConvertToNumpyArray(self.SEED_FP, arr)
             all_fps.append(arr)
-            labels.append("Query Seed (EGCG)")
+            labels.append(seed_label)
 
         # Collect candidate fingerprints
         for regime, df in datasets.items():
@@ -703,9 +743,11 @@ class ThesisBenchmark:
 
         fig, ax = plt.subplots(figsize=(8, 6))
         color_map = {
-            "Query Seed (EGCG)": (COLOR_REF, "*", 200),
+            seed_label: (COLOR_REF, "*", 200),
             "Sequence-RNN (Pure RL)": (COLOR_RNN, "o", 30),
+            "Graph-Transformer (Scaffold RL)": (COLOR_GRAPH, "^", 35),
             "Graph-Transformer (BRICS Seed)": (COLOR_GRAPH, "^", 35),
+            "Prioritized Leads (Top Desirability)": (COLOR_FUNNEL, "s", 40),
             "Hybrid Funnel (Two-Stage)": (COLOR_FUNNEL, "s", 40),
         }
 
@@ -783,30 +825,59 @@ class ThesisBenchmark:
         # 1. Reference query seed
         if self.SEED_MOL:
             selected_mols.append(self.SEED_MOL)
-            legends.append(f"Query Seed (EGCG)\nHAC: {self.SEED_MOL.GetNumHeavyAtoms()} | Ref Active")
+            seed_name = "EGCG" if self.seed_smiles == MY_MOLECULE else "Query"
+            legends.append(f"Query Seed ({seed_name})\nHAC: {self.seed_hac} | Ref Active")
 
-        # 2. Top from Hybrid Funnel
-        funnel_df = datasets.get("Hybrid Funnel (Two-Stage)")
-        if funnel_df is not None:
-            valid_funnel = funnel_df[funnel_df["Valid"] == 1].copy()
-            valid_funnel["Composite"] = valid_funnel["ROCS"] + valid_funnel["RAscore"] + valid_funnel["QED"]
-            top_funnel = valid_funnel.sort_values(by="Composite", ascending=False).head(4)
-            for _, r in top_funnel.iterrows():
+        # 2. Top from Prioritized Leads / Funnel
+        leads_df = None
+        for key in ["Prioritized Leads (Top Desirability)", "Hybrid Funnel (Two-Stage)", "Selected Leads"]:
+            if key in datasets:
+                leads_df = datasets[key]
+                break
+
+        if leads_df is not None:
+            valid_leads = leads_df[leads_df["Valid"] == 1].copy()
+            if "Composite_Desirability" in valid_leads.columns:
+                valid_leads["SortMetric"] = valid_leads["Composite_Desirability"]
+            else:
+                valid_leads["SortMetric"] = valid_leads["ROCS"] + valid_leads["RAscore"] + valid_leads["QED"]
+            top_leads = valid_leads.sort_values(by="SortMetric", ascending=False).head(4)
+            for _, r in top_leads.iterrows():
                 m = Chem.MolFromSmiles(r["SMILES"])
                 if m:
                     selected_mols.append(m)
                     legends.append(
-                        f"Lead #{len(selected_mols)-1} (Funnel)\n"
+                        f"Lead #{len(selected_mols)-1}\n"
                         f"ROCS: {r['ROCS']:.2f} | RA: {r['RAscore']:.2f}\n"
                         f"HAC: {r['HeavyAtoms']} | Sim: {r['Tanimoto_to_Seed']:.2f}"
                     )
 
-        # 3. Top from Sequence-RNN
+        # 3. Top from Graph-Transformer
+        graph_df = None
+        for key in ["Graph-Transformer (Scaffold RL)", "Graph-Transformer (BRICS Seed)"]:
+            if key in datasets:
+                graph_df = datasets[key]
+                break
+        if graph_df is not None:
+            valid_graph = graph_df[graph_df["Valid"] == 1].copy()
+            valid_graph["SortMetric"] = valid_graph["ROCS"] + valid_graph["RAscore"]
+            top_graph = valid_graph.sort_values(by="SortMetric", ascending=False).head(2)
+            for _, r in top_graph.iterrows():
+                m = Chem.MolFromSmiles(r["SMILES"])
+                if m:
+                    selected_mols.append(m)
+                    legends.append(
+                        f"Graph-TF #{len(selected_mols)-1}\n"
+                        f"ROCS: {r['ROCS']:.2f} | RA: {r['RAscore']:.2f}\n"
+                        f"HAC: {r['HeavyAtoms']} | Sim: {r['Tanimoto_to_Seed']:.2f}"
+                    )
+
+        # 4. Top from Sequence-RNN
         rnn_df = datasets.get("Sequence-RNN (Pure RL)")
         if rnn_df is not None:
             valid_rnn = rnn_df[rnn_df["Valid"] == 1].copy()
-            valid_rnn["Composite"] = valid_rnn["ROCS"] + valid_rnn["RAscore"]
-            top_rnn = valid_rnn.sort_values(by="Composite", ascending=False).head(3)
+            valid_rnn["SortMetric"] = valid_rnn["ROCS"] + valid_rnn["RAscore"]
+            top_rnn = valid_rnn.sort_values(by="SortMetric", ascending=False).head(2)
             for _, r in top_rnn.iterrows():
                 m = Chem.MolFromSmiles(r["SMILES"])
                 if m:
@@ -837,19 +908,26 @@ class ThesisBenchmark:
         rnn_path: Path | None = None,
         graph_path: Path | None = None,
         funnel_path: Path | None = None,
+        leads_path: Path | None = None,
     ) -> pd.DataFrame:
         """Execute end-to-end benchmark suite on real empirical candidate data.
 
         Args:
             rnn_path: Optional explicit Path to Sequence-RNN TSV.
             graph_path: Optional explicit Path to Graph-Transformer TSV.
-            funnel_path: Optional explicit Path to Hybrid Funnel TSV.
+            funnel_path: Optional explicit Path to Prioritized Leads TSV (backward compatible).
+            leads_path: Optional explicit Path to Prioritized Leads TSV.
 
         Returns:
             Summary benchmark table DataFrame.
         """
         print("Loading authentic datasets into ThesisBenchmark...")
-        datasets = self.load_real_datasets(rnn_path, graph_path, funnel_path)
+        datasets = self.load_real_datasets(
+            rnn_path=rnn_path,
+            graph_path=graph_path,
+            funnel_path=funnel_path,
+            leads_path=leads_path,
+        )
 
         print("Generating Benchmark Summary Table...")
         table_df, md_text = self.generate_summary_table(datasets)
@@ -875,10 +953,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Thesis Benchmark Suite for Ligand-Based De Novo Drug Design")
     parser.add_argument("--rnn-file", type=Path, default=None, help="Path to SequenceRNN scored candidates TSV")
     parser.add_argument("--graph-file", type=Path, default=None, help="Path to GraphTransformer scored candidates TSV")
-    parser.add_argument("--funnel-file", type=Path, default=None, help="Path to Hybrid Funnel scored candidates TSV")
+    parser.add_argument("--leads-file", "--funnel-file", dest="leads_file", type=Path, default=None, help="Path to Prioritized Leads TSV")
+    parser.add_argument("--seed-smiles", type=str, default=MY_MOLECULE, help="Active query seed SMILES string")
+    parser.add_argument("--ref-sdf", type=Path, default=None, help="Path to 3D reference conformer ensemble SDF")
     parser.add_argument("--out-dir", type=Path, default=None, help="Target output directory for figures and tables")
     args = parser.parse_args()
 
-    benchmark = ThesisBenchmark(output_dir=args.out_dir)
-    benchmark.run_benchmark(args.rnn_file, args.graph_file, args.funnel_file)
+    benchmark = ThesisBenchmark(output_dir=args.out_dir, ref_sdf=args.ref_sdf, seed_smiles=args.seed_smiles)
+    benchmark.run_benchmark(args.rnn_file, args.graph_file, leads_path=args.leads_file)
     FallbackMonitor.print_summary()

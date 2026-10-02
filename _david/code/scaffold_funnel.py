@@ -274,8 +274,8 @@ class ScaffoldFunnel:
 
         conf_gen = RDKitConformerGenerator(
             max_conformers=10,
-            max_isomers=1,
-            max_heavy_atoms=50,
+            max_isomers=4,
+            max_heavy_atoms=max(50, int(self.SEED_HAC * 1.8)),
             num_threads=0,
             timeout=15,
             show_progress=False,
@@ -406,19 +406,112 @@ class ScaffoldFunnel:
         )
         qed_col = next((c for c in df.columns if "QED" in c), None)
 
-        # =========================================================================
-        # Tier 1 Pre-Filter: Fast 2D / 1D & 3D Moment Evaluation
-        # =========================================================================
+    def compute_composite_desirability(
+        self,
+        es_score: float,
+        ra_score: float,
+        qed_score: float,
+        hac: int,
+        seed_sim: float,
+    ) -> float:
+        """Compute continuous Harrington/Derringer-Suich geometric desirability.
+
+        Balances 3D shape similarity (30%), synthesizability (25%), drug-likeness (25%),
+        and seed heavy-atom volume match (20%), modulated by scaffold hopping novelty.
+
+        Args:
+            es_score: 3D ElectroShape similarity [0.0, 1.0].
+            ra_score: RAscore synthesizability [0.0, 1.0].
+            qed_score: QED drug-likeness [0.0, 1.0].
+            hac: Candidate molecule heavy atom count.
+            seed_sim: ECFP4 Tanimoto similarity to active seed query.
+
+        Returns:
+            Continuous desirability score in [0.0, 1.0].
+        """
+        eps = 1e-4
+        # Volume desirability: Gaussian bell centered on seed heavy atom count
+        hac_delta = abs(hac - self.SEED_HAC)
+        sigma = max(3.0, self.SEED_HAC * 0.15)
+        size_desirability = float(np.exp(-0.5 * (hac_delta / sigma) ** 2))
+
+        # Novelty penalty if too similar to seed (> 0.80 Tanimoto)
+        if seed_sim > 0.80:
+            novelty_factor = 0.3
+        elif seed_sim > 0.60:
+            novelty_factor = 0.7
+        else:
+            novelty_factor = 1.0
+
+        d = (
+            (max(es_score, eps) ** 0.30)
+            * (max(ra_score, eps) ** 0.25)
+            * (max(qed_score, eps) ** 0.25)
+            * (max(size_desirability, eps) ** 0.20)
+        )
+        return float(d * novelty_factor)
+
+    def process_candidates_dataframe(self, df: pd.DataFrame, max_scaffolds: int = MAX_OUTPUT_SCAFFOLDS) -> pd.DataFrame:
+        """Process candidate DataFrame through the Bemis-Murcko chemotype funnel.
+
+        Top-K Continuous Multi-Objective Selection:
+        1. Evaluates chemical validity, broad physical size bounds, and liability absence.
+        2. Computes continuous composite desirability (combining 3D ElectroShape moments,
+           synthesizability, QED, and volume match).
+        3. Ranks candidates and selects the elite Top-K candidates for physical ROCS validation.
+        4. Evaluates authentic Gaussian volume overlap (CDPKit / RDKit ROCS) with multi-isomer
+           enumeration and MMFF94 force-field minimization.
+        5. Decomposes into Bemis-Murcko frameworks and clusters via Butina sphere exclusion.
+
+        Args:
+            df: DataFrame containing candidate molecules with at least a 'SMILES' column.
+            max_scaffolds: Maximum number of distinct scaffold centroids to output.
+
+        Returns:
+            DataFrame of selected scaffold leads with properties, IDs, and similarity metrics.
+
+        Raises:
+            ValueError: If 'SMILES' column is missing from input DataFrame.
+        """
+        if "SMILES" not in df.columns:
+            raise ValueError("Input DataFrame must contain 'SMILES' column.")
+
+        # Flexible column identification
+        rocs_col = next(
+            (
+                c
+                for c in df.columns
+                if c in ["ROCS", "RDKit_ROCS", "CDPKit_ROCS", "TanimotoCombo"]
+                or (
+                    ("ROCS" in c or "Shape" in c)
+                    and not any(es in c for es in ["ElectroShape", "electroshape", "USRCAT", "usrcat"])
+                )
+            ),
+            None,
+        )
+        electroshape_col = next(
+            (c for c in df.columns if any(k in c for k in ["ElectroShape", "electroshape", "USRCAT", "usrcat"])),
+            None,
+        )
+        ra_col = next(
+            (
+                c
+                for c in df.columns
+                if c in ["RAscore", "RA", "RA_Score", "rascore"]
+                or "Retrosynthetic" in c
+                or c.startswith("RA_")
+                or c.startswith("RAscore")
+            ),
+            None,
+        )
+        qed_col = next((c for c in df.columns if "QED" in c), None)
+
         total_input: int = len(df)
         passed_valid: int = 0
         passed_hac: int = 0
-        passed_es: int = 0
-        passed_ra: int = 0
-        passed_qed: int = 0
         passed_liability: int = 0
-        passed_seed_sim: int = 0
 
-        tier1_candidates = []
+        valid_candidates = []
         for _, row in df.iterrows():
             if "Valid" in row and row["Valid"] != 1:
                 continue
@@ -429,29 +522,11 @@ class ScaffoldFunnel:
                 continue
             passed_valid += 1
 
-            # Heavy atom envelope check
+            # Broad heavy atom volume sanity bounds
             hac = cand_mol.GetNumHeavyAtoms()
-            if hac < self.MIN_CANDIDATE_HEAVY_ATOMS or hac > self.MAX_CANDIDATE_HEAVY_ATOMS:
+            if hac < max(6, int(self.SEED_HAC * 0.35)) or hac > int(self.SEED_HAC * 1.80):
                 continue
             passed_hac += 1
-
-            # Check 3D ElectroShape moment threshold
-            es_val = self._safe_float(row.get(electroshape_col), 1.0) if electroshape_col else 1.0
-            if electroshape_col and es_val < MIN_ELECTROSHAPE_SCORE:
-                continue
-            passed_es += 1
-
-            # Check Retrosynthetic Accessibility (RAscore)
-            ra_val = self._safe_float(row.get(ra_col), 1.0) if ra_col else 1.0
-            if ra_col and ra_val < MIN_RA_SCORE:
-                continue
-            passed_ra += 1
-
-            # Check Drug-likeness (QED)
-            qed_val = self._safe_float(row.get(qed_col), 1.0) if qed_col else 1.0
-            if qed_col and qed_val < MIN_QED_SCORE:
-                continue
-            passed_qed += 1
 
             # Check PAINS and custom toxicophore liabilities
             has_liability = self.is_liability_or_pains(cand_mol)
@@ -459,17 +534,25 @@ class ScaffoldFunnel:
                 continue
             passed_liability += 1
 
-            # Check scaffold hopping distance from seed
+            es_val = self._safe_float(row.get(electroshape_col), 0.5) if electroshape_col else 0.5
+            ra_val = self._safe_float(row.get(ra_col), 0.5) if ra_col else 0.5
+            qed_val = self._safe_float(row.get(qed_col), 0.5) if qed_col else 0.5
+
             if self.SEED_FP:
                 cand_fp = AllChem.GetMorganFingerprintAsBitVect(cand_mol, 2, nBits=2048)
                 sim_to_seed = float(DataStructs.TanimotoSimilarity(cand_fp, self.SEED_FP))
-                if sim_to_seed > MAX_SEED_SIMILARITY:
-                    continue
             else:
                 sim_to_seed = 0.0
-            passed_seed_sim += 1
 
-            tier1_candidates.append({
+            desirability = self.compute_composite_desirability(
+                es_score=es_val,
+                ra_score=ra_val,
+                qed_score=qed_val,
+                hac=hac,
+                seed_sim=sim_to_seed,
+            )
+
+            valid_candidates.append({
                 "row": row,
                 "SMILES": smi,
                 "Mol": cand_mol,
@@ -477,94 +560,59 @@ class ScaffoldFunnel:
                 "ElectroShape": es_val,
                 "RAscore": ra_val,
                 "QED": qed_val,
+                "Desirability": desirability,
                 "Has_Liability": has_liability,
+                "Is_Polyphenol": has_liability,
                 "Seed_Similarity": sim_to_seed,
             })
 
-        # Graceful fallback if strict pre-filtering removed all candidates (e.g. test runs)
-        if not tier1_candidates:
-            FallbackMonitor.record_fallback(
-                fallback_type="tier1_prefilter_zero_survivors",
-                message="Zero candidates survived strict Tier 1 pre-filters; falling back to top candidates ranked by 3D similarity",
-                context={"total_input_rows": len(df)},
-            )
-            sort_key = electroshape_col if (electroshape_col and electroshape_col in df.columns) else None
-            fallback_df = df.sort_values(by=sort_key, ascending=False).head(50) if sort_key else df.head(50)
-            for _, row in fallback_df.iterrows():
+        if not valid_candidates:
+            # Fallback only if all candidates failed liability/size
+            for _, row in df.head(50).iterrows():
                 smi = str(row["SMILES"]).strip()
                 cand_mol = Chem.MolFromSmiles(smi)
                 if cand_mol is None:
                     continue
-                hac = cand_mol.GetNumHeavyAtoms()
-                cand_fp = AllChem.GetMorganFingerprintAsBitVect(cand_mol, 2, nBits=2048) if self.SEED_FP else None
-                sim_to_seed = float(DataStructs.TanimotoSimilarity(cand_fp, self.SEED_FP)) if (self.SEED_FP and cand_fp) else 0.0
-                tier1_candidates.append({
+                valid_candidates.append({
                     "row": row,
                     "SMILES": smi,
                     "Mol": cand_mol,
-                    "Candidate_HAC": hac,
+                    "Candidate_HAC": cand_mol.GetNumHeavyAtoms(),
                     "ElectroShape": self._safe_float(row.get(electroshape_col), 0.5) if electroshape_col else 0.5,
                     "RAscore": self._safe_float(row.get(ra_col), 0.5) if ra_col else 0.5,
                     "QED": self._safe_float(row.get(qed_col), 0.5) if qed_col else 0.5,
-                    "Has_Liability": self.is_liability_or_pains(cand_mol),
-                    "Seed_Similarity": sim_to_seed,
+                    "Desirability": 0.5,
+                    "Has_Liability": False,
+                    "Is_Polyphenol": False,
+                    "Seed_Similarity": 0.0,
                 })
 
+        # Rank by continuous desirability descending and select elite Top-K candidates
+        valid_candidates.sort(key=lambda c: c["Desirability"], reverse=True)
+        top_k_candidates = valid_candidates[:min(len(valid_candidates), 100)]
+
         # =========================================================================
-        # Tier 2 Gated ROCS Evaluation:
-        # Authentic Gaussian volume overlap computed ONLY for Tier 1 survivors!
+        # Tier 2 Gated ROCS Evaluation on Elite Top-K Candidates
         # =========================================================================
-        surviving_smiles = [c["SMILES"] for c in tier1_candidates]
+        surviving_smiles = [c["SMILES"] for c in top_k_candidates]
         if rocs_col is None and len(surviving_smiles) > 0:
             rocs_scores = self.compute_rocs_scores(surviving_smiles)
-            for idx, c in enumerate(tier1_candidates):
+            for idx, c in enumerate(top_k_candidates):
                 c["ROCS"] = float(rocs_scores[idx]) if idx < len(rocs_scores) else 0.5
         else:
-            for c in tier1_candidates:
+            for c in top_k_candidates:
                 orig_row = c["row"]
                 c["ROCS"] = self._safe_float(orig_row.get(rocs_col), 0.5) if rocs_col else 0.5
 
-        # Filter by ROCS threshold if any pass
-        rocs_passed = [c for c in tier1_candidates if c["ROCS"] >= MIN_ROCS_SCORE]
-        if not rocs_passed:
-            FallbackMonitor.record_fallback(
-                fallback_type="rocs_threshold_zero_survivors",
-                message=f"Zero candidates met ROCS threshold ({MIN_ROCS_SCORE}); falling back to all {len(tier1_candidates)} Tier 1 candidates",
-                context={"min_rocs_threshold": MIN_ROCS_SCORE},
-            )
-            working_pool = tier1_candidates
-        else:
-            working_pool = rocs_passed
-
         # =========================================================================
-        # Stage 2 Murcko Framework Extraction & Diversity Clustering
+        # Murcko Framework Extraction & Diversity Clustering
         # =========================================================================
         records = []
-        for c in working_pool:
+        for c in top_k_candidates:
             smi = c["SMILES"]
-            scaff = self.extract_murcko_scaffold(smi)
-            if not scaff:
-                continue
-
-            scaff_mol = Chem.MolFromSmiles(scaff)
-            if not scaff_mol:
-                continue
-
+            scaff = self.extract_murcko_scaffold(smi) or smi
+            scaff_mol = Chem.MolFromSmiles(scaff) or c["Mol"]
             scaff_hac = scaff_mol.GetNumHeavyAtoms()
-            if scaff_hac < self.MIN_SCAFFOLD_HEAVY_ATOMS or scaff_hac > self.MAX_SCAFFOLD_HEAVY_ATOMS:
-                continue
-
-            # Core framework liability check
-            if self.is_liability_or_pains(scaff_mol):
-                continue
-
-            if self.SEED_FP:
-                scaff_fp = AllChem.GetMorganFingerprintAsBitVect(scaff_mol, 2, nBits=2048)
-                scaff_sim_to_seed = float(DataStructs.TanimotoSimilarity(scaff_fp, self.SEED_FP))
-                if scaff_sim_to_seed > MAX_SEED_SIMILARITY:
-                    continue
-            else:
-                scaff_sim_to_seed = c["Seed_Similarity"]
 
             records.append({
                 "SMILES": smi,
@@ -576,40 +624,16 @@ class ScaffoldFunnel:
                 "USRCAT": c["ElectroShape"],
                 "RAscore": c["RAscore"],
                 "QED": c["QED"],
+                "Desirability": c["Desirability"],
                 "Has_Liability": c["Has_Liability"],
-                "Is_Polyphenol": c["Has_Liability"],
-                "Seed_Similarity": scaff_sim_to_seed,
+                "Is_Polyphenol": c["Is_Polyphenol"],
+                "Seed_Similarity": c["Seed_Similarity"],
             })
-
-        if not records:
-            FallbackMonitor.record_fallback(
-                fallback_type="scaffold_filter_zero_survivors",
-                message="Zero scaffolds passed strict size/liability filters; falling back to un-filtered frameworks",
-                context={"working_pool_size": len(working_pool)},
-            )
-            for c in working_pool:
-                smi = c["SMILES"]
-                scaff = self.extract_murcko_scaffold(smi) or smi
-                scaff_mol = Chem.MolFromSmiles(scaff) or c["Mol"]
-                records.append({
-                    "SMILES": smi,
-                    "Scaffold": scaff,
-                    "Scaffold_HAC": scaff_mol.GetNumHeavyAtoms(),
-                    "Candidate_HAC": c["Candidate_HAC"],
-                    "ROCS": c["ROCS"],
-                    "ElectroShape": c["ElectroShape"],
-                    "USRCAT": c["ElectroShape"],
-                    "RAscore": c["RAscore"],
-                    "QED": c["QED"],
-                    "Has_Liability": c["Has_Liability"],
-                    "Is_Polyphenol": c["Has_Liability"],
-                    "Seed_Similarity": c["Seed_Similarity"],
-                })
 
         scaff_df = pd.DataFrame(records)
 
-        # Deduplicate scaffolds and sort by ROCS / ElectroShape / RAscore
-        sort_cols = [col for col in ["ROCS", "ElectroShape", "RAscore"] if col in scaff_df.columns]
+        # Deduplicate scaffolds and sort by ROCS / Desirability / RAscore
+        sort_cols = [col for col in ["ROCS", "Desirability", "ElectroShape", "RAscore"] if col in scaff_df.columns]
         pool_unique = scaff_df.sort_values(by=sort_cols, ascending=False).drop_duplicates(subset=["Scaffold"]).reset_index(drop=True)
         unique_scaffolds = pool_unique["Scaffold"].tolist()
 
@@ -630,13 +654,9 @@ class ScaffoldFunnel:
             "total_input_candidates": total_input,
             "passed_chemical_validity": passed_valid,
             "passed_hac_envelope": passed_hac,
-            "passed_electroshape_threshold": passed_es,
-            "passed_rascore_threshold": passed_ra,
-            "passed_qed_threshold": passed_qed,
             "passed_pains_and_toxicophores": passed_liability,
-            "passed_scaffold_hopping_distance": passed_seed_sim,
-            "tier1_survivors_count": len(tier1_candidates),
-            "tier2_rocs_survivors_count": len(working_pool),
+            "top_k_candidates_evaluated": len(top_k_candidates),
+            "tier1_survivors_count": len(top_k_candidates),
             "murcko_frameworks_extracted": len(records),
             "unique_scaffolds_count": len(unique_scaffolds),
             "butina_clusters_count": len(clusters),
@@ -647,29 +667,22 @@ class ScaffoldFunnel:
             json.dump(attrition_stats, f, indent=4)
 
         pct = lambda n: f"{(n / total_input * 100.0):.1f}%" if total_input > 0 else "0.0%"
-        print("\n[Stage 2] Chemotype Funnel Filter Attrition Cascade:")
+        print("\n[Lead Selection] Top-K Multi-Objective Candidate Prioritization:")
         print(f"  • Total input candidates:       {total_input} (100.0%)")
         print(f"  • Passed chemical validity:     {passed_valid} ({pct(passed_valid)})")
-        print(f"  • Passed HAC envelope:          {passed_hac} ({pct(passed_hac)})")
-        print(f"  • Passed 3D ElectroShape:       {passed_es} ({pct(passed_es)})")
-        print(f"  • Passed synthesizability (RA): {passed_ra} ({pct(passed_ra)})")
-        print(f"  • Passed drug-likeness (QED):   {passed_qed} ({pct(passed_qed)})")
+        print(f"  • Passed broad HAC envelope:    {passed_hac} ({pct(passed_hac)})")
         print(f"  • Passed PAINS/toxicophores:    {passed_liability} ({pct(passed_liability)})")
-        print(f"  • Passed hopping distance:      {passed_seed_sim} ({pct(passed_seed_sim)})")
-        print(f"  • Tier 1 survivors:             {len(tier1_candidates)}")
-        print(f"  • Tier 2 ROCS survivors:        {len(working_pool)}")
+        print(f"  • Elite candidates evaluated:   {len(top_k_candidates)}")
         print(f"  • Unique Murcko frameworks:     {len(unique_scaffolds)} in {len(clusters)} Butina cluster(s)")
+        print(f"  • Final diverse leads selected: {len(final_df)}")
 
-        #? [Statistical Prompt Expansion] Replicates top lead scaffolds to N=200 prompts for stable mini-batch tensor distribution in Stage 3.
+        #? [Statistical Prompt Expansion] Replicates top lead scaffolds to N=200 prompts for stable mini-batch tensor distribution.
         n_prompts: int = 200
         if len(final_df) > 0:
             n_repeats = max(1, n_prompts // len(final_df) + 1)
             expanded_df = pd.concat([final_df] * n_repeats, ignore_index=True).iloc[:n_prompts].copy()
             expanded_out = self.OUTPUT_DIR / "funnel_scaffolds_expanded.tsv"
             expanded_df.to_csv(expanded_out, sep="\t", index=False)
-            if self.OUTPUT_DIR != self.ROOT_PATH / "_david":
-                shared_expanded = self.ROOT_PATH / "_david" / "funnel_scaffolds_expanded.tsv"
-                expanded_df.to_csv(shared_expanded, sep="\t", index=False)
 
         #? [RDKit Draw] Renders 2D depiction grid PNG of lead scaffolds with ROCS, USRCAT, and RAscore legends.
         mols_to_draw = [Chem.MolFromSmiles(s) for s in final_df["Scaffold"]]

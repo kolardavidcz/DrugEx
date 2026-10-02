@@ -18,11 +18,13 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import hashlib
 #? [NumPy] Array operations for saving and loading pre-computed moment vectors.
 import numpy as np
 #? [RDKit] Cheminformatics foundation for molecule parsing, conformer embedding, force-field optimization, and SDF I/O.
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolDescriptors
+from rdkit.Chem.Scaffolds import MurckoScaffold
 
 from _david.code.fallback_monitor import FallbackMonitor
 
@@ -31,6 +33,21 @@ NUM_CONFORMERS: int = 50
 RANDOM_SEED: int = 42
 PRUNE_RMS_THRESH: float = 0.50
 MAX_ENERGY_DELTA: float = 8.0
+
+
+def get_seed_hash(smiles: str, length: int = 8) -> str:
+    """Compute deterministic short hash for query seed SMILES.
+
+    Args:
+        smiles: Input SMILES string.
+        length: Length of hex hash string to return (default: 8).
+
+    Returns:
+        Deterministic hex hash string.
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    can_smi = Chem.MolToSmiles(mol, isomericSmiles=True) if mol is not None else smiles.strip()
+    return hashlib.sha256(can_smi.encode("utf-8")).hexdigest()[:length]
 
 
 class QueryConformerPreparer:
@@ -47,6 +64,8 @@ class QueryConformerPreparer:
         OUTPUT_USRCAT: Path to precomputed reference USRCAT moments array (.npy).
         OUTPUT_ELECTROSHAPE: Path to precomputed reference ElectroShape moments array (.npy).
     """
+
+    get_seed_hash = staticmethod(get_seed_hash)
 
     def __init__(self, references_dir: Path | None = None) -> None:
         """Initialize QueryConformerPreparer.
@@ -212,3 +231,39 @@ class QueryConformerPreparer:
                 np.save(target_electroshape, es_arr)
 
         return target_path
+
+
+
+    def extract_seed_core_scaffold(self, smiles: str = MY_MOLECULE, output_path: Path | None = None) -> str:
+        """Extract canonical Bemis-Murcko core scaffold of query seed ligand.
+
+        Args:
+            smiles: SMILES string of active seed query.
+            output_path: Optional Path to save scaffold TSV.
+
+        Returns:
+            Canonical SMILES string of the core scaffold.
+
+        Raises:
+            ValueError: If input SMILES cannot be parsed into an RDKit Mol.
+        """
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            raise ValueError(f"Could not parse query SMILES: {smiles}")
+
+        try:
+            scaff = MurckoScaffold.GetScaffoldForMol(mol)
+            if scaff is None or scaff.GetNumHeavyAtoms() == 0:
+                scaff_smi = Chem.MolToSmiles(mol, isomericSmiles=False)
+            else:
+                scaff_smi = Chem.MolToSmiles(scaff, isomericSmiles=False)
+        except Exception:
+            scaff_smi = Chem.MolToSmiles(mol, isomericSmiles=False)
+
+        target = output_path or (self.REFERENCES_DIR / "seed_core_scaffold.tsv")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
+            f.write("Scaffold\tSMILES\n")
+            f.write(f"{scaff_smi}\t{smiles}\n")
+
+        return scaff_smi

@@ -239,9 +239,11 @@ class GraphTransformerOptimizer:
 
         # Dynamic size envelope derived from seed ligand heavy atom count
         seed_mol = Chem.MolFromSmiles(seed_smiles) if seed_smiles else None
-        seed_hac = seed_mol.GetNumHeavyAtoms() if seed_mol else 33
-        lower_size = max(6.0, float(seed_hac - SIZE_DELTA))
-        upper_size = float(seed_hac + SIZE_DELTA)
+        seed_hac = seed_mol.GetNumHeavyAtoms() if seed_mol else 30
+        delta = max(3.0, seed_hac * 0.15)
+        lower_size = max(6.0, float(seed_hac - delta))
+        upper_size = float(seed_hac + delta)
+        sigma = max(2.5, seed_hac * 0.12)
 
         #? [Heavy Atom Volume Scorer] Native SmoothHump modifier dynamically centered on seed heavy atom count.
         size_scorer = Property(
@@ -249,7 +251,7 @@ class GraphTransformerOptimizer:
             modifier=SmoothHump(
                 lower_x=lower_size,
                 upper_x=upper_size,
-                sigma=SIZE_SIGMA,
+                sigma=sigma,
             ),
         )
 
@@ -339,37 +341,27 @@ class GraphTransformerOptimizer:
             n_proc=1,
         )
 
-        funnel_candidates: List[Path] = []
-        if scaffolds_path is not None and Path(scaffolds_path).exists():
-            funnel_candidates.append(Path(scaffolds_path))
-        funnel_candidates.extend([
-            self.OUTPUT_DIR.parent / "stage2_scaffold_funnel" / "funnel_scaffolds_expanded.tsv",
-            self.OUTPUT_DIR.parent / "stage2_scaffold_funnel" / "funnel_scaffolds.tsv",
-            self.ROOT_PATH / "_david" / "funnel_scaffolds_expanded.tsv",
-            self.ROOT_PATH / "_david" / "funnel_scaffolds.tsv",
-        ])
-
         scaffolds: List[str] = []
-        for fpath in funnel_candidates:
-            if fpath.exists():
-                #? [Pandas] Reads funnel scaffold TSV table to retrieve lead centroids.
-                try:
-                    df_funnel = pd.read_csv(fpath, sep="\t")
-                    if "Scaffold" in df_funnel.columns and len(df_funnel) > 0:
-                        loaded = df_funnel["Scaffold"].dropna().unique().tolist()
-                        if loaded:
-                            scaffolds = loaded
-                            break
-                except Exception:
-                    pass
+        if scaffolds_path is not None and Path(scaffolds_path).exists():
+            try:
+                df_scaff = pd.read_csv(scaffolds_path, sep="\t")
+                if "Scaffold" in df_scaff.columns and len(df_scaff) > 0:
+                    scaffolds = df_scaff["Scaffold"].dropna().unique().tolist()
+            except Exception:
+                pass
 
         if not scaffolds:
-            FallbackMonitor.record_fallback(
-                fallback_type="seed_scaffold_missing_fallback",
-                message="No Stage 2 funnel scaffolds found; falling back to active seed query molecule as fragment prompt",
-                context={"molecule_smile": molecule_smile},
-            )
-            scaffolds = [molecule_smile]
+            # Direct core scaffold conditioning from active seed query
+            from rdkit.Chem.Scaffolds import MurckoScaffold
+            seed_mol = Chem.MolFromSmiles(molecule_smile)
+            if seed_mol:
+                core_scaff = MurckoScaffold.GetScaffoldForMol(seed_mol)
+                if core_scaff and core_scaff.GetNumHeavyAtoms() > 0:
+                    scaffolds = [Chem.MolToSmiles(core_scaff, isomericSmiles=False)]
+                else:
+                    scaffolds = [Chem.MolToSmiles(seed_mol, isomericSmiles=False)]
+            else:
+                scaffolds = [molecule_smile]
 
         # Standardize scaffolds and remove stereochemistry (VocGraph operates on 2D constitution/valences only)
         std_raw = processing.Standardization(n_proc=1).apply(scaffolds)
@@ -413,10 +405,20 @@ class GraphTransformerOptimizer:
         Returns:
             Tuple containing trained GraphTransformer agent and scored DataFrame.
         """
-        ref_sdf = self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf"
-        if not ref_sdf.exists():
-            from _david.code.prepare_query_conformer import QueryConformerPreparer
-            preparer = QueryConformerPreparer(ref_sdf.parent)
+        from _david.code.prepare_query_conformer import QueryConformerPreparer
+        preparer = QueryConformerPreparer(self.ROOT_PATH / "_david" / "references")
+        seed_hash = preparer.get_seed_hash(molecule_smile)
+        ref_candidates = [
+            self.OUTPUT_DIR / "references" / f"seed_{seed_hash}_3d.sdf",
+            self.OUTPUT_DIR.parent / "references" / f"seed_{seed_hash}_3d.sdf",
+            self.OUTPUT_DIR.parent / "references" / "query_molecule_3d.sdf",
+            self.ROOT_PATH / "_david" / "references" / f"seed_{seed_hash}_3d.sdf",
+            self.ROOT_PATH / "_david" / "references" / "query_molecule_3d.sdf",
+            self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf",
+        ]
+        ref_sdf = next((p for p in ref_candidates if p.exists()), None)
+        if ref_sdf is None:
+            ref_sdf = self.OUTPUT_DIR / "references" / f"seed_{seed_hash}_3d.sdf"
             ref_sdf = preparer.generate_reference_sdf(molecule_smile, ref_sdf)
 
         env = self.build_environment(ref_sdf, seed_smiles=molecule_smile, toxicophore_smarts=toxicophore_smarts)

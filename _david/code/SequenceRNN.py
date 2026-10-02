@@ -227,9 +227,11 @@ class SequenceRNNOptimizer:
 
         # Dynamic size envelope derived from seed ligand heavy atom count
         seed_mol = Chem.MolFromSmiles(seed_smiles) if seed_smiles else None
-        seed_hac = seed_mol.GetNumHeavyAtoms() if seed_mol else 33
-        lower_size = max(6.0, float(seed_hac - SIZE_DELTA))
-        upper_size = float(seed_hac + SIZE_DELTA)
+        seed_hac = seed_mol.GetNumHeavyAtoms() if seed_mol else 30
+        delta = max(3.0, seed_hac * 0.15)
+        lower_size = max(6.0, float(seed_hac - delta))
+        upper_size = float(seed_hac + delta)
+        sigma = max(2.5, seed_hac * 0.12)
 
         #? [Heavy Atom Volume Scorer] Native SmoothHump modifier dynamically centered on seed heavy atom count.
         size_scorer = Property(
@@ -237,7 +239,7 @@ class SequenceRNNOptimizer:
             modifier=SmoothHump(
                 lower_x=lower_size,
                 upper_x=upper_size,
-                sigma=SIZE_SIGMA,
+                sigma=sigma,
             ),
         )
 
@@ -315,10 +317,20 @@ class SequenceRNNOptimizer:
         Returns:
             Tuple containing trained SequenceRNN agent and scored candidates DataFrame.
         """
-        ref_sdf = self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf"
-        if not ref_sdf.exists():
-            from _david.code.prepare_query_conformer import QueryConformerPreparer
-            preparer = QueryConformerPreparer(ref_sdf.parent)
+        from _david.code.prepare_query_conformer import QueryConformerPreparer
+        preparer = QueryConformerPreparer(self.ROOT_PATH / "_david" / "references")
+        seed_hash = preparer.get_seed_hash(molecule_smile)
+        ref_candidates = [
+            self.OUTPUT_DIR / "references" / f"seed_{seed_hash}_3d.sdf",
+            self.OUTPUT_DIR.parent / "references" / f"seed_{seed_hash}_3d.sdf",
+            self.OUTPUT_DIR.parent / "references" / "query_molecule_3d.sdf",
+            self.ROOT_PATH / "_david" / "references" / f"seed_{seed_hash}_3d.sdf",
+            self.ROOT_PATH / "_david" / "references" / "query_molecule_3d.sdf",
+            self.ROOT_PATH / "_david" / "references" / "my_molecule_3d.sdf",
+        ]
+        ref_sdf = next((p for p in ref_candidates if p.exists()), None)
+        if ref_sdf is None:
+            ref_sdf = self.OUTPUT_DIR / "references" / f"seed_{seed_hash}_3d.sdf"
             ref_sdf = preparer.generate_reference_sdf(molecule_smile, ref_sdf)
 
         env = self.build_environment(ref_sdf, seed_smiles=molecule_smile, toxicophore_smarts=toxicophore_smarts)

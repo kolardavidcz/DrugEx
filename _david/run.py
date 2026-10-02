@@ -4,10 +4,10 @@ Executes the complete end-to-end LBDD pipeline with ZERO command-line arguments 
 Outputs are automatically written to `_david/output/<YYYYMMDD_HHMMSS>/...`.
 
 Stages executed:
-1. Stage 0: 3D reference conformer ensemble & 75-D ElectroShape moments for query seed ligand.
-2. Stage 1: Sequence-RNN global hit discovery via policy-gradient RL with anti-cheating scalarization.
-3. Stage 2: Bemis-Murcko chemotype funnel (gated two-tier 3D ROCS + PAINS removal + Butina clustering).
-4. Stage 3: Graph-Transformer lead optimization on discovered scaffolds.
+1. Stage 0: 3D reference conformer ensemble, 75-D ElectroShape moments & seed core Murcko scaffold.
+2. Stage 1: Sequence-RNN global hit discovery via unconstrained policy-gradient RL (Regime 1).
+3. Stage 2: Graph-Transformer fragment-conditioned lead optimization directly on query seed core (Regime 2).
+4. Stage 3: Post-generation lead selection & diversity clustering (continuous desirability ranking, non-gating).
 5. Stage 4: Publication benchmark suite & statistical figure generation.
 6. Health & Fallback Audit Report.
 """
