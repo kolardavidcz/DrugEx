@@ -9,6 +9,7 @@ from _david.code.fallback_monitor import FallbackEvent, FallbackMonitor
 from _david.code.GraphTransformer import GraphTransformerOptimizer
 from _david.code.pipeline import MoleculePipeline
 from _david.code.prepare_query_conformer import QueryConformerPreparer
+from _david.code.result_analyzer import ResultAnalyzer
 from _david.code.scaffold_funnel import ScaffoldFunnel
 from _david.code.SequenceRNN import SequenceRNNOptimizer
 from _david.code.thesis_benchmark import ThesisBenchmark
@@ -22,6 +23,7 @@ __all__ = [
     "GraphTransformerOptimizer",
     "MoleculePipeline",
     "QueryConformerPreparer",
+    "ResultAnalyzer",
     "ScaffoldFunnel",
     "SequenceRNNOptimizer",
     "ThesisBenchmark",

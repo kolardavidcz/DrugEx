@@ -611,6 +611,67 @@ class TestAntiCheatingRewards(unittest.TestCase):
             self.assertGreater(s, 0.0)
             self.assertLessEqual(s, 1.0)
 
+    def test_result_analyzer_candidate_profiling(self) -> None:
+        """Verify ResultAnalyzer accurately profiles candidate molecules across 2D, 3D, and liabilities."""
+        from _david.code.result_analyzer import ResultAnalyzer
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            analyzer = ResultAnalyzer(output_dir=Path(tmp_dir), seed_smiles="c1ccccc1")
+            candidates = [
+                "c1ccccc1",  # Benzene (valid, clean, no catechol)
+                "c1c(O)c(O)ccc1",  # Catechol (liability)
+                "INVALID_SMILES_STRING",  # Invalid SMILES
+            ]
+            df = analyzer.analyze_candidates(candidates)
+            self.assertEqual(len(df), 3)
+
+            # Check validity flags
+            self.assertTrue(df.loc[df["SMILES"] == "c1ccccc1", "Valid"].values[0])
+            self.assertFalse(df.loc[df["SMILES"] == "INVALID_SMILES_STRING", "Valid"].values[0])
+
+            # Check catechol detection
+            cat_rows = df[df["Has_Catechol"]]
+            self.assertEqual(len(cat_rows), 1)
+            self.assertFalse(df.loc[df["SMILES"] == "c1ccccc1", "Has_Catechol"].values[0])
+
+            # Check properties computed
+            self.assertIn("QED", df.columns)
+            self.assertIn("MW", df.columns)
+            self.assertIn("Desirability", df.columns)
+            self.assertGreater(df.loc[df["SMILES"] == "c1ccccc1", "QED"].values[0], 0.0)
+
+    def test_result_analyzer_lead_prioritization_and_export(self) -> None:
+        """Verify ResultAnalyzer prioritizes catechol-free diverse leads and exports visualizations and JSON summary."""
+        from _david.code.result_analyzer import ResultAnalyzer
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = Path(tmp_dir)
+            analyzer = ResultAnalyzer(output_dir=out_path, seed_smiles="c1ccccc1")
+            candidates = [
+                "c1ccccc1CC",
+                "c1ccccc1O",
+                "c1c(O)c(O)ccc1",  # Should be filtered out by catechol check
+                "c1ccncc1",
+            ]
+            df_all = analyzer.analyze_candidates(candidates)
+            df_leads = analyzer.prioritize_leads(df_all, top_k=2)
+
+            self.assertLessEqual(len(df_leads), 2)
+            # Ensure prioritized leads are catechol-free
+            for has_cat in df_leads["Has_Catechol"]:
+                self.assertFalse(has_cat)
+
+            # Test visualization generation
+            figs = analyzer.visualize_leads(df_leads, df_all)
+            self.assertIn("structures_grid", figs)
+            self.assertTrue(figs["structures_grid"].exists())
+
+            # Test summary export
+            summary = analyzer.export_summary(df_all, df_leads)
+            self.assertIn("total_candidates_generated", summary)
+            self.assertEqual(summary["total_candidates_generated"], 4)
+            self.assertTrue((out_path / "result_analysis_summary.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
