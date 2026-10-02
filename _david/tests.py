@@ -191,7 +191,9 @@ class TestAntiCheatingRewards(unittest.TestCase):
         """Verify GraphTransformerOptimizer._prepare_seed_fragments successfully creates DataLoader and dataset."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             optimizer = GraphTransformerOptimizer(output_dir=Path(tmp_dir))
-            scaffolds_file = Path(__file__).parent / "funnel_scaffolds.tsv"
+            scaffolds_file = Path(tmp_dir) / "test_scaffolds.tsv"
+            import pandas as pd
+            pd.DataFrame({"Scaffold": ["c1ccccc1", "c1ccncc1"]}).to_csv(scaffolds_file, sep="\t", index=False)
             loader, dataset = optimizer._prepare_seed_fragments(
                 MY_MOLECULE, n_prompts=10, scaffolds_path=scaffolds_file
             )
