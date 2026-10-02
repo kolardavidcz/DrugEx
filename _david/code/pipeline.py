@@ -240,8 +240,11 @@ class MoleculePipeline:
         df_hits = optimizer.save_visualizations(
             optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, num_samples=self.N_SAMPLES
         )
-        if not scored_tsv.exists() and (stage1_dir / "reinforcement_learning" / "stage1_hits.tsv").exists():
-            scored_tsv = stage1_dir / "reinforcement_learning" / "stage1_hits.tsv"
+        if not scored_tsv.exists():
+            if (stage1_dir / "reinforcement_learning" / "stage1_hits.tsv").exists():
+                scored_tsv = stage1_dir / "reinforcement_learning" / "stage1_hits.tsv"
+            else:
+                df_hits.to_csv(scored_tsv, sep="\t", index=False)
 
         print(f"[Stage 1] Completed. Generated {len(df_hits)} candidates saved to: {scored_tsv}")
         return df_hits, scored_tsv
@@ -296,8 +299,11 @@ class MoleculePipeline:
         df_leads = optimizer.save_visualizations(
             optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, input_dataset=seed_dataset, num_samples=self.N_SAMPLES
         )
-        if not leads_tsv.exists() and (stage2_dir / "reinforcement_learning" / "stage2_leads.tsv").exists():
-            leads_tsv = stage2_dir / "reinforcement_learning" / "stage2_leads.tsv"
+        if not leads_tsv.exists():
+            if (stage2_dir / "reinforcement_learning" / "stage2_leads.tsv").exists():
+                leads_tsv = stage2_dir / "reinforcement_learning" / "stage2_leads.tsv"
+            else:
+                df_leads.to_csv(leads_tsv, sep="\t", index=False)
 
         print(f"[Stage 2] Completed. Optimized leads saved to: {leads_tsv}")
         return df_leads, leads_tsv

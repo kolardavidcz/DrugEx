@@ -428,12 +428,15 @@ class GraphTransformerOptimizer:
         scored_df = pd.concat([generated_sample.reset_index(drop=True), scores.reset_index(drop=True)], axis=1)
         scored_df = scored_df.loc[:, ~scored_df.columns.duplicated()].copy()
         scored_df.to_csv(out_dir / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
+        scored_df.to_csv(out_dir / "stage2_leads.tsv", sep="\t", index=False)
         scored_df.to_csv(out_dir / "stage3_leads.tsv", sep="\t", index=False)
         if out_dir.name == "reinforcement_learning" and out_dir.parent != out_dir:
             scored_df.to_csv(out_dir.parent / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
+            scored_df.to_csv(out_dir.parent / "stage2_leads.tsv", sep="\t", index=False)
             scored_df.to_csv(out_dir.parent / "stage3_leads.tsv", sep="\t", index=False)
         if out_dir != self.OUTPUT_DIR and out_dir.parent != self.OUTPUT_DIR:
             scored_df.to_csv(self.OUTPUT_DIR / "rl_generated_candidates_scored.tsv", sep="\t", index=False)
+            scored_df.to_csv(self.OUTPUT_DIR / "stage2_leads.tsv", sep="\t", index=False)
             scored_df.to_csv(self.OUTPUT_DIR / "stage3_leads.tsv", sep="\t", index=False)
 
         #? [RDKit] Parse SMILES into C++ Mol graph: validates valences, ring closures, and chiral center parities (@/@@).

@@ -31,6 +31,8 @@ download.log
 /tutorial/advanced/rocs/*.png
 /tutorial/advanced/rocs/*.csv
 /tutorial/advanced/rocs/*.txt
+_david/output/
+**/_david/output/
 _david/outputs/
 **/_david/outputs/
 
