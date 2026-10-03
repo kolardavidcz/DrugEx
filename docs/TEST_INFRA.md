@@ -44,7 +44,7 @@ The documentation platform is guarded by a comprehensive 4-tier automated test s
      - Every class must specify at least one documented member method (`members.length >= 1`).
      - Zero-argument constructors must specify an empty `parameters` array.
      - Class attributes must be explicitly documented in `variables`.
-- **Failure Conditions**: Symbol count != 234, missing required fields, `__init__` in member functions, empty members on classes, or mismatched constructor parameters.
+- **Failure Conditions**: Symbol count != 234, missing required fields, `__init__` in member methods, empty members on classes, or mismatched constructor parameters.
 
 ### Tier 3: Thematic Indexing & Helper Function Parity
 

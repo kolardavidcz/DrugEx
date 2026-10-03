@@ -11,8 +11,8 @@
 ```
 DrugEx (branch: education)
 ├── docs/                                  # Cppreference-style documentation SPA
-│   ├── index.html                         # Primary 3-column SPA entrypoint
-│   ├── docs/cppreference/index.html       # Exact mirror copy for deep-link parity
+│   ├── index.html                         # Sole authoritative Master Reference SPA entrypoint (DATABASE across 234 symbols)
+│   ├── pipelines.html                     # Sole authoritative Pipeline Visualizer page (5 PIPELINE_SCHEMAS)
 │   ├── tools/check_docs.mjs               # Master symbol audit suite (234 symbols)
 │   ├── vercel.json                        # Vercel SPA rewrites and cache headers
 │   └── package.json                       # Dev scripts

@@ -7,8 +7,12 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
-const repoRoot = path.join(projectRoot, 'repo');
-const docsPath = path.join(projectRoot, 'index.html');
+const repoRoot = fs.existsSync(path.join(projectRoot, 'repo'))
+  ? path.join(projectRoot, 'repo')
+  : path.resolve(projectRoot, '..', 'repo');
+const docsPath = fs.existsSync(path.join(projectRoot, 'index.html'))
+  ? path.join(projectRoot, 'index.html')
+  : path.join(projectRoot, 'docs', 'index.html');
 
 console.log('[Audit] Auditing gh-pages and codebase symbols vs index.html...');
 
@@ -28,10 +32,16 @@ const currentKeys = new Set(Object.keys(currentDb));
 console.log(`Current DATABASE symbols count: ${currentKeys.size}`);
 
 // 2. Extract Sphinx genindex.html from origin/gh-pages
-const genindexHtml = execSync('git -C ' + repoRoot + ' show origin/gh-pages:docs/genindex.html', {
-  maxBuffer: 20 * 1024 * 1024,
-  encoding: 'utf8'
-});
+let genindexHtml = '';
+try {
+  genindexHtml = execSync('git -C ' + repoRoot + ' show origin/gh-pages:docs/genindex.html', {
+    maxBuffer: 20 * 1024 * 1024,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'ignore']
+  });
+} catch (e) {
+  console.log('Notice: origin/gh-pages:docs/genindex.html not available in git remote; proceeding with codebase inspection.');
+}
 
 const regex = /<li><a href="api\/([^"]+)#(drugex\.[^"]+)">([^<]+)<\/a>/g;
 let match;

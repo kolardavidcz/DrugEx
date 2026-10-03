@@ -3,7 +3,8 @@
 > **Directory**: `drugex_edu/analysis/`  
 > **Mission**: Chemical space manifold visualization, conformer generation, and 3D ROCS shape/color similarity scoring for Bachelor's Thesis on *Ligand-Based De Novo Drug Design in DrugEx*.  
 > **Target Audience**: 100% for AI agents and maintainers developing, debugging, and extending molecular space analyses.  
-> **Execution Context**: Local WSL2 (Ubuntu) CPU execution (`~/build_projects/drugex_edu/.venv`), completely independent of remote SSH sessions.
+> **Execution Context**: Local WSL2 (Ubuntu) CPU execution (`~/build_projects/drugex_edu/.venv`), completely independent of remote SSH sessions.  
+> **Git Tracking**: Managed by dedicated repository history agents. **Do not run ad-hoc `git commit` or `git add` from within this folder.**
 
 ---
 
@@ -123,8 +124,8 @@ When modifying scripts in this folder:
    - `import rdkit.Chem as Chem` / `from rdkit.Chem import AllChem, rdShapeAlign`.
 5. **Direct File Editing Tools Only**:
    - Always edit via `write_to_file` or `replace_file_content`. Never run ad-hoc scripts to mutate files.
-6. **Automatic Local Commits**:
-   - On completing tasks, commit locally (`git add analysis/ && git commit -m "<summary>"`). **Never `git push`**.
+6. **No Git Pollution**:
+   - Do **NOT** run `git add` or `git commit` from this workspace. Git history and staging are managed by the repository history agent.
 
 ---
 

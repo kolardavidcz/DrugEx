@@ -23,8 +23,8 @@ This dedicated `education` branch isolates all learning materials and reference 
 ```
 DrugEx (branch: education)
 ├── docs/                                  # Cppreference-style documentation SPA platform (v2)
-│   ├── index.html                         # Master 3-column SPA entrypoint (zero-build React 18)
-│   ├── docs/cppreference/index.html       # Exact mirror copy for deep-link parity
+│   ├── index.html                         # Sole authoritative Master Reference SPA entrypoint (DATABASE across 234 symbols)
+│   ├── pipelines.html                     # Sole authoritative Pipeline Visualizer page (5 PIPELINE_SCHEMAS)
 │   ├── tools/                             # Master verification & symbol audit suites (234 symbols)
 │   ├── vercel.json                        # Static SPA routing & security headers
 │   └── package.json                       # Preview scripts (pnpm dev, pnpm test)

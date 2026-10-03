@@ -573,26 +573,56 @@ if (fs.existsSync(rootPipelines)) {
 // 8. Strict Emoji Prohibition Check
 console.log('\nValidating Strict Zero-Emoji Rule...');
 const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F1E6}-\u{1F1FF}]/u;
-const filesToScan = [
+
+function collectDocFiles(dir) {
+  let docFiles = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules' && entry.name !== '.git' && entry.name !== '.venv') {
+        docFiles = docFiles.concat(collectDocFiles(fullPath));
+      }
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (['.html', '.md', '.mjs', '.js', '.json'].includes(ext)) {
+        docFiles.push(fullPath);
+      }
+    }
+  }
+  return docFiles;
+}
+
+const docsDir = projectRoot;
+const repoRootDir = fs.existsSync(path.join(projectRoot, 'repo'))
+  ? projectRoot
+  : path.resolve(projectRoot, '..');
+
+const rootDocMarkdown = ['README.md', 'AGENT.md', 'TEST_INFRA.md', 'TEST_READY.md']
+  .map(file => path.join(repoRootDir, file))
+  .filter(file => fs.existsSync(file));
+
+const filesToScan = Array.from(new Set([
   docsPath,
   rootPipelines,
-  path.join(projectRoot, 'tools', 'check_docs.mjs'),
-  path.join(projectRoot, 'tools', 'audit_examples.mjs')
-];
+  ...collectDocFiles(docsDir),
+  ...rootDocMarkdown
+]));
+
 let emojiErrors = 0;
 for (const file of filesToScan) {
   if (fs.existsSync(file)) {
     const content = fs.readFileSync(file, 'utf8');
     const match = content.match(emojiRegex);
     if (match) {
-      console.error(`Error: Emoji detected in ${path.relative(projectRoot, file)}: "${match[0]}"`);
+      console.error(`Error: Emoji detected in ${path.relative(repoRootDir, file)}: "${match[0]}"`);
       emojiErrors++;
       errors++;
     }
   }
 }
 if (emojiErrors === 0) {
-  console.log('[PASS] Verified 0 emojis across documentation files.');
+  console.log(`[PASS] Verified 0 emojis across documentation files (${filesToScan.length} scanned).`);
 }
 
 if (errors > 0) {
