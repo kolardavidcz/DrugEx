@@ -2,7 +2,9 @@ import re
 from itertools import combinations
 from typing import List, Tuple, Union
 
+# [PACKAGE: numpy] WHY: Array manipulation and boolean indexing for fragment filtering. WHAT: ndarray operations and masks.
 import numpy as np
+# [PACKAGE: rdkit] WHY: Rule-based retrosynthetic decomposition (RECAP, BRICS) and substructure query matching. WHAT: Chem, Recap, and BRICS decomposition APIs.
 from rdkit import Chem
 from rdkit.Chem import Recap, BRICS
 
@@ -12,23 +14,10 @@ from drugex.molecules.converters.standardizers import CleanSMILES
 
 
 class Fragmenter(CleanSMILES):
-    """
-    Reference implementation of the original fragmenter used in DrugEx v3.
-
-    """
+    """Decomposes molecules into leaf fragments using RECAP or BRICS and generates fragment-molecule combinations."""
 
     def __init__(self, n_frags : int, n_combs : int, method : str = 'recap', deep_clean : bool = True, max_bonds : int = 75, allow_single : bool = False):
-        """
-
-        Args:
-            n_frags: number of fragments to generate per compound
-            n_combs: maximum number of combinations of the found leaf fragments
-            method: fragmentation method to use. Possible values: ('recap', 'brics')
-            deep_clean: deep clean the SMILES before fragmentation (see `CleanSMILES`)
-            max_bonds: only accept molecules with the number of bonds below or equal to this threshold
-            allow_single: return the fragment also for molecules that result in only one fragment
-        """
-
+        """Initialize fragmenter with budget thresholds, decomposition method, and filtering criteria."""
         super().__init__(deep_clean)
         self.nFrags = n_frags
         self.nCombs = n_combs
@@ -39,16 +28,7 @@ class Fragmenter(CleanSMILES):
             raise ConversionException(f"Unknown fragmentation method: {self.method}")
 
     def getFragments(self, mol : Chem.Mol) -> Union[np.array, None]:
-        """
-        Get fragments form an RDKit molecule
-
-        Args:
-            mol: instance of `rdkit.Chem.Mol`
-
-        Returns:
-            `numpy.array` of generated fragments
-        """
-
+        """Decompose an RDKit molecule into unique leaf fragments using the configured method."""
         # break molecule into leaf fragments
         if self.method == 'recap':
             frags = np.array(sorted(Recap.RecapDecompose(mol).GetLeaves().keys()))
@@ -63,17 +43,7 @@ class Fragmenter(CleanSMILES):
         return frags
 
     def filterFragments(self, frags : List[str]) -> List[str]:
-        """
-        Filter fragments to remove those that are contained in other fragments or are too small, 
-        and keep only the largest ones.
-
-        Args:
-            frags: `list` of fragments
-
-        Returns:
-            `list` of filtered fragments
-        """
-
+        """Filter leaf fragments to eliminate sub-fragments and retain the largest components within budget."""
         # replace connection tokens with [H]
         du, hy = Chem.MolFromSmiles('*'), Chem.MolFromSmiles('[H]')
         subs = np.array([Chem.MolFromSmiles(f) for f in frags])
@@ -89,16 +59,7 @@ class Fragmenter(CleanSMILES):
         return frags
 
     def __call__(self, smiles : str) -> Union[List[Tuple[str, str]], None]:
-        """
-        Generate fragment-molecule pairs for a given SMILES string.
-
-        Args:
-            smiles: SMILES of the molecule to fragment
-
-        Returns:
-            a list of `tuple`s of format  (fragment, smiles), smiles is the same as the input in "smiles"
-        """
-
+        """Generate valid (fragment, smiles) pairs from an input molecule SMILES string."""
         ret_frags = []
         mol = Chem.MolFromSmiles(smiles)
         
@@ -132,43 +93,16 @@ class Fragmenter(CleanSMILES):
 
 
 class FragmenterWithSelectedFragment(Fragmenter):
-    """
-    Fragmenter that only returns fragments-molecule pairs where the input fragments contain the fragment 
-    specified in the constructor.
-
-    If `exclusive=True`, only return fragments that contain the specified fragment and nothing else
-
-    """
+    """Fragmenter constraining generated pairs to those containing a specific target substructure fragment."""
 
     def __init__(self, fragment : str, n_frags : int, n_combs : int, method : str = 'recap', deep_clean : bool = True, max_bonds : int =75, allow_single : bool = False, exclusive : bool = False):
-        """
-
-        Args:
-            fragment: fragment to search for
-            n_frags: number of fragments to generate per compound
-            n_combs: maximum number of combinations of the found leaf fragments
-            method: fragmentation method to use. Possible values: ('recap', 'brics')
-            deep_clean: deep clean the SMILES before fragmentation (see `CleanSMILES`)
-            max_bonds: only accept molecules with the number of bonds below or equal to this threshold
-            allow_single: return the fragment also for molecules that result in only one fragment
-            exclusive: if True, only return fragments that contain the specified fragment and nothing else
-        """
-
+        """Initialize target-constrained fragmenter with required fragment query and exclusivity constraint."""
         super().__init__(n_frags, n_combs, method, deep_clean, max_bonds, allow_single)
         self.fragment = fragment
         self.exclusive = exclusive
 
     def __call__(self, smiles : str) -> Union[List[Tuple[str, str]], None]:
-        """
-        Generate fragment-molecule pairs for a given SMILES string and only return those that contain the specified fragment.
-
-        Args:
-            smiles: SMILES of the molecule to fragment
-
-        Returns:
-            a list of `tuple`s of format  (fragment, smiles), smiles is the same as the input in "smiles"
-        """
-        
+        """Generate fragment-molecule pairs requiring matches to the specified target substructure."""
         ret_frags = []
         mol = Chem.MolFromSmiles(smiles)
 

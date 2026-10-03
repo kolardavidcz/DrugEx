@@ -11,22 +11,7 @@ from drugex.molecules.interfaces import MolSupplier
 
 
 class SequenceCorpus(Corpus):
-    """Corpus supplier encoding molecular sequences (SMILES) for sequence-based models (RNN and GPT-2).
-
-    Parameters
-    ----------
-    molecules : Union[Iterable[str], MolSupplier]
-        Stream or collection of SMILES strings.
-    vocabulary : SequenceVocabulary | None, optional
-        Vocabulary instance used for tokenization and index mapping, by default VocSmiles(False).
-    update_voc : bool, optional
-        If True, new tokens encountered in the dataset are dynamically added to the vocabulary,
-        by default True.
-    throw : bool, optional
-        If True, molecules containing tokens absent from the vocabulary are skipped, by default False.
-    check_unique : bool, optional
-        If True, duplicate sequences in `molecules` are skipped, by default True.
-    """
+    """Corpus supplier encoding molecular sequences (SMILES) for sequence-based models (RNN and GPT-2)."""
 
     def __init__(
         self,
@@ -36,21 +21,7 @@ class SequenceCorpus(Corpus):
         throw: bool = False,
         check_unique: bool = True,
     ) -> None:
-        """Initialize the SequenceCorpus.
-
-        Parameters
-        ----------
-        molecules : Union[Iterable[str], MolSupplier]
-            Input SMILES dataset or supplier.
-        vocabulary : SequenceVocabulary | None, optional
-            Target vocabulary, by default VocSmiles(False).
-        update_voc : bool, optional
-            Whether to update vocabulary with unseen tokens, by default True.
-        throw : bool, optional
-            Whether to discard molecules with unseen tokens, by default False.
-        check_unique : bool, optional
-            Whether to enforce molecule uniqueness, by default True.
-        """
+        """Initialize sequence corpus with molecule stream, vocabulary, and token update/uniqueness policies."""
         super().__init__(molecules)
         self.vocabulary: SequenceVocabulary = vocabulary if vocabulary is not None else VocSmiles(False)
         self.updateVoc = update_voc
@@ -61,39 +32,15 @@ class SequenceCorpus(Corpus):
         self._unique: Set[str] = set()
 
     def saveVoc(self, path: str) -> None:
-        """Save current vocabulary tokens to a text file.
-
-        Parameters
-        ----------
-        path : str
-            Destination file path.
-        """
+        """Save current vocabulary tokens to a text file."""
         self.vocabulary.toFile(path)
 
     def getVoc(self) -> SequenceVocabulary:
-        """Return the active SequenceVocabulary instance.
-
-        Returns
-        -------
-        SequenceVocabulary
-            Currently active sequence vocabulary.
-        """
+        """Return the active SequenceVocabulary instance."""
         return self.vocabulary
 
     def processMolecule(self, seq: str) -> Optional[List[int]]:
-        """Tokenize and integer-encode a single SMILES sequence.
-
-        Parameters
-        ----------
-        seq : str
-            Input SMILES sequence string.
-
-        Returns
-        -------
-        Optional[List[int]]
-            List of encoded integer token indices, or None if molecule was rejected
-            (duplicate or invalid length/tokens).
-        """
+        """Tokenize and integer-encode a single SMILES sequence, filtering duplicates or unseen tokens."""
         if self.checkUnique and seq in self._unique:
             return None
 

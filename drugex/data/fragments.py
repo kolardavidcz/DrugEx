@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
+# [PACKAGE: pandas] WHY: Tabular manipulation and sampling for fragment splits. WHAT: DataFrame indexing, deduplication, and random sampling.
 import pandas as pd
 
 from drugex.data.corpus.vocabulary import VocGraph, VocSmiles
@@ -28,34 +29,13 @@ class SequenceFragmentEncoder(FragmentPairEncoder):
         update_voc: bool = True,
         throw: bool = False
     ) -> None:
-        """Initialize the sequence fragment encoder.
-
-        Parameters
-        ----------
-        vocabulary : VocSmiles, optional
-            Vocabulary supporting fragment delimiter tokens (default: `VocSmiles(True)`).
-        update_voc : bool, optional
-            Whether to dynamically append newly encountered tokens to vocabulary (default: True).
-        throw : bool, optional
-            Whether to strip newly discovered tokens failing constraints (default: False).
-        """
+        """Initialize sequence fragment encoder with delimiter vocabulary and dynamic registration flags."""
         self.vocabulary: VocSmiles = vocabulary
         self.updateVoc: bool = update_voc
         self.throw: bool = throw
 
     def encodeMol(self, sequence: str) -> Tuple[Optional[List[str]], Optional[List[int]]]:
-        """Tokenize and integer-encode parent molecule SMILES sequence.
-
-        Parameters
-        ----------
-        sequence : str
-            Parent molecule SMILES string.
-
-        Returns
-        -------
-        result : tuple of (list of str or None, list of int or None)
-            Extracted token sequence and corresponding numerical index codes.
-        """
+        """Tokenize and integer-encode parent molecule SMILES sequence."""
         tokens = None
         if self.updateVoc:
             tokens = self.vocabulary.addWordsFromSeq(sequence)
@@ -69,22 +49,7 @@ class SequenceFragmentEncoder(FragmentPairEncoder):
         return tokens, None
 
     def encodeFrag(self, mol: str, mol_tokens: Sequence[str], frag: str) -> Optional[List[int]]:
-        """Encode fragment scaffold within parent molecule context.
-
-        Parameters
-        ----------
-        mol : str
-            Parent molecule SMILES string.
-        mol_tokens : sequence of str
-            Tokenized parent molecule representation.
-        frag : str
-            Scaffold fragment SMILES string.
-
-        Returns
-        -------
-        code : list of int or None
-            Integer-encoded fragment sequence, or None if encoding fails.
-        """
+        """Encode fragment scaffold within parent molecule context into numerical codes."""
         tokens = None
         if self.updateVoc:
             tokens = self.vocabulary.addWordsFromSeq(frag, ignoreConstraints=True)
@@ -97,13 +62,7 @@ class SequenceFragmentEncoder(FragmentPairEncoder):
             return code
 
     def getVoc(self) -> VocSmiles:
-        """Return active SMILES vocabulary.
-
-        Returns
-        -------
-        voc : VocSmiles
-            Active vocabulary instance.
-        """
+        """Return active SMILES vocabulary instance."""
         return self.vocabulary
 
 
@@ -111,47 +70,15 @@ class GraphFragmentEncoder(FragmentPairEncoder):
     """Encodes fragment-molecule pairs for graph-based models (`GraphTransformer`)."""
 
     def __init__(self, vocabulary: VocGraph = VocGraph()) -> None:
-        """Initialize graph fragment encoder.
-
-        Parameters
-        ----------
-        vocabulary : VocGraph, optional
-            Graph vocabulary defining atom, bond, and loci tokens (default: `VocGraph()`).
-        """
+        """Initialize graph fragment encoder with atom, bond, and loci token vocabulary."""
         self.vocabulary: VocGraph = vocabulary
 
     def encodeMol(self, smiles: str) -> Tuple[str, str]:
-        """Pass parent molecule SMILES through as raw token representations.
-
-        Parameters
-        ----------
-        smiles : str
-            Input parent molecule SMILES string.
-
-        Returns
-        -------
-        result : tuple of (str, str)
-            Pair `(smiles, smiles)` matching interface contract.
-        """
+        """Pass parent molecule SMILES through as raw token representations."""
         return smiles, smiles
 
     def encodeFrag(self, mol: str, mol_tokens: Any, frag: str) -> Optional[List[int]]:
-        """Encode paired fragment scaffold and parent molecule into graph actions.
-
-        Parameters
-        ----------
-        mol : str
-            Parent molecule SMILES.
-        mol_tokens : Any
-            Parent molecule token representation.
-        frag : str
-            Fragment scaffold SMILES.
-
-        Returns
-        -------
-        code : list of int or None
-            Encoded graph action tuple indices, or None if encoding fails.
-        """
+        """Encode paired fragment scaffold and parent molecule into graph actions."""
         if mol == frag:
             return None
         try:
@@ -166,13 +93,7 @@ class GraphFragmentEncoder(FragmentPairEncoder):
             return None
 
     def getVoc(self) -> VocGraph:
-        """Return active graph vocabulary.
-
-        Returns
-        -------
-        voc : VocGraph
-            Active graph vocabulary instance.
-        """
+        """Return active graph vocabulary instance."""
         return self.vocabulary
 
 
@@ -188,33 +109,12 @@ class FragmentPairsEncodedSupplier(MolSupplier):
         pass
 
     def __init__(self, pairs: Iterable[Tuple[str, str]], encoder: FragmentPairEncoder) -> None:
-        """Initialize from fragment-molecule pairs.
-
-        Parameters
-        ----------
-        pairs : iterable of (str, str)
-            Sequence of `(fragment_smiles, molecule_smiles)` tuples.
-        encoder : FragmentPairEncoder
-            Encoder implementing `encodeMol` and `encodeFrag`.
-        """
+        """Initialize supplier with fragment-molecule pair stream and encoder strategy."""
         self.encoder: FragmentPairEncoder = encoder
         self.pairs: Iterator[Tuple[str, str]] = iter(pairs)
 
     def next(self) -> Tuple[List[int], List[int]]:
-        """Fetch and encode next fragment-molecule pair.
-
-        Returns
-        -------
-        pair : tuple of (list of int, list of int)
-            Encoded `(encoded_fragment, encoded_molecule)`.
-
-        Raises
-        ------
-        MoleculeEncodingException
-            If parent molecule fails to encode.
-        FragmentEncodingException
-            If fragment scaffold fails to encode.
-        """
+        """Fetch and encode the next available fragment-molecule pair."""
         pair = next(self.pairs)
 
         tokens, encoded_mol = self.encoder.encodeMol(pair[1])
@@ -232,30 +132,14 @@ class FragmentPairsSupplier(MolSupplier):
     """Generates fragment-molecule candidate pairs from input molecules via a fragmenter algorithm."""
 
     def __init__(self, molecules: Iterable[Any], fragmenter: Any, max_bonds: Optional[int] = None) -> None:
-        """Initialize supplier with input molecules and fragmenter.
-
-        Parameters
-        ----------
-        molecules : iterable
-            Input molecules as list or iterator.
-        fragmenter : callable
-            Fragmentation strategy returning `(fragment, molecule)` pairs.
-        max_bonds : int, optional
-            Maximum allowed number of cut bonds (default: None).
-        """
+        """Initialize supplier with input molecules and fragmentation strategy."""
         self.molecules: Iterator[Any] = molecules if hasattr(molecules, "__next__") else iter(molecules)
         self.fragmenter: Any = fragmenter
         self.currentBatch: Optional[Iterator[Tuple[str, str]]] = None
         self.maxBonds: Optional[int] = max_bonds
 
     def next(self) -> Optional[Tuple[str, str]]:
-        """Yield next available fragment-molecule pair.
-
-        Returns
-        -------
-        pair : tuple of (str, str) or None
-            A `(fragment, molecule)` pair, or None upon batch completion.
-        """
+        """Yield next available fragment-molecule pair, advancing batch iterator as needed."""
         if not self.currentBatch:
             batch = None
             while not batch:
@@ -292,36 +176,14 @@ class FragmentCorpusEncoder(ParallelProcessor):
         n_proc: Optional[int] = None,
         chunk_size: Optional[int] = None
     ) -> None:
-        """Initialize the parallel fragment corpus encoder.
-
-        Parameters
-        ----------
-        fragmenter : callable
-            Fragmentation strategy decomposing molecules into fragments.
-        encoder : FragmentPairEncoder
-            Encoder translating molecules and fragments into vocabulary tokens.
-        pairs_splitter : DataSplitter, optional
-            Splitter strategy partitioning generated pairs (default: None).
-        n_proc : int, optional
-            Number of parallel CPU worker processes (default: all available CPUs).
-        chunk_size : int, optional
-            Maximum chunk size per worker process (default: None).
-        """
+        """Initialize parallel fragment corpus encoder with fragmentation, encoding, and splitting strategies."""
         super().__init__(n_proc, chunk_size)
         self.fragmenter: Any = fragmenter
         self.encoder: FragmentPairEncoder = encoder
         self.pairsSplitter: Optional[DataSplitter] = pairs_splitter
 
     def getFragmentPairs(self, mols: Iterable[str], collector: ResultCollector) -> None:
-        """Decompose molecules into fragment pairs in parallel.
-
-        Parameters
-        ----------
-        mols : iterable of str
-            Input molecule SMILES strings.
-        collector : ResultCollector
-            Collector accumulating generated pairs.
-        """
+        """Decompose input molecules into fragment-molecule pairs across parallel worker processes."""
         evaluator = ParallelSupplierEvaluator(
             FragmentPairsSupplier,
             kwargs={
@@ -334,30 +196,11 @@ class FragmentCorpusEncoder(ParallelProcessor):
         evaluator.apply(mols, collector, desc_string="Creating fragment-molecule pairs")
 
     def splitFragmentPairs(self, pairs: Sequence[Tuple[str, str]]) -> Sequence[Sequence[Tuple[str, str]]]:
-        """Partition generated fragment-molecule pairs using configured splitter.
-
-        Parameters
-        ----------
-        pairs : sequence of (str, str)
-            Generated pairs.
-
-        Returns
-        -------
-        splits : sequence of sequence of (str, str)
-            Partitioned pair subsets.
-        """
+        """Partition generated fragment-molecule pairs using configured splitter strategy."""
         return self.pairsSplitter(pairs) if self.pairsSplitter else [pairs]
 
     def encodeFragments(self, pairs: Sequence[Tuple[str, str]], collector: Optional[ResultCollector]) -> None:
-        """Encode fragment-molecule pairs into numerical tokens in parallel.
-
-        Parameters
-        ----------
-        pairs : sequence of (str, str)
-            Fragment-molecule pairs to encode.
-        collector : ResultCollector, optional
-            Collector accumulating encoded token batches.
-        """
+        """Encode fragment-molecule pairs into numerical tokens across parallel worker processes."""
         evaluator = ParallelSupplierEvaluator(
             FragmentPairsEncodedSupplier,
             kwargs={
@@ -375,22 +218,7 @@ class FragmentCorpusEncoder(ParallelProcessor):
         fragmentPairsCollector: Optional[ResultCollector] = None,
         encodingCollectors: Optional[Sequence[ResultCollector]] = None
     ) -> None:
-        """Decompose molecules and encode fragment-molecule pairs across parallel CPU workers.
-
-        Parameters
-        ----------
-        mols : iterable of str
-            Molecule SMILES strings.
-        fragmentPairsCollector : ResultCollector, optional
-            Optional collector receiving intermediate fragment-molecule pairs.
-        encodingCollectors : sequence of ResultCollector, optional
-            List of collectors corresponding to each partition split.
-
-        Raises
-        ------
-        RuntimeError
-            If `encodingCollectors` length does not match partition count.
-        """
+        """Decompose molecules and encode fragment-molecule pairs across parallel CPU workers."""
         pairs_collector = self.FragmentPairsCollector(fragmentPairsCollector)
         self.getFragmentPairs(mols, pairs_collector)
         splits = self.splitFragmentPairs(pairs_collector.getList())
@@ -413,25 +241,7 @@ class FragmentPairsSplitter(DataSplitter):
         make_unique: bool = False,
         seed: Optional[int] = None
     ) -> None:
-        """Initialize fragment pair splitter.
-
-        Parameters
-        ----------
-        ratio : float, optional
-            Fraction of unique fragments assigned to test partition (default: 0.2).
-        max_test_samples : float, optional
-            Maximum count threshold for test samples (default: 10000).
-        train_collector : ResultCollector, optional
-            Collector accumulating training pairs.
-        test_collector : ResultCollector, optional
-            Collector accumulating testing pairs.
-        unique_collector : ResultCollector, optional
-            Collector accumulating single-representative unique fragment pairs.
-        make_unique : bool, optional
-            Whether to return a unique fragment subset (default: False).
-        seed : int, optional
-            Random state seed for reproducible sampling (default: None).
-        """
+        """Initialize fragment pair splitter with split ratio, test size cap, and optional collectors."""
         self.ratio: float = ratio
         self.maxTestSamples: float = max_test_samples
         self.uniqueCollect: Optional[ResultCollector] = unique_collector
@@ -441,18 +251,7 @@ class FragmentPairsSplitter(DataSplitter):
         self.seed: Optional[int] = seed
 
     def __call__(self, pairs: Sequence[Tuple[str, str]]) -> Union[Tuple[List[Any], List[Any], List[Any]], Tuple[List[Any], List[Any]]]:
-        """Partition fragment-molecule pairs based on fragment identity.
-
-        Parameters
-        ----------
-        pairs : sequence of (str, str)
-            Input `(fragment, molecule)` pairs.
-
-        Returns
-        -------
-        splits : tuple
-            `(test_pairs, train_pairs, unique_pairs)` if `make_unique=True`, else `(test_pairs, train_pairs)`.
-        """
+        """Partition fragment-molecule pairs based on unique fragment identities."""
         df = pd.DataFrame(pairs, columns=["Frags", "Smiles"])
         frags = set(df.Frags)
         test_len = int(len(frags) * self.ratio)

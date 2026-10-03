@@ -8,12 +8,7 @@ from drugex.molecules.suppliers import StandardizedSupplier, ListSupplier
 class TestStandardizer(TestCase):
 
     def test_default(self):
-        """
-        Tests whether the default standardizer is working as expected.
-
-        Returns: None
-        """
-
+        """Verify default standardizer produces canonical SMILES, uncharged forms, and salt-stripped products."""
         standardized_mols = StandardizedSupplier(["c1ccccc1CN(=O)", "CC(=O)[O-]", "CCCCn1cc[n+](c1)C.F[P-](F)(F)(F)(F)F"], standardizer=DefaultStandardizer())
 
         expected = (

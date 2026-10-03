@@ -5,8 +5,11 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Sequence, Tuple
 
+# [PACKAGE: numpy] WHY: Vectorized score calculations, arrays, and mathematical operations. WHAT: Numerical computing library.
 import numpy as np
+# [PACKAGE: tqdm] WHY: Progress bar tracking during substructure matching across candidate molecules. WHAT: Progress bar utility.
 import tqdm
+# [PACKAGE: rdkit] WHY: Calculation of physicochemical properties, atom counting, substructure matching, and SMILES canonicalization. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 from rdkit.Chem import AllChem, Crippen
 from rdkit.Chem import Descriptors as desc
@@ -23,50 +26,10 @@ if TYPE_CHECKING:
 
 
 class Property(Scorer):
-    """Calculates standard physicochemical molecular properties using RDKit.
-
-    Supported properties:
-    - 'MW': Molecular weight
-    - 'logP': Octanol-water partition coefficient (Crippen)
-    - 'HBA': Lipinski Hydrogen Bond Acceptors
-    - 'HBD': Lipinski Hydrogen Bond Donors
-    - 'Rotable': Rotatable bond count
-    - 'Amide': Number of amide bonds
-    - 'Bridge': Number of bridgehead atoms
-    - 'Hetero': Number of heteroatoms
-    - 'Heavy': Heavy atom count
-    - 'Spiro': Number of spiro atoms
-    - 'FCSP3': Fraction of SP3 hybridized carbons
-    - 'Ring': Total ring count
-    - 'Aliphatic': Aliphatic ring count
-    - 'Aromatic': Aromatic ring count
-    - 'Saturated': Saturated ring count
-    - 'HeteroR': Heterocyclic ring count
-    - 'TPSA': Topological Polar Surface Area
-    - 'Valence': Number of valence electrons
-    - 'MR': Molar refractivity
-    - 'QED': Quantitative Estimate of Drug-likeness
-    - 'SA': Synthetic Accessibility score (Ertl & Schuffenhauer)
-    - 'Bertz': Bertz topological complexity index
-
-    Parameters
-    ----------
-    prop : str, optional
-        Property key to evaluate, by default 'MW'.
-    modifier : ScoreModifier | None, optional
-        Modifier applied to the raw property score, by default None.
-    """
+    """Calculates standard physicochemical molecular properties using RDKit."""
 
     def __init__(self, prop: str = "MW", modifier: ScoreModifier | None = None) -> None:
-        """Initialize the Property scorer.
-
-        Parameters
-        ----------
-        prop : str, optional
-            The property name to compute, by default 'MW'.
-        modifier : ScoreModifier | None, optional
-            Modifier applied to the computed property values, by default None.
-        """
+        """Initialize the Property scorer."""
         super().__init__(modifier)
         self.prop = prop
         self.prop_dict: Dict[str, Callable[[Chem.Mol], float]] = {
@@ -103,20 +66,7 @@ class Property(Scorer):
         mols: Sequence[str | Chem.Mol | None],
         frags: Sequence[str | None] | None = None,
     ) -> np.ndarray:
-        """Calculate property scores for input molecules.
-
-        Parameters
-        ----------
-        mols : Sequence[str | Chem.Mol | None]
-            Sequence of SMILES strings or RDKit molecules.
-        frags : Sequence[str | None] | None, optional
-            Fragment constraints (unused).
-
-        Returns
-        -------
-        np.ndarray
-            1D array of calculated property scores. Unparseable molecules return 0.0.
-        """
+        """Calculate property scores for input molecules."""
         scores = np.zeros(len(mols), dtype="float64")
         calc_fn = self.prop_dict[self.prop]
         for i, mol in enumerate(mols):
@@ -133,38 +83,15 @@ class Property(Scorer):
         return scores
 
     def getKey(self) -> str:
-        """Return property identifier string.
-
-        Returns
-        -------
-        str
-            Property name (e.g. 'MW', 'logP').
-        """
+        """Return property identifier string."""
         return self.prop
 
 
 class AtomCounter(Scorer):
-    """Scorer that counts occurrences of a specific chemical element in a molecule.
-
-    Parameters
-    ----------
-    element : str
-        Chemical symbol of element to count (e.g. 'C', 'N', 'F', 'H'), or empty string
-        '' to count total atoms including hydrogens.
-    modifier : ScoreModifier | None, optional
-        Score modifier to apply, by default None.
-    """
+    """Scorer that counts occurrences of a specific chemical element in a molecule."""
 
     def __init__(self, element: str, modifier: ScoreModifier | None = None) -> None:
-        """Initialize the AtomCounter scorer.
-
-        Parameters
-        ----------
-        element : str
-            The element symbol to count within the molecules.
-        modifier : ScoreModifier | None, optional
-            A `ScoreModifier` object to modify the scores, by default None.
-        """
+        """Initialize the AtomCounter scorer."""
         super().__init__(modifier)
         self.element = element
 
@@ -173,20 +100,7 @@ class AtomCounter(Scorer):
         mols: Sequence[str | Chem.Mol | None],
         frags: Sequence[str | None] | None = None,
     ) -> np.ndarray:
-        """Count the number of atoms of the target element in each molecule.
-
-        Parameters
-        ----------
-        mols : Sequence[str | Chem.Mol | None]
-            Sequence of SMILES strings or RDKit molecules.
-        frags : Sequence[str | None] | None, optional
-            Fragment constraints (unused).
-
-        Returns
-        -------
-        np.ndarray
-            1D array of atom counts.
-        """
+        """Count the number of atoms of the target element in each molecule."""
         scores = np.zeros(len(mols), dtype="float64")
         for i, mol in enumerate(mols):
             if mol is None:
@@ -210,37 +124,12 @@ class AtomCounter(Scorer):
         return scores
 
     def getKey(self) -> str:
-        """Return the unique identifier string for this scorer.
-
-        Returns
-        -------
-        str
-            'AtomCounter (element=<element>)'
-        """
+        """Return the unique identifier string for this scorer."""
         return f"AtomCounter (element={self.element})"
 
 
 class Isomer(Scorer):
-    """Scoring function rewarding closeness to a target molecular formula.
-
-    Penalizes deviations from the required stoichiometric counts of each element
-    and the total atom count using Gaussian modifier penalties.
-
-    For example, for target formula 'C2H4', the score is the geometric or arithmetic
-    mean of:
-    - C count with Gaussian(mu=2, sigma=1)
-    - H count with Gaussian(mu=4, sigma=1)
-    - Total atom count with Gaussian(mu=6, sigma=2)
-
-    Parameters
-    ----------
-    formula : str
-        Target molecular formula (e.g. 'C12H16N2O').
-    mean_func : Literal['geometric', 'arithmetic'], optional
-        Averaging method across element components, by default 'geometric'.
-    modifier : ScoreModifier | None, optional
-        Overall modifier applied to final averaged score, by default None.
-    """
+    """Scoring function rewarding closeness to a target molecular formula."""
 
     def __init__(
         self,
@@ -248,35 +137,14 @@ class Isomer(Scorer):
         mean_func: Literal["geometric", "arithmetic"] = "geometric",
         modifier: ScoreModifier | None = None,
     ) -> None:
-        """Initialize the Isomer scorer.
-
-        Parameters
-        ----------
-        formula : str
-            The molecular formula to score against.
-        mean_func : Literal['geometric', 'arithmetic'], optional
-            Which function to use for averaging the scores, by default 'geometric'.
-        modifier : ScoreModifier | None, optional
-            A `ScoreModifier` object to modify the scores, by default None.
-        """
+        """Initialize the Isomer scorer."""
         super().__init__(modifier)
         self.objs, self.mods = self.scoring_functions(formula)
         self.mean_func = mean_func
 
     @staticmethod
     def parse_molecular_formula(formula: str) -> List[Tuple[str, int]]:
-        """Parse a molecular formula string into element symbols and stoichiometry counts.
-
-        Parameters
-        ----------
-        formula : str
-            Molecular formula (e.g. 'C2H4Cl2').
-
-        Returns
-        -------
-        List[Tuple[str, int]]
-            List of (element_symbol, count) tuples.
-        """
+        """Parse a molecular formula string into element symbols and stoichiometry counts."""
         matches = re.findall(r"([A-Z][a-z]*)(\d*)", formula)
         results: List[Tuple[str, int]] = []
         for match in matches:
@@ -285,18 +153,7 @@ class Isomer(Scorer):
         return results
 
     def scoring_functions(self, formula: str) -> Tuple[List[Scorer], List[Gaussian]]:
-        """Construct constituent atom counter scorers and Gaussian modifiers for the formula.
-
-        Parameters
-        ----------
-        formula : str
-            Target molecular formula.
-
-        Returns
-        -------
-        Tuple[List[Scorer], List[Gaussian]]
-            (scoring_functions, modifiers) for individual elements and total atoms.
-        """
+        """Construct constituent atom counter scorers and Gaussian modifiers for the formula."""
         element_occurrences = self.parse_molecular_formula(formula)
         total_n_atoms = sum(elem[1] for elem in element_occurrences)
 
@@ -314,20 +171,7 @@ class Isomer(Scorer):
         mols: Sequence[str | Chem.Mol | None],
         frags: Sequence[str | None] | None = None,
     ) -> np.ndarray:
-        """Calculate isomer similarity scores for the given molecules.
-
-        Parameters
-        ----------
-        mols : Sequence[str | Chem.Mol | None]
-            Molecules to score.
-        frags : Sequence[str | None] | None, optional
-            Fragment constraints (unused).
-
-        Returns
-        -------
-        np.ndarray
-            Averaged isomer scores in [0.0, 1.0].
-        """
+        """Calculate isomer similarity scores for the given molecules."""
         score_matrix = np.array([self.mods[i](obj(mols)) for i, obj in enumerate(self.objs)])
         if self.mean_func == "geometric":
             scores = score_matrix.prod(axis=0) ** (1.0 / len(score_matrix))
@@ -336,41 +180,15 @@ class Isomer(Scorer):
         return scores
 
     def getKey(self) -> str:
-        """Return the unique identifier string for this scorer.
-
-        Returns
-        -------
-        str
-            'Isomer (mean_func=<mean_func>)'
-        """
+        """Return the unique identifier string for this scorer."""
         return f"Isomer (mean_func={self.mean_func})"
 
 
 class Scaffold(Scorer):
-    """Scorer checking presence or absence of a SMARTS substructure pattern.
-
-    Parameters
-    ----------
-    smart : str
-        SMARTS query pattern.
-    is_match : bool
-        If True, returns 1.0 when substructure matches; if False, returns 1.0 when it does NOT match.
-    modifier : ScoreModifier | None, optional
-        Modifier applied to the binary match score, by default None.
-    """
+    """Scorer checking presence or absence of a SMARTS substructure pattern."""
 
     def __init__(self, smart: str, is_match: bool = True, modifier: ScoreModifier | None = None) -> None:
-        """Initialize the Scaffold scorer.
-
-        Parameters
-        ----------
-        smart : str
-            The SMARTS pattern to match.
-        is_match : bool, optional
-            Whether the pattern match is desired (True) or penalized (False), by default True.
-        modifier : ScoreModifier | None, optional
-            Modifier applied to scores, by default None.
-        """
+        """Initialize the Scaffold scorer."""
         super().__init__(modifier)
         self.smart = smart
         self.frag = Chem.MolFromSmarts(smart)
@@ -381,20 +199,7 @@ class Scaffold(Scorer):
         mols: Sequence[str | Chem.Mol | None],
         frags: Sequence[str | None] | None = None,
     ) -> np.ndarray:
-        """Check substructure pattern match against each molecule.
-
-        Parameters
-        ----------
-        mols : Sequence[str | Chem.Mol | None]
-            Molecules to score.
-        frags : Sequence[str | None] | None, optional
-            Fragment constraints (unused).
-
-        Returns
-        -------
-        np.ndarray
-            Binary float array (1.0 or 0.0) indicating whether condition was met.
-        """
+        """Check substructure pattern match against each molecule."""
         scores = np.zeros(len(mols), dtype="float64")
         for i, mol in enumerate(tqdm.tqdm(mols, leave=False)):
             if mol is None:
@@ -411,27 +216,12 @@ class Scaffold(Scorer):
         return scores
 
     def getKey(self) -> str:
-        """Return the unique identifier string for this scorer.
-
-        Returns
-        -------
-        str
-            'Scaffold(smart=<smart>,is_match=<is_match>)'
-        """
+        """Return the unique identifier string for this scorer."""
         return f"Scaffold(smart={self.smart},is_match={self.is_match})"
 
 
 class Uniqueness(Scorer):
-    """Calculates internal uniqueness of a batch of molecules.
-
-    The score penalizes duplicated molecules in the current generated batch:
-    `score = (count(mol) - 1) / (len(batch) - 1)`
-
-    Parameters
-    ----------
-    modifier : ScoreModifier | None, optional
-        Modifier applied to uniqueness score, by default None.
-    """
+    """Calculates internal uniqueness of a batch of molecules."""
 
     def __init__(self, modifier: ScoreModifier | None = None) -> None:
         """Initialize Uniqueness scorer."""
@@ -442,20 +232,7 @@ class Uniqueness(Scorer):
         mols: Sequence[str | Chem.Mol | None],
         frags: Sequence[str | None] | None = None,
     ) -> np.ndarray:
-        """Compute frequency ratios for molecules in the current batch.
-
-        Parameters
-        ----------
-        mols : Sequence[str | Chem.Mol | None]
-            Generated molecules to evaluate.
-        frags : Sequence[str | None] | None, optional
-            Fragment constraints (unused).
-
-        Returns
-        -------
-        np.ndarray
-            Array of duplicate frequency fractions.
-        """
+        """Compute frequency ratios for molecules in the current batch."""
         n = len(mols)
         scores = np.zeros(n, dtype="float64")
         if n <= 1:
@@ -472,41 +249,15 @@ class Uniqueness(Scorer):
         return scores
 
     def getKey(self) -> str:
-        """Return the unique identifier string for this scorer.
-
-        Returns
-        -------
-        str
-            'Unique'
-        """
+        """Return the unique identifier string for this scorer."""
         return "Unique"
 
 
 class LipophilicEfficiency(Scorer):
-    """Calculates Lipophilic Efficiency (LipE): `LipE = pChEMBL - logP`.
-
-    LipE estimates the potency of a drug molecule per unit of lipophilicity,
-    helping identify compounds that achieve target affinity through specific
-    binding interactions rather than non-specific hydrophobic partitioning.
-
-    Parameters
-    ----------
-    qsar_scorer : Scorer
-        QSAR/QSPR activity scorer producing pChEMBL / pIC50 values.
-    modifier : ScoreModifier | None, optional
-        Modifier applied to the computed LipE scores, by default None.
-    """
+    """Calculates Lipophilic Efficiency (LipE): LipE = pChEMBL - logP."""
 
     def __init__(self, qsar_scorer: Scorer, modifier: ScoreModifier | None = None) -> None:
-        """Initialize the LipophilicEfficiency scorer.
-
-        Parameters
-        ----------
-        qsar_scorer : Scorer
-            Scorer predicting target activity in logarithmic molar units.
-        modifier : ScoreModifier | None, optional
-            Score modifier, by default None.
-        """
+        """Initialize the LipophilicEfficiency scorer."""
         super().__init__(modifier)
         self.qsar_scorer = qsar_scorer
         self.key = f"LipE_{qsar_scorer.getKey()}"
@@ -516,59 +267,21 @@ class LipophilicEfficiency(Scorer):
         mols: Sequence[str | Chem.Mol | None],
         frags: Sequence[str | None] | None = None,
     ) -> np.ndarray:
-        """Calculate LipE = activity - logP for molecules.
-
-        Parameters
-        ----------
-        mols : Sequence[str | Chem.Mol | None]
-            Molecules to evaluate.
-        frags : Sequence[str | None] | None, optional
-            Fragment constraints (unused).
-
-        Returns
-        -------
-        np.ndarray
-            Calculated LipE scores.
-        """
+        """Calculate LipE = activity - logP for molecules."""
         p_chembl = self.qsar_scorer.getScores(mols)
         log_p = Property("logP").getScores(mols)
         return p_chembl - log_p
 
     def getKey(self) -> str:
-        """Return the unique identifier string for this scorer.
-
-        Returns
-        -------
-        str
-            'LipE_<qsar_scorer_key>'
-        """
+        """Return the unique identifier string for this scorer."""
         return self.key
 
 
 class LigandEfficiency(Scorer):
-    """Calculates Ligand Efficiency (LE): `LE = 1.4 * pChEMBL / nHeavyAtoms`.
-
-    Normalizes binding affinity by molecular size (heavy atom count),
-    quantifying average binding energy per non-hydrogen atom (in kcal/mol).
-
-    Parameters
-    ----------
-    qsar_scorer : Scorer
-        QSAR/QSPR activity scorer producing pChEMBL / pIC50 values.
-    modifier : ScoreModifier | None, optional
-        Modifier applied to the computed LE scores, by default None.
-    """
+    """Calculates Ligand Efficiency (LE): LE = 1.4 * pChEMBL / nHeavyAtoms."""
 
     def __init__(self, qsar_scorer: Scorer, modifier: ScoreModifier | None = None) -> None:
-        """Initialize the LigandEfficiency scorer.
-
-        Parameters
-        ----------
-        qsar_scorer : Scorer
-            Scorer predicting target activity in logarithmic molar units.
-        modifier : ScoreModifier | None, optional
-            Score modifier, by default None.
-        """
+        """Initialize the LigandEfficiency scorer."""
         super().__init__(modifier)
         self.qsar_scorer = qsar_scorer
         self.key = f"LE_{qsar_scorer.getKey()}"
@@ -578,20 +291,7 @@ class LigandEfficiency(Scorer):
         mols: Sequence[str | Chem.Mol | None],
         frags: Sequence[str | None] | None = None,
     ) -> np.ndarray:
-        """Calculate LE = 1.4 * activity / nHeavyAtoms for molecules.
-
-        Parameters
-        ----------
-        mols : Sequence[str | Chem.Mol | None]
-            Molecules to evaluate.
-        frags : Sequence[str | None] | None, optional
-            Fragment constraints (unused).
-
-        Returns
-        -------
-        np.ndarray
-            Calculated Ligand Efficiency scores.
-        """
+        """Calculate LE = 1.4 * activity / nHeavyAtoms for molecules."""
         pChEMBL = np.asarray(self.qsar_scorer.getScores(mols), dtype="float64")
         nAtoms = np.zeros(len(mols), dtype="float64")
         for i, mol in enumerate(mols):
@@ -611,11 +311,5 @@ class LigandEfficiency(Scorer):
         return scores
 
     def getKey(self) -> str:
-        """Return the unique identifier string for this scorer.
-
-        Returns
-        -------
-        str
-            'LE_<qsar_scorer_key>'
-        """
+        """Return the unique identifier string for this scorer."""
         return self.key

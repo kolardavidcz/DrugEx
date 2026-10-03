@@ -10,22 +10,7 @@ from drugex.logs import logger
 
 
 def getVocPaths(data_path: str, voc_files: Sequence[str], mol_type: str) -> List[str]:
-    """Retrieve filesystem paths to vocabulary files, logging fallbacks if absent.
-
-    Parameters
-    ----------
-    data_path : str
-        Base path to the data directory.
-    voc_files : sequence of str
-        List of candidate vocabulary file names.
-    mol_type : str, optional
-        Representation format (`'smiles'` or `'graph'`) used for suffixed fallbacks (default: `'smiles'`).
-
-    Returns
-    -------
-    voc_paths : list of str
-        List of resolved, existing vocabulary file paths.
-    """
+    """Resolve candidate vocabulary file paths against a data directory, logging warnings on misses."""
     voc_paths: List[str] = []
     for voc_file in voc_files:
         path = f'{data_path}/{voc_file}'
@@ -48,29 +33,7 @@ def getDataPaths(
     mol_type: str,
     unique_frags: bool
 ) -> Tuple[str, str]:
-    """Resolve filesystem paths for training and validation datasets.
-
-    Parameters
-    ----------
-    data_path : str
-        Base directory containing dataset files.
-    input_prefix : str
-        Prefix string identifying dataset files.
-    mol_type : str, optional
-        Representation format (`'smiles'` or `'graph'`) (default: `'smiles'`).
-    unique_frags : bool, optional
-        If True, targets unique fragment splits rather than standard training splits (default: False).
-
-    Returns
-    -------
-    paths : tuple of (str, str)
-        Resolved `(train_path, test_path)`.
-
-    Raises
-    ------
-    AssertionError
-        If resolved train or test file paths do not exist on disk.
-    """
+    """Resolve training and test dataset file paths based on input prefix, format, and fragment flags."""
     if os.path.exists(data_path + input_prefix):
         train_path = data_path + input_prefix
         test_path = train_path

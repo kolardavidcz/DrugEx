@@ -5,7 +5,9 @@ import tempfile
 import collections
 from unittest import TestCase
 
+# [PACKAGE: numpy] WHY: Numerical calculations and assertions. WHAT: Numerical computing library.
 import numpy as np
+# [PACKAGE: pandas] WHY: TSV reading and DataFrame manipulation in tests. WHAT: Data manipulation library.
 import pandas as pd
 from drugex.data.corpus.corpus import SequenceCorpus
 from drugex.data.corpus.vocabulary import VocGraph, VocSmiles
@@ -40,6 +42,7 @@ from drugex.training.rewards import ParetoCrowdingDistance
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import Property
+# [PACKAGE: rdkit] WHY: Chemical structure validation in test cases. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
 
@@ -302,65 +305,20 @@ class TrainingTestCase(TestCase):
         self.monitor = TestModelMonitor()
 
     def getTestEnvironment(self, scheme=None):
-        """
-        Get the testing environment
-
-        Parameters
-        ----------
-        scheme: RewardScheme
-            The reward scheme to use. If None, the default ParetoTanimotoDistance is used.
-        
-        Returns
-        -------
-        DrugExEnvironment
-        """
-
+        """Create testing environment with configured scorers and reward scheme."""
         scheme = ParetoCrowdingDistance() if not scheme else scheme
         return DrugExEnvironment(self.scorers, thresholds=self.thresholds, reward_scheme=scheme)
 
     def getSmiles(self, _file):
-        """
-        Read and standardize SMILES from a file.
-        
-        Parameters
-        ----------
-        _file: str
-            The file to read from (must be a .tsv file with a column named "CANONICAL_SMILES")
-        
-        Returns
-        -------
-        list
-            The list of SMILES
-        """
-
+        """Read and standardize a sampled subset of canonical SMILES from file."""
         return self.standardize(pd.read_csv(_file, header=0, sep='\t')['CANONICAL_SMILES'].sample(self.MAX_SMILES, random_state=self.SEED).tolist())
 
     def standardize(self, smiles):
-        """
-        Standardize the input SMILES
-
-        Parameters
-        ----------
-        smiles: list
-            The list of SMILES to standardize
-        
-        Returns
-        -------
-        list
-            The list of standardized SMILES
-        """
+        """Standardize input SMILES strings using multi-threaded standardization."""
         return Standardization(n_proc=self.N_PROC).apply(smiles)
 
     def setUpSmilesFragData(self):
-        """
-        Create inputs for the fragment-based SMILES models.
-
-        Returns
-        -------
-        tuple
-            The tuple of (pretraining training dataloader, pretraining test dataloader, finetuning training dataloader, finetuning test dataloader, vocabulary)
-        """
-
+        """Create pretraining and fine-tuning fragment datasets and data loaders for SMILES models."""
         pre_smiles = self.getSmiles(self.pretraining_file)
         ft_smiles = self.getSmiles(self.finetuning_file)
 
@@ -406,35 +364,11 @@ class TrainingTestCase(TestCase):
 
     @staticmethod
     def getRandomFile():
-        """
-        Generate a random temporary file and return its path.
-
-        Returns
-        -------
-        str
-            The path to the temporary file
-        """
+        """Generate a random temporary file and return its path."""
         return tempfile.NamedTemporaryFile().name
 
     def fitTestModel(self, model, train_loader, test_loader, loss_tolerance=None):
-        """
-        Fit a model and return the best model.
-
-        Parameters
-        ----------
-        model: Model
-            The model to fit
-        train_loader: DataLoader
-            The training data loader
-        test_loader: DataLoader
-            The test data loader
-
-        Returns
-        -------
-        tuple
-            The tuple of (fitted model, monitor)
-        """
-
+        """Execute model fitting loop with TestModelMonitor and return updated model and monitor."""
         monitor = TestModelMonitor()
         model.fit(train_loader, test_loader, epochs=self.N_EPOCHS, monitor=monitor, loss_tolerance=loss_tolerance)
         pr_model = monitor.getModel()

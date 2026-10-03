@@ -3,7 +3,9 @@ import os.path
 from pathlib import Path
 from typing import Callable, Literal, Optional, Union
 
+# [PACKAGE: pandas] WHY: Performance metrics and SMILES table serialization. WHAT: Data manipulation library.
 import pandas as pd
+# [PACKAGE: torch] WHY: Model weights state dictionary checkpointing. WHAT: PyTorch deep learning framework.
 import torch
 
 from drugex.logs import logger
@@ -11,6 +13,7 @@ from drugex.training.interfaces import TrainingMonitor, Model
 
 
 class NullMonitor(TrainingMonitor):
+    """No-op training monitor discarding metrics and checkpoints during silent runs."""
 
     def getSaveModelOption(self) -> Literal['best', 'all', 'improvement']:
         return 'all'
@@ -34,10 +37,7 @@ class NullMonitor(TrainingMonitor):
         pass
 
 class FileMonitor(TrainingMonitor):
-    """
-    A simple `TrainingMonitor` implementation with file outputs.
-
-    """
+    """File-system training monitor persisting logs, tabular metrics, generated SMILES, and model checkpoints."""
 
     def __init__(
             self,
@@ -47,37 +47,7 @@ class FileMonitor(TrainingMonitor):
             reset_directory: bool = False,
             on_model_update: Optional[Callable[[Model], None]] = None
     ):
-        """
-        Initialize the file monitor.
-
-        The monitor will create three/four files:
-        - `path`_fit.tsv - a TSV file with the performance data for each epoch
-        - `path`_fit.log - a log file with the training progress
-        - `path`_smiles.tsv - a TSV file with the SMILES of the molecules generated in each epoch (if `save_smiles` is True)
-        - `path`.pkg - a PyTorch package with the model state
-        
-        Parameters
-        ----------
-        path : str or Path
-            The path and prefix of the files to be created (i.e. /tmp/drugex_rl/experiment_01). This will ensure all files
-            are saved to the given directory and have the given prefix.
-        save_smiles : bool
-            Whether to save the SMILES of the molecules generated in each epoch.
-        save_model_option : str
-            Determines which models to save during training. Use this parameter with care as saving a large number of
-            models is extremely memory-intensive. Possible values:
-            - 'all' : Save all models.
-            - 'improvement': Save all models that improve upon the previous best model.
-            - 'best' (default): Save only the final best model.
-            WARNING: Setting this option to 'all' or 'best' can be extremely memory-intensive, Use with caution and 
-            ensure you have sufficient memory resources.
-        reset_directory : bool
-            Whether to reset the directory where the files are to be saved. If `True`, all files
-            with the given prefix will be removed from the directory upon creation of the monitor.
-        on_model_update : callable
-            A callable that will be called after each model update/epoch. The callable will be passed a `Model` subclass
-            instance as the only argument.
-        """
+        """Initialize file output streams and directories for training logs, metrics TSV, and model checkpoints."""
         
         self.path: Path = Path(path)
         self.directory: Path = self.path.parent
@@ -95,33 +65,14 @@ class FileMonitor(TrainingMonitor):
         self.onModelUpdate = on_model_update
 
     def saveModel(self, model, identifier=None):
-        """ 
-        Save the model state.
-        """
+        """Serialize and save model state dictionary to package file on disk."""
         self.currentState = model.getModel() 
         suffix = '_' + str(identifier) if identifier else ''
         pkg_path = self.path.parent / f"{self.path.name}{suffix}.pkg"
         torch.save(self.currentState, pkg_path)
 
     def saveProgress(self, model: Model, current_step=None, current_epoch=None, total_steps=None, total_epochs=None, loss=None, *args, **kwargs):
-        """ 
-        Save the current training progress: epoch, step, loss.
-
-        Parameters
-        ----------
-        model : Model
-            The model currently being trained.
-        current_step : int
-            The current step.
-        current_epoch : int
-            The current epoch.
-        total_steps : int
-            The total number of steps.
-        total_epochs : int 
-            The total number of epochs.
-        loss : float
-            The current training loss.
-        """
+        """Record step/epoch progress counters and training loss to log file."""
         if self.onModelUpdate:
             self.onModelUpdate(model)
         
@@ -135,16 +86,7 @@ class FileMonitor(TrainingMonitor):
         self.outLog.flush()
 
     def savePerformanceInfo(self, performance_dict, df_smiles=None):
-        """ 
-        Save the performance data for the current epoch.
-        
-        Parameters
-        ----------
-        performance_dict : dict
-            A dictionary with the performance data.
-        df_smiles : pd.DataFrame
-            A DataFrame with the SMILES of the molecules generated in the current epoch.
-        """
+        """Append epoch evaluation metrics and generated molecules to output tables."""
 
         df = pd.DataFrame(performance_dict, index=[0])
         self.saveEpochData(df)

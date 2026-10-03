@@ -7,7 +7,9 @@ import hashlib
 import zipfile
 import tarfile
 
+# [PACKAGE: requests] WHY: Remote HTTP streaming WHAT: Fetches files over HTTP with chunk streaming and session retry
 import requests
+# [PACKAGE: tqdm] WHY: CLI progress visualization WHAT: Renders interactive transfer progress bars
 from tqdm.auto import tqdm
 
 
@@ -16,18 +18,7 @@ RETRIES = 3
 
 
 def download_file(url, out_path, extract_out_path=None, byte_size=None, sha256sum=None, progress=True, callback=None) -> None:
-    """
-    Download a file and extract its content if is a ZIP or TAR.GZ file.
-
-    Args:
-        url (str): URL of the file to be downloaded.
-        out_path (str): Path the file should be written to
-        extract_out_path (str): Path to extract the content of the ZIP/TAR.GZ file into
-        byte_size (int): Size in bytes of the file to be downloaded; ignored if None
-        sha256sum (str): SHA256 checksum to compare that of the downloaded file to
-        progress (bool): should progress be shown
-        callback (Callable[[], Any]): callback function to be called after each chunk of the file is downloaded
-    """
+    """Download a file with retry and optional checksum validation, unpacking archives upon completion."""
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     os.makedirs(os.path.dirname(extract_out_path), exist_ok=True)
     fname = os.path.basename(out_path)
@@ -89,15 +80,7 @@ def download_file(url, out_path, extract_out_path=None, byte_size=None, sha256su
 
 
 def check_sha256sum(filename, sha256):
-    """Check the SHA256 checksum of a file corresponds to that given.
-
-    Args:
-        filename (str): Path the file to check
-        sha256 (str): SHA256 checksum to compare that of the downloaded file to
-
-    Returns:
-        True if the file's SHA256 checksum and the one provided match
-    """
+    """Validate that the hex SHA256 digest of a target file matches expected checksum."""
     if not (isinstance(sha256, str) and len(sha256) == 64):
         raise ValueError("SHA256 must be 64 chars: {}".format(sha256))
     sha256_actual = sha256sum(filename)
@@ -105,15 +88,7 @@ def check_sha256sum(filename, sha256):
 
 
 def sha256sum(filename, blocksize=None):
-    """Calculate the SHA256 cheksum of a file.
-
-    Args:
-        filename: path of the file
-        blocksize: size of iterative chunks for calculation (default: 64 KiB)
-
-    Returns:
-        SHA256 checksum is hexadecimal
-    """
+    """Compute the hexadecimal SHA256 hash of a file using buffered chunk streaming."""
     if blocksize is None:
         blocksize = 65536
     hash = hashlib.sha256()

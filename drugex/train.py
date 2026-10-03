@@ -4,6 +4,7 @@ import json
 import argparse
 import warnings
 
+# [PACKAGE: qsprpred] WHY: Predictive bioactivity modeling WHAT: Loads trained QSAR models and tasks for environment scoring
 from qsprpred.models import QSPRModel
 from qsprpred.tasks import ModelTasks
 
@@ -33,7 +34,7 @@ from drugex.training.scorers.qsprpred import QSPRPredScorer
 warnings.filterwarnings("ignore")
     
 def GeneratorArgParser():
-    """ Define and read command line arguments """
+    """Define and parse command line arguments for pretraining, fine-tuning, and reinforcement learning."""
     
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
@@ -158,44 +159,10 @@ def GeneratorArgParser():
     return args
 
 class DataPreparation():
+    """Base manager for preparing training and validation datasets and resolving vocabulary paths."""
 
-    """ 
-    Class for preparing data for training and testing from input files.
-
-    Attributes
-    ----------
-    base_dir : str
-        Path to base directory.
-    data_dir : str
-        Path to data directory.
-    voc_files : list
-        List of vocabulary file names.
-    input : str
-        Name of input file or prefix of input files.
-    batch_size : int
-        Batch size.
-    n_samples : int
-        Number of samples.
-    """
     def __init__(self, base_dir, voc_files, input, batch_size, n_samples, mt):
-
-        """ 
-        Parameters
-        ----------
-        base_dir : str
-            Path to base directory.
-        voc_files : list
-            List of vocabulary file names.
-        input : str
-            Name of input file or prefix of input files.
-        batch_size : int
-            Batch size.
-        n_samples : int
-            Number of samples.
-        mt : str
-            Molecule type.
-        """
-
+        """Initialize data preparation parameters and directory paths."""
         self.base_dir = base_dir
         self.data_dir = f'{base_dir}/data'
         self.voc_files = voc_files
@@ -205,15 +172,7 @@ class DataPreparation():
         self.mol_type = mt
 
     def getVocPaths(self, custom_type=None):
-        """ 
-        Get paths to vocabulary files. If none are found, use internal defaults.
-
-        Returns
-        -------
-        list
-            List of paths to vocabulary files.
-        """
-
+        """Resolve paths to existing vocabulary files or fall back to internal defaults."""
         mol_type = self.mol_type if not custom_type else custom_type
         voc_paths = []
         for voc_file in self.voc_files:
@@ -232,15 +191,7 @@ class DataPreparation():
         return voc_paths
     
     def getDataPaths(self):
-
-        """ 
-        Get paths to training and test data files.
-        
-        Returns
-        -------
-        Tuple[str, str]
-            Paths to training and test data files.
-        """
+        """Resolve and validate filesystem paths for training and validation datasets."""
 
         # If exact data path was given as input, that data is both used for training and testing
         if os.path.exists(f'{self.data_dir}/{self.input}'):
@@ -262,63 +213,14 @@ class DataPreparation():
         return train_path, test_path   
 
 class FragGraphDataPreparation(DataPreparation):
+    """Data preprocessing pipeline creating data loaders for graph-based fragment generation."""
 
-    """ 
-    Data preprocessing for graph-based fragment generation.
-
-    Attributes
-    ----------
-    base_dir : str
-        Path to base directory.
-    data_dir : str
-        Path to data directory.
-    voc_files : list
-        List of vocabulary file names.
-    input : str
-        Name of input file or prefix of input files.
-    batch_size : int
-        Batch size.
-    n_samples : int
-        Number of samples.
-    unique_frags : bool
-        If True, only unique fragments are used for training.
-    mol_type : str
-        Type of molecule representation: 'graph'
-    """
-
-    # Initialize class
     def __init__(self, base_dir, voc_files, input, batch_size, n_samples, unique_frags=False):
         super().__init__(base_dir, voc_files, input, batch_size, n_samples, 'graph')
         self.unique_frags = unique_frags
 
-        """ 
-        Parameters
-        ----------
-        base_dir : str
-            Path to base directory.
-        voc_files : list
-            List of vocabulary file names.
-        input : str
-            Name of input file or prefix of input files.
-        batch_size : int
-            Batch size.
-        n_samples : int
-            Number of samples.
-        unique_frags : bool
-            If True, only unique fragments are used for training.
-        """
-
     def __call__(self):
-
-        """
-        Get data loaders for training and testing and vocabulary.
-        
-        Returns
-        -------
-        Tuple[VocGraph, DataLoader, DataLoader]
-            Vocabulary, training data loader, and test data loader.
-        """
-
+        """Instantiate graph fragment datasets and build training and validation DataLoader objects."""
         # Get vocabulary and data paths
         voc_paths = self.getVocPaths()
         train_path, test_path = self.getDataPaths()
@@ -345,61 +247,14 @@ class FragGraphDataPreparation(DataPreparation):
         return voc, train_loader, valid_loader
 
 class FragSmilesDataPreparation(DataPreparation):
-    """ 
-    Data preprocessing for SMILES-based fragment generation.
-
-    Attributes
-    ----------
-    base_dir : str
-        Path to base directory.
-    data_dir : str
-        Path to data directory.
-    voc_files : list
-        List of vocabulary file names.
-    input : str
-        Name of input file or prefix of input files.
-    batch_size : int
-        Batch size.
-    n_samples : int
-        Number of samples.
-    unique_frags : bool
-        If True, only unique fragments are used for training.
-    mol_type : str
-        Type of molecule representation: 'smiles'
-    """
+    """Data preprocessing pipeline creating data loaders for SMILES-based fragment transformer models."""
 
     def __init__(self, base_dir, voc_files, input, batch_size, n_samples, unique_frags=False):
         super().__init__(base_dir, voc_files, input, batch_size, n_samples, 'smiles')
-
-        """ 
-        Parameters
-        ----------
-        base_dir : str
-            Path to base directory.
-        voc_files : list
-            List of vocabulary file names.
-        input : str
-            Name of input file or prefix of input files.
-        batch_size : int
-            Batch size.
-        n_samples : int
-            Number of samples.
-        unique_frags : bool
-            If True, only unique fragments are used for training.
-        """
         self.unique_frags = unique_frags
 
-
     def __call__(self):
-        """
-        Get data loaders for training and testing and vocabulary.
-        
-        Returns
-        -------
-        Tuple[VocSmiles, DataLoader, DataLoader]
-            Vocabulary, training data loader, and test data loader.
-        """
-            
+        """Instantiate sequence fragment datasets and build training and validation DataLoader objects."""
         # Get vocabulary and data paths
         voc_paths = self.getVocPaths()
         train_path, test_path = self.getDataPaths()
@@ -421,58 +276,14 @@ class FragSmilesDataPreparation(DataPreparation):
         return voc, train_loader, valid_loader
     
 class SmilesDataPreparation(DataPreparation):
-    """ 
-    Data preprocessing for SMILES-based molecule generation.
-
-    Attributes
-    ----------
-    base_dir : str
-        Path to base directory.
-    data_dir : str
-        Path to data directory.
-    voc_files : list
-        List of vocabulary file names.
-    input : str
-        Name of input file or prefix of input files.
-    batch_size : int
-        Batch size.
-    n_samples : int
-        Number of samples.
-    unique_frags : bool
-        If True, only unique fragments are used for training.
-    mol_type : str
-        Type of molecule representation: 'smiles'
-    """
+    """Data preprocessing pipeline creating data loaders for unfragmented SMILES RNN models."""
 
     def __init__(self, base_dir, voc_files, input, batch_size, n_samples, unique_frags=False):
         super().__init__(base_dir, voc_files, input, batch_size, n_samples, 'smiles')
-        """ 
-        Parameters
-        ----------
-        base_dir : str
-            Path to base directory.
-        voc_files : list
-            List of vocabulary file names.
-        input : str
-            Name of input file or prefix of input files.
-        batch_size : int
-            Batch size.
-        n_samples : int
-            Number of samples.
-        unique_frags : bool
-            If True, only unique fragments are used for training.
-        """
         self.unique_frags = False
 
     def __call__(self):
-        """
-        Get data loaders for training and testing and vocabulary.
-        
-        Returns
-        -------
-        Tuple[VocGraph, DataLoader, DataLoader]
-            Vocabulary, training data loader, and test data loader.
-        """
+        """Instantiate linear SMILES datasets and build training and validation DataLoader objects."""
             
         # Get vocabulary and data paths
         voc_paths = self.getVocPaths(custom_type="corpus")
@@ -496,41 +307,16 @@ class SmilesDataPreparation(DataPreparation):
         return voc, train_loader, valid_loader
 
 class SetUpGenerator():
-
-    """ 
-    Set up generator object for training or molecule generation
-    """
+    """Factory for initializing generator model architectures and restoring serialized checkpoints."""
 
     def __init__(self, args):
-
-        """ 
-        Set up generator object for training or molecule generation
-        
-        Parameters
-        ----------
-        args : object
-            Command line arguments
-        """
+        """Initialize generator setup attributes from parsed CLI namespace arguments."""
         # Set up attributes from command line arguments
         for key, value in args.__dict__.items():
             setattr(self, key, value)
 
     def setGeneratorAlgorithm(self, voc):
-
-        """ 
-        Set generator algorithm based on molecule type and generator algorithm type
-        
-        Parameters
-        ----------
-        voc : object
-            Vocabulary object
-        
-        Returns
-        -------
-        generator : object
-            DrugEx Generator object
-        """
-
+        """Instantiate the generator model architecture corresponding to specified molecule type and algorithm."""
         if self.mol_type == 'graph' and self.algorithm == 'trans':
             generator = GraphTransformer(voc, use_gpus=self.use_gpus)
         
@@ -546,15 +332,7 @@ class SetUpGenerator():
         return generator
     
     def prepareInputs(self):
-        """ 
-        Prepare inputs for training or molecule generation
-        
-        Returns
-        -------
-        Tuple[Vocabulary, DataLoader, DataLoader]
-            Vocabulary, training data loader, and test data loader.
-        """
-
+        """Construct vocabulary and data loaders for the active model configuration."""
         if self.mol_type == 'graph' and self.algorithm == 'trans':
             voc, train_loader, test_loader = FragGraphDataPreparation(self.base_dir, self.voc_files, self.input, self.batch_size, self.n_samples, self.unique_frags)()
 
@@ -569,22 +347,7 @@ class SetUpGenerator():
         return voc, train_loader, test_loader  
     
     def loadStatesFromFile(self, generator, generator_path):
-        """
-        Load pretrained weights from file
-
-        Parameters
-        ----------
-        generator : object
-            DrugEx Generator object
-        generator_path : str
-            Path to pretrained weights
-        
-        Returns
-        -------
-        generator : object
-            DrugEx Generator object
-        """
-
+        """Load serialized model weights into a generator from an explicit path or standard checkpoint directory."""
         # Load pretrained weights
         if os.path.exists(f'{generator_path}'):
             # Load pretrained weights from absolute path
@@ -598,25 +361,14 @@ class SetUpGenerator():
         return generator
     
 class Pretrain(SetUpGenerator):
+    """Execution coordinator for unsupervised autoregressive pretraining of generator models."""
 
-    """ 
-    Pretrain generator
-    """
-
-    # Initialize class
     def __init__(self, args):
         super().__init__(args)
-        """ 
-        Parameters
-        ----------
-        args : Namespace
-            Command line arguments
-        """
         self.unique_frags = False
 
     def __call__(self):
-        """ Pretrain generator """
-
+        """Execute the pretraining loop with validation monitoring and early stopping."""
         # Get vocabulary and data loaders
         voc, train_loader, test_loader = self.prepareInputs()
 
@@ -632,23 +384,14 @@ class Pretrain(SetUpGenerator):
 
 
 class Finetune(SetUpGenerator):
-    """ 
-    Finetune generator
-    """
+    """Execution coordinator for supervised fine-tuning of pretrained generator models."""
 
     def __init__(self, args):
         super().__init__(args)
-        """
-        Parameters
-        ----------
-        args : Namespace
-            Command line arguments
-        """
         self.unique_frags = False
 
     def __call__(self):
-        """ Finetune generator """
-
+        """Load pretrained checkpoint and run fine-tuning with validation monitoring."""
         # Get vocabulary and data loaders
         voc, train_loader, test_loader = self.prepareInputs()
 
@@ -665,38 +408,14 @@ class Finetune(SetUpGenerator):
 
 
 class Reinforce(SetUpGenerator):
-    """ Train generator with reinforcement learning """
+    """Execution coordinator for policy-gradient reinforcement learning optimization."""
 
-    # Initialize class
     def __init__(self, args):
-        """ 
-        Parameters
-        ----------
-        args : Namespace
-            Command line arguments
-        """
         super().__init__(args)
         self.unique_frags = True
 
     def setExplorer(self, agent, prior, env):
-        """
-        Set explorer algorithm and parameters
-
-        Parameters
-        ----------
-        agent : object
-            DrugEx Generator object to be fitted
-        prior : object
-            DrugEx Generator object to be used as prior
-        env : object
-            DrugEx Environment object to score molecules
-
-        Returns
-        -------
-        explorer : object
-            DrugEx Explorer object
-        """
-
+        """Configure policy-gradient explorer instance pairing agent, prior mutation model, and scoring environment."""
         kwargs = {
             'mutate': prior,
             'batch_size': self.batch_size,
@@ -718,8 +437,7 @@ class Reinforce(SetUpGenerator):
         return explorer        
 
     def __call__(self):
-        """ Train generator with reinforcement learning """
-            
+        """Initialize agent, prior, and multi-objective environment to run reinforcement learning training."""
         # Get vocabulary and data loaders
         voc, train_loader, test_loader = self.prepareInputs()
     
@@ -774,17 +492,7 @@ class Reinforce(SetUpGenerator):
         evolver.fit(train_loader, test_loader, epochs=self.epochs, monitor=monitor, patience=self.patience)
 
 def getModifiers(task, scheme, activity_threshold):
-    """
-    Gets the modifiers for a given task, scheme and activity threshold combination.
-
-    Arguments:
-        task (str): The task to get the modifiers for.
-        scheme (str): The scheme to get the modifiers for.
-        activity_threshold (float): The activity threshold to use for the modifiers when relevant.
-
-    Returns:
-        list: The active modifiers for the given task.
-    """
+    """Instantiate desirability score clipping modifiers based on task type, reward scheme, and activity threshold."""
     pad = 3.5
     pad_window = 1.5
     if scheme == 'WS':
@@ -841,41 +549,7 @@ def CreateEnvironment(
         logger=None
         ):
 
-    """
-    Sets up the objectives of the desirability function.
-    
-    Arguments:
-        base_dir (str)              : folder containing 'qspr' folder with saved environment-predictor models
-        predictor (list)                  : environment-predictor algoritm
-        task (str)                  : environment-predictor task: 'REG' or 'CLS'
-        scheme (str)                : optimization scheme: 'WS' for weighted sum, 'PRTD' for Pareto ranking with Tanimoto distance or 'PRCD' for Pareto ranking with crowding distance.
-        active_targets (lst), opt   : list of active target IDs
-        inactive_targets (lst), opt : list of inactive target IDs
-        window_targets (lst), opt   : list of target IDs for selectivity window
-        activity_threshold (float), opt : activity threshold in case of 'CLS'
-        qed (bool), opt             : if True, 'quantitative estimate of drug-likeness' included in the desirability function
-        unique (bool), opt          : if Trye, molecule uniqueness in an epoch included in the desirability function
-        ra_score (bool), opt        : if True, 'Retrosythesis Accessibility score' included in the desirability function
-        mw (bool), opt              : if True, large molecules are penalized in the desirability function
-        mw_ths (list), opt          : molecular weight thresholds to penalize large molecules
-        logP (bool), opt            : if True, molecules with logP values are penalized in the desirability function
-        logP_ths (list), opt        : logP thresholds to penalize large molecules
-        tpsa (bool), opt            : if True, tpsa used in the desirability function
-        tpsa_ths (list), opt        : tpsa thresholds
-        sim_smiles (str), opt       : reference molecules used for similarity calculation
-        sim_type (str), opt         : type of fingerprint or 'graph' used for similarity calculation
-        sim_th (float), opt         : threshold for similarity desirability  
-        sim_tw (list), opt          : tversky similarity weights
-        le (bool), opt              : if True, ligand efficiency used instead of activity for active targets in the desirability function
-        le_ths (list), opt          : ligand efficiency thresholds
-        lipe (bool), opt            : if True, lipophilic efficiency used instead of activity for active targets in the desirability function
-        lipe_ths (list), opt        : lipophilic efficiency thresholds
-        log (str), opt              : log instance
-    
-    Returns:
-        DrugExEnvironment (torch model) : environment-predictor model
-        
-    """
+    """Assemble multi-objective DrugEx scoring environment combining QSPR models, physicochemical filters, and similarity goals."""
     logger = logger or log
 
     # TODO: update cli documentation/tutorials to reflect new scheme abbreviations

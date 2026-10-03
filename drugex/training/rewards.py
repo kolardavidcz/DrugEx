@@ -1,3 +1,4 @@
+# [PACKAGE: numpy] WHY: Matrix calculations, array sorting, and vector operations. WHAT: Numerical computing library.
 import numpy as np
 from abc import ABC, abstractmethod
 
@@ -6,72 +7,24 @@ from drugex.training.interfaces import RewardScheme
 from drugex.utils.fingerprints import get_fingerprint
 from drugex.utils import get_Pareto_fronts
 
+# [PACKAGE: rdkit] WHY: Molecular fingerprint generation and bulk Tanimoto similarity calculations. WHAT: Cheminformatics toolkit.
 from rdkit import Chem, DataStructs
 
 class ParetoRewardScheme(RewardScheme, ABC):
+    """Abstract reward scheme prioritizing Pareto frontiers with secondary diversity ranking."""
 
     def getParetoFronts(self, scores):
-        """
-        Returns Pareto fronts.
-
-        Parameters
-        ----------
-        scores : np.ndarray
-            Matrix of scores for the multiple objectives
-        
-        Returns
-        -------
-        list
-            `list` of Pareto fronts. Each front is a `list` of indices of the molecules in the Pareto front. 
-            Most dominant front is the first one.
-        """
-
+        """Extract non-dominated Pareto frontier fronts from multi-objective evaluation matrix."""
         return get_Pareto_fronts(scores)
 
     @abstractmethod
     def getMoleculeRank(self, fronts, smiles=None, scores=None):
-        """
-        Ranks molecules within each Pareto front and returns the indices of the molecules in the ranked order.
-
-        Parameters
-        ----------
-        fronts : list
-            `list` of Pareto fronts. Each front is a `list` of indices of the molecules in the Pareto front.
-        smiles : list
-            List of SMILES sequence to be ranked
-        scores : np.ndarray
-            matrix of scores for the multiple objectives
-
-        Returns
-        -------
-        rank : np.array
-            Indices of the ranked SMILES sequences
-        """        
+        """Rank molecules within Pareto fronts and return solution indices in sorted order."""
         pass
 
 
     def __call__(self, smiles, scores, thresholds) -> np.ndarray:
-        """
-        Returns the rewards for the given SMILES sequences. The reward is calculated 
-        based on Pareto fronts and the rank of the molecule within the Pareto front.
-        The rank of molecule in a Pareto front depends on the distance metric used by
-        the specific ranking strategy.
-
-        Parameters
-        ----------
-        smiles : list
-            List of SMILES sequence to be ranked
-        scores : np.ndarray
-            matrix of scores for the multiple objectives
-        thresholds : list
-            List of thresholds for the multiple objectives (not used, only for compatibility)
-
-        Returns
-        -------
-        rewards : np.array
-            Rewards for the given SMILES sequences
-        """
-
+        """Compute scalar rewards normalized across Pareto fronts and intra-front rankings."""
         fronts = self.getParetoFronts(scores)
         ranks = self.getMoleculeRank(fronts, smiles=smiles, scores=scores)
         rewards = np.zeros((len(smiles), 1))
@@ -79,32 +32,10 @@ class ParetoRewardScheme(RewardScheme, ABC):
         return rewards
 
 class ParetoCrowdingDistance(ParetoRewardScheme):
-    """
-    Reward scheme that uses the NSGA-II crowding distance 
-    ranking strategy to rank the solutions in the same Pareto frontier.
-
-    Paper: Deb, Kalyanmoy, et al. "A fast and elitist multiobjective genetic algorithm: 
-    NSGA-II. IEEE transactions on evolutionary computation 6.2 (2002): 182-197."
-    """
+    """Reward scheme ranking Pareto frontiers using NSGA-II crowding distance to maintain objective diversity."""
 
     def getMoleculeRank(self, fronts, smiles=None, scores=None):
-        """
-        Crowding distance algorithm to rank the solutions in the same pareto frontier.
-
-        Parameters
-        ----------
-        fronts : list
-            `list` of Pareto fronts. Each front is a `list` of indices of the molecules in the Pareto front.
-        smiles : list
-            List of SMILES sequence to be ranked (not used in the calculation -> just a requirement of the interface because some ranking strategies need it)"
-        scores : np.ndarray
-            matrix of scores for the multiple objectives
-        
-        Returns
-        -------
-        rank : np.array
-            Indices of the SMILES sequences ranked with the NSGA-II crowding distance method from worst to best
-        """
+        """Rank Pareto front molecules via NSGA-II crowding distance from boundary solutions inward."""
 
         # Rank molecules within each Pareto front based on crowding distance
         ranked_fronts = []
@@ -145,36 +76,16 @@ class ParetoCrowdingDistance(ParetoRewardScheme):
         return rank
 
 class ParetoTanimotoDistance(ParetoRewardScheme):
-    """
-    Reward scheme that uses the Tanimoto distance ranking strategy to rank the solutions in the same Pareto frontier.
-    """
+    """Reward scheme ranking Pareto frontiers using chemical fingerprint Tanimoto distance to foster structural diversity."""
 
     def __init__(self, distance_metric : str ='min'):
-        """
-        Args:
-            distance_metric: 'mean', 'min' or 'mutual' - how to compare Tanimoto
-                similarities of molecules in the same front
-        """
+        """Initialize Tanimoto distance scheme with similarity aggregation metric ('min', 'mean', or 'mutual')."""
         super().__init__()
         self.distance_metric = distance_metric
 
     @staticmethod
     def calc_fps(mols, fp_type='ECFP6'):
-        """
-        Calculate fingerprints for a list of molecules.
-
-        Parameters
-        ----------
-        mols : list
-            List of RDKit molecules
-        fp_type : str
-            Type of fingerprint to use
-
-        Returns
-        -------
-        fps : list
-            List of RDKit fingerprints
-        """   
+        """Calculate molecular fingerprints for candidate RDKit molecules."""   
         fps = []
         for i, mol in enumerate(mols):
             try:
@@ -184,16 +95,7 @@ class ParetoTanimotoDistance(ParetoRewardScheme):
         return fps
 
     def getFPs(self, smiles):
-        """
-        Calculate fingerprints for a list of molecules.
-
-        Args:
-            smiles: smiles to calculate fingerprints for
-
-        Returns:
-            list of RDKit fingerprints
-        """
-
+        """Convert SMILES strings to RDKit molecules and generate their fingerprints."""
         mols = [Chem.MolFromSmiles(smile) for smile in smiles]
         return self.calc_fps(mols)
 
@@ -217,11 +119,7 @@ class ParetoTanimotoDistance(ParetoRewardScheme):
         return rank 
 
     def _mutual_similarity_ranking(self, fronts, fps):
-        """
-        Alternative Tanimoto similarity based ranking strategy that tries to more closely 
-        emulate the crowding distance with fingerprint similarities. Adapted from the 
-        original code by @XuhanLiu (https://github.com/XuhanLiu/DrugEx/blob/cd384f4a8ed4982776e92293f77afd4ea78644f9/utils/nsgaii.py#L92).
-        """
+        """Emulate crowding distance using mutual fingerprint Tanimoto similarities within fronts."""
 
         rank = []
         for i, front in enumerate(fronts):
@@ -244,24 +142,7 @@ class ParetoTanimotoDistance(ParetoRewardScheme):
 
 
     def getMoleculeRank(self, fronts, smiles=None, scores=None):
-        """
-        Get the rank of the molecules in the Pareto front based on the Tanimoto distance
-        of molecules in a front.
-
-        Parameters
-        ----------
-        fronts : list
-            List of Pareto fronts
-        smiles : list
-            List of SMILES sequence to be ranked
-        scores : np.ndarray
-            Array of scores for each molecule (not used)
-        
-        Returns
-        -------
-        rank : list
-            List of indices of molecules, ranked from worst to best
-        """
+        """Rank molecules across reversed Pareto fronts using fingerprint Tanimoto distance."""
 
         fronts  = fronts[::-1] # From worst to best
         fps = self.getFPs(smiles)
@@ -278,28 +159,10 @@ class ParetoTanimotoDistance(ParetoRewardScheme):
 
 
 class WeightedSum(RewardScheme):
-    """
-    Reward scheme that uses the weighted sum ranking strategy to rank the solutions.
-    """
+    """Reward scheme combining multi-objective scores via dynamic failure-rate weighting relative to thresholds."""
 
     def __call__(self, smiles, scores, thresholds):
-        """
-        Reward scheme that uses the weighted sum ranking strategy to rank the solutions.
-
-        Parameters
-        ----------
-        smiles : list
-            List of SMILES sequence to be ranked
-        scores : np.ndarray
-            matrix of scores for the multiple objectives
-        thresholds : np.ndarray
-            Thresholds for the multiple objectives
-
-        Returns
-        -------
-        rewards : np.ndarray
-            Array of rewards for the SMILES sequences
-        """
+        """Compute weighted sum scalar rewards using threshold failure-ratio weights."""
         
         weight = ((scores < thresholds).mean(axis=0, keepdims=True) + 0.01) / \
             ((scores >= thresholds).mean(axis=0, keepdims=True) + 0.01)

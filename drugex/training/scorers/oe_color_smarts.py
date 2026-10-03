@@ -40,6 +40,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# [PACKAGE: rdkit] WHY: SMARTS parsing and substructure compilation for OpenEye color matching. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
 # ---------------------------------------------------------------------------
@@ -266,22 +267,8 @@ _CDPKIT_POS_REF_FLAG = 2  # == CDPL.Pharm.PatternBasedFeatureGenerator.PatternAt
 
 
 def build_cdpkit_oe_pharm_generator() -> Any:
-    """Build a CDPKit DefaultPharmacophoreGenerator configured for OE ImplicitMillsDean.
-
-    All of CDPKit's own default feature perceptions are disabled, then for each OE color
-    type a PatternBasedFeatureGenerator is installed whose include-patterns are the type's
-    OE SMARTS.
-
-    Returns
-    -------
-    Pharm.DefaultPharmacophoreGenerator
-        Configured CDPKit pharmacophore generator perceiving the 6 OE color types.
-
-    Raises
-    ------
-    ImportError
-        If CDPKit is not installed.
-    """
+    """Build a CDPKit DefaultPharmacophoreGenerator configured for OE ImplicitMillsDean."""
+    # [PACKAGE: CDPL] WHY: CDPKit chemical and pharmacophore perception for OpenEye color feature mapping. WHAT: Cheminformatics toolkit.
     import CDPL.Chem as CDPLChem
     import CDPL.Pharm as Pharm
 

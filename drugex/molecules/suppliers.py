@@ -3,49 +3,26 @@ from drugex.molecules.interfaces import BaseMolSupplier
 
 
 class StandardizedSupplier(BaseMolSupplier):
-    """
-    Supplies standardized molecules from the input molecules. It requires a standardizer.
-    """
+    """Supplier yielding standardized molecules from an input iterator via a standardizer converter."""
 
     def __init__(self, mols, standardizer):
-        """
-        Initialize a standardized supplier with the given standardizer.
-
-        Args:
-            mols: A set of input molecules. It will be converted to an iterator if not one already.
-            standardizer: a `MolConverter` to transform items in 'mols' to the standardized form. It should return the same representation as in the original 'mols' (i.e. SMILES if the original input was SMILES).
-        """
-
+        """Initialize standardized supplier with molecule collection and standardization converter."""
         super().__init__(converter=standardizer)
         self.mols = mols if hasattr(mols, "__next__") else iter(mols)
 
     def next(self):
-        """
-        Defines access to the next item to be processed.
-
-        Returns:
-            next molecule for processing
-        """
-
+        """Return the next raw molecule item for standardization processing."""
         return next(self.mols)
 
-class  ListSupplier(BaseMolSupplier):
-    """
-    Basic supplier that converts molecules in a list to the desired representation (SMILES string to `DrExMol` by default).
-
-    """
+class ListSupplier(BaseMolSupplier):
+    """Supplier iterating over an in-memory molecule sequence, converting each item to DrExMol."""
 
     def __init__(self, mols, converter=SmilesToDrEx(), hide_duplicates=False):
-        """
-        Initialize list supplier.
-
-        Args:
-            mols (list): A list of molecules. By default, representation as SMILES is assumed.
-            converter (MolConverter): Converter to transform molecules in 'mols' to the desired representation, `SmilesToDrEx` by default.
-        """
+        """Initialize list supplier with molecule collection, converter, and deduplication flag."""
         super().__init__(converter=converter, hide_duplicates=hide_duplicates)
         self.mols = iter(mols)
 
 
     def next(self):
+        """Return the next raw molecule item from the list iterator."""
         return next(self.mols)

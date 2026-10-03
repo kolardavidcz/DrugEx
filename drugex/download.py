@@ -9,10 +9,12 @@ import argparse
 from drugex.logs import logger
 from drugex.logs.utils import enable_file_logger
 from drugex.utils.download import download_file
+# [PACKAGE: qsprpred] WHY: Bioactivity data source integration WHAT: Downloads Papyrus datasets and benchmark targets
 from qsprpred.data.sources.papyrus import Papyrus
 
 
 def DownloadArgParser():
+    """Parse command-line arguments for tutorial data and pre-trained model downloads."""
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument('-o', '--out_dir', type=str, default='data',
@@ -27,6 +29,7 @@ def DownloadArgParser():
 
 
 def DownloadTutorial(args):
+    """Download pre-trained generator checkpoints, Papyrus bioactivity datasets, and tutorial assets."""
     # Link to DrugEx v2 pretrained model (Papyrus 05.5)
     link_pretrained_model1 = "https://zenodo.org/record/7378923/files/DrugEx_v2_PT_Papyrus05.5.zip?download=1"
     # Link to DrugEx v3 pretrained model (graph-based; Papyrus 05.5)

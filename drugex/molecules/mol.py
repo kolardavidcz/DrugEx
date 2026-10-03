@@ -1,12 +1,15 @@
+# [PACKAGE: rdkit] WHY: Cheminformatics core for molecule representation and canonicalization. WHAT: Chem module creates Mol objects and generates canonical SMILES.
 from rdkit import Chem
 
 from drugex.molecules.interfaces import Molecule
 
 
 class InitializationException(Exception):
+    """Raised when DrExMol instantiation is attempted with an empty molecule."""
     pass
 
 class DrExMol(Molecule):
+    """Concrete Molecule implementation wrapping an RDKit Mol with canonical SMILES and metadata."""
 
     def __init__(self, rd_mol, identifier=None):
         if not rd_mol:

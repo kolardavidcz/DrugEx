@@ -1,3 +1,4 @@
+# [PACKAGE: rdkit] WHY: Cheminformatics chemical standardization, salt disconnection, and charge neutralization. WHAT: Chem and rdMolStandardize tools (Uncharger, LargestFragmentChooser, MetalDisconnector, Normalizer, ChargeParent).
 from rdkit import Chem
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
@@ -5,33 +6,14 @@ from drugex.logs import logger
 from drugex.molecules.converters.interfaces import MolConverter, ConversionException
 
 class StandardizationException(ConversionException):
-    """
-    Custom exception class to recognize and catch standardization errors.
-    """
-
+    """Raised when molecule standardization or chemical sanity validation fails."""
     pass
 
 class DefaultStandardizer(MolConverter):
-    """
-    Original standardization implementation from the original DrugEx v3.
-
-    """
+    """Standardizes chemical structures via metal disconnection, normalization, desalt, uncharging, and validation."""
 
     def __call__(self, smiles):
-        """
-        Takes smiles of the input molecule and converts it to a standardized represenation.
-
-        Raises:
-            StandardizationException: thrown when the standardizer encountered a failure
-
-        Args:
-            smiles: input molecule as SMILES
-
-        Returns:
-            converted SMILES as `str`
-
-        """
-
+        """Convert an input SMILES string to its standardized, desalted, and uncharged canonical form."""
         try:
             rd_mol = Chem.MolFromSmiles(smiles)
             charger = rdMolStandardize.Uncharger()
@@ -61,9 +43,7 @@ class DefaultStandardizer(MolConverter):
             raise StandardizationException(exp)
 
 class CleanSMILES(MolConverter):
-    """
-    Converter used to clean SMILES strings at some places. At the moment the reasons for its existence are unclear...
-    """
+    """Heuristic SMILES string cleaner normalizing explicit isotopes/brackets with optional charge parenting."""
 
     def __init__(self, is_deep=True):
         self.deep  = is_deep

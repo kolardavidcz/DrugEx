@@ -2,7 +2,9 @@
 import time
 from copy import deepcopy
 
+# [PACKAGE: numpy] WHY: Array operations and numerical rounding. WHAT: Numerical computing library.
 import numpy as np
+# [PACKAGE: torch] WHY: Tensor data handling, Adam optimization, and TensorDataset DataLoader. WHAT: PyTorch deep learning framework.
 import torch
 from drugex import DEFAULT_DEVICE, DEFAULT_GPUS, utils
 from drugex.logs import logger
@@ -10,66 +12,24 @@ from drugex.training.explorers.interfaces import Explorer
 from drugex.training.generators.utils import unique
 from drugex.training.monitors import NullMonitor
 from torch.utils.data import DataLoader, TensorDataset
+# [PACKAGE: tqdm] WHY: Progress bar tracking for epochs and batches. WHAT: Progress bar utility.
 from tqdm.auto import tqdm
 
 
 class SequenceExplorer(Explorer):
-
-    """ 
-    `Explorer` to optimize a sequence-based agent (RNN) with the given `Environment`.
- 
-    Reference: Liu, X., Ye, K., van Vlijmen, H.W.T. et al. DrugEx v2: De Novo Design of Drug Molecule by
-               Pareto-based Multi-Objective Reinforcement Learning in Polypharmacology.
-               J Cheminform (2021). https://doi.org/10.1186/s13321-019-0355-6
-    """
+    """Reinforcement learning explorer optimizing de novo sequence RNN agents in multi-objective environments."""
 
     def __init__(self, agent, env, mutate=None, crover=None, no_multifrag_smiles=True,
         batch_size=128, epsilon=0.1, beta=0.0, n_samples=1000, optim=None,
         device=DEFAULT_DEVICE, use_gpus=DEFAULT_GPUS):
+        """Initialize sequence RNN explorer with agent, environment, mutation/crossover networks, and optimizer."""
         super(SequenceExplorer, self).__init__(agent, env, mutate, crover, no_multifrag_smiles, batch_size, epsilon, beta, n_samples, device, use_gpus)
-        """
-        Parameters
-        ----------
-        agent: drugex.training.generators.SequenceRNN
-            The agent network which is optimised to generates the desired molecules.
-        env : drugex.training.interfaces.Environment
-            The environment which provides the reward and judge if the genrated molecule is valid and desired.
-        mutate : drugex.training.generators.SequenceRNN
-            The pre-trained network which increases the exploration of the chemical space.
-        crover : drugex.training.generators.SequenceRNN
-            The iteratively updated network which increases the exploitation of the chemical space.
-        no_multifrag_smiles : bool
-            If True, only single-fragment SMILES are valid.
-        batch_size : int
-            The batch size for the policy gradient update.
-        epsilon : float
-            The probability of using the `mutate` network to generate molecules.
-        beta : float
-            The baseline for the reward.
-        n_samples : int
-            The number of molecules generated in each iteration. (+ an additional 10% for evaluation)
-        optim : torch.optim
-            The optimizer to update the agent network.
-        device : torch.device
-            The device to run the network.
-        use_gpus : tuple
-            The GPU ids to run the network.
-        """
         if self.nSamples <= 0:
             self.nSamples = 1000
         self.optim = torch.optim.Adam(self.agent.parameters(), lr=1e-3) if optim is None else optim
 
     def forward(self):
-        """
-        Generate molecules with the given `agent` network
-
-        Returns
-        -------
-        smiles : list
-            The generated SMILES.
-        seqs : torch.Tensor
-            The generated encoded sequences.
-        """
+        """Sample batches of unique candidate SMILES and token sequences from evolving agent."""
 
         # Generate nSamples molecules
         seqs = []
@@ -86,29 +46,7 @@ class SequenceExplorer(Explorer):
         return smiles, seqs
    
     def policy_gradient(self, smiles=None, seqs=None, epoch=None, epochs=None):
-        """
-        Policy gradient training.
- 
-        Novel molecules are scored by the environment.
-        The policy gradient is calculated using the REINFORCE algorithm and the agent is updated.
-        
-        Parameters
-        ----------
-        smiles : list
-            The generated SMILES.
-        seqs : torch.Tensor
-            The generated encoded sequences. 
-        epoch : int, optional
-            The current epoch number, used for logging.
-        epochs : int, optional
-            The total number of epochs to train, used for logging.
-
-        Returns
-        -------
-        loss : float
-            The loss of the policy gradient.
-        """
-
+        """Optimize sequence RNN agent weights using REINFORCE policy gradients computed from environment rewards."""
         # Calculate the reward from SMILES with the environment
         reward = self.env.getRewards(smiles, frags=None)
 
@@ -133,29 +71,7 @@ class SequenceExplorer(Explorer):
         return loss.item()
  
     def fit(self, train_loader=None, valid_loader=None, monitor=None, epochs=1000, patience=50, reload_interval = 50, criteria='desired_ratio', min_epochs=100):
-        """
-        Fit the graph explorer to the training data.
-        
-        Parameters
-        ----------
-        train_loader : torch.utils.data.DataLoader
-            ignored, for compatibility with `FragExplorer`
-        valid_loader : torch.utils.data.DataLoader
-            ignored, for compatibility with `FragExplorer`
-        epochs : int
-            Number of epochs to train for
-        monitor : Monitor
-            Monitor to use for logging and saving model
-        patience : int
-            Number of epochs to wait for improvement before early stopping
-        reload_interval : int
-            Every nth epoch reset the agent (and the crover) network to the best state
-        criteria : str
-            Criteria to use for early stopping: 'desired_ratio', 'avg_amean' or 'avg_gmean'
-        min_epochs : int
-            Minimum number of epochs to train for
-        """
-        
+        """Execute RL training loop for sequence RNN with policy gradient updates, validation evaluations, and periodic checkpoint resets."""
         self.monitor = monitor if monitor else NullMonitor()
         self.monitor.saveModel(self)
         self.bestState = self.getModel()

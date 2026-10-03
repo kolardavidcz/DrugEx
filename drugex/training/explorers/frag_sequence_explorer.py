@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
 import random
+# [PACKAGE: torch] WHY: Tensor operations, Adam optimizer, TensorDataset, and DataLoader. WHAT: PyTorch deep learning framework.
 import torch
 from torch.optim import Adam
 from drugex import utils, DEFAULT_DEVICE, DEFAULT_GPUS
 from torch.utils.data import DataLoader, TensorDataset
+# [PACKAGE: tqdm] WHY: Batch iteration progress meters. WHAT: Progress bar utility.
 from tqdm.auto import tqdm
 
 from drugex.logs import logger
@@ -13,59 +15,16 @@ from drugex.training.generators.utils import pad_mask, tri_mask
 
 
 class FragSequenceExplorer(FragExplorer):
-    """
-    `Explorer` to optimize a sequence-based fragment-using agent with the given `Environment`.
-    """
+    """Reinforcement learning explorer optimizing sequence-based fragment decorator models."""
 
     def __init__(self, agent, env=None, crover=None, mutate=None, batch_size=128, epsilon=0.1, beta=0.0, n_samples=-1, optim=None, device=DEFAULT_DEVICE, use_gpus=DEFAULT_GPUS, no_multifrag_smiles=True):
+        """Initialize sequence fragment explorer with agent, environment, mutation/crossover networks, and optimizer."""
         super(FragSequenceExplorer, self).__init__(agent, env, mutate, crover, no_multifrag_smiles, batch_size, epsilon, beta, n_samples, device=device, use_gpus=use_gpus)
-        """
-        Parameters
-        ----------
-        
-        agent : models.SequenceTransformer
-            The agent network which is optimised to generates the desired molecules.
-        env : drugex.trainining.interfaces.Environment
-            The environment which provides the reward and judge if the genrated molecule is valid and desired.
-        crover : models.SequenceTransformer
-             The iteratively updated network which increases the exploitation of the chemical space.(Not used in this class)
-        mutate : models.SequenceTransformer
-            The pre-trained network which increases the exploration of the chemical space. 
-        batch_size : int
-            The batch size for the training.
-        epsilon : float
-            The probability of using the `mutate` network.
-        beta : float
-            The baseline for the reward.
-        n_samples : int
-            The number of molecules to be generated in each epoch.
-        optim : torch.optim
-            The optimizer to be used for the training.
-        device : torch.device
-            The device to be used for the training.
-        use_gpus : tuple
-            The GPUs to be used for the training.
-        no_multifrag_smiles : bool
-            If True, the molecules with multiple fragments are not considered as valid molecules.
-        """
-        
         self.optim = utils.ScheduledOptim(
             Adam(self.parameters(), betas=(0.9, 0.98), eps=1e-9), 1.0, 512) if not optim else optim
 
     def forward(self, src):
-        """
-        Forward pass of the agent.
-        
-        Parameters
-        ----------
-        src : torch.Tensor
-            TODO: check the shape of the input tensor.
-        
-        Returns
-        -------
-        torch.Tensor
-            TODO: check the shape of the input tensor.
-        """
+        """Autoregressively sample decorated SMILES tokens conditioned on input fragment prompts."""
         seq_len = self.agent.voc_trg.max_len + self.agent.voc_trg.max_len
         out = torch.zeros(len(src), seq_len).long().to(self.device)
         out[:, :src.size(1)] = src
@@ -94,23 +53,7 @@ class FragSequenceExplorer(FragExplorer):
         return out[:, self.agent.voc_trg.max_len:].detach()
             
     def sample_input(self, loader, is_test=False):
-        
-        """
-        Sample a batch of fragments-molecule pairs from the dataset.
-
-        Parameters
-        ----------
-        loader : torch.utils.data.DataLoader
-            Data loader for original fragments-molecule pairs
-        is_test : bool
-            Whether to sample from the validation set or not
-        
-        Returns
-        -------
-        torch.utils.data.DataLoader
-            Data loader for sampled fragments-molecule pairs
-        """
-        
+        """Subsample input fragment-molecule pairs into a DataLoader for training or validation."""
         encoded_in = torch.cat([batch[0] for batch in loader], 0)
         encoded_out = torch.cat([batch[1] for batch in loader], 0)
         
@@ -128,27 +71,7 @@ class FragSequenceExplorer(FragExplorer):
         return loader
 
     def getBatchOutputs(self, net, src):
-        
-        """
-        Outputs (frags, smiles) and loss of the agent for a batch of fragments-molecule pairs.
-
-        Parameters
-        ----------
-        net : torch.nn.Module
-            Agent
-        src : torch.Tensor
-            Fragments-molecule pairs
-        
-        Returns
-        -------
-        frags : list
-            List of fragments
-        smiles : list
-            List of SMILES
-        loss : torch.Tensor
-            Loss of the agent
-        """
-
+        """Decode fragment and target token sequences to text and compute agent sequence cross-entropy loss."""
         src, trg = src[0].to(self.device), src[1].to(self.device)
         frags = [self.agent.voc_trg.decode(s, is_tk=False) for s in src]
         smiles = [self.agent.voc_trg.decode(s, is_tk=False) for s in trg]
@@ -157,23 +80,7 @@ class FragSequenceExplorer(FragExplorer):
         return frags, smiles, loss
 
     def sampleEncodedPairsToLoader(self, net, loader):
-
-        """
-        Sample new fragments-molecule pairs from a data loader.
-
-        Parameters
-        ----------
-        net : torch.nn.Module
-            Agent
-        loader : torch.utils.data.DataLoader
-            Data loader for original fragments-molecule pairs
-
-        Returns
-        -------
-        torch.utils.data.DataLoader
-            Data loader for sampled fragments-molecule pairs
-        """
-
+        """Sample decorated sequence completions from input fragments and wrap in a TensorDataset DataLoader."""
         srcs, trgs = [], []
         for _, src in tqdm(loader, desc='Iterating over training batches', leave=False):
             with torch.no_grad():

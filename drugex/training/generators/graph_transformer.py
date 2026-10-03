@@ -7,9 +7,11 @@ from __future__ import annotations
 import tempfile
 from typing import TYPE_CHECKING, Any, Optional, Sequence, Union
 
+# [PACKAGE: torch] WHY: Transformer neural network architecture, multi-head attention, and Adam optimizer. WHAT: PyTorch deep learning framework.
 import torch
 import torch.nn as nn
 from torch import optim
+# [PACKAGE: tqdm] WHY: Progress bars over training and validation batches. WHAT: Progress bar utility.
 from tqdm.auto import tqdm
 
 from drugex import DEFAULT_DEVICE, DEFAULT_GPUS
@@ -33,23 +35,10 @@ if TYPE_CHECKING:
 
 
 class Block(nn.Module):
-    """
-    Standard Transformer self-attention block for molecular graph token processing.
-    """
+    """Standard Transformer self-attention block for molecular graph token processing."""
 
     def __init__(self, d_model: int, n_head: int, d_inner: int) -> None:
-        """
-        Initialize standard Transformer self-attention block for molecular graph token processing.
-
-        Parameters
-        ----------
-        d_model : int
-            Dimensionality of the graph representation vectors.
-        n_head : int
-            Number of parallel attention heads.
-        d_inner : int
-            Dimensionality of the inner hidden feed-forward layer.
-        """
+        """Initialize Transformer multi-head self-attention block with position-wise feed-forward layer."""
         super(Block, self).__init__()
         self.attn = nn.MultiheadAttention(d_model, n_head)
         self.pffn = PositionwiseFeedForward(d_model, d_inner)
@@ -61,32 +50,14 @@ class Block(nn.Module):
         key_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        """
-        Execute forward computation through attention and feed-forward sublayers.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Graph node/edge token tensor of shape `(seq_len, batch_size, d_model)`.
-        key_mask : torch.Tensor, optional
-            Padding mask of shape `(batch_size, seq_len)`.
-        attn_mask : torch.Tensor, optional
-            Attention masking tensor of shape `(seq_len, seq_len)`.
-
-        Returns
-        -------
-        output : torch.Tensor
-            Updated graph feature tensor of shape `(seq_len, batch_size, d_model)`.
-        """
+        """Execute forward computation through attention and feed-forward sublayers with residual connections."""
         x = self.connector[0](x, lambda x: self.attn(x, x, x, key_padding_mask=key_mask, attn_mask=attn_mask)[0])
         x = self.connector[1](x, self.pffn)
         return x
 
 
 class AtomLayer(nn.Module):
-    """
-    Multi-layer Transformer stack for processing sequential graph construction steps.
-    """
+    """Multi-layer Transformer stack for sequential molecular graph token construction."""
 
     def __init__(
         self,
@@ -95,20 +66,7 @@ class AtomLayer(nn.Module):
         d_inner: int = 1024,
         n_layer: int = 12
     ) -> None:
-        """
-        Initialize multi-layer Transformer stack for processing sequential graph construction steps.
-
-        Parameters
-        ----------
-        d_model : int, optional
-            Transformer feature space dimension (default: 512).
-        n_head : int, optional
-            Number of attention heads (default: 8).
-        d_inner : int, optional
-            Dimension of intermediate feed-forward layers (default: 1024).
-        n_layer : int, optional
-            Number of stacked transformer blocks (default: 12).
-        """
+        """Initialize multi-layer Transformer stack with specified depth and attention heads."""
         super(AtomLayer, self).__init__()
         self.n_layer = n_layer
         self.d_model = d_model
@@ -124,23 +82,7 @@ class AtomLayer(nn.Module):
         key_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        """
-        Propagate features sequentially across all transformer blocks.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Input feature tensor of shape `(seq_len, batch_size, d_model)`.
-        key_mask : torch.Tensor, optional
-            Padding key mask.
-        attn_mask : torch.Tensor, optional
-            Attention causality mask.
-
-        Returns
-        -------
-        output : torch.Tensor
-            Encoded graph states of shape `(seq_len, batch_size, d_model)`.
-        """
+        """Propagate hidden graph token representations sequentially across all transformer blocks."""
         for block in self.blocks:
             x = block(x, key_mask=key_mask, attn_mask=attn_mask)
         return x
@@ -191,30 +133,7 @@ class GraphTransformer(FragGenerator):
         device: Union[torch.device, str] = DEFAULT_DEVICE,
         use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None:
-        """
-        Initialize autoregressive Graph Transformer for fragment-conditioned molecular graph generation.
-
-        Parameters
-        ----------
-        voc_trg : VocGraph
-            Target graph vocabulary defining atom types, valences, and graph dimensions.
-        d_emb : int, optional
-            Embedding vector dimensionality for atom words and loci (default: 512).
-        d_model : int, optional
-            Hidden feature dimension across attention and GRU layers (default: 512).
-        n_head : int, optional
-            Number of attention heads in AtomLayer (default: 8).
-        d_inner : int, optional
-            Feed-forward inner dimension (default: 1024).
-        n_layer : int, optional
-            Number of stacked transformer layers (default: 12).
-        pad_idx : int, optional
-            Padding token index (default: 0).
-        device : torch.device or str, optional
-            Target hardware execution device (default: `DEFAULT_DEVICE`).
-        use_gpus : sequence of int, optional
-            GPU indices available for training and sampling (default: `DEFAULT_GPUS`).
-        """
+        """Initialize autoregressive Graph Transformer for fragment-conditioned molecular graph generation."""
         super(GraphTransformer, self).__init__(device=device, use_gpus=use_gpus)
         self.mol_type = 'graph'
         self.voc_trg = voc_trg
@@ -243,23 +162,14 @@ class GraphTransformer(FragGenerator):
         self.model_name = 'GraphTransformer'
 
     def init_states(self) -> None:
-        """
-        Initialize network weights using Xavier uniform initialization.
-        """
+        """Initialize network weights using Xavier uniform initialization."""
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
         self.attachToGPUs(self.gpus)
 
     def attachToGPUs(self, gpus: Sequence[int]) -> None:
-        """
-        Attach model to GPUs and bind computation device.
-
-        Parameters
-        ----------
-        gpus : sequence of int
-            Sequence of GPU device IDs.
-        """
+        """Attach model to GPUs and bind computation device."""
         self.gpus = tuple(gpus)
         self.to(self.device)
 
@@ -268,28 +178,7 @@ class GraphTransformer(FragGenerator):
         src: torch.Tensor,
         is_train: bool = False
     ) -> list[torch.Tensor] | torch.Tensor:
-        """
-        Execute forward computation for training loss or graph-growing autoregressive sampling.
-
-        In training mode (`is_train=True`), computes step-wise cross-entropy losses for
-        predicting the next atom, bond, current locus, and previous locus.
-        In inference mode (`is_train=False`), performs autoregressive growing and connection
-        of atoms to generate full molecular graphs.
-
-        Parameters
-        ----------
-        src : torch.Tensor
-            Input graph tensor of shape `(batch_size, seq_len, 5)`, where the 5 features
-            represent `[atom_type, curr_locus, prev_locus, bond_type, grow_flag]`.
-        is_train : bool, optional
-            If True, calculates log-likelihood losses. If False, samples novel graphs (default: False).
-
-        Returns
-        -------
-        output : list of torch.Tensor or torch.Tensor
-            If `is_train=True`: list of 4 loss component tensors `[out_atom, out_curr, out_prev, out_bond]`.
-            If `is_train=False`: completed molecular graph tensor of shape `(batch_size, max_len, 5)`.
-        """
+        """Execute forward computation for training loss or graph-growing autoregressive sampling."""
         if is_train:
             src_in, trg = src[:, :-1, :], src[:, 1:, :]
             batch, sqlen, _ = src_in.shape
@@ -460,23 +349,7 @@ class GraphTransformer(FragGenerator):
             return src
 
     def trainNet(self, loader: DataLoader, epoch: int, epochs: int) -> float:
-        """
-        Train the graph transformer network for one epoch across graph losses.
-
-        Parameters
-        ----------
-        loader : DataLoader
-            DataLoader yielding graph batches of shape `(batch_size, seq_len, 5)`.
-        epoch : int
-            Current epoch number.
-        epochs : int
-            Total planned epochs.
-
-        Returns
-        -------
-        loss : float
-            Final batch combined graph training loss.
-        """
+        """Train the graph transformer network for one epoch across graph losses."""
         net = nn.DataParallel(self, device_ids=self.gpus)
         total_steps = len(loader)
         current_step = 0
@@ -501,27 +374,7 @@ class GraphTransformer(FragGenerator):
         no_multifrag_smiles: bool = True,
         n_samples: Optional[int] = None
     ) -> tuple[dict[str, float], pd.DataFrame]:
-        """
-        Validate graph generation accuracy and evaluate hold-out validation loss.
-
-        Parameters
-        ----------
-        loader : DataLoader
-            DataLoader providing validation fragment graphs.
-        evaluator : Environment, optional
-            Scoring environment evaluating generated compounds.
-        no_multifrag_smiles : bool, optional
-            If True, multi-fragment / disconnected SMILES are marked invalid (default: True).
-        n_samples : int, optional
-            Unused by graph transformer (reserved for interface parity).
-
-        Returns
-        -------
-        valid_metrics : dict of str to float
-            Validation metrics containing `'valid_ratio'`, `'accurate_ratio'`, and `'loss_valid'`.
-        scores : pd.DataFrame
-            DataFrame of generated molecules with validity indicators and evaluator objective scores.
-        """
+        """Validate graph generation accuracy and evaluate hold-out validation loss."""
         valid_metrics = {}
         net = nn.DataParallel(self, device_ids=self.gpus)
         pbar = tqdm(loader, desc='Iterating over validation batches', leave=False)
@@ -540,21 +393,7 @@ class GraphTransformer(FragGenerator):
         return valid_metrics, scores
 
     def sample(self, loader: DataLoader) -> tuple[list[str], list[str]]:
-        """
-        Sample molecular graphs for input fragments and decode to SMILES.
-
-        Parameters
-        ----------
-        loader : DataLoader
-            DataLoader yielding source fragment graphs.
-
-        Returns
-        -------
-        smiles : list of str
-            Decoded generated molecule SMILES.
-        frags : list of str
-            Decoded input fragment SMILES.
-        """
+        """Sample molecular graphs for input fragments and decode to SMILES."""
         net = nn.DataParallel(self, device_ids=self.gpus)
         frags, smiles = [], []
         with torch.no_grad():
@@ -572,23 +411,7 @@ class GraphTransformer(FragGenerator):
         batch_size: int = 32,
         n_proc: int = 1
     ) -> DataLoader:
-        """
-        Encode fragment SMILES strings into a graph DataLoader.
-
-        Parameters
-        ----------
-        frags : list of str
-            List of chemical fragments in SMILES format.
-        batch_size : int, optional
-            Batch size for DataLoader iteration (default: 32).
-        n_proc : int, optional
-            Number of processes for parallel fragment graph encoding (default: 1).
-
-        Returns
-        -------
-        loader : DataLoader
-            PyTorch DataLoader yielding encoded fragment graph matrices.
-        """
+        """Encode fragment SMILES strings into a graph DataLoader."""
         encoder = FragmentCorpusEncoder(
             fragmenter=dummyMolsFromFragments(),
             encoder=GraphFragmentEncoder(self.voc_trg),
@@ -604,37 +427,9 @@ class GraphTransformer(FragGenerator):
         src: torch.Tensor,
         trg: torch.Tensor
     ) -> tuple[list[str], list[str]]:
-        """
-        Decode target generated graph tensors into fragment and molecule SMILES.
-
-        Parameters
-        ----------
-        src : torch.Tensor
-            Input source fragment tensor.
-        trg : torch.Tensor
-            Output generated graph tensor.
-
-        Returns
-        -------
-        frags : list of str
-            Decoded fragment SMILES strings.
-        smiles : list of str
-            Decoded completed molecule SMILES strings.
-        """
+        """Decode target generated graph tensors into fragment and molecule SMILES."""
         return self.voc_trg.decode(trg)
 
     def iterLoader(self, loader: DataLoader) -> DataLoader:
-        """
-        Return the loader directly for batch iteration.
-
-        Parameters
-        ----------
-        loader : DataLoader
-            Input graph DataLoader.
-
-        Returns
-        -------
-        loader : DataLoader
-            Iterable DataLoader.
-        """
+        """Return the loader directly for batch iteration."""
         return loader

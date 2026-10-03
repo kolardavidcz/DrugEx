@@ -3,6 +3,7 @@ import json
 import time
 import argparse
 
+# [PACKAGE: pandas] WHY: Tabular file I/O WHAT: Parses CSV/TSV molecular datasets and manages dataset splits
 import pandas as pd
 
 from drugex.logs.utils import enable_file_logger, backUpFiles
@@ -18,7 +19,7 @@ from drugex.data.fragments import FragmentPairsSplitter, SequenceFragmentEncoder
 from drugex.data.corpus.vocabulary import VocSmiles, VocGraph
     
 def DatasetArgParser():
-    
+    """Parse command-line arguments for dataset creation, molecular representations, and fragmentation strategies."""
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
     # I/O parameters
@@ -72,15 +73,7 @@ def DatasetArgParser():
     return args
 
 def load_molecules(base_dir, input_file):
-    """
-    Loads raw SMILES from input file and transform to rdkit molecule
-    Arguments:
-        base_dir (str)            : base directory, needs to contain a folder data with input file
-        input_file  (str)         : file containing SMILES, can be '(compressed) 'tsv' or 'csv' file
-    Returns:
-        mols (list)                : list of SMILES extracted from input_file
-    """
-    
+    """Load raw SMILES sequences from tabular CSV or TSV files, filtering missing values."""
     print('Loading molecules...')
     df = pd.read_csv(
         base_dir + '/data/' + input_file,
@@ -91,6 +84,8 @@ def load_molecules(base_dir, input_file):
     return df[args.molecule_column].tolist()
 
 class Dataset():
+    """Base dataset manager configuring output file paths and vocabulary initialization."""
+
     def __init__(self, args):
         # Set aatributes from args
         for key, value in args.__dict__.items():
@@ -98,15 +93,7 @@ class Dataset():
         self.file_base = os.path.join(self.base_dir, 'data', self.output)
 
     def setVocabulary(self):
-        """ 
-        Set up vocabulary for sequence-based datasets.    
-        Returns
-        -------
-        voc : VocSmiles or None
-            Vocabulary object
-        update_voc : bool
-            If True, update vocabulary
-        """
+        """Initialize or load SMILES token vocabulary for sequence-based dataset pipelines."""
         if self.voc_file:
             voc_path = os.path.join(self.base_dir, 'data', self.voc_file)
             voc = VocSmiles.fromFile(voc_path, not self.no_fragments, min_len=self.min_len)
@@ -118,6 +105,7 @@ class Dataset():
 
 
 class SequenceDataset(Dataset):
+    """Dataset manager for unfragmented linear SMILES corpora used in RNN generator training."""
 
     def __init__(self, args):
         super().__init__(args)
@@ -125,9 +113,7 @@ class SequenceDataset(Dataset):
         self.splitter = RandomTrainTestSplitter(0.1, 1e4)
 
     def __call__(self, smiles_list):
-
-        """ Prepare data for SMILES-based RNN generator """
-
+        """Encode SMILES strings into sequential tokens and split into train/test subsets."""
         # Set up vocabulary
         voc = self.setVocabulary()
 
@@ -157,6 +143,7 @@ class SequenceDataset(Dataset):
 
 
 class FragmentDataset(Dataset):
+    """Base class for fragment-derived molecular datasets configuring fragmentation and pair splitters."""
     
     def __init__(self, args):
         super().__init__(args)    
@@ -177,14 +164,7 @@ class FragmentDataset(Dataset):
             self.splitter = FragmentPairsSplitter(0.1, 1e4, make_unique=True, **pair_collectors) 
 
     def setPairCollectors(self):
-        """ 
-        Set up pair collectors for fragment-based datasets.    
-        Returns
-        -------
-        pair_collectors : dict
-            Dictionary containing pair collectors
-        """
-
+        """Configure intermediate file collectors for train, test, and unique fragment-molecule pairs."""
         pair_collectors = dict()
         if self.save_intermediate_files:
             pair_collectors['train_collector'] = lambda x : pd.DataFrame(x, columns=['Frags', 'SMILES']).to_csv(f'{self.file_base}_train.txt', sep='\t', index=False)
@@ -195,15 +175,15 @@ class FragmentDataset(Dataset):
 
 
 class FragSequenceDataset(FragmentDataset):
+    """Dataset manager for fragmented SMILES sequences used in sequence transformer training."""
+
     def __init__(self, args):
         super().__init__(args)        
         # Set up minimum molecule length
         self.min_len = 2 if self.scaffolds else 10
 
     def __call__(self, smiles_list):
-            
-        """ Prepare data for SMILES-based transformer generator """
-        
+        """Encode fragmented SMILES pairs into vocabulary indices and write subset corpora."""
         voc = self.setVocabulary()
         
         encoder = FragmentCorpusEncoder(
@@ -232,13 +212,13 @@ class FragSequenceDataset(FragmentDataset):
         encoder.apply(smiles_list, encodingCollectors=data_collectors)
 
 class FragGraphDataset(FragmentDataset):
+    """Dataset manager for fragmented molecular graph representations used in graph transformer training."""
+
     def __init__(self, args):
         super().__init__(args)
 
     def __call__(self, smiles_list):
-        
-        """ Prepare data for graph-based transformer generator """
-                
+        """Encode fragmented molecular graphs and serialize train, test, and unique graph corpora."""
         encoder = FragmentCorpusEncoder(
             fragmenter=self.fragmenter,
             encoder=GraphFragmentEncoder(

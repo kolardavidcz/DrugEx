@@ -5,10 +5,12 @@ https://1drv.ms/u/s!AtzWqu0inkjX3QRxXOkTFNv7IV7u?e=PPj0O2
 '''
 import os
 
+# [PACKAGE: pandas] WHY: Tabular ligand data loading and matrix reshaping. WHAT: Data analysis library.
 import pandas as pd
 from qsprpred.data import QSPRDataset
 from qsprpred.data.descriptors.fingerprints import MorganFP
 from qsprpred.models import SklearnModel
+# [PACKAGE: sklearn] WHY: Random Forest classifiers and regressors for QSAR property modeling. WHAT: scikit-learn library.
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.impute import SimpleImputer
 

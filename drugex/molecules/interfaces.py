@@ -4,6 +4,7 @@ from drugex.logs import logger
 from drugex.molecules.converters.interfaces import ConversionException
 
 class Molecule(ABC):
+    """Abstract base class representing a standardized chemical entity with annotations and unique identifiers."""
 
     @abstractmethod
     def annotate(self, key, value):
@@ -38,12 +39,7 @@ class ItemException(Exception):
     pass
 
 class MolSupplier(ABC):
-    """
-    Generic class that defines the interface for data suppliers from molecules. Implementations of this class
-    are used to wrap functionality that can be reused and evaluated in parallel with the `ParallelSupplierEvaluator`.
-
-    Suppliers are simply just Python generators that produce the desired output one item at a time. It is also possible to implement the `convert` method to customize the produced output.
-    """
+    """Abstract generator interface supplying molecules item-by-item with optional conversion and exception filtering."""
 
     def __iter__(self):
         return self
@@ -65,34 +61,11 @@ class MolSupplier(ABC):
 
     @abstractmethod
     def next(self):
-        """
-        Implement this method so that it provides iteration over molecules item by item. It should fetch next item from a generator, line from a file or next item from a remote API. If there are no more items, raise `StopIteration`.
-
-        Raises:
-            StopIteration:  no more items to  return
-
-        Returns:
-            molecule: one instance of a molecule
-            annotations (optional): molecule associated metadata as a `dict`
-        """
-
+        """Fetch the next molecule representation item or raise StopIteration when exhausted."""
         pass
 
     def convert(self, representation):
-        """
-        Can be used to convert a molecule from the supplied representation to a different one. This method is called automatically on the output of `next`. By default, it returns the produced representation as is.
-
-        Parameters
-        ----------
-        representation - the output produced by `next`
-
-        Returns
-        -------
-
-        molecule - molecule converted from "representation" to the desired output
-
-        """
-
+        """Convert the supplied raw representation to the target molecule format (identity by default)."""
         return representation
 
     def toList(self):
@@ -100,22 +73,14 @@ class MolSupplier(ABC):
 
 
 class BaseMolSupplier(MolSupplier, ABC):
-    """
-    Extended `MolSupplier` that produces instances of `DrExMol` that implements identification of duplicates and other useful features.
-
-    """
+    """Molecule supplier wrapping a converter to emit Molecule instances with optional deduplication."""
 
     def __init__(
             self,
             converter,
             hide_duplicates=False
     ):
-        """
-
-        Args:
-            converter: a `MolConverter` that produces an instance of `Molecule` from the given input.
-            hide_duplicates: If `True`, the returned instances will be tested on uniqueness and only the first encountered item will be processed.
-        """
+        """Initialize base supplier with target molecule converter and deduplication flag."""
         super().__init__()
         self.converter = converter
         self.hide_duplicates = hide_duplicates
@@ -137,6 +102,7 @@ class BaseMolSupplier(MolSupplier, ABC):
         return mol
 
     def convert(self, representation):
+        """Apply converter to raw representation, raising ConversionException if output is empty."""
         ret = self.converter(representation)
         if not ret:
             raise ConversionException(f"Converter returned an empty molecule instance for representation: {representation}")

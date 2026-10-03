@@ -1,24 +1,12 @@
-"""
-THESE FUNCTIONS WERE ADDED BY HELLE FROM:
-https://github.com/BenevolentAI/guacamol/blob/8247bbd5e927fbc3d328865d12cf83cb7019e2d6/guacamol/utils/data.py#L11
-to solve AttributeError: module 'utils' has no attribute 'canonicalize_list'
-"""
+"""Guacamol-derived molecule processing utilities for SMILES canonicalization and deduplication."""
 from typing import Optional, Iterable, List
 
+# [PACKAGE: rdkit] WHY: Cheminformatics engine WHAT: Parses SMILES to molecules and renders canonical SMILES
 from rdkit import Chem
 
 
 def canonicalize(smiles: str, include_stereocenters=True) -> Optional[str]:
-    """
-    Canonicalize the SMILES strings with RDKit.
-    The algorithm is detailed under https://pubs.acs.org/doi/full/10.1021/acs.jcim.5b00543
-    Args:
-        smiles: SMILES string to canonicalize
-        include_stereocenters: whether to keep the stereochemical information in the canonical SMILES string
-    Returns:
-        Canonicalized SMILES string, None if the molecule is invalid.
-    """
-
+    """Canonicalize a SMILES string using RDKit, preserving optional stereochemistry and returning None if invalid."""
     mol = Chem.MolFromSmiles(smiles)
 
     if mol is not None:
@@ -27,15 +15,7 @@ def canonicalize(smiles: str, include_stereocenters=True) -> Optional[str]:
         return None
 
 def remove_duplicates(list_with_duplicates):
-    """
-    Removes the duplicates and keeps the ordering of the original list.
-    For duplicates, the first occurrence is kept and the later occurrences are ignored.
-    Args:
-        list_with_duplicates: list that possibly contains duplicates
-    Returns:
-        A list with no duplicates.
-    """
-
+    """Deduplicate an iterable while preserving the first-seen insertion order."""
     unique_set = set()
     unique_list = []
     for element in list_with_duplicates:
@@ -46,15 +26,7 @@ def remove_duplicates(list_with_duplicates):
     return unique_list
 
 def canonicalize_list(smiles_list: Iterable[str], include_stereocenters=True) -> List[str]:
-    """
-    Canonicalize a list of smiles. Filters out repetitions and removes corrupted molecules.
-    Args:
-        smiles_list: molecules as SMILES strings
-        include_stereocenters: whether to keep the stereochemical information in the canonical SMILES strings
-    Returns:
-        The canonicalized and filtered input smiles.
-    """
-
+    """Canonicalize, filter unparseable entries, and deduplicate an iterable of SMILES strings."""
     canonicalized_smiles = [canonicalize(smiles, include_stereocenters) for smiles in smiles_list]
 
     # Remove None elements

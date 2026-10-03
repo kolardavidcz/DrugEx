@@ -16,9 +16,13 @@ from typing import (
     Union,
 )
 
+# [PACKAGE: numpy] WHY: Array operations for token sequences and action matrices. WHAT: Zero-filled matrices and index concatenation.
 import numpy as np
+# [PACKAGE: pandas] WHY: Tabular file I/O for vocabulary export/import. WHAT: Reading and writing TSV vocabulary files.
 import pandas as pd
+# [PACKAGE: PyTorch] WHY: Tensor data structures for model input batches. WHAT: LongTensor allocation and manipulation.
 import torch
+# [PACKAGE: RDKit] WHY: Molecular manipulation and substructure queries. WHAT: Atom/bond querying, kekulization, fragmentation, and SMILES generation.
 from rdkit import Chem
 
 from drugex.data.corpus.interfaces import SequenceVocabulary, Vocabulary
@@ -33,17 +37,6 @@ class VocSmiles(SequenceVocabulary):
     maps tokens to discrete integer indices, and converts tensors back into canonical SMILES.
     Also handles replacement of multi-character halogens (`'Cl'` -> `'L'`, `'Br'` -> `'R'`)
     for uniform single-token processing.
-
-    Parameters
-    ----------
-    encode_frags : bool, optional
-        Whether to include fragment-specific tokens (`'_'`), by default False.
-    words : Sequence[str], optional
-        Initial word/token list, by default `defaultWords`.
-    max_len : int, optional
-        Maximum sequence token length, by default 100.
-    min_len : int, optional
-        Minimum sequence token length, by default 10.
     """
 
     defaultWords: Tuple[str, ...] = (
@@ -64,36 +57,11 @@ class VocSmiles(SequenceVocabulary):
         max_len: int = 100,
         min_len: int = 10,
     ) -> None:
-        """Initialize the SMILES vocabulary.
-
-        Parameters
-        ----------
-        encode_frags : bool, optional
-            Whether to support fragment delimiter tokens, by default False.
-        words : Sequence[str], optional
-            Tokens included in vocabulary, by default defaultWords.
-        max_len : int, optional
-            Max allowed sequence length, by default 100.
-        min_len : int, optional
-            Min allowed sequence length, by default 10.
-        """
+        """Initialize SMILES vocabulary with token words, sequence length bounds, and fragment control tokens."""
         super().__init__(encode_frags, words, min_len=min_len, max_len=max_len)
 
     def encode(self, tokens: Sequence[Sequence[str]], frags: Any = None) -> torch.LongTensor:
-        """Encode a batch of tokenized sequences into a 2D integer tensor.
-
-        Parameters
-        ----------
-        tokens : Sequence[Sequence[str]]
-            List of token sequences (e.g. `[['C', 'C', '(=O)', 'O'], ...]`).
-        frags : Any, optional
-            Fragment constraints (unused).
-
-        Returns
-        -------
-        torch.LongTensor
-            Tensor of shape `(len(tokens), max_len)` with token indices padded with 0.
-        """
+        """Encode a batch of tokenized sequences into a 2D integer tensor."""
         output = torch.zeros(len(tokens), self.max_len, dtype=torch.long)
         for i, seq in enumerate(tokens):
             for j, char in enumerate(seq):
@@ -107,24 +75,7 @@ class VocSmiles(SequenceVocabulary):
         is_tk: bool = True,
         is_smiles: bool = True,
     ) -> str:
-        """Decode a sequence of integer token indices back into a SMILES string.
-
-        Parameters
-        ----------
-        tensor : Union[torch.Tensor, Sequence[int]]
-            1D array or tensor of token indices.
-        is_tk : bool, optional
-            Whether elements are already token strings (True) or integer indices (False),
-            by default True.
-        is_smiles : bool, optional
-            Whether to reconstruct halogen symbols (`'L'` -> `'Cl'`, `'R'` -> `'Br'`),
-            by default True.
-
-        Returns
-        -------
-        str
-            Reconstructed SMILES string truncated at `'EOS'`.
-        """
+        """Decode a sequence of integer token indices back into a SMILES string."""
         tokens: List[str] = []
         for token_item in tensor:
             if not is_tk:
@@ -145,33 +96,11 @@ class VocSmiles(SequenceVocabulary):
         return seqs
 
     def parseDecoded(self, smiles: str) -> str:
-        """Substitute single-letter halogen placeholders back into valid SMILES elements.
-
-        Parameters
-        ----------
-        smiles : str
-            Internal SMILES containing 'L' for Cl and 'R' for Br.
-
-        Returns
-        -------
-        str
-            Standard SMILES with 'Cl' and 'Br'.
-        """
+        """Substitute single-letter halogen placeholders ('L', 'R') back into valid SMILES elements ('Cl', 'Br')."""
         return smiles.replace("L", "Cl").replace("R", "Br")
 
     def splitSequence(self, smile: str) -> List[str]:
-        """Split a SMILES string into tokens, replacing halogens and parsing bracket atoms.
-
-        Parameters
-        ----------
-        smile : str
-            Input SMILES string.
-
-        Returns
-        -------
-        List[str]
-            List of discrete tokens terminated with `'EOS'`.
-        """
+        """Split a SMILES string into discrete character and bracket tokens, normalizing halogens and appending EOS."""
         regex = r"(\[[^\[\]]{1,6}\])"
         normalized_smile = smile.replace("Cl", "L").replace("Br", "R")
         tokens: List[str] = []
@@ -192,43 +121,13 @@ class VocSmiles(SequenceVocabulary):
         min_len: int = 10,
         max_len: int = 100,
     ) -> VocSmiles:
-        """Load vocabulary words from a whitespace-separated file.
-
-        Parameters
-        ----------
-        path : Union[str, os.PathLike, Path]
-            Path to vocabulary file.
-        encode_frags : bool, optional
-            Whether to support fragment delimiter tokens, by default False.
-        min_len : int, optional
-            Min sequence length, by default 10.
-        max_len : int, optional
-            Max sequence length, by default 100.
-
-        Returns
-        -------
-        VocSmiles
-            Initialized SMILES vocabulary instance.
-        """
+        """Load vocabulary tokens from a whitespace-separated text file."""
         with open(path, "r") as f:
             words = f.read().split()
             return VocSmiles(encode_frags, words, max_len=max_len, min_len=min_len)
 
     def calc_voc_fp(self, smiles: Sequence[str], prefix: Optional[str] = None) -> np.ndarray:
-        """Calculate vocabulary token fingerprint arrays for a batch of SMILES.
-
-        Parameters
-        ----------
-        smiles : Sequence[str]
-            List of SMILES strings.
-        prefix : Optional[str], optional
-            Optional prefix token to prepend to each sequence, by default None.
-
-        Returns
-        -------
-        np.ndarray
-            2D integer numpy array of shape `(len(smiles), max_len)`.
-        """
+        """Calculate vocabulary token fingerprint arrays for a batch of cleaned SMILES sequences."""
         fps = np.zeros((len(smiles), self.max_len), dtype=np.long)
         cleaner = CleanSMILES()
         for i, smile in enumerate(smiles):
@@ -250,24 +149,7 @@ class VocSmiles(SequenceVocabulary):
 
 
 class VocNonGPT(VocSmiles):
-    """Vocabulary variant for legacy sequence models (`Seq2Seq` and `EncDec`).
-
-    Supports asymmetric source and target sequence lengths (`src_len` vs `trg_len`)
-    and vertical pipe prefixes for source tokens.
-
-    Parameters
-    ----------
-    words : Sequence[str]
-        Base token words.
-    src_len : int, optional
-        Source sequence maximum length, by default 1000.
-    trg_len : int, optional
-        Target sequence maximum length, by default 100.
-    max_len : int, optional
-        Maximum length fallback, by default 100.
-    min_len : int, optional
-        Minimum length, by default 10.
-    """
+    """Vocabulary variant for legacy sequence models (`Seq2Seq` and `EncDec`) with asymmetric lengths."""
 
     def __init__(
         self,
@@ -277,41 +159,13 @@ class VocNonGPT(VocSmiles):
         max_len: int = 100,
         min_len: int = 10,
     ) -> None:
-        """Initialize the VocNonGPT vocabulary.
-
-        Parameters
-        ----------
-        words : Sequence[str]
-            Base tokens.
-        src_len : int, optional
-            Source sequence length limit, by default 1000.
-        trg_len : int, optional
-            Target sequence length limit, by default 100.
-        max_len : int, optional
-            Max length fallback, by default 100.
-        min_len : int, optional
-            Min length, by default 10.
-        """
+        """Initialize legacy sequence vocabulary with separate source and target length limits."""
         super().__init__(False, words, max_len=max_len, min_len=min_len)
         self.src_len = src_len
         self.trg_len = trg_len
 
     def encode(self, input: Sequence[Sequence[str]], is_smiles: bool = True) -> torch.LongTensor:
-        """Encode sequences according to source or target mode.
-
-        Parameters
-        ----------
-        input : Sequence[Sequence[str]]
-            Token sequences to encode.
-        is_smiles : bool, optional
-            If True, uses target length and standard tokens; if False, uses source length,
-            by default True.
-
-        Returns
-        -------
-        torch.LongTensor
-            Encoded integer tensor.
-        """
+        """Encode sequences according to source (prefixed) or target (standard) sequence lengths."""
         seq_len = self.trg_len if is_smiles else self.src_len
         output = torch.zeros(len(input), seq_len, dtype=torch.long)
         for i, seq in enumerate(input):
@@ -328,22 +182,7 @@ class VocNonGPT(VocSmiles):
         is_smiles: bool = True,
         is_tk: bool = False,
     ) -> str:
-        """Decode index matrix back into a SMILES string.
-
-        Parameters
-        ----------
-        matrix : Union[torch.Tensor, Sequence[int]]
-            Indices to decode.
-        is_smiles : bool, optional
-            Whether to parse halogen substitutions, by default True.
-        is_tk : bool, optional
-            Whether elements are already token strings, by default False.
-
-        Returns
-        -------
-        str
-            Decoded SMILES string.
-        """
+        """Decode index matrix back into a SMILES string, handling halogen substitutions and pipe prefixes."""
         chars = super().decode(matrix, is_tk=is_tk, is_smiles=is_smiles)
         seqs = "".join(chars)
         if is_smiles:
@@ -360,26 +199,7 @@ class VocNonGPT(VocSmiles):
         max_len: int = 100,
         min_len: int = 10,
     ) -> VocNonGPT:
-        """Load legacy sequence vocabulary from a text file.
-
-        Parameters
-        ----------
-        path : Union[str, os.PathLike, Path]
-            Path to vocabulary file.
-        src_len : int, optional
-            Source sequence length, by default 1000.
-        trg_len : int, optional
-            Target sequence length, by default 100.
-        max_len : int, optional
-            Max length, by default 100.
-        min_len : int, optional
-            Min length, by default 10.
-
-        Returns
-        -------
-        VocNonGPT
-            Initialized vocabulary instance.
-        """
+        """Load legacy sequence vocabulary from a text file."""
         with open(path, "r") as f:
             words = f.read().split()
             return VocNonGPT(words, src_len=src_len, trg_len=trg_len, max_len=max_len, min_len=min_len)
@@ -390,15 +210,6 @@ class VocGraph(Vocabulary):
 
     Encodes molecules into atom valence state tokens (e.g. `'4C'`, `'3O+'`, `'1Cl'`),
     formal charges, bond connectivity indices, and fragment attachment flags.
-
-    Parameters
-    ----------
-    words : Sequence[str], optional
-        Initial list of atom-valence words, by default `defaultWords`.
-    max_len : int, optional
-        Maximum number of graph action steps, by default 80.
-    n_frags : int, optional
-        Maximum number of scaffold fragment components, by default 4.
     """
 
     defaultWords: Tuple[str, ...] = (
@@ -414,17 +225,7 @@ class VocGraph(Vocabulary):
         max_len: int = 80,
         n_frags: int = 4,
     ) -> None:
-        """Initialize graph vocabulary.
-
-        Parameters
-        ----------
-        words : Sequence[str], optional
-            Atom-valence words, by default defaultWords.
-        max_len : int, optional
-            Maximum action steps, by default 80.
-        n_frags : int, optional
-            Max scaffold fragments, by default 4.
-        """
+        """Initialize graph vocabulary with atom-valence tokens, max action steps, and fragment capacity."""
         super().__init__(words)
         self.control: Tuple[str, ...] = ("EOS", "GO")
         cleaned_words: List[str] = [x for x in words if x not in self.control]
@@ -460,18 +261,7 @@ class VocGraph(Vocabulary):
 
     @staticmethod
     def parseWord(word: str) -> Tuple[str, int, int, int, str]:
-        """Parse an atom-valence word into elemental and charge metadata.
-
-        Parameters
-        ----------
-        word : str
-            Atom-valence string (e.g. `'4C'`, `'3O+'`, `'*'`).
-
-        Returns
-        -------
-        Tuple[str, int, int, int, str]
-            `(element_with_charge, valence, charge_number, atomic_number, original_word)`
-        """
+        """Parse an atom-valence word into elemental and charge metadata."""
         if word == "*":
             return "*", 0, 0, 0, "*"
         match_val = re.search(r"[0-9]", word)
@@ -495,24 +285,7 @@ class VocGraph(Vocabulary):
         max_len: int = 80,
         n_frags: int = 4,
     ) -> VocGraph:
-        """Load graph vocabulary from a TSV file.
-
-        Parameters
-        ----------
-        path : Union[str, os.PathLike, Path]
-            Path to TSV file.
-        word_col : str, optional
-            Column name containing token words, by default 'Word'.
-        max_len : int, optional
-            Maximum action steps, by default 80.
-        n_frags : int, optional
-            Fragment capacity, by default 4.
-
-        Returns
-        -------
-        VocGraph
-            Loaded graph vocabulary instance.
-        """
+        """Load graph vocabulary from a TSV file."""
         df = pd.read_table(path)
         return VocGraph.fromDataFrame(df, word_col=word_col, max_len=max_len, n_frags=n_frags)
 
@@ -523,79 +296,26 @@ class VocGraph(Vocabulary):
         max_len: int = 80,
         n_frags: int = 4,
     ) -> VocGraph:
-        """Instantiate graph vocabulary from a pandas DataFrame.
-
-        Parameters
-        ----------
-        df : pd.DataFrame
-            DataFrame containing token column.
-        word_col : str, optional
-            Column name, by default 'Word'.
-        max_len : int, optional
-            Max steps, by default 80.
-        n_frags : int, optional
-            Max fragments, by default 4.
-
-        Returns
-        -------
-        VocGraph
-            Graph vocabulary instance.
-        """
+        """Instantiate graph vocabulary from a pandas DataFrame."""
         return VocGraph(df[word_col].tolist(), max_len=max_len, n_frags=n_frags)
 
     def toFile(self, path: Union[str, os.PathLike[str], Path]) -> None:
-        """Save vocabulary words and parsed atom properties to a TSV file.
-
-        Parameters
-        ----------
-        path : Union[str, os.PathLike, Path]
-            Output file path.
-        """
+        """Save vocabulary words and parsed atom properties to a TSV file."""
         self.toDataFrame().to_csv(path, index=False, sep="\t")
 
     def toDataFrame(self) -> pd.DataFrame:
-        """Export parsed vocabulary words into a structured pandas DataFrame.
-
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with columns `['Ele', 'Val', 'Ch', 'Nr', 'Word']`.
-        """
+        """Export parsed vocabulary words into a structured pandas DataFrame."""
         return pd.DataFrame(self.wordsParsed, columns=["Ele", "Val", "Ch", "Nr", "Word"])
 
     def get_atom_tk(self, atom: Chem.Atom) -> int:
-        """Compute the vocabulary index corresponding to an RDKit Atom's valence state.
-
-        Parameters
-        ----------
-        atom : Chem.Atom
-            RDKit atom instance.
-
-        Returns
-        -------
-        int
-            Vocabulary token index.
-        """
+        """Compute the vocabulary index corresponding to an RDKit Atom's valence state."""
         sb = atom.GetSymbol() + self.E[atom.GetFormalCharge()]
         val = atom.GetExplicitValence() + atom.GetImplicitValence()
         tk = str(val) + sb
         return self.tk2ix[tk]
 
     def encode(self, smiles: Sequence[str], subs: Optional[Sequence[str]] = None) -> np.ndarray:
-        """Encode molecules and scaffold fragments into 5-tuple graph construction actions.
-
-        Parameters
-        ----------
-        smiles : Sequence[str]
-            Sequence of SMILES strings.
-        subs : Optional[Sequence[str]], optional
-            Corresponding scaffold fragment SMILES strings, by default None.
-
-        Returns
-        -------
-        np.ndarray
-            3D integer numpy array of graph action tuples: `(atom_tk, curr_atom, prev_atom, bond_type, frag_flag)`.
-        """
+        """Encode molecules and scaffold fragments into 5-tuple graph construction actions."""
         if not subs:
             raise RuntimeError(f"Fragments must be specified for VocGraph.encode, got {subs} instead")
 
@@ -683,18 +403,7 @@ class VocGraph(Vocabulary):
         return np.concatenate([output, connect], axis=1)
 
     def decode(self, matrix: Union[np.ndarray, torch.Tensor]) -> Tuple[List[str], List[str]]:
-        """Decode graph construction action matrices into reconstructed fragment and molecule SMILES.
-
-        Parameters
-        ----------
-        matrix : Union[np.ndarray, torch.Tensor]
-            3D matrix of action tuples `(atom, curr_atom, prev_atom, bond, frag)`.
-
-        Returns
-        -------
-        Tuple[List[str], List[str]]
-            `(fragments_smiles_list, molecule_smiles_list)`
-        """
+        """Decode graph construction action matrices into reconstructed fragment and molecule SMILES."""
         frags: List[str] = []
         smiles: List[str] = []
         for _, adj in enumerate(matrix):

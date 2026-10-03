@@ -1,4 +1,6 @@
+# [PACKAGE: pandas] WHY: Tabular evaluation DataFrame construction. WHAT: Data manipulation library.
 import pandas as pd
+# [PACKAGE: rdkit] WHY: Chemical SMILES parsing into Mol objects. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
 from drugex.training.interfaces import Environment
@@ -6,30 +8,11 @@ from drugex.training.scorers.smiles import SmilesChecker
 
 
 class DrugExEnvironment(Environment):
-    """
-    Original implementation of the environment scoring strategy for DrugEx v3.
-
-    """
+    """Reinforcement learning environment coordinating objective scorers, validity checks, and desirability evaluation."""
 
     def getScores(self, smiles, frags=None, no_multifrag_smiles=True):
 
-        """
-        This method is used to get the scores from the scorers and to check molecule validity and desireability.
-        
-        Parameters
-        ----------
-        smiles : list of str
-            List of SMILES strings to score.
-        frags : list of str, optional
-            List of SMILES strings of fragments to check for.
-        no_multifrag_smiles : bool, optional
-            Whether to check for SMILES strings that contain more than one fragment.
-        
-        Returns
-        -------
-        scores : pd.DataFrame
-            Dataframe with the scores from the scorers and the validity and desireability of the molecules.
-        """
+        """Evaluate molecule validity, fragment constraints, and multi-objective desirability across SMILES."""
         mols = [Chem.MolFromSmiles(s) if s != '' else None for s in smiles]
         
         # Check molecule validity and accuracy
@@ -52,19 +35,7 @@ class DrugExEnvironment(Environment):
 
     def getUnmodifiedScores(self, smiles):
 
-        """
-        This method is used to get the scores from the scorers without any modifications.
-        
-        Parameters
-        ----------
-        smiles : list of str
-            List of SMILES strings to score.
-        
-        Returns
-        -------
-        preds : pd.DataFrame
-            Dataframe with the scores from the scorers.
-        """
+        """Compute raw, unthresholded multi-objective scores directly from underlying scorers."""
         
         preds = {}
         mols = [Chem.MolFromSmiles(s) for s in smiles]

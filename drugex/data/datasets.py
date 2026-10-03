@@ -7,8 +7,11 @@ from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Tuple, Type, Union
 
+# [PACKAGE: numpy] WHY: Array conversions and tensor conversions. WHAT: Zero-filled arrays and type casting.
 import numpy as np
+# [PACKAGE: pandas] WHY: Tabular deduplication. WHAT: Series drop_duplicates for unique sequences.
 import pandas as pd
+# [PACKAGE: PyTorch] WHY: Tensor representations and DataLoader batching. WHAT: Tensor conversion and Dataset/DataLoader classes.
 import torch
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 
@@ -29,78 +32,28 @@ class SmilesDataSet(DataSet):
     columns: Tuple[str, str] = ('Smiles', 'Token')
 
     def __init__(self, path: Union[str, os.PathLike, Path], voc: Optional[VocSmiles] = None, rewrite: bool = False) -> None:
-        """Initialize the SMILES dataset.
-
-        Parameters
-        ----------
-        path : str or Path
-            Filesystem path to the dataset file.
-        voc : VocSmiles, optional
-            Vocabulary mapping SMILES tokens to indices. If None, defaults to `VocSmiles(False)`.
-        rewrite : bool, optional
-            Whether to overwrite existing dataset files at `path` (default: False).
-        """
+        """Initialize the encoded SMILES dataset and its token vocabulary."""
         super().__init__(path, rewrite=rewrite)
         self.setVoc(voc if voc else VocSmiles(False))
 
     @staticmethod
     def dataToLoader(data: np.ndarray, batch_size: int, vocabulary: VocSmiles) -> DataLoader:
-        """Convert a 2D NumPy array of token indices into a PyTorch DataLoader.
-
-        Parameters
-        ----------
-        data : np.ndarray
-            Integer matrix of encoded SMILES sequences of shape `(n_samples, max_len)`.
-        batch_size : int
-            Number of samples per mini-batch.
-        vocabulary : VocSmiles
-            Vocabulary defining sequence dimensions and padding.
-
-        Returns
-        -------
-        loader : DataLoader
-            PyTorch DataLoader yielding token index tensors.
-        """
+        """Convert a 2D NumPy array of token indices into a PyTorch DataLoader."""
         dataset = torch.from_numpy(data).long().view(len(data), vocabulary.max_len)
         loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, shuffle=True)
         return loader
 
     def __call__(self, result: Tuple[Sequence[Any], Any]) -> None:
-        """Collect and append encoded sequences generated from `SequenceCorpus`.
-
-        Parameters
-        ----------
-        result : tuple
-            A tuple `(encoded_data, corpus_instance)` where `encoded_data` is a list of encoded
-            sequences and `corpus_instance` provides the active vocabulary.
-        """
+        """Collect and append encoded sequences generated from SequenceCorpus to the TSV file."""
         self.updateVoc(result[1].getVoc())
         self.sendDataToFile(result[0], columns=self.getColumns())
 
     def getColumns(self) -> List[str]:
-        """Generate TSV column header names corresponding to sequence positions.
-
-        Returns
-        -------
-        columns : list of str
-            Column names `'C0'`, `'C1'`, ..., `'C{max_len-1}'`.
-        """
+        """Generate TSV column header names corresponding to sequence positions."""
         return ['C%d' % d for d in range(self.getVoc().max_len)]
 
     def readVocs(self, paths: Sequence[Union[str, os.PathLike[str], Path]], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any) -> None:
-        """Read and combine vocabulary files into the active vocabulary.
-
-        Parameters
-        ----------
-        paths : sequence of (str or Path)
-            Paths to vocabulary files.
-        voc_class : type of VocSmiles
-            Vocabulary class to instantiate.
-        *args : Any
-            Positional arguments forwarded to `voc_class.fromFile`.
-        **kwargs : Any
-            Keyword arguments forwarded to `voc_class.fromFile`.
-        """
+        """Read and combine vocabulary files into the active dataset vocabulary."""
         super().readVocs(paths, voc_class=voc_class, *args, **kwargs)
 
 
@@ -155,33 +108,12 @@ class SmilesFragDataSet(DataSet):
         save_voc: bool = True,
         voc_file: Optional[str] = None
     ) -> None:
-        """Initialize the fragment-molecule SMILES dataset.
-
-        Parameters
-        ----------
-        path : str
-            Filesystem path to the dataset file.
-        voc : VocSmiles, optional
-            Active SMILES vocabulary. If None, defaults to `VocSmiles(True)` with fragment tokens.
-        rewrite : bool, optional
-            Whether to overwrite existing dataset files at `path` (default: False).
-        save_voc : bool, optional
-            Whether to persist the vocabulary to disk alongside the dataset (default: True).
-        voc_file : str, optional
-            Custom path to save the vocabulary file (default: None).
-        """
+        """Initialize the fragment-molecule SMILES dataset and its fragment-aware vocabulary."""
         super().__init__(path, rewrite=rewrite, save_voc=save_voc, voc_file=voc_file)
         self.voc = voc if voc else VocSmiles(True)
 
     def __call__(self, result: Tuple[Sequence[Any], Any]) -> None:
-        """Collect encoded fragment-molecule pairs from `FragmentCorpusEncoder`.
-
-        Parameters
-        ----------
-        result : tuple
-            A tuple `(pairs_data, supplier)` where `pairs_data` contains encoded fragment-molecule
-            tuples and `supplier` provides the active vocabulary.
-        """
+        """Collect encoded fragment-molecule pairs from FragmentCorpusEncoder and write to disk."""
         self.updateVoc(result[1].encoder.getVoc())
         self.sendDataToFile([list(chain.from_iterable(x)) for x in result[0]], columns=self.getColumns())
 
@@ -192,24 +124,7 @@ class SmilesFragDataSet(DataSet):
         splitter: Optional[DataSplitter] = None,
         converter: Optional[Callable[[np.ndarray, int, VocSmiles], DataLoader]] = None
     ) -> List[Any]:
-        """Split data and construct PyTorch DataLoaders for each partition.
-
-        Parameters
-        ----------
-        data : np.ndarray
-            Dataset array to partition and convert.
-        batch_size : int
-            Number of samples per mini-batch.
-        splitter : DataSplitter, optional
-            Splitter strategy to partition data (e.g. train/test).
-        converter : callable, optional
-            Function converting raw split arrays into DataLoaders.
-
-        Returns
-        -------
-        loaders : list of DataLoader or np.ndarray
-            List of created DataLoaders for each partition.
-        """
+        """Split data and construct PyTorch DataLoaders for each partition."""
         splits = []
         if splitter:
             splits = splitter(data)
@@ -219,22 +134,7 @@ class SmilesFragDataSet(DataSet):
 
     @staticmethod
     def dataToLoader(data: np.ndarray, batch_size: int, vocabulary: VocSmiles) -> DataLoader:
-        """Convert concatenated fragment and molecule embeddings into a PyTorch DataLoader.
-
-        Parameters
-        ----------
-        data : np.ndarray
-            Array of shape `(n_samples, 2 * max_len)` containing concatenated fragment and molecule indices.
-        batch_size : int
-            Batch size for DataLoader.
-        vocabulary : VocSmiles
-            Vocabulary defining sequence dimensions.
-
-        Returns
-        -------
-        loader : DataLoader
-            DataLoader yielding `(molecule_tensor, fragment_tensor)` batches.
-        """
+        """Convert concatenated fragment and molecule embeddings into a PyTorch DataLoader."""
         dataset = TensorDataset(
             torch.from_numpy(data[:, :vocabulary.max_len]).long().view(len(data), vocabulary.max_len),
             torch.from_numpy(data[:, vocabulary.max_len:]).long().view(len(data), vocabulary.max_len)
@@ -243,29 +143,11 @@ class SmilesFragDataSet(DataSet):
         return loader
 
     def getColumns(self) -> List[str]:
-        """Generate TSV column header names for concatenated fragment and molecule sequences.
-
-        Returns
-        -------
-        columns : list of str
-            Column names `'C0'`, ..., `'C{2*max_len-1}'`.
-        """
+        """Generate TSV column header names for concatenated fragment and molecule sequences."""
         return ['C%d' % d for d in range(self.getVoc().max_len * 2)]
 
     def readVocs(self, paths: Sequence[Union[str, os.PathLike[str], Path]], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any) -> None:
-        """Read and combine vocabulary files into the active vocabulary.
-
-        Parameters
-        ----------
-        paths : sequence of (str or Path)
-            Paths to vocabulary files.
-        voc_class : type of VocSmiles
-            Vocabulary class to instantiate.
-        *args : Any
-            Positional arguments forwarded to `voc_class.fromFile`.
-        **kwargs : Any
-            Keyword arguments forwarded to `voc_class.fromFile`.
-        """
+        """Read and combine vocabulary files into the active dataset vocabulary."""
         super().readVocs(paths, voc_class=voc_class, *args, **kwargs)
 
 
@@ -284,65 +166,23 @@ class GraphFragDataSet(DataSet):
         save_voc: bool = True,
         voc_file: Optional[str] = None
     ) -> None:
-        """Initialize the graph fragment dataset.
-
-        Parameters
-        ----------
-        path : str
-            Filesystem path to the dataset file.
-        voc : VocGraph, optional
-            Graph vocabulary defining atom, bond, and loci tokens. If None, defaults to `VocGraph()`.
-        rewrite : bool, optional
-            Whether to overwrite existing dataset files at `path` (default: False).
-        save_voc : bool, optional
-            Whether to persist the vocabulary to disk alongside the dataset (default: True).
-        voc_file : str, optional
-            Custom path to save the vocabulary file (default: None).
-        """
+        """Initialize the graph fragment dataset and its action vocabulary."""
         super().__init__(path, rewrite=rewrite, save_voc=save_voc, voc_file=voc_file)
         self.voc = voc if voc else VocGraph()
 
     def __call__(self, result: Tuple[Sequence[Any], Any]) -> None:
-        """Collect encoded graph actions from `FragmentCorpusEncoder`.
-
-        Parameters
-        ----------
-        result : tuple
-            A tuple `(pairs_data, supplier)` where `pairs_data` contains encoded graph action
-            tuples and `supplier` provides the active graph vocabulary.
-        """
+        """Collect encoded graph actions from FragmentCorpusEncoder and append to disk."""
         self.updateVoc(result[1].encoder.getVoc())
         data = [x[0] for x in result[0]]
         self.sendDataToFile(data, columns=self.getColumns())
 
     def getColumns(self) -> List[str]:
-        """Generate TSV column header names for 5-tuple graph action sequences.
-
-        Returns
-        -------
-        columns : list of str
-            Column names `'C0'`, ..., `'C{5*max_len-1}'`.
-        """
+        """Generate TSV column header names for 5-tuple graph action sequences."""
         return ['C%d' % d for d in range(self.getVoc().max_len * 5)]
 
     @staticmethod
     def dataToLoader(data: np.ndarray, batch_size: int, vocabulary: VocGraph) -> DataLoader:
-        """Convert a 2D/3D NumPy array of graph action encodings into a PyTorch DataLoader.
-
-        Parameters
-        ----------
-        data : np.ndarray
-            Array of graph action encodings.
-        batch_size : int
-            Number of samples per mini-batch.
-        vocabulary : VocGraph
-            Vocabulary defining graph length capacity.
-
-        Returns
-        -------
-        loader : DataLoader
-            PyTorch DataLoader yielding graph action tensors.
-        """
+        """Convert a 2D/3D NumPy array of graph action encodings into a PyTorch DataLoader."""
         dataset = torch.from_numpy(data).long().view(len(data), vocabulary.max_len, -1)
         loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, shuffle=True)
         return loader

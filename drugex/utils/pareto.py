@@ -1,20 +1,10 @@
+# [PACKAGE: numpy] WHY: Array operations WHAT: Vectorized indexing and boolean mask operations for non-dominated sorting
 import numpy as np
+# [PACKAGE: torch] WHY: Tensor compatibility WHAT: PyTorch library in module namespace
 import torch
 
 def get_Pareto_fronts(scores):
-    """Identify the Pareto fronts from a given set of scores.
-    
-    Parameters
-    ----------
-    scores : numpy.ndarray
-        An (n_points, n_scores) array of scores.
-            
-    Returns
-    -------
-    list of numpy.ndarray
-        A list containing the indices of points belonging to each Pareto front.
-    """
-    
+    """Identify non-dominated Pareto fronts iteratively by index from an (n_points, n_scores) score array."""
     # Initialize
     population_size = scores.shape[0]
     population_ids = np.arange(population_size)

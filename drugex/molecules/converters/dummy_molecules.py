@@ -1,3 +1,4 @@
+# [PACKAGE: rdkit] WHY: Fragment modification, hydrogen manipulation, and bond formation. WHAT: Chem Mol, EditableMol, AddHs/RemoveHs, and ReplaceSubstructs.
 from rdkit import Chem
 
 from drugex.logs import logger
@@ -5,22 +6,11 @@ from drugex.molecules.converters.interfaces import MolConverter
 
 
 class dummyMolsFromFragments(MolConverter):
-    """
-    A converter to create dummy molecules from fragments.
-    """
+    """Converter synthesizing complete dummy molecules from one or more fragment SMILES."""
 
     @staticmethod
     def addCCToFragments(frag):
-        """
-        Add CC to a single fragment to build a dummy molecule.
-
-        Args:
-            frag: fragment to be converted to a dummy molecule
-
-        Returns:
-
-        """
-
+        """Append an ethyl group ('CC') to a single fragment to synthesize a dummy molecule."""
         repl = Chem.MolFromSmiles('CC')
         patt = Chem.MolFromSmarts('[#1;$([#1])]')   
 
@@ -35,16 +25,7 @@ class dummyMolsFromFragments(MolConverter):
 
     @staticmethod
     def bridgeFragments(frags):
-        """
-        Bridge multiple fragments together into one dummy molecule.
-
-        Args:
-            frags: fragments to be bridged together
-
-        Returns:
-            a `str` of a SMILES representation of the bridged fragments
-        """
-
+        """Bridge multiple disconnected fragments together into a single molecule via single bonds."""
         smiles = None
         try:
             frags_rdkit = [Chem.MolFromSmiles(f) for f in frags.split('.') ]
@@ -71,16 +52,7 @@ class dummyMolsFromFragments(MolConverter):
             
 
     def __call__(self, frag):
-
-        """ 
-        Create dummy molecule by adding CC to single fragments or bridge multiple fragments together.
-        
-        Args:
-            frag (str): fragment(s) to be converted to a dummy molecule
-        Return:
-            a `list` of `tuple`s of format  (fragment, smiles), fragment is the same as the input in the 'frag' argument
-        """
-
+        """Construct dummy molecules from fragments via bridging or ethyl group substitution."""
         try:
             if '.' in frag: # multiple leaf fragments
                 smiles = self.bridgeFragments(frag)

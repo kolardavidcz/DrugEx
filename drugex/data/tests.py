@@ -1,6 +1,8 @@
+# [PACKAGE: pandas] WHY: Series sampling and dataframe handling in test assertions. WHAT: Series construction and sampling.
 import pandas as pd
 import tempfile
 from unittest import TestCase
+# [PACKAGE: RDKit] WHY: Molecular graph substructure matching and SMILES canonicalization in tests. WHAT: MolFromSmiles, HasSubstructMatch, CanonSmiles.
 from rdkit import Chem
 
 from drugex.data.corpus.corpus import SequenceCorpus

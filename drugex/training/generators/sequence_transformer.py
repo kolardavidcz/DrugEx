@@ -7,10 +7,12 @@ from __future__ import annotations
 import tempfile
 from typing import TYPE_CHECKING, Any, Generator as PyGenerator, Optional, Sequence, Union
 
+# [PACKAGE: torch] WHY: Tensor calculations, transformer attention layers, embeddings, optimizers, and parameter initialization. WHAT: Deep learning framework.
 import torch
 import torch.nn as nn
 from torch import optim
 from torch.nn.init import kaiming_normal_
+# [PACKAGE: tqdm] WHY: Progress bar tracking during training epochs and validation iterations. WHAT: Progress bar utility.
 from tqdm.auto import tqdm
 
 from drugex import DEFAULT_DEVICE, DEFAULT_GPUS
@@ -28,6 +30,7 @@ from drugex.training.generators.utils import (
 from drugex.utils import ScheduledOptim
 
 if TYPE_CHECKING:
+    # [PACKAGE: pandas] WHY: Tabular molecule output and metrics DataFrame typing. WHAT: Data analysis library.
     import pandas as pd
     from torch.utils.data import DataLoader
     from drugex.data.corpus.interfaces import SequenceVocabulary
@@ -35,26 +38,10 @@ if TYPE_CHECKING:
 
 
 class Block(nn.Module):
-    """
-    Standard Transformer decoder block.
-
-    Comprises multi-head self-attention, position-wise feed-forward networks,
-    and residual sublayer connections with layer normalization.
-    """
+    """Standard Transformer decoder block."""
 
     def __init__(self, d_model: int, n_head: int, d_inner: int) -> None:
-        """
-        Initialize standard Transformer decoder block.
-
-        Parameters
-        ----------
-        d_model : int
-            Dimensionality of the input and output features.
-        n_head : int
-            Number of parallel attention heads.
-        d_inner : int
-            Dimensionality of the inner hidden layer in the position-wise feed-forward network.
-        """
+        """Initialize standard Transformer decoder block."""
         super(Block, self).__init__()
         self.attn = nn.MultiheadAttention(d_model, n_head)
         self.pffn = PositionwiseFeedForward(d_model, d_inner)
@@ -66,35 +53,14 @@ class Block(nn.Module):
         key_mask: Optional[torch.Tensor] = None,
         atn_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        """
-        Forward pass through attention sublayer and feed-forward sublayer.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Input feature tensor of shape `(seq_len, batch_size, d_model)`.
-        key_mask : torch.Tensor, optional
-            Boolean padding mask tensor of shape `(batch_size, seq_len)`.
-        atn_mask : torch.Tensor, optional
-            Causal triangular mask tensor of shape `(seq_len, seq_len)`.
-
-        Returns
-        -------
-        output : torch.Tensor
-            Transformed features of shape `(seq_len, batch_size, d_model)`.
-        """
+        """Forward pass through attention sublayer and feed-forward sublayer."""
         x = self.connector[0](x, lambda x: self.attn(x, x, x, key_padding_mask=key_mask, attn_mask=atn_mask)[0])
         x = self.connector[1](x, self.pffn)
         return x
 
 
 class GPT2Layer(nn.Module):
-    """
-    Stacked GPT-2 style autoregressive Transformer decoder.
-
-    Combines learned token embeddings, sinusoidal positional encodings, stacked
-    transformer attention blocks, layer normalization, and a linear vocabulary projection.
-    """
+    """Stacked GPT-2 style autoregressive Transformer decoder."""
 
     def __init__(
         self,
@@ -106,26 +72,7 @@ class GPT2Layer(nn.Module):
         n_layer: int = 12,
         pad_idx: int = 0
     ) -> None:
-        """
-        Initialize the stacked GPT-2 style autoregressive Transformer decoder.
-
-        Parameters
-        ----------
-        voc : SequenceVocabulary
-            Vocabulary defining token set and size.
-        d_emb : int, optional
-            Embedding vector dimensionality (default: 512).
-        d_model : int, optional
-            Transformer feature space dimensionality (default: 512).
-        n_head : int, optional
-            Number of attention heads (default: 12).
-        d_inner : int, optional
-            Hidden layer dimensionality in feed-forward networks (default: 1024).
-        n_layer : int, optional
-            Number of stacked transformer blocks (default: 12).
-        pad_idx : int, optional
-            Padding token index in the vocabulary (default: 0).
-        """
+        """Initialize the stacked GPT-2 style autoregressive Transformer decoder."""
         super(GPT2Layer, self).__init__()
         self.n_layer = n_layer
         self.d_emb = d_emb
@@ -147,23 +94,7 @@ class GPT2Layer(nn.Module):
         key_mask: Optional[torch.Tensor] = None,
         atn_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        """
-        Forward pass converting token indices to next-token logits.
-
-        Parameters
-        ----------
-        input : torch.Tensor
-            Sequence token indices of shape `(seq_len, batch_size)`.
-        key_mask : torch.Tensor, optional
-            Padding mask of shape `(batch_size, seq_len)`.
-        atn_mask : torch.Tensor, optional
-            Causal attention mask of shape `(seq_len, seq_len)`.
-
-        Returns
-        -------
-        logits : torch.Tensor
-            Vocabulary prediction logits of shape `(seq_len, batch_size, voc.size)`.
-        """
+        """Forward pass converting token indices to next-token logits."""
         hidden_states = self.posit_emb(input) + self.token_emb(input)
         for block in self.blocks:
             hidden_states = block(hidden_states, key_mask=key_mask, atn_mask=atn_mask)
@@ -172,21 +103,7 @@ class GPT2Layer(nn.Module):
 
 
 class SequenceTransformer(FragGenerator):
-    """
-    Autoregressive sequence Transformer for fragment-conditioned SMILES generation.
-
-    Employs a causal GPT-2 decoder architecture to generate full chemical structures
-    by conditioning on input fragment scaffolds or building blocks.
-
-    Attributes
-    ----------
-    mol_type : str
-        Representation format indicator (`'smiles'`).
-    gpt2 : GPT2Layer
-        Underlying causal GPT-2 decoder network.
-    optim : ScheduledOptim
-        Learning rate scheduler and Adam optimizer wrapper.
-    """
+    """Autoregressive sequence Transformer for fragment-conditioned SMILES generation."""
 
     def __init__(
         self,
@@ -200,30 +117,7 @@ class SequenceTransformer(FragGenerator):
         device: Union[torch.device, str] = DEFAULT_DEVICE,
         use_gpus: Sequence[int] = DEFAULT_GPUS
     ) -> None:
-        """
-        Initialize autoregressive sequence Transformer for fragment-conditioned SMILES generation.
-
-        Parameters
-        ----------
-        voc_trg : SequenceVocabulary
-            Target token vocabulary for decoding and encoding SMILES sequences.
-        d_emb : int, optional
-            Embedding vector dimensionality (default: 512).
-        d_model : int, optional
-            Model hidden dimension across transformer blocks (default: 512).
-        n_head : int, optional
-            Number of multi-head attention heads (default: 8).
-        d_inner : int, optional
-            Inner feed-forward layer dimension (default: 1024).
-        n_layer : int, optional
-            Number of stacked transformer layers (default: 12).
-        pad_idx : int, optional
-            Vocabulary index corresponding to padding (default: 0).
-        device : torch.device or str, optional
-            Hardware device for computation (default: `DEFAULT_DEVICE`).
-        use_gpus : sequence of int, optional
-            GPU indices available for training and inference (default: `DEFAULT_GPUS`).
-        """
+        """Initialize autoregressive sequence Transformer for fragment-conditioned SMILES generation."""
         super(SequenceTransformer, self).__init__(device=device, use_gpus=use_gpus)
         self.mol_type = 'smiles'
         self.voc_trg = voc_trg
@@ -250,26 +144,7 @@ class SequenceTransformer(FragGenerator):
         src: torch.Tensor,
         trg: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        """
-        Forward pass for training loss computation or autoregressive generation.
-
-        If `trg` is provided (training mode), calculates log-likelihood losses for
-        target token prediction conditioned on source fragments. If `trg` is None
-        (inference mode), autoregressively samples continuation tokens step-by-step.
-
-        Parameters
-        ----------
-        src : torch.Tensor
-            Source fragment token tensor of shape `(batch_size, src_len)`.
-        trg : torch.Tensor, optional
-            Target sequence token tensor of shape `(batch_size, trg_len)`.
-
-        Returns
-        -------
-        output : torch.Tensor
-            In training mode (`trg` given): gathered log-probabilities of shape `(batch_size, trg_len)`.
-            In inference mode (`trg` None): sampled target token sequences of shape `(batch_size, voc_trg.max_len)`.
-        """
+        """Forward pass for training loss computation or autoregressive generation."""
         if trg is not None:
             input_seq = torch.cat([src, trg], dim=1)
             key_mask = pad_mask(input_seq, self.pad_idx)
@@ -299,23 +174,7 @@ class SequenceTransformer(FragGenerator):
         return out
 
     def trainNet(self, loader: DataLoader, epoch: int, epochs: int) -> float:
-        """
-        Train the Transformer model for one epoch.
-
-        Parameters
-        ----------
-        loader : DataLoader
-            DataLoader yielding `(src, trg)` batches of encoded fragments and targets.
-        epoch : int
-            Current epoch number.
-        epochs : int
-            Total planned epochs.
-
-        Returns
-        -------
-        loss : float
-            Final batch negative log-likelihood loss for the epoch.
-        """
+        """Train the Transformer model for one epoch."""
         net = nn.DataParallel(self, device_ids=self.gpus)
         total_steps = len(loader)
         current_step = 0
@@ -340,27 +199,7 @@ class SequenceTransformer(FragGenerator):
         no_multifrag_smiles: bool = True,
         n_samples: Optional[int] = None
     ) -> tuple[dict[str, float], pd.DataFrame]:
-        """
-        Validate generation accuracy and calculate hold-out validation loss.
-
-        Parameters
-        ----------
-        loader : DataLoader
-            DataLoader providing validation batches.
-        evaluator : Environment, optional
-            Environment scoring objective metrics on sampled compounds.
-        no_multifrag_smiles : bool, optional
-            If True, multi-fragment / disconnected SMILES are penalized as invalid (default: True).
-        n_samples : int, optional
-            Unused by transformer (kept for Generator interface compatibility).
-
-        Returns
-        -------
-        valid_metrics : dict of str to float
-            Validation metrics containing `'valid_ratio'`, `'accurate_ratio'`, and `'loss_valid'`.
-        scores : pd.DataFrame
-            DataFrame of generated molecules, input fragments, validity flags, and property scores.
-        """
+        """Validate generation accuracy and calculate hold-out validation loss."""
         valid_metrics = {}
         net = nn.DataParallel(self, device_ids=self.gpus)
         pbar = tqdm(loader, desc='Iterating over validation batches', leave=False)
@@ -379,21 +218,7 @@ class SequenceTransformer(FragGenerator):
         return valid_metrics, scores
 
     def sample(self, loader: DataLoader) -> tuple[list[str], list[str]]:
-        """
-        Sample SMILES elaborations for each fragment in `loader`.
-
-        Parameters
-        ----------
-        loader : DataLoader
-            DataLoader yielding source fragment batches `(src, _)`.
-
-        Returns
-        -------
-        smiles : list of str
-            Decoded generated molecule SMILES.
-        frags : list of str
-            Decoded corresponding input fragment SMILES.
-        """
+        """Sample SMILES elaborations for each fragment in loader."""
         net = nn.DataParallel(self, device_ids=self.gpus)
         frags, smiles = [], []
         with torch.no_grad():
@@ -410,23 +235,7 @@ class SequenceTransformer(FragGenerator):
         batch_size: int = 32,
         n_proc: int = 1
     ) -> DataLoader:
-        """
-        Encode a list of fragment SMILES into a PyTorch DataLoader.
-
-        Parameters
-        ----------
-        frags : list of str
-            List of chemical fragments in SMILES format.
-        batch_size : int, optional
-            Batch size for DataLoader iteration (default: 32).
-        n_proc : int, optional
-            Number of worker processes for fragment encoding (default: 1).
-
-        Returns
-        -------
-        loader : DataLoader
-            PyTorch DataLoader yielding encoded fragment batches.
-        """
+        """Encode a list of fragment SMILES into a PyTorch DataLoader."""
         encoder = FragmentCorpusEncoder(
             fragmenter=dummyMolsFromFragments(),
             encoder=SequenceFragmentEncoder(self.voc_trg),
@@ -442,40 +251,12 @@ class SequenceTransformer(FragGenerator):
         src: torch.Tensor,
         trg: torch.Tensor
     ) -> tuple[list[str], list[str]]:
-        """
-        Decode encoded source fragments and target sequence tensors into SMILES strings.
-
-        Parameters
-        ----------
-        src : torch.Tensor
-            Batch of input fragment token tensors.
-        trg : torch.Tensor
-            Batch of generated molecule token tensors.
-
-        Returns
-        -------
-        frags : list of str
-            Decoded input fragment SMILES.
-        smiles : list of str
-            Decoded generated molecule SMILES.
-        """
+        """Decode encoded source fragments and target sequence tensors into SMILES strings."""
         new_smiles = [self.voc_trg.decode(s, is_tk=False) for s in trg]
         new_frags = [self.voc_trg.decode(s, is_tk=False) for s in src]
         return new_frags, new_smiles
 
     def iterLoader(self, loader: DataLoader) -> PyGenerator[torch.Tensor, None, None]:
-        """
-        Yield source fragment tensors from DataLoader batches.
-
-        Parameters
-        ----------
-        loader : DataLoader
-            Input DataLoader yielding `(src, ...)` batches.
-
-        Yields
-        ------
-        src : torch.Tensor
-            Source fragment token tensor.
-        """
+        """Yield source fragment tensors from DataLoader batches."""
         for _, src in loader:
             yield src

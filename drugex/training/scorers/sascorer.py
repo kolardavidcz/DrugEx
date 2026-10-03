@@ -26,6 +26,7 @@ import os.path as op
 import pickle
 from typing import TYPE_CHECKING, Dict, Tuple
 
+# [PACKAGE: rdkit] WHY: Molecular graph analysis, Morgan fingerprint extraction, chiral center detection, and ring info. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 
@@ -36,14 +37,7 @@ _fscores: Dict[int, float] | None = None
 
 
 def readFragmentScores(name: str = "fpscores") -> None:
-    """Read precomputed fragment contribution scores from gzipped pickle file.
-
-    Parameters
-    ----------
-    name : str, optional
-        Base filename or path to the fragment score file (without extension),
-        by default 'fpscores' located in the same directory.
-    """
+    """Read precomputed fragment contribution scores from gzipped pickle file."""
     global _fscores
     # generate the full path filename:
     if name == "fpscores":
@@ -58,42 +52,14 @@ def readFragmentScores(name: str = "fpscores") -> None:
 
 
 def numBridgeheadsAndSpiro(mol: Chem.Mol, ri: RingInfo | None = None) -> Tuple[int, int]:
-    """Calculate the number of bridgehead and spiro atoms in a molecule.
-
-    Parameters
-    ----------
-    mol : Chem.Mol
-        RDKit molecule instance.
-    ri : RingInfo | None, optional
-        Precomputed ring info (unused, kept for API compatibility), by default None.
-
-    Returns
-    -------
-    Tuple[int, int]
-        (nBridgeheads, nSpiro) atom counts.
-    """
+    """Calculate the number of bridgehead and spiro atoms in a molecule."""
     nSpiro = rdMolDescriptors.CalcNumSpiroAtoms(mol)
     nBridgehead = rdMolDescriptors.CalcNumBridgeheadAtoms(mol)
     return nBridgehead, nSpiro
 
 
 def calculateScore(m: Chem.Mol) -> float:
-    """Calculate the Synthetic Accessibility (SA) score for an RDKit molecule.
-
-    The score ranges from 1.0 (very easy to synthesize) to 10.0 (very difficult to synthesize),
-    combining historical fragment frequency contributions with molecular complexity penalties
-    (rings, stereocenters, macrocycles, bridgeheads, spiro systems).
-
-    Parameters
-    ----------
-    m : Chem.Mol
-        RDKit molecule instance to score.
-
-    Returns
-    -------
-    float
-        Synthetic accessibility score normalized between 1.0 and 10.0.
-    """
+    """Calculate the Synthetic Accessibility (SA) score for an RDKit molecule."""
     if _fscores is None:
         readFragmentScores()
     assert _fscores is not None

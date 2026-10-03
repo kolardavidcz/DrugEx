@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 from typing import Sequence
+# [PACKAGE: numpy] WHY: Logical evaluation of substructure matches across fragment arrays. WHAT: Numerical computing library.
 import numpy as np
+# [PACKAGE: pandas] WHY: Tabular organization of molecule validity and fragment accuracy indicator columns. WHAT: Data analysis library.
 import pandas as pd
+# [PACKAGE: rdkit] WHY: Chemical structure parsing from SMILES and substructure matching. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
 
 class SmilesChecker:
-    """Utility class to validate SMILES strings and verify fragment substructure constraints.
-
-    Provides chemical validity checking through RDKit parsing and validates that
-    generated molecules preserve required fragment substructures (e.g. for scaffold-based
-    or fragment-based molecule generation).
-    """
+    """Utility class to validate SMILES strings and verify fragment substructure constraints."""
 
     @staticmethod
     def checkSmiles(
@@ -22,28 +20,7 @@ class SmilesChecker:
         frags: Sequence[str | None] | None = None,
         no_multifrag_smiles: bool = True,
     ) -> pd.DataFrame:
-        """Check chemical validity of SMILES strings and verify fragment preservation.
-
-        Parameters
-        ----------
-        smiles : Sequence[str | None]
-            List or sequence of SMILES strings to evaluate.
-        frags : Sequence[str | None] | None, optional
-            Corresponding list of fragment SMILES (dot-separated if multiple fragments)
-            that each generated molecule must contain, by default None.
-        no_multifrag_smiles : bool, optional
-            If True, SMILES strings containing disconnected components ('.') are considered
-            invalid and marked with 0, by default True.
-
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with index matching input SMILES and boolean integer columns:
-            - 'Valid': 1 if SMILES is a valid, single-fragment molecule (if no_multifrag_smiles=True),
-              0 otherwise.
-            - 'Accurate': (if frags is provided) 1 if all fragment substructures are present
-              in the molecule, 0 otherwise.
-        """
+        """Check chemical validity of SMILES strings and verify fragment preservation."""
         scores = pd.DataFrame()
 
         if no_multifrag_smiles:

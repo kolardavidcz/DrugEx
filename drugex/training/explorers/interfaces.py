@@ -1,11 +1,15 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 
+# [PACKAGE: numpy] WHY: Array manipulations and reward vector handling. WHAT: Numerical computing library.
 import numpy as np
+# [PACKAGE: scipy] WHY: Geometric mean calculation across multi-objective metrics. WHAT: Scientific computing library.
 from scipy.stats import gmean
 
+# [PACKAGE: torch] WHY: Tensor calculations, device placement, and neural network data parallelism. WHAT: PyTorch deep learning framework.
 import torch
 from torch import nn
+# [PACKAGE: tqdm] WHY: Terminal progress bars for training epochs and iterations. WHAT: Progress bar utility.
 from tqdm import tqdm
 
 from drugex import DEFAULT_GPUS, DEFAULT_DEVICE
@@ -14,42 +18,13 @@ from drugex.training.interfaces import Model
 from drugex.training.monitors import NullMonitor
 
 class Explorer(Model, ABC):
-    """
-    Implements the DrugEx exploration strategy for DrugEx models under the reinforcement learning framework.
-    """
+    """Reinforcement learning exploration framework optimizing DrugEx agent networks in objective environments."""
 
     def __init__(self, agent, env, mutate=None, crover=None, no_multifrag_smiles=True,
         batch_size=128, epsilon=0.1, beta=0.0, n_samples=-1, 
         device=DEFAULT_DEVICE, use_gpus=DEFAULT_GPUS):
 
-        """
-        Initialize the explorer.
-
-        Parameters
-        ----------
-        agent : Model
-            The agent model optimized by the explorer.
-        env : Environment
-            The environment in which the agent operates.
-        mutate : Generator
-            The pre-trained network which increases the exploration of the chemical space.
-        crover : Generator
-            The iteratively updated network which increases the exploitation of the chemical space.
-        no_multifrag_smiles : bool
-            If True, only single-fragment SMILES are considered valid.
-        batch_size : int
-            The batch size used for training.
-        epsilon : float
-            The probability of using the mutate network to generate new molecules.
-        beta : float
-            The baseline for the reward function.
-        n_samples : int
-            The number of samples to generate in each iteration. If -1, the whole dataset is used per epoch.
-        device : str
-            The device on which the model is trained.
-        use_gpus : tuple   
-            The GPUs to use for training.
-        """
+        """Initialize explorer with agent, environment, mutation/crossover networks, and RL hyperparameters."""
         
         super().__init__(device=device, use_gpus=use_gpus)
         self.agent = agent
@@ -68,16 +43,7 @@ class Explorer(Model, ABC):
 
 
     def attachToGPUs(self, gpus):
-
-        """ 
-        Attach the model to GPUs
-
-        Parameters
-        ----------
-        gpus : tuple
-            The GPUs to use for training.
-        """
-
+        """Delegate GPU device placement to agent, mutation, and crossover sub-networks."""
         if hasattr(self, 'agent'):
             self.agent.attachToGPUs(gpus)
         if hasattr(self, 'mutate') and self.mutate:
@@ -87,25 +53,7 @@ class Explorer(Model, ABC):
         self.gpus = gpus
 
     def getNovelMoleculeMetrics(self, scores):
-
-        """ Get metrics for novel molecules
-        
-        Parameters
-        ----------
-        scores : pd.DataFrame
-            The scores for each molecule.
-
-        Returns
-        -------
-        dict
-            The metrics:
-                - valid_ratio (float): ratio of valid molecules
-                - accurate_ratio (float, opt): the ratio of SMILES that are valid and have the desired fragments
-                - unique_ratio (float): ratio of valid and unique molecules
-                - desired_ratio (float): ratio of valid, unique and desired molecules
-                - avg_amean (float): average arithmetic mean score of valid and unique molecules
-                - avg_gmean (float): average geometric mean score of valid and unique molecules
-        """
+        """Compute aggregate generation statistics: validity, fragment accuracy, uniqueness, desirability, and means."""
         
         dct = {}
         ntot = len(scores) 
@@ -139,19 +87,7 @@ class Explorer(Model, ABC):
         return dct
     
     def saveBestState(self, value, epoch, it):
-
-        """
-        Save best state based on selection criteria
-
-        Parameters
-        ----------
-        value : float
-            The value of the selection criteria.
-        epoch : int
-            The current epoch.
-        it : int
-        """
-        
+        """Persist current top-performing agent weights and checkpoint metadata."""
         self.monitor.saveModel(self)
         self.bestState = self.getModel()
         self.best_value = value
@@ -159,20 +95,7 @@ class Explorer(Model, ABC):
         self.last_iter = it
 
     def logPerformanceAndCompounds(self, epoch, metrics, scores):
-
-        """
-        Log performance of model
-
-        Parameters
-        ----------
-        epoch : int
-            The current epoch.
-        metrics : dict
-            The metrics.
-        scores : pd.DataFrame
-            The scores for each molecule.
-        """
-        
+        """Record epoch summary metrics and scored compound population to monitor."""
         # Add epoch and best epoch to metrics, and order columns
         metrics['Epoch'] = epoch
         metrics = {k : metrics[k] for k in ['Epoch'] + [k for k in metrics.keys() if k != 'Epoch']}
@@ -194,53 +117,23 @@ class Explorer(Model, ABC):
 
     @abstractmethod
     def policy_gradient(self, *args, **kwargs):
-        """
-        Policy gradient training.
-        """
+        """Execute policy gradient training step."""
         pass
 
     def getModel(self):
-        """
-        Returns the current state of the agent
-
-        Returns
-        -------
-        torch.nn.Module
-            The current state of the agent
-        """
+        """Return deep copy of current agent neural network weights."""
         return deepcopy(self.agent.state_dict())
 
 class FragExplorer(Explorer):
-    """
-    Implements the DrugEx exploration strategy for DrugEx models under 
-    the reinforcement learning framework for fragment-based generators
-    """
+    """Reinforcement learning explorer specialized for fragment-based molecular generation architectures."""
 
     @abstractmethod
     def getBatchOutputs(self, src, net):
-        """
-        Outputs (frags, smiles) and loss of the agent for a batch of fragments-molecule pairs.
-        """
+        """Decode batch fragments and SMILES, and compute agent training loss."""
         pass
 
     def policy_gradient(self, loader):
-        """
-        Policy gradient training.
- 
-        Novel molecules are generated by the agent and are scored by the environment.
-        The policy gradient is calculated using the REINFORCE algorithm and the agent is updated.
-        
-        Parameters
-        ----------
-        loader : torch.utils.data.DataLoader
-            Data loader for training data
-
-        Returns
-        -------
-        float
-            The average loss of the agent
-        """
-
+        """Optimize agent via REINFORCE policy gradients computed over sampled fragment pairs."""
         net = nn.DataParallel(self.agent, device_ids=self.gpus)
         total_steps = len(loader)
         
@@ -270,40 +163,16 @@ class FragExplorer(Explorer):
 
     @abstractmethod
     def sampleEncodedPairsToLoader(self, net, loader):
-        """
-        Sample new fragments-molecule pairs from a data loader.
-        """
+        """Sample encoded fragment-molecule pairs from generator into a data loader."""
         pass
 
     @abstractmethod
     def sample_input(self, loader, is_test=False):
-        """
-        Sample a batch of fragments-molecule pairs from the training data loader.
-        """
+        """Subsample input fragment pairs from data loader for epoch batching."""
         pass
 
     def fit(self, train_loader, valid_loader=None, epochs=1000, patience=50, criteria='desired_ratio', min_epochs=100, monitor=None):
-        
-        """
-        Fit the graph explorer to the training data.
-        
-        Parameters
-        ----------
-        train_loader : torch.utils.data.DataLoader
-            Data loader for training data
-        valid_loader : torch.utils.data.DataLoader
-            Data loader for validation data
-        epochs : int
-            Number of epochs to train for
-        patience : int
-            Number of epochs to wait for improvement before early stopping
-        criteria : str
-            Criteria to use for early stopping
-        min_epochs : int
-            Minimum number of epochs to train for
-        monitor : Monitor
-            Monitor to use for logging and saving model
-        """
+        """Execute RL training loop with policy gradient optimization, early stopping, and periodic evaluation."""
         
         self.monitor = monitor if monitor else NullMonitor()
         self.monitor.saveModel(self)

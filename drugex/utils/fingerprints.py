@@ -1,15 +1,12 @@
 
+# [PACKAGE: rdkit] WHY: Cheminformatics descriptor engine WHAT: Calculates atom pairs, pharmacophores, and Morgan fingerprints
 from rdkit.Chem import AllChem, Mol
 from rdkit.Chem.AtomPairs.Sheridan import GetBPFingerprint, GetBTFingerprint
 from rdkit.Chem.Pharm2D import Generate, Gobbi_Pharm2D
 
 
 class _FingerprintCalculator:
-    """
-    Calculate the fingerprint while avoiding a series of if-else.
-    See recipe 8.21 of the book "Python Cookbook".
-    To support a new type of fingerprint, just add a function "get_fpname(self, mol)".
-    """
+    """Dispatches molecular fingerprint calculation to specialized RDKit generator methods via dynamic attribute lookup."""
 
     def get_fingerprint(self, mol: Mol, fp_type: str):
         method_name = 'get_' + fp_type
@@ -47,4 +44,5 @@ class _FingerprintCalculator:
 
 
 def get_fingerprint(mol: Mol, fp_type: str):
+    """Calculate the requested fingerprint representation for an RDKit molecule."""
     return _FingerprintCalculator().get_fingerprint(mol=mol, fp_type=fp_type)

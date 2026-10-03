@@ -31,18 +31,7 @@ class ScoreTimeout(Exception):
 
 
 def pool_context(default: str = "fork") -> mp.context.BaseContext:
-    """Return the multiprocessing context for scorer Pools, honouring DRUGEX_MP_CONTEXT.
-
-    Parameters
-    ----------
-    default : str, optional
-        Default start method if unspecified or unavailable, by default "fork".
-
-    Returns
-    -------
-    mp.context.BaseContext
-        Multiprocessing context instance.
-    """
+    """Return the multiprocessing context for scorer Pools, honouring DRUGEX_MP_CONTEXT."""
     method = os.environ.get("DRUGEX_MP_CONTEXT") or default
     try:
         return mp.get_context(method)
@@ -51,18 +40,7 @@ def pool_context(default: str = "fork") -> mp.context.BaseContext:
 
 
 def capped_n_jobs(requested: int) -> int:
-    """Cap the scorer worker count via ``DRUGEX_SCORE_NJOBS``.
-
-    Parameters
-    ----------
-    requested : int
-        Requested worker count.
-
-    Returns
-    -------
-    int
-        Capped worker count.
-    """
+    """Cap the scorer worker count via DRUGEX_SCORE_NJOBS."""
     cap = os.environ.get("DRUGEX_SCORE_NJOBS")
     if not cap:
         return requested
@@ -76,13 +54,7 @@ def capped_n_jobs(requested: int) -> int:
 
 
 def score_timeout() -> float | None:
-    """Per-batch scoring wall-clock cap in seconds, from ``DRUGEX_SCORE_TIMEOUT``.
-
-    Returns
-    -------
-    float or None
-        Timeout in seconds or None if unbounded.
-    """
+    """Retrieve per-batch scoring wall-clock cap in seconds from DRUGEX_SCORE_TIMEOUT."""
     v = os.environ.get("DRUGEX_SCORE_TIMEOUT")
     if not v:
         return None
@@ -94,13 +66,7 @@ def score_timeout() -> float | None:
 
 
 def mol_timeout() -> float | None:
-    """Per-molecule scoring wall-clock cap in seconds, from ``DRUGEX_SCORE_MOL_TIMEOUT``.
-
-    Returns
-    -------
-    float or None
-        Per-molecule timeout in seconds or None if unbounded.
-    """
+    """Retrieve per-molecule scoring wall-clock cap in seconds from DRUGEX_SCORE_MOL_TIMEOUT."""
     v = os.environ.get("DRUGEX_SCORE_MOL_TIMEOUT")
     if not v:
         return None
@@ -113,19 +79,7 @@ def mol_timeout() -> float | None:
 
 @contextmanager
 def molecule_time_limit(seconds: float | None) -> Iterator[None]:
-    """Best-effort per-molecule wall-clock cap via ``SIGALRM``.
-
-    Raises ``ScoreTimeout`` when exceeded. No-op when seconds is falsy or not on main thread.
-
-    Parameters
-    ----------
-    seconds : float or None
-        Allowed computation time in seconds.
-
-    Yields
-    ------
-    None
-    """
+    """Context manager setting a best-effort per-molecule wall-clock cap via SIGALRM."""
     if (not seconds
             or threading.current_thread() is not threading.main_thread()
             or not hasattr(signal, "SIGALRM")):

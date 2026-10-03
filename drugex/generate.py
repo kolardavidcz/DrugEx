@@ -11,7 +11,7 @@ from drugex.train import CreateEnvironment, SetUpGenerator, DataPreparation
 
 
 def DesignArgParser(txt=None):
-    """ Define and read command line arguments """
+    """Define and parse generation parameters, merging architecture configurations from model metadata."""
     
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
@@ -70,23 +70,7 @@ def DesignerFragsDataPreparation(
     data_path : str, 
     input_file : str,
     mol_type : str):
-
-    """
-    Reads and preprocesses the vocabulary and input data for a graph-based generator
-
-    Arguments:
-        voc_files (list)            : list of vocabulary file prefixes
-        data_path (str)             : name of the folder input files
-        input_file (str)            : name of file containing input fragments
-        mol_type (str)              : molecule type
-        alg (str)                   : generator algoritm
-        batch_size (int), opt       : batch size
-        n_samples (int), opt        : number of molecules to generate
-    Returns:
-        voc                         : atom vocabulary
-        loader                      : torch DataLoader containing input fragements
-    """
-
+    """Load and preprocess vocabulary and fragment dataset for sequence or graph generator models."""
     voc_paths = getVocPaths(data_path, voc_files, mol_type)
 
     try:
@@ -111,7 +95,7 @@ def DesignerFragsDataPreparation(
     return data_set
 
 def Design(args):
-
+    """Execute generative sampling using a trained agent and score generated compounds in the scoring environment."""
     log = logSettings.log
 
     args.use_gpus = [int(x) for x in args.use_gpus.split(',')]

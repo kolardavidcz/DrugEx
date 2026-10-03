@@ -5,6 +5,7 @@ import os
 import logging
 from pathlib import Path
 
+# [PACKAGE: openeye] WHY: Omega 3D conformer ensemble generation and chemical structure property filtering. WHAT: Cheminformatics toolkit.
 try:
     from openeye import oechem, oemolprop, oeomega, oequacpac
 
@@ -17,12 +18,14 @@ import subprocess
 from typing import Callable, List
 
 from drugex.training.scorers.interfaces import ConformerGenerator
+# [PACKAGE: rdkit] WHY: 3D conformer generation (ETKDGv3), stereoisomer enumeration, tautomer standardization, and MMFF force field optimization. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors, AllChem
 from rdkit.Chem.EnumerateStereoisomers import (EnumerateStereoisomers,
                                                StereoEnumerationOptions)
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
+# [PACKAGE: CDPL] WHY: CDPKit 3D conformer ensemble generation, stereoisomer exploration, and tautomer processing. WHAT: Cheminformatics library.
 try:
     import CDPL.Chem as CDPLChem
     import CDPL.ConfGen as CDPLConfGen
@@ -58,17 +61,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class OmegaConformerGenerator(ConformerGenerator):
-    """Conformer Generator using Omega
-
-    Attributes:
-        max_conformers (int): max number of conformers to generate
-        max_centers (int): maximum number of stereocenters to enumerate
-        max_heavy_atoms (int): drop molecules with more heavy atoms than max_heavy_atoms
-        max_rotatable_bonds (int): drop molecules with more rotatable bonds than
-            max_rotatable_bonds
-        use_gpu (bool): whether to use GPU for conformer generation
-        show_progress (bool): whether to show progress during conformer generation
-    """
+    """Generate 3D conformer ensembles using OpenEye Omega with stereocenter enumeration and property filtering."""
 
     def __init__(
         self,
@@ -83,27 +76,7 @@ class OmegaConformerGenerator(ConformerGenerator):
         canonicalize_tautomer: bool = True,
         timeout: int = 20,
     ):
-        """Initialize the conformer generator
-
-        Args:
-            max_conformers (int): max number of conformers to generate
-            max_centers (int): maximum number of stereocenters to enumerate
-            max_heavy_atoms (int): drop molecules with more heavy atoms than
-                max_heavy_atoms
-            max_rotatable_bonds (int): drop molecules with more rotatable bonds than
-                max_rotatable_bonds
-            filter (oemolprop.OEFilter | int | str | None): filter to apply
-                Either a path to a OEFilter file or an OEFilter object, or
-                a int representing a OEFilter_Type (can be given like:
-                    oemolprop.OEFilterType_BlockBuster)
-            use_gpu (bool): whether to use GPU for conformer generation
-            show_progress (bool): whether to show progress during conformer generation
-            timeout (int): per-molecule Omega search-time cap in seconds. Omega has
-                NO default per-molecule cap, so a torsion-driving-heavy molecule can
-                run unbounded and blow the GPU walltime (audit 2026-06-25). 20s bounds
-                the pathological tail; applied to both the top-level search-time and
-                the torsion-driving search-time via SetMaxSearchTime.
-        """
+        """Initialize OpenEye Omega generator with filtering limits and per-molecule execution timeout."""
         if not OE_AVAILABLE:
             raise ImportError("OpenEye toolkits required")
 
@@ -195,15 +168,7 @@ class OmegaConformerGenerator(ConformerGenerator):
             yield iso
 
     def genConformers(self, smiles_list, out_dir) -> str:
-        """Generate conformers using Openeye Omega
-
-        Args:
-            smiles_list (list[str]): List of SMILES strings to generate conformers for.
-            out_dir (str): Path to the output directory for the generated conformers.
-
-        Returns:
-            str: Path to the output conformers file (oeb.gz)
-        """
+        """Generate 3D conformers for SMILES strings using Omega and write compressed OEB output."""
         tmp_outfile = os.path.join(out_dir, f"conformers.oeb.gz")
         ofs = oechem.oemolostream()
         if not ofs.open(tmp_outfile):
@@ -270,16 +235,7 @@ class OmegaConformerGenerator(ConformerGenerator):
 
 
 class SchrodingerConformerGenerator(ConformerGenerator):
-    """Conformer generator using Schrodinger's software.
-
-    Attributes:
-        max_conformers: Maximum number of conformers to generate.
-        max_isomers: Maximum number of isomers to generate.
-        max_heavy_atoms: Maximum number of heavy atoms allowed.
-        max_rotatable_bonds: Maximum number of rotatable bonds allowed.
-        reactions: List of reaction functions to apply.
-            Should take an rdkit molecule as input and return a modified molecule.
-    """
+    """Generate conformers using Schrödinger ConfGenX with custom reaction preprocessing."""
 
     def __init__(
         self,
@@ -329,11 +285,7 @@ class SchrodingerConformerGenerator(ConformerGenerator):
         return mol
 
     def genConformers(self, smiles_list, out_dir) -> str:
-        """Generate conformers using Schrodinger confgenx
-
-        Returns:
-            str: Path to the output SDF file containing generated conformers.
-        """
+        """Generate conformers using Schrödinger confgenx and return the output SDF file path."""
         currwd = os.getcwd()
         os.chdir(out_dir)
 

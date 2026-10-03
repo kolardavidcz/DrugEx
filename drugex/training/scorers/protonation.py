@@ -15,6 +15,7 @@ its protonation anyway).
 """
 
 try:
+    # [PACKAGE: dimorphite_dl] WHY: Calculation of dominant molecular protonation and ionization states at target pH. WHAT: Protonation state predictor.
     import dimorphite_dl
 
     _DIMORPHITE_AVAILABLE = True
@@ -40,22 +41,7 @@ def _protonate_one(smi: str, ph: float) -> str:
 def protonate_smiles(
     smiles: str | list[str], ph: float = DEFAULT_PH
 ) -> str | list[str]:
-    """Return the dominant protomer at ``ph`` (default 7.4) via Dimorphite-DL.
-
-    Parameters
-    ----------
-    smiles : str or List[str]
-        Single SMILES string or list of SMILES strings to protonate.
-    ph : float, optional
-        Target pH for protonation state calculation, by default 7.4 (physiological).
-
-    Returns
-    -------
-    str or List[str]
-        Protonated SMILES string or list of protonated SMILES matching the input length.
-        Acids are normalized to anion, bases to cation; neutral molecules remain unchanged.
-        Invalid SMILES or missing Dimorphite-DL fall back to the input unchanged.
-    """
+    """Return the dominant protomer at target pH via Dimorphite-DL."""
     if isinstance(smiles, str):
         return _protonate_one(smiles, ph)
     return [_protonate_one(s, ph) for s in smiles]
