@@ -5,7 +5,9 @@ from collections import defaultdict
 from multiprocessing import cpu_count
 from typing import Dict, List, Optional, Tuple, Union
 
+# [PACKAGE: numpy] WHY: Array conversions and score matrix operations. WHAT: Scientific computing library.
 import numpy as np
+# [PACKAGE: rdkit] WHY: 3D shape alignment (rdShapeAlign), pharmacophore feature factory, and molecule manipulation. WHAT: Cheminformatics toolkit.
 from rdkit import Chem, RDConfig
 from rdkit.Chem import rdShapeAlign, AllChem, ChemicalFeatures, rdMolTransforms
 
@@ -403,27 +405,7 @@ def _score_molecule_rdkit_worker(args: Tuple[int, List[Chem.Mol]]) -> Tuple[int,
 
 
 class RDKitROCSScorer(Scorer):
-    """ROCS-style scoring using RDKit shape alignment.
-
-    Features:
-    - Accepts references as files or RDKit molecules with conformers.
-    - Supports shape-only, color-only, and combo scoring modes.
-    - Optional multiprocessing and verbose progress reporting.
-    - Dict-based reference grouping for multi-target optimization.
-    - SMILES deduplication for efficient batch processing.
-    - Auto-conformer generation for 2D reference molecules.
-
-    Attributes:
-        conformer_generator: Generator used to build query conformers.
-        reference_mols: Normalized list of reference molecules.
-        group_to_indices: List mapping group indices to reference indices.
-        group_names: List of reference group names.
-        score_type: Requested score mode (`shape`, `color`, or `TanimotoCombo`).
-        use_colors: Whether to include pharmacophore colors in alignment.
-        show_progress: Enables logging for long runs.
-        n_jobs: Requested worker count (-1 maps to available CPUs).
-        _single_reference: True when operating in single-reference mode.
-    """
+    """ROCS-style 3D shape and pharmacophore color overlay scorer using RDKit rdShapeAlign."""
 
     def __init__(
         self,
@@ -444,33 +426,7 @@ class RDKitROCSScorer(Scorer):
         score_variant: str = "tanimoto",
         color_ff: str = "default",
     ):
-        """Initialize the RDKit ROCS scorer.
-
-        Args:
-            conformer_generator: Conformer generator used for query molecules.
-            references: Reference source as SDF path(s), RDKit molecule(s),
-                or a dict mapping group names to lists of references.
-            score_type: Score variant (`TanimotoCombo`, `shape`, `color`).
-            use_colors: Whether to include pharmacophore colors in alignments.
-            show_progress: Enables stdout progress updates when True.
-            n_jobs: Number of worker processes (-1 uses all available CPUs).
-            inject_color: When True, annotate query + reference molecules with the
-                6-type PUBCHEM_PHARMACOPHORE_FEATURES scheme (incl. hydrophobe) so
-                rdShapeAlign's color matches OpenEye ImplicitMillsDean rather than its
-                5-pattern fallback. Off by default (changes color scores; recalibrate
-                thresholds before enabling in production).
-            color_ff: Pharmacophore typing for the injected color features:
-                "default"/"fdef" = RDKit BaseFeatures.fdef (legacy), "oe_mills_dean" =
-                OpenEye ImplicitMillsDean SMARTS port (Lever 1). Selecting "oe_mills_dean"
-                implies color injection with OE typing. OPT-IN: the default leaves color
-                scoring bit-for-bit unchanged. Recalibrate thresholds before making it
-                the default (the OE-ground-truth Spearman GATE is a separate compute step).
-
-        Raises:
-            TypeError: If reference inputs use unsupported types.
-            FileNotFoundError: If a reference path is missing.
-            ValueError: If reference molecules lack conformers or cannot load.
-        """
+        """Initialize RDKit ROCS scorer with conformer generator, reference structures, and scoring mode."""
         super().__init__()
 
         if score_type not in _VALID_SCORE_TYPES:
@@ -699,16 +655,7 @@ class RDKitROCSScorer(Scorer):
         conformers_by_mol: Dict[int, List[Chem.Mol]],
         num_groups: int,
     ) -> np.ndarray:
-        """Score molecules sequentially without multiprocessing.
-
-        Args:
-            unique_count: Number of unique molecules to score.
-            conformers_by_mol: Dictionary mapping molecule IDs to their conformer lists.
-            num_groups: Number of reference groups.
-
-        Returns:
-            Array of shape (unique_count, num_groups) containing scores.
-        """
+        """Score conformers against reference groups sequentially in a single process."""
         scores_unique = np.zeros((unique_count, num_groups))
 
         for mol_id in range(unique_count):

@@ -7,9 +7,12 @@ from multiprocessing import cpu_count, TimeoutError as MPTimeoutError
 from dataclasses import dataclass
 from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
+# [PACKAGE: numpy] WHY: Numerical array processing and score aggregations. WHAT: Scientific computing library.
 import numpy as np
+# [PACKAGE: rdkit] WHY: Chemical structure representations and sanitization. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
+# [PACKAGE: CDPL] WHY: CDPKit shape/color alignment and pharmacophore modeling. WHAT: Cheminformatics library.
 try:
     import CDPL.Chem as CDPLChem
     import CDPL.Shape as CDPLShape
@@ -81,20 +84,7 @@ else:
 
 @dataclass
 class CDPKitWorkerContext:
-    """Immutable context for CDPKit scoring workers.
-
-    This dataclass encapsulates all state needed by worker processes,
-    replacing module-level global variables. It is sent once per worker
-    via the Pool initializer, not with each task.
-
-    Attributes:
-        reference_shapes: List of CDPKit GaussianShape objects for alignment.
-        group_to_indices: Mapping from group index to reference shape indices.
-        conf_file: Path to the conformer SDF file to score.
-        opt_mode: Optimization/score mode ("shape" | "combo" | "color").
-        score_variant: Normalization ("tanimoto" | "tversky_ref" | "tversky_fit").
-        color_ff: Color pharmacophore typing ("default" | "oe_mills_dean").
-    """
+    """Immutable configuration and reference shape context dispatched to parallel scoring workers."""
 
     reference_shapes: List
     group_to_indices: List[List[int]]
@@ -105,46 +95,17 @@ class CDPKitWorkerContext:
 
 
 class CDPKitScoringWorker:
-    """Callable worker for scoring molecules in parallel.
-
-    This class encapsulates the worker logic and holds the context
-    that would otherwise be stored in global variables. When used
-    with multiprocessing.Pool, the initializer sets up the context
-    once per worker process.
-
-    Usage with Pool:
-        worker = CDPKitScoringWorker()
-        with Pool(n_workers, initializer=worker.initialize,
-                  initargs=(context,)) as pool:
-            results = pool.map(worker, mol_ids)
-    """
+    """Worker callable scoring individual molecules in parallel via multiprocessing pool."""
 
     _context: ClassVar[Optional[CDPKitWorkerContext]] = None
 
     @staticmethod
     def initialize(context: CDPKitWorkerContext) -> None:
-        """Initialize worker with shared context.
-
-        Called once per worker process by Pool's initializer.
-        Stores context at class level within the worker process.
-
-        Args:
-            context: The CDPKitWorkerContext containing reference shapes and config.
-        """
+        """Store immutable worker context at process class level during pool initialization."""
         CDPKitScoringWorker._context = context
 
     def __call__(self, mol_id: int) -> Tuple[int, List[float]]:
-        """Score a single molecule.
-
-        This method is called by pool.map() for each molecule ID.
-        Accesses the context set up by initialize().
-
-        Args:
-            mol_id: Index of the molecule to score.
-
-        Returns:
-            Tuple of (mol_id, list of scores per group).
-        """
+        """Score a single molecule against reference shape groups using initialized worker context."""
         ctx = CDPKitScoringWorker._context
         if ctx is None:
             return mol_id, []
@@ -277,29 +238,7 @@ def _align_and_score_helper(query_shape, ref_shape, opt_mode="combo", score_vari
 
 
 class CDPKitROCSScorer(Scorer):
-    """ROCS-like scoring using CDPKit Gaussian shapes.
-
-    Features:
-    - Multi-reference support with automatic Gaussian shape generation.
-    - Best-score selection across conformers and reference shapes.
-    - Optional progress reporting and multiprocessing.
-    - Dict-based reference grouping for multi-target optimization.
-    - SMILES deduplication for efficient batch processing.
-    - Memory-efficient worker design for scalability.
-
-    Attributes:
-        conformer_generator: 3D conformer generator used for query molecules.
-        group_definitions: List of (name, paths) tuples defining reference groups.
-        group_names: List of reference group names.
-        shape_generator: CDPKit GaussianShapeGenerator instance.
-        start_generator: CDPKit PrincipalAxesAlignmentStartGenerator instance.
-        reference_mols: Loaded CDPKit molecules containing reference conformers.
-        reference_shapes: Pre-computed Gaussian shapes for all references.
-        group_to_indices: List mapping group indices to reference indices.
-        show_progress: Whether to print progress and warnings.
-        n_jobs: Requested worker count (-1 maps to available CPUs).
-        _is_supermol: True when initialized with a single reference file.
-    """
+    """ROCS-like 3D shape and color overlay scorer using CDPKit Gaussian shapes and pharmacophore models."""
 
     def __init__(
         self,
@@ -311,26 +250,7 @@ class CDPKitROCSScorer(Scorer):
         score_variant: str = "tanimoto",
         color_ff: str = "default",
     ):
-        """Build a CDPKit ROCS scorer.
-
-        Args:
-            conformer_generator: Conformer generator used to produce query conformers.
-            references: Path(s) to SDF references or a dict mapping group names
-                to lists of reference paths.
-            show_progress: Enables stdout progress indicators when True.
-            n_jobs: Number of worker processes (-1 uses all available CPUs).
-            color_ff: Color pharmacophore typing: "default" = CDPKit
-                DefaultPharmacophoreGenerator (legacy), "oe_mills_dean" = OpenEye
-                ImplicitMillsDean SMARTS port (Lever 1). OPT-IN: the default leaves color
-                scoring unchanged. Recalibrate thresholds before making it the default
-                (the OE-ground-truth Spearman GATE is a separate compute step).
-
-        Raises:
-            ImportError: If CDPKit bindings are not available.
-            TypeError: If reference input types are unsupported.
-            FileNotFoundError: If a reference path does not exist.
-            ValueError: If reference shapes cannot be generated.
-        """
+        """Initialize CDPKit ROCS scorer with conformer generator, reference shapes, and scoring mode."""
         super().__init__()
 
         if not CDPL_AVAILABLE:
@@ -491,15 +411,7 @@ class CDPKitROCSScorer(Scorer):
             return None
 
     def getScores(self, mols, frags=None) -> np.ndarray:
-        """Score molecules using CDPKit Gaussian shape alignment.
-
-        Args:
-            mols: List of molecules (RDKit Mol objects or SMILES strings).
-            frags: Unused, kept for interface compatibility.
-
-        Returns:
-            Array of shape (len(mols), num_groups) with TanimotoCombo scores.
-        """
+        """Score input molecules against reference shapes using CDPKit 3D alignment and return group scores."""
         num_groups = len(self.group_to_indices)
         if num_groups == 0:
             raise ValueError("No reference groups configured")

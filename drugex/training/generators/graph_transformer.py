@@ -89,37 +89,7 @@ class AtomLayer(nn.Module):
 
 
 class GraphTransformer(FragGenerator):
-    """
-    Autoregressive Graph Transformer for fragment-conditioned molecular graph generation.
-
-    Generates molecular graphs by sequentially growing atoms, bonds, and ring-closure
-    connections onto input fragment scaffolds. Uses an atom-level attention network
-    coupled with recurrent transition cells to predict 4-tuple graph actions:
-    `(atom_type, current_locus, previous_locus, bond_type)`.
-
-    Attributes
-    ----------
-    mol_type : str
-        Representation format indicator (`'graph'`).
-    voc_trg : VocGraph
-        Active graph vocabulary.
-    n_grows : int
-        Maximum number of atom addition steps.
-    n_frags : int
-        Maximum number of fragment linking steps.
-    emb_word : nn.Embedding
-        Embedding for combined atom/bond tokens.
-    emb_atom : nn.Embedding
-        Embedding for atom types.
-    emb_loci : nn.Embedding
-        Embedding for graph node positions / loci.
-    emb_site : PositionalEncoding
-        Sinusoidal positional encoding for connection sites.
-    attn : AtomLayer
-        12-layer multi-head attention stack.
-    rnn : nn.GRUCell
-        Recurrent transition cell for step-wise action decoding.
-    """
+    """Autoregressive Graph Transformer for fragment-conditioned molecular graph generation via atom/bond additions."""
 
     def __init__(
         self,

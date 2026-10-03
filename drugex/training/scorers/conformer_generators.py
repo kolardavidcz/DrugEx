@@ -363,16 +363,7 @@ class SchrodingerConformerGenerator(ConformerGenerator):
 
 
 class RDKitConformerGenerator(ConformerGenerator):
-    """Conformer Generator using RDKit ETKDGv3
-
-    Attributes:
-        max_conformers (int): max number of conformers to generate
-        max_isomers (int): maximum number of stereoisomers to enumerate
-        max_heavy_atoms (int): drop molecules with more heavy atoms than max_heavy_atoms
-        max_rotatable_bonds (int): drop molecules with more rotatable bonds than
-            max_rotatable_bonds
-        show_progress (bool): whether to show progress during conformer generation
-    """
+    """Generate 3D conformer ensembles using RDKit ETKDGv3 with stereoisomer enumeration."""
 
     def __init__(
         self,
@@ -386,24 +377,7 @@ class RDKitConformerGenerator(ConformerGenerator):
         protonate: bool = True,
         canonicalize_tautomer: bool = True,
     ):
-        """Initialize the conformer generator
-
-        Args:
-            max_conformers (int): max number of conformers to generate
-            max_isomers (int): maximum number of stereoisomers to enumerate
-            max_heavy_atoms (int): drop molecules with more heavy atoms than
-                max_heavy_atoms
-            max_rotatable_bonds (int): drop molecules with more rotatable bonds than
-                max_rotatable_bonds
-            num_threads (int): Number of threads for ETKDG conformer generation.
-                0 = use all available CPU cores (default).
-            timeout (int): Per-isomer timeout in seconds for ETKDG embedding.
-                0 = no timeout. Default 20s bounds the ~10% of molecules that fail
-                to embed cleanly (these otherwise burn timeout x max_isomers seconds
-                each and dominate an RL epoch; audit 2026-06-23). The fast ~90% embed
-                in <1s and are unaffected.
-            show_progress (bool): whether to show progress during conformer generation
-        """
+        """Initialize RDKit ETKDGv3 generator with stereoisomer limits, threading, and embedding timeout."""
         if max_conformers > 200:
             print(
                 "Warning: max_conformers > 200 may cause memory issues "
@@ -464,15 +438,7 @@ class RDKitConformerGenerator(ConformerGenerator):
             yield iso
 
     def genConformers(self, smiles_list, out_dir) -> str:
-        """Generate conformers using RDKit ETKDG
-
-        Args:
-            smiles_list (list[str]): List of SMILES strings to generate conformers for.
-            out_dir (str): Path to the output directory for the generated conformers.
-
-        Returns:
-            str: Path to the output conformers file (SDF)
-        """
+        """Generate 3D conformers for SMILES using ETKDGv3 embedding and write to SDF."""
         tmp_outfile = os.path.join(out_dir, f"conformers.sdf")
         writer = Chem.SDWriter(tmp_outfile)
 
@@ -545,12 +511,7 @@ class RDKitConformerGenerator(ConformerGenerator):
         return tmp_outfile
 
     def write_conformers(self, mols: List, out_file: str) -> None:
-        """Write conformers for RDKit molecules to an SDF file
-
-        Args:
-            mols: List of RDKit molecules
-            out_file: Path to output SDF file
-        """
+        """Convert RDKit molecules to SMILES, generate 3D conformers, and write to destination SDF."""
         # Convert molecules to SMILES
         smiles_list = []
         for i, mol in enumerate(mols):
@@ -581,24 +542,7 @@ class RDKitConformerGenerator(ConformerGenerator):
 
 
 class CDPKitConformerGenerator(ConformerGenerator):
-    """Conformer Generator using CDPKit CDPL.ConfGen
-
-    CDPKit conformer generation following the official CDPKit examples.
-    Based on gen_confs.py from CDPKit GitHub repository.
-
-    This implementation uses StereoisomerGenerator for explicit stereoisomer enumeration,
-    matching the behavior of RDKit and OpenEye implementations.
-
-    Attributes:
-        max_conformers (int): max number of conformers to generate per stereoisomer
-        max_isomers (int): maximum number of stereoisomers to enumerate
-        max_heavy_atoms (int): drop molecules with more heavy atoms than max_heavy_atoms
-        max_rotatable_bonds (int): drop molecules with more rotatable bonds than max_rotatable_bonds
-        timeout (int): timeout for conformer generation in seconds
-        min_rmsd (float): minimum RMSD between conformers
-        energy_window (float): energy window for conformer selection in kcal/mol
-        show_progress (bool): whether to show progress during conformer generation
-    """
+    """Generate 3D conformer ensembles using CDPKit CDPL.ConfGen with stereoisomer enumeration."""
 
     def __init__(
         self,
@@ -615,18 +559,7 @@ class CDPKitConformerGenerator(ConformerGenerator):
         protonate: bool = True,
         canonicalize_tautomer: bool = True,
     ):
-        """Initialize the CDPKit conformer generator
-
-        Args:
-            max_conformers (int): max number of conformers to generate per stereoisomer
-            max_isomers (int): maximum number of stereoisomers to enumerate
-            max_heavy_atoms (int): drop molecules with more heavy atoms than max_heavy_atoms
-            max_rotatable_bonds (int): drop molecules with more rotatable bonds than max_rotatable_bonds
-            timeout (int): timeout for conformer generation in seconds
-            min_rmsd (float): minimum RMSD between conformers
-            energy_window (float): energy window for conformer selection in kcal/mol
-            show_progress (bool): whether to show progress during conformer generation
-        """
+        """Initialize CDPKit conformer generator with energy window, RMSD threshold, and timeout."""
         if not CDPL_AVAILABLE:
             raise ImportError("CDPKit not available. Install with: conda install -c conda-forge cdpkit")
 
@@ -662,14 +595,7 @@ class CDPKitConformerGenerator(ConformerGenerator):
         return conf_gen
 
     def _gen_conf_ensemble(self, mol, conf_gen):
-        """Generate conformer ensemble following CDPKit gen_confs.py pattern
-
-        Directly from CDPKit documentation:
-        https://cdpkit.org/cdpl_python_cookbook/confgen/gen_ensemble.html
-
-        Returns:
-            tuple: (status, num_conformers)
-        """
+        """Generate conformer ensemble for a prepared molecule and return status code with conformer count."""
         CDPLConfGen.prepareForConformerGeneration(mol)
         status = conf_gen.generate(mol)
         num_confs = conf_gen.getNumConformers()
@@ -707,18 +633,7 @@ class CDPKitConformerGenerator(ConformerGenerator):
             return None
 
     def _filter_mol(self, smi: str, mol) -> bool:
-        """Filter molecules based on heavy atoms and rotatable bonds
-
-        Note: Molecule must have basic properties initialized via
-        calcBasicProperties before calling this method (done in _smiles_to_cdpl_mol).
-
-        Args:
-            smi: SMILES string for error reporting
-            mol: CDPKit molecule object with basic properties initialized
-
-        Returns:
-            True if molecule should be filtered out (rejected), False otherwise
-        """
+        """Filter out molecules exceeding heavy atom or rotatable bond thresholds."""
         if mol is None:
             return True
 
@@ -753,19 +668,7 @@ class CDPKitConformerGenerator(ConformerGenerator):
             return True
 
     def _get_isomers(self, mol):
-        """Generate stereoisomers for a molecule using CDPKit StereoisomerGenerator
-
-        This explicitly enumerates stereoisomers up to the ``max_isomers`` limit,
-        matching the behavior of RDKit and OpenEye implementations.
-
-        See: https://cdpkit.org/cdpl_api_doc/python_api_doc/classCDPL_1_1Chem_1_1StereoisomerGenerator.html
-
-        Args:
-            mol: CDPKit molecule object
-
-        Yields:
-            CDPKit molecule objects (stereoisomers)
-        """
+        """Enumerate stereoisomers up to max_isomers using CDPKit StereoisomerGenerator."""
         # Create stereoisomer generator
         stereo_gen = StereoisomerGenerator()
 
@@ -863,22 +766,7 @@ class CDPKitConformerGenerator(ConformerGenerator):
         return out
 
     def genConformers(self, smiles_list, out_dir) -> str:
-        """Generate conformers for a list of SMILES and save to SDF
-
-        For each input SMILES:
-        1. Enumerate up to max_isomers stereoisomers using StereoisomerGenerator
-        2. For each stereoisomer, generate up to max_conformers conformations
-        3. Total output: up to (max_isomers × max_conformers) structures per molecule
-
-        This matches the behavior of RDKit and OpenEye implementations.
-
-        Args:
-            smiles_list (list[str]): List of SMILES strings to generate conformers for
-            out_dir (str): Output directory for the conformer SDF file
-
-        Returns:
-            str: Path to the generated SDF file with conformers
-        """
+        """Generate stereoisomer conformer ensembles using CDPKit ConfGen and write to SDF."""
         if not smiles_list:
             return ""
 
@@ -1026,12 +914,7 @@ class CDPKitConformerGenerator(ConformerGenerator):
         return tmp_outfile if total_conformers > 0 else ""
 
     def write_conformers(self, mols: List, out_file: str) -> None:
-        """Write conformers for RDKit molecules to an SDF file
-
-        Args:
-            mols: List of RDKit molecules
-            out_file: Path to output SDF file
-        """
+        """Convert RDKit molecules to SMILES, generate CDPKit conformers, and write to destination SDF."""
         # Convert molecules to SMILES
         smiles_list = []
         for i, mol in enumerate(mols):

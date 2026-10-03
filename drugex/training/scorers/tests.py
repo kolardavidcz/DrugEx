@@ -40,8 +40,10 @@ import time
 import unittest
 from unittest import mock
 
+# [PACKAGE: numpy] WHY: Array operations and numerical tolerances in test assertions. WHAT: Scientific computing library.
 import numpy as np
 
+# [PACKAGE: rdkit] WHY: Conformer generation, shape alignment, and chemical structure test fixtures. WHAT: Cheminformatics toolkit.
 from rdkit import Chem  # FIRST (before any CDPL import -> safe library load order)
 from rdkit.Chem import AllChem
 
@@ -54,6 +56,7 @@ try:
 except ImportError:
     _RDSHAPEALIGN = False
 
+# [PACKAGE: CDPL] WHY: CDPKit shape, color, and pharmacophore test fixtures. WHAT: Cheminformatics library.
 try:
     import CDPL.Shape as _CDPLShape  # noqa: F401  (rdkit already imported above -> safe order)
     import CDPL.Chem as _CDPLChem  # noqa: F401
@@ -63,6 +66,7 @@ try:
 except ImportError:
     _CDPKIT = False
 
+# [PACKAGE: dimorphite_dl] WHY: Physiological protonation state checking in tests. WHAT: Small-molecule protonation toolkit.
 try:
     import dimorphite_dl  # noqa: F401
 
@@ -70,6 +74,7 @@ try:
 except ImportError:
     _DIMORPHITE = False
 
+# [PACKAGE: openeye] WHY: OpenEye toolkit and license availability checking in tests. WHAT: Cheminformatics toolkit.
 try:
     from openeye import oechem as _oechem
 

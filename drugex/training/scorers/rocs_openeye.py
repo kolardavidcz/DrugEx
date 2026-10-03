@@ -8,10 +8,14 @@ from collections import defaultdict
 from contextlib import contextmanager
 from typing import Dict, List, Tuple, Union
 
+# [PACKAGE: numpy] WHY: Array conversions and numeric score outputs. WHAT: Scientific computing library.
 import numpy as np
+# [PACKAGE: pandas] WHY: Tabular ROCS report parsing. WHAT: Data analysis library.
 import pandas as pd
+# [PACKAGE: rdkit] WHY: Chemical structure representations and SMILES conversions. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
+# [PACKAGE: openeye] WHY: ROCS reference shape validation and file checks. WHAT: Cheminformatics toolkit.
 try:
     from openeye import oechem, oeshape
 
@@ -36,38 +40,7 @@ def _managed_tmpdir():
 
 
 class OpenEyeROCSScorer(Scorer):
-    """OpenEye ROCS scorer that shells out to the ROCS command-line binary.
-
-    Uses the OpenEye ROCS CLI via ``subprocess`` for shape-based similarity
-    scoring while relying on the OpenEye Python toolkits for reference validation
-    and RDKit for molecule handling. Requires a valid OpenEye license with the
-    ROCS binary available in ``PATH`` (or provided via ``binary_path``). If a
-    future fastROCS implementation is added, this class will remain the CLI
-    variant.
-
-    Features:
-    - Multiple reference group support (.sq or molecule files)
-    - Best score selection across reference groups
-    - Hybrid Python/CLI workflow for flexible integration
-
-    Attributes:
-        - conformer_generator: conformer generator used for generated molecules.
-        - references: dict of reference files for ROCS scoring (.sq or molecule files).
-            Dictionary keys are reference group names, values are file paths or lists
-            of file paths. For each key (group), one score is returned per molecule.
-            If a list of files is provided for a single group, the highest score across
-            all reference files in that group is returned.
-        - score_type: Type of scoring to use (e.g., TanimotoCombo)
-        - shape_only: If True, only shape scoring is performed
-        - optimize: If True, optimization is performed during scoring
-        - color_optimize: If True, color optimization is performed
-        - color_force_field: Force field to use for color optimization
-        - rocs_binary: Name of the ROCS binary to use
-        - binary_path: Path to the ROCS binary (if not in PATH)
-        - show_progress: If True, progress is shown during scoring
-        - name_suffix: Optional suffix for the scorer name (important if multiple
-           OpenEyeROCSScorer scorers are used in the same environment)
-    """
+    """OpenEye ROCS scorer executing the ROCS command-line binary for 3D shape and color overlay."""
 
     def __init__(
         self,
@@ -87,32 +60,7 @@ class OpenEyeROCSScorer(Scorer):
         optimization_mode: str | None = None,
         score_variant: str = "tanimoto",
     ):
-        """Initialize the OpenEye ROCS scorer.
-
-        Args:
-            conformer_generator: generator used to produce generated molecule conformers
-            references: dict mapping reference group names to SDF/sq reference file path(s).
-                If multiple dict items are specified, the output will be a score per group.
-                If a dict item has multiple file paths specified, molecules will be scored
-                against each reference file but only the maximum score will be returned
-                (i.e. the best match within that group).
-            score_type: Type of scoring to use (e.g., TanimotoCombo), ignored
-                if shape_only
-            shape_only: If True, only shape scoring is performed
-            optimize: turn optimizer on/off, if off score only
-            color_optimize: If True, color optimization is performed
-            color_force_field: Force field to use for color optimization
-            rocs_binary: Name of the ROCS binary to use
-            binary_path: Path to the ROCS binary (if not in PATH)
-            show_progress: If True, progress is shown during scoring
-            n_jobs: Accepted for API consistency with RDKit/CDPKit backends
-                but has no effect (OpenEye ROCS runs as a single CLI subprocess)
-            timeout: Timeout in seconds for the ROCS subprocess
-
-        Raises:
-            ImportError: If OpenEye toolkits are not available.
-            FileNotFoundError: If rocs binary not found
-        """
+        """Initialize OpenEye ROCS scorer with conformer generator, reference groups, and CLI settings."""
         super().__init__()
 
         if not OE_AVAILABLE:
@@ -357,11 +305,7 @@ class OpenEyeROCSScorer(Scorer):
         return cmd
 
     def _score(self, conf_file) -> dict:
-        """Score molecules with ROCS
-
-        Returns:
-            dict: Dictionary with reference group names as keys and scores as values.
-        """
+        """Score conformer file against reference groups with ROCS and return score dictionary."""
         # Multi-group scoring
         scores_dict = {}
         for name, query_files in self.queries.items():

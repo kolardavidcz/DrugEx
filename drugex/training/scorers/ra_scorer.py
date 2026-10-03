@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Sequence
 
+# [PACKAGE: numpy] WHY: Array allocation for float64 scores. WHAT: Scientific computing library.
 import numpy as np
+# [PACKAGE: rdkit] WHY: Molecule conversion and SMILES export. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 from rdkit.Chem import MolToSmiles
 
@@ -14,6 +16,7 @@ from drugex.training.scorers.interfaces import Scorer
 if TYPE_CHECKING:
     from drugex.training.scorers.interfaces import ScoreModifier
 
+# [PACKAGE: RAscore] WHY: Retrosynthetic accessibility scoring using XGBoost CASP models. WHAT: Chemical retrosynthesis predictor.
 from RAscore import RAscore_XGB  # type: ignore
 
 logger = logging.getLogger(__name__)
@@ -22,31 +25,10 @@ XGB_MODEL_PATH: str | None = None
 
 
 class RetrosyntheticAccessibilityScorer(Scorer):
-    """Scorer evaluating retrosynthetic accessibility via RAscore.
-
-    Given a SMILES string or RDKit molecule, returns a probability score in [0.0, 1.0]
-    indicating the likelihood of finding a synthetic route by computer-aided synthesis
-    planning (CASP) tools (AiZynthFinder), evaluated using an XGBoost model.
-
-    Parameters
-    ----------
-    modifier : ScoreModifier | None, optional
-        Modifier applied to the raw RA scores, by default None.
-
-    Raises
-    ------
-    ImportError
-        If the optional `RAscore` package is not installed.
-    """
+    """Scorer evaluating retrosynthetic accessibility via RAscore XGBoost models."""
 
     def __init__(self, modifier: ScoreModifier | None = None) -> None:
-        """Initialize the Retrosynthetic Accessibility Scorer.
-
-        Parameters
-        ----------
-        modifier : ScoreModifier | None, optional
-            A modifier that can be used to modify the scores returned by this scorer.
-        """
+        """Initialize retrosynthetic accessibility scorer with optional score modifier."""
         super().__init__(modifier=modifier)
         self.scorer: Any = RAscore_XGB.RAScorerXGB(model_path=XGB_MODEL_PATH)
 
@@ -55,21 +37,7 @@ class RetrosyntheticAccessibilityScorer(Scorer):
         mols: Sequence[str | Chem.Mol | None],
         frags: Sequence[str | None] | None = None,
     ) -> np.ndarray:
-        """Get RA scores for a list of molecules.
-
-        Parameters
-        ----------
-        mols : Sequence[str | Chem.Mol | None]
-            A sequence of SMILES strings or RDKit Mol objects representing molecules.
-        frags : Sequence[str | None] | None, optional
-            A list of fragments used to generate the molecules. Unused by this scorer.
-
-        Returns
-        -------
-        np.ndarray
-            A 1D numpy array of float64 scores in [0.0, 1.0]. Invalid or unparseable molecules
-            receive 0.0.
-        """
+        """Compute synthetic accessibility scores in [0.0, 1.0] for input molecules."""
         scores = np.zeros(shape=len(mols), dtype="float64")
         for i, mol in enumerate(mols):
             if mol is None:
@@ -91,11 +59,5 @@ class RetrosyntheticAccessibilityScorer(Scorer):
         return scores
 
     def getKey(self) -> str:
-        """Return the unique identifier string for this scorer.
-
-        Returns
-        -------
-        str
-            'RAscore'
-        """
+        """Return the unique identifier string for this scorer."""
         return "RAscore"
