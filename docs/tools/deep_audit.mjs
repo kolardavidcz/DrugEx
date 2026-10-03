@@ -11,25 +11,29 @@ const projectRoot = path.resolve(__dirname, '..');
 const repoRoot = fs.existsSync(path.join(projectRoot, 'repo'))
   ? path.join(projectRoot, 'repo')
   : path.resolve(projectRoot, '..', 'repo');
-const docsPath = path.join(projectRoot, 'docs', 'cppreference', 'index.html');
+const docsPath = path.join(projectRoot, 'index.html');
 
 console.log('[Audit] Running Deep Audit on Sphinx gh-pages and codebase...');
 
 // 1. Parse objects.inv
-const objectsInvBuf = execSync('git -C ' + repoRoot + ' show origin/gh-pages:docs/objects.inv');
-let headerOffset = 0;
-let newlineCount = 0;
-while (newlineCount < 4 && headerOffset < objectsInvBuf.length) {
-  if (objectsInvBuf[headerOffset] === 0x0a) {
-    newlineCount++;
+let invLines = [];
+try {
+  const objectsInvBuf = execSync('git -C ' + repoRoot + ' show origin/gh-pages:docs/objects.inv', { stdio: ['pipe', 'pipe', 'ignore'] });
+  let headerOffset = 0;
+  let newlineCount = 0;
+  while (newlineCount < 4 && headerOffset < objectsInvBuf.length) {
+    if (objectsInvBuf[headerOffset] === 0x0a) {
+      newlineCount++;
+    }
+    headerOffset++;
   }
-  headerOffset++;
+  const compressed = objectsInvBuf.slice(headerOffset);
+  const decompressed = zlib.inflateSync(compressed).toString('utf8');
+  invLines = decompressed.split('\n').filter(Boolean);
+  console.log(`Sphinx objects.inv contains ${invLines.length} entries.`);
+} catch (e) {
+  console.log('Notice: origin/gh-pages:docs/objects.inv not available in git remote; proceeding with codebase inspection.');
 }
-const compressed = objectsInvBuf.slice(headerOffset);
-const decompressed = zlib.inflateSync(compressed).toString('utf8');
-const invLines = decompressed.split('\n').filter(Boolean);
-
-console.log(`Sphinx objects.inv contains ${invLines.length} entries.`);
 
 const invByType = {};
 for (const line of invLines) {

@@ -1,6 +1,6 @@
 /**
  * Validation script for DrugEx cppreference documentation platform.
- * Verifies that docs/cppreference/index.html contains a comprehensive,
+ * Verifies that index.html contains a comprehensive,
  * structurally complete, and error-free reference database with zero broken cross-links.
  */
 
@@ -13,11 +13,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const targetArg = process.argv[2];
-const rootCandidate = path.join(projectRoot, 'index.html');
-const nestedCandidate = path.join(projectRoot, 'docs', 'cppreference', 'index.html');
 const docsPath = targetArg 
   ? path.resolve(process.cwd(), targetArg) 
-  : (fs.existsSync(rootCandidate) ? rootCandidate : nestedCandidate);
+  : path.join(projectRoot, 'index.html');
 
 console.log('[Audit] Validating DrugEx Reference Documentation Platform...');
 console.log(`Target: ${docsPath}`);
@@ -28,17 +26,6 @@ if (!fs.existsSync(docsPath)) {
 }
 
 let errors = 0;
-
-if (!targetArg && fs.existsSync(rootCandidate) && fs.existsSync(nestedCandidate)) {
-  const rootBuf = fs.readFileSync(rootCandidate);
-  const nestedBuf = fs.readFileSync(nestedCandidate);
-  if (!rootBuf.equals(nestedBuf)) {
-    console.error('Error: root index.html and docs/cppreference/index.html differ! Both copies must remain strictly in sync.');
-    errors++;
-  } else {
-    console.log('Verified: root index.html and docs/cppreference/index.html are in sync.');
-  }
-}
 
 const html = fs.readFileSync(docsPath, 'utf8');
 
@@ -451,18 +438,11 @@ if (tagStart === -1) {
 // 7. Validate PIPELINE_SCHEMAS and pipelines.html Parity
 console.log('\nValidating PIPELINE_SCHEMAS and pipelines.html Parity...');
 
-// Parity check for pipelines.html
+// Verification for pipelines.html
 const rootPipelines = path.join(projectRoot, 'pipelines.html');
-const nestedPipelines = path.join(projectRoot, 'docs', 'cppreference', 'pipelines.html');
-if (fs.existsSync(rootPipelines) && fs.existsSync(nestedPipelines)) {
-  const rootBuf = fs.readFileSync(rootPipelines);
-  const nestedBuf = fs.readFileSync(nestedPipelines);
-  if (!rootBuf.equals(nestedBuf)) {
-    console.error('Error: root pipelines.html and docs/cppreference/pipelines.html differ! Both copies must remain strictly in sync.');
-    errors++;
-  } else {
-    console.log('Verified: root pipelines.html and docs/cppreference/pipelines.html are in sync.');
-  }
+if (!fs.existsSync(rootPipelines)) {
+  console.error(`Fatal: pipelines.html not found at ${rootPipelines}`);
+  errors++;
 }
 
 // Helper function to validate pipeline schema array and canvas geometry
@@ -594,10 +574,8 @@ if (fs.existsSync(rootPipelines)) {
 console.log('\nValidating Strict Zero-Emoji Rule...');
 const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F1E6}-\u{1F1FF}]/u;
 const filesToScan = [
-  rootCandidate,
-  nestedCandidate,
+  docsPath,
   rootPipelines,
-  nestedPipelines,
   path.join(projectRoot, 'tools', 'check_docs.mjs'),
   path.join(projectRoot, 'tools', 'audit_examples.mjs')
 ];

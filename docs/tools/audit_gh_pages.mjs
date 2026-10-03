@@ -8,9 +8,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const repoRoot = path.join(projectRoot, 'repo');
-const docsPath = path.join(projectRoot, 'docs', 'cppreference', 'index.html');
+const docsPath = path.join(projectRoot, 'index.html');
 
-console.log('[Audit] Auditing gh-pages and codebase symbols vs docs/cppreference/index.html...');
+console.log('[Audit] Auditing gh-pages and codebase symbols vs index.html...');
 
 // 1. Get current DATABASE from index.html
 const html = fs.readFileSync(docsPath, 'utf8');
