@@ -240,7 +240,11 @@ class Generator(Model, ABC):
 
 
 class FragGenerator(Generator):
-    """Abstract base class for fragment-constrained molecule generators."""
+    """Abstract base class for fragment-constrained molecule generators.
+
+    Generation is strictly fragment-conditioned via loaderFromFrags() or dummyMolsFromFragments(),
+    and cannot sample ex nihilo from scratch without conditioning input fragments.
+    """
 
     def init_states(self) -> None:
         """Initialize multi-dimensional model weights using Xavier uniform initialization."""

@@ -14,7 +14,11 @@ from drugex.training.generators.utils import tri_mask
 
 
 class FragGraphExplorer(FragExplorer):
-    """Reinforcement learning explorer optimizing graph-based molecular fragment decorators with environment rewards."""
+    """Reinforcement learning explorer optimizing graph-based molecular fragment decorators with environment rewards.
+
+    In the policy gradient loop, active agent weights are updated via REINFORCE against a frozen mutate
+    prior, balancing exploration via epsilon-greedy sampling and baseline subtraction (loss * (reward - beta)).
+    """
 
     def __init__(self, agent, env, mutate=None, crover=None, batch_size=128, epsilon=0.1, beta=0.0, n_samples=-1, optim=None, device=DEFAULT_DEVICE, use_gpus=DEFAULT_GPUS, no_multifrag_smiles=True):
         """Initialize graph explorer with agent network, environment, mutation/crossover networks, and optimizer."""

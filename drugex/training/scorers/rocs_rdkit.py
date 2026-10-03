@@ -405,7 +405,11 @@ def _score_molecule_rdkit_worker(args: Tuple[int, List[Chem.Mol]]) -> Tuple[int,
 
 
 class RDKitROCSScorer(Scorer):
-    """ROCS-style 3D shape and pharmacophore color overlay scorer using RDKit rdShapeAlign."""
+    """ROCS-style 3D shape and pharmacophore color overlay scorer using RDKit rdShapeAlign.
+
+    Optimizes physical Gaussian volume overlap rather than fast alignment-free shape/moment estimators,
+    requiring 3D conformer generation; falls back to 0.0 on failed conformer generation or timeout.
+    """
 
     def __init__(
         self,

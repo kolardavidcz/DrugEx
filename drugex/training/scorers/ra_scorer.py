@@ -25,7 +25,11 @@ XGB_MODEL_PATH: str | None = None
 
 
 class RetrosyntheticAccessibilityScorer(Scorer):
-    """Scorer evaluating retrosynthetic accessibility via RAscore XGBoost models."""
+    """Scorer evaluating retrosynthetic accessibility via RAscore XGBoost models.
+
+    Evaluates synthetic feasibility using reaction-based ML models without requiring 3D conformers
+    or shape overlays; falls back to 0.0 on invalid chemical structures or scoring failures.
+    """
 
     def __init__(self, modifier: ScoreModifier | None = None) -> None:
         """Initialize retrosynthetic accessibility scorer with optional score modifier."""

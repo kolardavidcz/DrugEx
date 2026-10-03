@@ -11,7 +11,12 @@ from drugex.utils import get_Pareto_fronts
 from rdkit import Chem, DataStructs
 
 class ParetoRewardScheme(RewardScheme, ABC):
-    """Abstract reward scheme prioritizing Pareto frontiers with secondary diversity ranking."""
+    """Abstract reward scheme prioritizing Pareto frontiers with secondary diversity ranking.
+
+    Multi-objective scalarization prevents reward collapse on trivial 2D descriptors (unlike naive
+    linear scalarization) by ranking candidates across non-dominated Pareto frontiers (or Augmented
+    Chebyshev non-linear scalarization) before intra-front crowd diversification.
+    """
 
     def getParetoFronts(self, scores):
         """Extract non-dominated Pareto frontier fronts from multi-objective evaluation matrix."""
@@ -159,7 +164,11 @@ class ParetoTanimotoDistance(ParetoRewardScheme):
 
 
 class WeightedSum(RewardScheme):
-    """Reward scheme combining multi-objective scores via dynamic failure-rate weighting relative to thresholds."""
+    """Reward scheme combining multi-objective scores via dynamic failure-rate weighting relative to thresholds.
+
+    Calculates adaptive failure-ratio weights so objectives that frequently fall below user thresholds
+    receive higher gradient pressure, preventing the agent from collapsing onto trivial 2D descriptors.
+    """
 
     def __call__(self, smiles, scores, thresholds):
         """Compute weighted sum scalar rewards using threshold failure-ratio weights."""

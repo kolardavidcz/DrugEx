@@ -154,7 +154,11 @@ class FragmentPairsSupplier(MolSupplier):
 
 
 class FragmentCorpusEncoder(ParallelProcessor):
-    """Fragments and encodes chemical compounds in parallel across CPU worker processes."""
+    """Fragments and encodes chemical compounds in parallel across CPU worker processes.
+
+    Coordinates decomposition of input molecules into fragment-molecule pairs, constructing attachment
+    vectors for fragment-based growing without bond cleavage when combined with dummy molecule converters.
+    """
 
     class FragmentPairsCollector(ListExtend):
         """Collector extending an internal list with optional callback chaining."""

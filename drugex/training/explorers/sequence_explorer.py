@@ -17,7 +17,11 @@ from tqdm.auto import tqdm
 
 
 class SequenceExplorer(Explorer):
-    """Reinforcement learning explorer optimizing de novo sequence RNN agents in multi-objective environments."""
+    """Reinforcement learning explorer optimizing de novo sequence RNN agents in multi-objective environments.
+
+    Runs policy gradient optimization to update active agent weights against a frozen mutate prior,
+    utilizing epsilon-greedy exploration and baseline subtraction (reward - beta) to guide sequence generation.
+    """
 
     def __init__(self, agent, env, mutate=None, crover=None, no_multifrag_smiles=True,
         batch_size=128, epsilon=0.1, beta=0.0, n_samples=1000, optim=None,

@@ -210,6 +210,8 @@ class VocGraph(Vocabulary):
 
     Encodes molecules into atom valence state tokens (e.g. `'4C'`, `'3O+'`, `'1Cl'`),
     formal charges, bond connectivity indices, and fragment attachment flags.
+    Operates strictly on 2D constitution/valences (node loci and bond types) and does not encode
+    3D coordinates or chiral tags, requiring stereochemistry stripping before encoding.
     """
 
     defaultWords: Tuple[str, ...] = (

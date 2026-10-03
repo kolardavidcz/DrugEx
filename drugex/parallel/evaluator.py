@@ -4,23 +4,10 @@ from tqdm.auto import tqdm
 from drugex.parallel.interfaces import ParallelException, ParallelProcessor
 
 class ParallelSupplierEvaluator(ParallelProcessor):
-    """
-    Class implementing parallel evaluation of `MolSupplier` instances on input data (see `ParallelSupplierEvaluator.apply`).
-
-    """
+    """Parallel evaluation manager executing MolSupplier instances across chunked data partitions."""
 
     def __init__(self, supplier_class, n_proc=None, chunk_size=1000, chunks=None, args=None, kwargs=None):
-        """
-        Initialize this instance with a `MolSupplier` and other parameters. Note that the supplier is passed as a class and not an instance. This helps to avoid some issues with serialization between processes and, thus, `ParallelSupplierEvaluator` serves only as a template for execution. Also note that the `ParallelSupplierEvaluator` assumes that the first argument of the `MolSupplier` constructor accepts the data to be processed.
-
-        Results of the calculation invoked by `ParallelSupplierEvaluator.apply` are concatenated and returned as a `list` unless 'return_suppliers' is specified.
-
-        Args:
-            supplier_class: Class of the `MolSupplier` to use for evaluation.
-            args:
-            kwargs:
-        """
-
+        """Initialize parallel supplier evaluator with supplier class template and multiprocessing configuration."""
         super().__init__(n_proc, chunk_size, chunks)
         self.args = [] if not args else args
         self.kwargs = dict() if not kwargs else kwargs
@@ -29,28 +16,11 @@ class ParallelSupplierEvaluator(ParallelProcessor):
         self.errors = []
 
     def initSupplier(self, supplier_class, chunk):
-        """
-        Initialize a `MolSupplier` instance on the given chung of data.
-        Args:
-            supplier_class: `MolSupplier` to initialize.
-            chunk: Data chunk.
-
-        Returns:
-            initialized `MolSupplier`
-        """
-
+        """Instantiate MolSupplier class for a specific data chunk."""
         return supplier_class(chunk, *self.args, **self.kwargs)
 
     def run(self, chunk, error):
-        """
-        Initialize and start evaluation of the `MolSupplier` instance on the given chunk of data.
-
-        Args:
-            chunk: Current chunk of data.
-        Returns:
-            result of the `MolSupplier.toList()` method for the given chunk.
-        """
-
+        """Execute MolSupplier extraction on a data chunk with exception routing."""
         try:
             sup = self.initSupplier(self.supplier, chunk)
             return sup.toList(), sup
@@ -58,30 +28,12 @@ class ParallelSupplierEvaluator(ParallelProcessor):
             error(exp)
 
     def error(self, data):
-        """
-        Catch and log an error occurring in the parallel process.
-
-        Raises:
-            `ParallelException`
-
-        Args:
-            data: error data
-        """
+        """Record error data and raise ParallelException during worker execution."""
         self.errors.append(data)
         raise ParallelException(data)
 
     def apply(self, data, collector, error=None, desc_string=None):
-        """
-        Apply the `ParallelSupplierEvaluator.run()` across a `Pool` of workers.
-
-        Args:
-            data: input data to divide into chunks and process in parallel
-            collector: a `ResultCollector` that receives results of parallel processes
-            error: a callable to handle errors during evaluation of each parallel supplier
-            desc_string: progress bar description string
-        Returns:
-            `None`
-        """
+        """Distribute chunked supplier evaluation across ProcessPoolExecutor workers and collect results."""
 
         error = error if error else self.error
         chunk_size = self.getChunkSize(data)

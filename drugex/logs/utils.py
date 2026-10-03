@@ -13,15 +13,7 @@ from drugex.logs.config import LogFileConfig
 BACKUP_DIR_FOLDER_PREFIX = 'backup'
 
 def export_conda_environment(filepath: str):
-    """Export the conda environment to a yaml file.
-
-    Args:
-        filepath (str): path to the yaml file
-
-    Raises:
-        subprocess.CalledProcessError: if the command fails
-        Exception: if an unexpected error occurs
-    """
+    """Export active Conda environment specification to a YAML file on disk."""
     try:
         cmd = f"conda env export > {filepath}"
         subprocess.run(cmd, shell=True, check=True)

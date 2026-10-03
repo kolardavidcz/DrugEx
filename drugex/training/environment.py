@@ -8,7 +8,11 @@ from drugex.training.scorers.smiles import SmilesChecker
 
 
 class DrugExEnvironment(Environment):
-    """Reinforcement learning environment coordinating objective scorers, validity checks, and desirability evaluation."""
+    """Reinforcement learning environment coordinating objective scorers, validity checks, and desirability evaluation.
+
+    Per-objective thresholds strictly gate the 'Desired' indicator: every objective must meet or exceed
+    its threshold (undesire.sum == 0) for a compound to count toward the desired ratio metric.
+    """
 
     def getScores(self, smiles, frags=None, no_multifrag_smiles=True):
 

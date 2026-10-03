@@ -238,7 +238,11 @@ def _align_and_score_helper(query_shape, ref_shape, opt_mode="combo", score_vari
 
 
 class CDPKitROCSScorer(Scorer):
-    """ROCS-like 3D shape and color overlay scorer using CDPKit Gaussian shapes and pharmacophore models."""
+    """ROCS-like 3D shape and color overlay scorer using CDPKit Gaussian shapes and pharmacophore models.
+
+    Computes physical Gaussian volume overlap rather than fast alignment-free shape/moment estimators,
+    requiring 3D conformer generation; falls back to 0.0 on conformer generation failure or alignment timeouts.
+    """
 
     def __init__(
         self,

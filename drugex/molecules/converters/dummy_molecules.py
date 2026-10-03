@@ -6,7 +6,11 @@ from drugex.molecules.converters.interfaces import MolConverter
 
 
 class dummyMolsFromFragments(MolConverter):
-    """Converter synthesizing complete dummy molecules from one or more fragment SMILES."""
+    """Converter synthesizing complete dummy molecules from one or more fragment SMILES.
+
+    Constructs dummy attachment vectors without bond cleavage for fragment-based growing by appending
+    an ethyl group to single fragments or bridging disconnected fragments via single bonds.
+    """
 
     @staticmethod
     def addCCToFragments(frag):

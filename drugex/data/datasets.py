@@ -156,6 +156,8 @@ class GraphFragDataSet(DataSet):
 
     Stores paired fragment-molecule graph action encodings (atom types, loci, bond types)
     for step-wise autoregressive graph generation.
+    Handles on-disk TSV persistence with companion vocabulary files, chunked file appending during
+    corpus encoding, and batch iteration via dataToLoader() into PyTorch DataLoaders.
     """
 
     def __init__(

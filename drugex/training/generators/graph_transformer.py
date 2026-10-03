@@ -89,7 +89,11 @@ class AtomLayer(nn.Module):
 
 
 class GraphTransformer(FragGenerator):
-    """Autoregressive Graph Transformer for fragment-conditioned molecular graph generation via atom/bond additions."""
+    """Autoregressive Graph Transformer for fragment-conditioned molecular graph generation via atom/bond additions.
+
+    Generation is strictly fragment-conditioned via loaderFromFrags() or dummyMolsFromFragments();
+    it grows graphs from scaffold attachment points and cannot sample ex nihilo from scratch.
+    """
 
     def __init__(
         self,
