@@ -379,7 +379,7 @@ class ResultAnalyzer:
         else:
             mol = Chem.MolFromSmiles(str(mol_or_smiles))
 
-        if mol is None:
+        if mol is None or mol.GetNumHeavyAtoms() == 0:
             return "[Invalid]"
 
         try:
@@ -443,8 +443,8 @@ class ResultAnalyzer:
         if not self.ref_sdf_path.exists():
             # Attempt automated reference conformer generation if missing
             try:
-                preparer = QueryConformerPreparer(output_dir=self.output_dir / "references")
-                gen_path = preparer.generate_curated_ensemble(
+                preparer = QueryConformerPreparer(references_dir=self.output_dir / "references")
+                gen_path = preparer.generate_reference_sdf(
                     query=self.seed_smiles,
                     output_path=self.ref_sdf_path,
                 )
