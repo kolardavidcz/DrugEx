@@ -91,10 +91,10 @@ class DynamicPropertyEnvelope:
         clogp: float = float(Crippen.MolLogP(mol))
         tpsa: float = float(AllChem.CalcTPSA(mol))
 
-        # HAC envelope: [0.70 * X, 1.30 * X] with scale-adapted sigma
-        hac_lower: float = max(6.0, 0.70 * hac)
-        hac_upper: float = 1.30 * hac
-        hac_sigma: float = max(2.5, 0.10 * hac)
+        # HAC envelope: [0.70 * X, 1.30 * X] bounded to prevent inversion
+        hac_lower: float = max(1.0, 0.70 * hac)
+        hac_upper: float = max(hac_lower + 1.0, 1.30 * hac)
+        hac_sigma: float = max(2.0, 0.10 * hac)
 
         # CLogP envelope: Additive [X - 1.20, X + 1.20] with sigma = 0.80
         # (Additive delta is required because CLogP can be zero or negative)
@@ -103,10 +103,10 @@ class DynamicPropertyEnvelope:
         clogp_upper: float = clogp + clogp_delta
         clogp_sigma: float = 0.80
 
-        # TPSA envelope: [0.70 * X, 1.30 * X] with scale-adapted sigma
-        tpsa_lower: float = max(10.0, 0.70 * tpsa)
-        tpsa_upper: float = 1.30 * tpsa
-        tpsa_sigma: float = max(10.0, 0.12 * tpsa)
+        # TPSA envelope: [0.70 * X, 1.30 * X] with low-TPSA fallback to prevent inversion
+        tpsa_lower: float = max(0.0, 0.70 * tpsa)
+        tpsa_upper: float = max(tpsa + 10.0 if tpsa < 10.0 else 1.30 * tpsa, 1.30 * tpsa)
+        tpsa_sigma: float = max(5.0, 0.12 * tpsa)
 
         return cls(
             target_hac=hac,

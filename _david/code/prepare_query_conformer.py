@@ -185,6 +185,7 @@ class QueryConformerPreparer:
         prune_rms_thresh: float = PRUNE_RMS_THRESH,
         max_energy_delta: float = MAX_ENERGY_DELTA,
         curate_extended: bool = True,
+        random_seed: int = 42,
         **kwargs: Any,
     ) -> Path:
         """Generate low-energy 3D conformer ensemble curated to prevent vacuum intramolecular collapse.
@@ -194,9 +195,11 @@ class QueryConformerPreparer:
         with pruneRmsThresh=0.20 A, relaxed with MMFF94 within Delta E <= 8.0 kcal/mol,
         and curated by Radius of Gyration (Rg >= Rg,median) to retain extended outward-facing geometries.
         """
-        # Backward compatibility for smiles parameter
+        # Backward compatibility for smiles and seed parameters
         if "smiles" in kwargs:
             query = kwargs["smiles"]
+        if "seed" in kwargs:
+            random_seed = int(kwargs["seed"])
 
         target_path: Path = output_path or self.OUTPUT_SDF
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,7 +219,7 @@ class QueryConformerPreparer:
 
         # [PACKAGE: rdkit] WHY: ETKDGv3 distance-geometry embedding with 0.20 A RMSD prune threshold. WHAT: Conformer generator parameters. HOW: AllChem.ETKDGv3.
         params = AllChem.ETKDGv3()
-        params.randomSeed = RANDOM_SEED
+        params.randomSeed = random_seed
         params.pruneRmsThresh = prune_rms_thresh
 
         conf_ids: list[int] = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
@@ -246,8 +249,9 @@ class QueryConformerPreparer:
                     message="MMFF94 unparameterized for molecule; falling back to UFF force field",
                     context={"query": str(query), "conf_id": cid},
                 )
-                res = AllChem.UFFOptimizeMolecule(mol_h, confId=cid, maxIters=500)
-                energy = float(res)
+                AllChem.UFFOptimizeMolecule(mol_h, confId=cid, maxIters=500)
+                uff_ff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)
+                energy = float(uff_ff.CalcEnergy()) if uff_ff is not None else 0.0
             else:
                 ff = AllChem.MMFFGetMoleculeForceField(mol_h, props, confId=cid)
                 if ff is not None:
@@ -260,7 +264,8 @@ class QueryConformerPreparer:
                         context={"query": str(query), "conf_id": cid},
                     )
                     AllChem.UFFOptimizeMolecule(mol_h, confId=cid, maxIters=500)
-                    energy = 0.0
+                    uff_ff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)
+                    energy = float(uff_ff.CalcEnergy()) if uff_ff is not None else 0.0
             energies.append((energy, cid))
 
         energies.sort(key=lambda x: x[0])
