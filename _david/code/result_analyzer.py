@@ -1012,6 +1012,8 @@ class ResultAnalyzer:
 
         summary: dict[str, Any] = {
             "query_seed_smiles": self.seed_smiles,
+            "total_candidates_generated": total_n,
+            "valid_candidates_count": valid_n,
             "seed_descriptors": {
                 "HAC": self.seed_hac,
                 "MW": self.seed_mw,
