@@ -1,10 +1,19 @@
-"""Augmented Chebyshev and Geometric Mean anti-cheating reward schemes."""
+"""Augmented Chebyshev, Geometric Mean, and Anti-Collapse Soft-Gated reward schemes."""
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Optional, Union
 
+# [PACKAGE: numpy] WHY: Array conversions, nan sanitization, and matrix scalarization. WHAT: Numerical computing library.
 import numpy as np
 from drugex.training.interfaces import RewardScheme
+from drugex.training.rewards import AntiCollapseSoftGateReward
+
+__all__: list[str] = [
+    "AntiCollapseSoftGateReward",
+    "AugmentedChebyshevReward",
+    "GeometricMeanReward",
+]
 
 
 class AugmentedChebyshevReward(RewardScheme):

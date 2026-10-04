@@ -18,8 +18,11 @@ if str(SCRIPT_DIR) not in sys.path:
 import matplotlib
 
 matplotlib.use("Agg")
+# [PACKAGE: matplotlib] WHY: Generates convergence curve plots during RL evaluation. WHAT: Plotting library. HOW: plt.subplots, fig.savefig.
 import matplotlib.pyplot as plt
+# [PACKAGE: pandas] WHY: Tabular candidate metric auditing and summary generation. WHAT: Data manipulation library. HOW: pd.read_csv, pd.concat, df.to_csv.
 import pandas as pd
+# [PACKAGE: torch] WHY: Tensor operations, GPU allocation, and dataloader management. WHAT: PyTorch deep learning framework. HOW: torch.cuda, DataLoader.
 import torch
 from drugex.data import fragments, processing
 from drugex.data.corpus.vocabulary import VocGraph
@@ -29,17 +32,20 @@ from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
 from drugex.training.interfaces import RewardScheme
-from drugex.training.monitors import FileMonitor
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import Scorer
-from drugex.training.scorers.modifiers import SmoothClippedScore, SmoothHump
+from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore, SmoothHump
 from drugex.training.scorers.properties import Property, Scaffold
-from drugex.training.scorers.ra_scorer import RetrosyntheticAccessibilityScorer
+from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+# [PACKAGE: rdkit] WHY: 3D conformer handling, molecular validation, and scaffold extraction. WHAT: Cheminformatics toolkit. HOW: Chem.MolFromSmiles, Chem.MolToSmiles, Draw.MolsToGridImage.
 from rdkit import Chem
 from rdkit.Chem import Draw
 
-from _david.code.anti_cheating_rewards import AugmentedChebyshevReward
+from _david.code.anti_cheating_rewards import AntiCollapseSoftGateReward
+from _david.code.dynamic_envelope import create_dynamic_property_scorers
 from _david.code.fallback_monitor import FallbackMonitor
-from _david.code.usrcat_scorer import USRCATScorer
+from _david.code.monitor import PeakRecoveryMonitor
+from _david.code.prepare_query_conformer import QueryConformerPreparer, create_rocs_scorer
 
 # Ensure encodeFragments alias exists on GraphTransformer
 if not hasattr(GraphTransformer, "encodeFragments"):
@@ -52,7 +58,7 @@ if not hasattr(GraphFragDataSet, "__len__"):
 warnings.filterwarnings("ignore")
 
 
-#? [PyTorch CUDA] Lightweight device probe: tests tensor allocation on GPU 0 to safely catch driver faults and fall back to CPU.
+# [PACKAGE: torch] WHY: Device probe testing tensor allocation on GPU 0 to safely catch driver faults. WHAT: PyTorch CUDA runtime. HOW: torch.cuda.is_available, torch.zeros.
 def get_safe_gpus() -> tuple[int, ...] | tuple[()]:
     """Safely detect available and functioning CUDA devices."""
     if not torch.cuda.is_available():
@@ -77,53 +83,27 @@ GPUS: tuple[int, ...] | tuple[()] = get_safe_gpus()
 
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 
-# --- Fragmentation Constants ---
-FRAG_MIN_FRAGS: int = 1
-FRAG_MAX_FRAGS: int = 4
-FRAG_METHOD: str = "brics"
-
 # --- Training Hyperparameters ---
 RL_EPOCHS: int = 100
 RL_EPSILON: float = 0.10
 RL_BETA: float = 0.00
 RL_N_SAMPLES: int = 200
 RL_BATCH_SIZE: int = 64
-RL_PATIENCE: int = 20
+RL_PATIENCE: int = 10
+RL_MIN_EPOCHS: int = 5
 
-# --- 3D Shape Scorer Bounds & Thresholds ---
+# --- Native DrugEx 3D ROCS Scorer Configuration (Zero 1D Moment Approximations) ---
 ROCS_SCORE_TYPE: str = "TanimotoCombo"
-ROCS_MAX_CONFS: int = 10
-ROCS_MAX_ISOMERS: int = 1
-ROCS_TIMEOUT: int = 15
-ROCS_LOWER_X: float = 0.45
-ROCS_UPPER_X: float = 1.10
+ROCS_COLOR_FF: str = "oe_mills_dean"
+ROCS_MAX_CONFORMERS: int = 22
+ROCS_MAX_HEAVY_ATOMS: int = 55
+ROCS_MAX_ROTATABLE_BONDS: int = 25
+ROCS_TIMEOUT: int = 30
 ROCS_THRESHOLD: float = 0.50
 
-# --- ElectroShape 3D Shape & Electrostatic Moment Bounds (Ultrafast Decoupled RL Tier) ---
-ELECTROSHAPE_LOWER_X: float = 0.12
-ELECTROSHAPE_UPPER_X: float = 0.35
-ELECTROSHAPE_THRESHOLD: float = 0.22
-# Backward compatibility aliases
-USRCAT_LOWER_X: float = ELECTROSHAPE_LOWER_X
-USRCAT_UPPER_X: float = ELECTROSHAPE_UPPER_X
-USRCAT_THRESHOLD: float = ELECTROSHAPE_THRESHOLD
-
-# --- Universal Physical Size Envelope Defaults ---
-HEAVY_THRESHOLD: float = 0.50
-SIZE_SIGMA: float = 4.0
-SIZE_DELTA: float = 5.0  # Dynamic plateau width: [seed_hac - SIZE_DELTA, seed_hac + SIZE_DELTA]
-
-# --- Synthesizability & Drug-likeness Bounds ---
-RA_LOWER_X: float = 0.30
-RA_UPPER_X: float = 0.80
-RA_THRESHOLD: float = 0.50
-
-QED_LOWER_X: float = 0.35
-QED_UPPER_X: float = 0.75
-QED_THRESHOLD: float = 0.50
-
-SA_LOWER_X: float = 4.50
-SA_UPPER_X: float = 2.50
+# --- Single Synthesizability Feasibility Floor (1.0 for SA <= 5.5, penalize SA > 6.0) ---
+SA_FLOOR: float = 5.50
+SA_CEILING: float = 6.00
 SA_THRESHOLD: float = 0.50
 
 
@@ -136,7 +116,7 @@ class GraphTransformerOptimizer:
         self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "output" / "stage3_graph_transformer"
 
         if output_dir is None:
-            #? [DateTime] Generates ISO-like timestamp string for unique run output directory naming.
+            # [PACKAGE: datetime] WHY: Timestamp string generation for unique directory creation. WHAT: Standard library datetime. HOW: datetime.now.
             self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.OUTPUT_DIR: Path = self.BASE_OUTPUT_DIR / self.RUN_ID
         else:
@@ -148,7 +128,17 @@ class GraphTransformerOptimizer:
         self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
         self.MODEL: Path = self.MODEL_DIR
 
-        self.PRETRAINED_DIR: Path = self.ROOT_PATH / "data" / "models" / "pretrained" / "graph-trans" / "Papyrus05.5_graph_trans_PT"
+        # Candidate locations for pre-trained Papyrus prior (zero transfer learning required)
+        pretrained_candidates = [
+            self.ROOT_PATH / "data" / "models" / "pretrained" / "graph-trans" / "Papyrus05.5_graph_trans_PT",
+            Path("/home/kolar/learn_projects/drugex/data/models/pretrained/graph-trans/Papyrus05.5_graph_trans_PT"),
+            Path("/home/kolarv/DrugEx/tutorial/data/models/pretrained/graph-trans/Papyrus05.5_graph_trans_PT"),
+            Path("/home/kolarv/DrugEx/data/models/pretrained/graph-trans/Papyrus05.5_graph_trans_PT"),
+        ]
+        self.PRETRAINED_DIR: Path = next(
+            (p for p in pretrained_candidates if p.exists() and (p / "Papyrus05.5_graph_trans_PT.pkg").exists()),
+            pretrained_candidates[0],
+        )
         self.MODEL_PRETRAINED: Path = self.PRETRAINED_DIR
 
         self.VOC: VocGraph = VocGraph.fromFile(self.PRETRAINED_DIR / "Papyrus05.5_graph_trans_PT.vocab")
@@ -168,75 +158,42 @@ class GraphTransformerOptimizer:
         """Construct multi-objective DrugExEnvironment for reinforcement learning."""
         ref_path_str: str = str(ref_sdf_path)
 
-        #? [Pure LBDD ElectroShape Scorer] Ultrafast 75-dimensional shape and partial charge centroid moment similarity.
-        electroshape_scorer = USRCATScorer(
+        # 1. Native DrugEx 3D ROCS Scorer (Zero approximations: no USRCAT or ElectroShape)
+        rocs_scorer = create_rocs_scorer(
             references=ref_path_str,
-            num_conformers=ROCS_MAX_CONFS,
-            score_type="electroshape",
-            modifier=SmoothClippedScore(
-                lower_x=ELECTROSHAPE_LOWER_X,
-                upper_x=ELECTROSHAPE_UPPER_X,
-            ),
+            max_conformers=ROCS_MAX_CONFORMERS,
+            max_heavy_atoms=ROCS_MAX_HEAVY_ATOMS,
+            max_rotatable_bonds=ROCS_MAX_ROTATABLE_BONDS,
+            timeout=ROCS_TIMEOUT,
+            score_type=ROCS_SCORE_TYPE,
+            color_ff=ROCS_COLOR_FF,
         )
+        # Normalize TanimotoCombo [0, 2] to [0, 1] for reward gating
+        rocs_scorer.modifier = ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)
 
-        # Dynamic size envelope derived from seed ligand heavy atom count
-        seed_mol = Chem.MolFromSmiles(seed_smiles) if seed_smiles else None
-        seed_hac = seed_mol.GetNumHeavyAtoms() if seed_mol else 30
-        delta = max(3.0, seed_hac * 0.15)
-        lower_size = max(6.0, float(seed_hac - delta))
-        upper_size = float(seed_hac + delta)
-        sigma = max(2.5, seed_hac * 0.12)
+        # 2. Dynamic property envelope scorers (HAC, CLogP, TPSA with SmoothHump relative to query)
+        dynamic_scorers: list[Property] = create_dynamic_property_scorers(seed_smiles)
 
-        #? [Heavy Atom Volume Scorer] Native SmoothHump modifier dynamically centered on seed heavy atom count.
-        size_scorer = Property(
-            prop="Heavy",
-            modifier=SmoothHump(
-                lower_x=lower_size,
-                upper_x=upper_size,
-                sigma=sigma,
-            ),
-        )
-
-        #? [Retrosynthetic Accessibility Scorer] RAscore machine-learning model estimating synthesizability probability.
-        ra_scorer_inst = RetrosyntheticAccessibilityScorer(
-            modifier=SmoothClippedScore(
-                lower_x=RA_LOWER_X,
-                upper_x=RA_UPPER_X,
-            ),
-        )
-
-        #? [Drug-likeness QED Scorer] Quantitative Estimate of Drug-likeness.
-        qed_scorer = Property(
-            prop="QED",
-            modifier=SmoothClippedScore(
-                lower_x=QED_LOWER_X,
-                upper_x=QED_UPPER_X,
-            ),
-        )
-
-        #? [Synthetic Accessibility SA Scorer] Ertl & Schuffenhauer fragment penalty index.
+        # 3. Single synthesizability feasibility floor (1.0 for SA <= 5.5, penalize SA > 6.0)
+        # Purging all conflicting metrics (RAscore, BRICS)
         sa_scorer = Property(
             prop="SA",
-            modifier=SmoothClippedScore(
-                lower_x=SA_LOWER_X,
-                upper_x=SA_UPPER_X,
+            modifier=ClippedScore(
+                lower_x=SA_CEILING,
+                upper_x=SA_FLOOR,
+                low_score=0.0,
+                high_score=1.0,
             ),
         )
 
-        scorers: list[Scorer] = [electroshape_scorer, size_scorer, ra_scorer_inst, qed_scorer, sa_scorer]
-        thresholds: list[float] = [
-            ELECTROSHAPE_THRESHOLD,
-            HEAVY_THRESHOLD,
-            RA_THRESHOLD,
-            QED_THRESHOLD,
-            SA_THRESHOLD,
-        ]
+        scorers: list[Scorer] = [rocs_scorer, *dynamic_scorers, sa_scorer]
+        # ROCS threshold = 0.50 (corresponds to Combo score >= 1.0), envelopes = 0.50, SA = 0.50
+        thresholds: list[float] = [ROCS_THRESHOLD] + [0.50] * len(dynamic_scorers) + [SA_THRESHOLD]
 
         # Optional target-specific toxicophore suppression
         if toxicophore_smarts is not None:
             smarts_list = [toxicophore_smarts] if isinstance(toxicophore_smarts, str) else list(toxicophore_smarts)
             for smart in smarts_list:
-                #? [Toxicophore Suppression Scorer] Native Scaffold scorer penalizing user-specified substructure liabilities.
                 toxicophore_scorer = Scaffold(
                     smart=smart,
                     is_match=False,
@@ -244,7 +201,21 @@ class GraphTransformerOptimizer:
                 scorers.append(toxicophore_scorer)
                 thresholds.append(0.99)
 
-        scheme = reward_scheme if reward_scheme is not None else AugmentedChebyshevReward()
+        # Anti-collapse soft-gate reward scheme: col 0 is ROCS, col 4 is SA floor
+        scheme = (
+            reward_scheme
+            if reward_scheme is not None
+            else AntiCollapseSoftGateReward(
+                rocs_col_idx=0,
+                sa_col_idx=4,
+                w_3d=0.70,
+                w_props=0.30,
+                tau_3d=0.60,
+                normalize_rocs=False,
+                sa_floor_val=SA_FLOOR,
+                sa_ceil_val=SA_CEILING,
+            )
+        )
 
         env = DrugExEnvironment(
             scorers=scorers,
@@ -259,11 +230,11 @@ class GraphTransformerOptimizer:
         n_prompts: int = 100,
         scaffolds_path: Path | str | None = None,
     ) -> tuple[torch.utils.data.DataLoader, GraphFragDataSet]:
-        """Prepare fragment dataset and DataLoader from Stage 2 funnel scaffolds."""
+        """Prepare fragment dataset and DataLoader from core Murcko framework or Stage 2 scaffolds."""
         seed_tsv: Path = self.MODEL_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
 
-        #? [DrugEx dummyMolsFromFragments] Native fragment converter attaching dummy attachment vectors without bond cleavage.
+        # [PACKAGE: drugex] WHY: Fragment converter attaching dummy attachment vectors without bond cleavage. WHAT: Fragment preprocessing. HOW: dummyMolsFromFragments.
         corpus_encoder = fragments.FragmentCorpusEncoder(
             fragmenter=dummyMolsFromFragments(),
             encoder=fragments.GraphFragmentEncoder(self.VOC),
@@ -281,17 +252,10 @@ class GraphTransformerOptimizer:
                 pass
 
         if not scaffolds:
-            # Direct core scaffold conditioning from active seed query
-            from rdkit.Chem.Scaffolds import MurckoScaffold
-            seed_mol = Chem.MolFromSmiles(molecule_smile)
-            if seed_mol:
-                core_scaff = MurckoScaffold.GetScaffoldForMol(seed_mol)
-                if core_scaff and core_scaff.GetNumHeavyAtoms() > 0:
-                    scaffolds = [Chem.MolToSmiles(core_scaff, isomericSmiles=False)]
-                else:
-                    scaffolds = [Chem.MolToSmiles(seed_mol, isomericSmiles=False)]
-            else:
-                scaffolds = [molecule_smile]
+            # Direct core scaffold conditioning from active seed query via prepare_query_conformer
+            preparer = QueryConformerPreparer(self.OUTPUT_DIR / "references")
+            scaff_smi = preparer.extract_seed_core_scaffold(molecule_smile)
+            scaffolds = [scaff_smi]
 
         # Standardize scaffolds and remove stereochemistry (VocGraph operates on 2D constitution/valences only)
         std_raw = processing.Standardization(n_proc=1).apply(scaffolds)
@@ -323,8 +287,7 @@ class GraphTransformerOptimizer:
         scaffolds_path: Path | str | None = None,
         toxicophore_smarts: str | Sequence[str] | None = None,
     ) -> tuple[GraphTransformer, pd.DataFrame]:
-        """Execute fragment-conditioned RL exploration on GraphTransformer."""
-        from _david.code.prepare_query_conformer import QueryConformerPreparer
+        """Execute fragment-conditioned RL exploration on GraphTransformer with peak recovery."""
         preparer = QueryConformerPreparer(self.ROOT_PATH / "_david" / "references")
         seed_hash = preparer.get_seed_hash(molecule_smile)
         ref_candidates = [
@@ -354,17 +317,27 @@ class GraphTransformerOptimizer:
         )
 
         model_prefix = self.MODEL_DIR / "david_agent"
-        monitor = FileMonitor(model_prefix, save_smiles=True, reset_directory=True)
+        monitor = PeakRecoveryMonitor(
+            model_prefix,
+            save_smiles=True,
+            reset_directory=True,
+            criteria="desired_ratio",
+            patience=RL_PATIENCE,
+            min_epochs=RL_MIN_EPOCHS,
+        )
 
-        patience = min(RL_PATIENCE, max(5, epochs // 2))
         explorer.fit(
             seed_loader,
             seed_loader,
             monitor=monitor,
             epochs=epochs,
-            patience=patience,
+            patience=RL_PATIENCE,
+            min_epochs=RL_MIN_EPOCHS,
             criteria="desired_ratio",
         )
+
+        # Explicitly restore peak historical model weights onto agent
+        monitor.restore_peak_model(self.AGENT)
 
         scored_df = self.save_visualizations(
             self.AGENT, env, model_prefix, self.MODEL_DIR, input_dataset=seed_dataset, num_samples=n_samples

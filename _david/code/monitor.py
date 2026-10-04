@@ -17,8 +17,18 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-#? [Pandas] Parses TSV training monitor tables for live RL loss & convergence metrics.
+# [PACKAGE: pandas] WHY: Parses TSV training monitor tables for live RL loss & convergence metrics. WHAT: Data manipulation library. HOW: pd.read_csv.
 import pandas as pd
+
+from drugex.training.monitors import PeakRecoveryMonitor
+
+__all__: list[str] = [
+    "PeakRecoveryMonitor",
+    "find_latest_run_dir",
+    "format_duration",
+    "display_dashboard",
+    "main",
+]
 
 
 def find_latest_run_dir(base_dir: Path | None = None) -> Path | None:
