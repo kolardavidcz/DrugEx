@@ -253,7 +253,7 @@ class MoleculePipeline:
         print(f"[Stage 1] Executing Graph-Transformer RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
 
         from drugex.training.explorers import FragGraphExplorer
-        from drugex.training.monitors import FileMonitor
+        from drugex.training.monitors import PeakRecoveryMonitor
 
         optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage1_dir)
         env = optimizer.build_environment(
@@ -277,8 +277,17 @@ class MoleculePipeline:
         )
 
         model_prefix = optimizer.MODEL_DIR / "david_agent"
-        monitor = FileMonitor(model_prefix, save_smiles=True, reset_directory=True)
         patience = min(GraphTransformer.RL_PATIENCE, max(5, self.EPOCHS // 2))
+        min_epochs = min(5, self.EPOCHS)
+
+        monitor = PeakRecoveryMonitor(
+            model_prefix,
+            save_smiles=True,
+            reset_directory=True,
+            criteria="desired_ratio",
+            patience=patience,
+            min_epochs=min_epochs,
+        )
 
         explorer.fit(
             seed_loader,
@@ -286,8 +295,12 @@ class MoleculePipeline:
             monitor=monitor,
             epochs=self.EPOCHS,
             patience=patience,
+            min_epochs=min_epochs,
             criteria="desired_ratio",
         )
+
+        # Restore peak model weights to protect against late-epoch collapse
+        monitor.restore_peak_model(optimizer.AGENT)
 
         df_candidates = optimizer.save_visualizations(
             optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, input_dataset=seed_dataset, num_samples=self.N_SAMPLES
