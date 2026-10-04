@@ -321,8 +321,8 @@ class VocGraph(Vocabulary):
         if not subs:
             raise RuntimeError(f"Fragments must be specified for VocGraph.encode, got {subs} instead")
 
-        output = np.zeros([len(smiles), self.max_len - self.n_frags - 1, 5], dtype=np.compat.long)
-        connect = np.zeros([len(smiles), self.n_frags + 1, 5], dtype=np.compat.long)
+        output = np.zeros([len(smiles), self.max_len - self.n_frags - 1, 5], dtype=np.int64)
+        connect = np.zeros([len(smiles), self.n_frags + 1, 5], dtype=np.int64)
         for i, s in enumerate(smiles):
             mol = Chem.MolFromSmiles(s)
             sub = Chem.MolFromSmiles(subs[i])
