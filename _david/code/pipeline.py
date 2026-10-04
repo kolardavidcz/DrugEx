@@ -349,10 +349,14 @@ class MoleculePipeline:
 
         print(f"[Stage 2] Prioritized {len(df_leads)} top elite lead molecules:")
         for idx, row in df_leads.iterrows():
+            rocs_val = float(row.get("ROCS", 0.0))
+            qed_val = float(row.get("QED", 0.0))
+            sa_val = float(row.get("SA", row.get("SAscore", 0.0)))
+            des_val = float(row.get("Desirability", 0.0))
             print(
                 f"  • Lead #{idx+1}: {row['SMILES'][:45]}... | "
-                f"ROCS: {row['ROCS']:.2f} | QED: {row['QED']:.2f} | "
-                f"RA: {row['RAscore']:.2f} | Desirability: {row['Desirability']:.2f}"
+                f"ROCS: {rocs_val:.2f} | QED: {qed_val:.2f} | "
+                f"SA: {sa_val:.2f} | Desirability: {des_val:.2f}"
             )
         print(f"[Stage 2] Summary analysis saved to: {stage2_dir / 'result_analysis_summary.json'}")
         print(f"[Stage 2] Top leads saved to: {leads_tsv}")
