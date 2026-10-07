@@ -1,19 +1,39 @@
 {
-    "run_id": "20261007_123237",
+    "run_id": "20261007_123924",
     "mode": "benchmark_only",
-    "current_stage": "Stage 2: Result Analysis",
-    "overall_status": "RUNNING",
-    "elapsed_seconds": 3.73,
-    "updated_at": "2026-10-07T12:32:41.409570",
+    "current_stage": "COMPLETED",
+    "overall_status": "SUCCESS",
+    "elapsed_seconds": 29.48,
+    "updated_at": "2026-10-07T12:39:54.274764",
     "stages": {
         "INITIALIZING": "RUNNING",
         "Stage 0: 3D Reference Conformation": "SUCCESS",
-        "Stage 2: Result Analysis": "RUNNING"
+        "Stage 2: Result Analysis": "SUCCESS",
+        "COMPLETED": "SUCCESS"
     },
     "gpu_telemetry": {
-        "cuda_available": false,
-        "device_count": 0,
-        "devices": []
+        "cuda_available": true,
+        "device_count": 2,
+        "devices": [
+            {
+                "index": 0,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "reserved_mb": 2.0,
+                "max_allocated_mb": 0.0,
+                "total_memory_mb": 23979.44
+            },
+            {
+                "index": 1,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "reserved_mb": 0.0,
+                "max_allocated_mb": 0.0,
+                "total_memory_mb": 23987.81
+            }
+        ]
     },
-    "details": {}
+    "details": {
+        "duration_seconds": 29.48
+    }
 }
