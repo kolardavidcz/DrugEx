@@ -31,10 +31,18 @@ download.log
 /tutorial/advanced/rocs/*.png
 /tutorial/advanced/rocs/*.csv
 /tutorial/advanced/rocs/*.txt
+# Generated run outputs & artifacts
+/outputs/
+/outputs
+outputs/
+**/outputs/
+/output/
+/output
 _david/outputs/
 **/_david/outputs/
-_david/output/[0-9]*
-_david/output/legacy/
+_david/output/*
+!_david/output/m4_sanity/
+!_david/output/m4_empirical/
 
 # Test directories, copies & runners
 /_test_*
