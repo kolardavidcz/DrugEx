@@ -6,25 +6,21 @@ from _david.code.anti_cheating_rewards import (
     AugmentedChebyshevReward,
     GeometricMeanReward,
 )
+from _david.code.dynamic_envelope import (
+    DynamicPropertyEnvelope,
+    compute_dynamic_envelope,
+    create_dynamic_property_scorers,
+)
 from _david.code.fallback_monitor import FallbackEvent, FallbackMonitor
 from _david.code.GraphTransformer import GraphTransformerOptimizer
 from _david.code.pipeline import MoleculePipeline
 from _david.code.prepare_query_conformer import QueryConformerPreparer, get_safe_parallel_jobs
 from _david.code.result_analyzer import ResultAnalyzer
 
-# Backward-compatibility aliases for legacy experiments
-try:
-    from _david.code.legacy.scaffold_funnel import ScaffoldFunnel
-    from _david.code.legacy.SequenceRNN import SequenceRNNOptimizer
-    from _david.code.legacy.usrcat_scorer import USRCATScorer
-except (ImportError, ModuleNotFoundError):
-    ScaffoldFunnel = None  # type: ignore[assignment, misc]
-    SequenceRNNOptimizer = None  # type: ignore[assignment, misc]
-    USRCATScorer = None  # type: ignore[assignment, misc]
-
 __all__: list[str] = [
     "AntiCollapseSoftGateReward",
     "AugmentedChebyshevReward",
+    "DynamicPropertyEnvelope",
     "FallbackEvent",
     "FallbackMonitor",
     "GeometricMeanReward",
@@ -32,8 +28,7 @@ __all__: list[str] = [
     "MoleculePipeline",
     "QueryConformerPreparer",
     "ResultAnalyzer",
-    "ScaffoldFunnel",
-    "SequenceRNNOptimizer",
-    "USRCATScorer",
+    "compute_dynamic_envelope",
+    "create_dynamic_property_scorers",
     "get_safe_parallel_jobs",
 ]
