@@ -51,9 +51,10 @@ _david/output/*
 # Test directories, copies & runners
 /_test_*
 _test_*/
-test_notebook_runner.py
-test_cell*.py
-test_*.py
+/test_notebook_runner.py
+/test_cell*.py
+/test_*.py
+!_david/output/archive/**
 
 # Intermediate test & CLI artifacts
 /testing/clitest/data/*.txt
