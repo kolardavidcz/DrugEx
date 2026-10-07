@@ -662,9 +662,6 @@ class ResultAnalyzer:
         unique_smiles = list(dict.fromkeys(raw_smiles))
         records: list[dict[str, Any]] = []
 
-        # [PACKAGE: rdkit] WHY: Detect catechol toxicophore / PAINS liability substructure. WHAT: SMARTS pattern matcher. HOW: Chem.MolFromSmarts.
-        catechol_pattern = Chem.MolFromSmarts("c1c([OH])c([OH])ccc1")
-
         valid_mols: list[tuple[str, Chem.Mol]] = []
         for smi in unique_smiles:
             mol = Chem.MolFromSmiles(smi)
@@ -678,8 +675,6 @@ class ResultAnalyzer:
                     "QED": 0.0,
                     "SA": 10.0,
                     "SAscore": 10.0,
-                    "RAscore": 0.0,
-                    "Has_Catechol": False,
                     "HBD": 0,
                     "HBA": 0,
                     "TPSA": 0.0,
@@ -701,7 +696,6 @@ class ResultAnalyzer:
             hba = int(Lipinski.NumHAcceptors(mol))
             tpsa = float(rdMolDescriptors.CalcTPSA(mol))
             rot_bonds = int(Lipinski.NumRotatableBonds(mol))
-            has_catechol = bool(mol.HasSubstructMatch(catechol_pattern)) if catechol_pattern is not None else False
 
             try:
                 sa_val = float(calculate_sa_score(mol))
@@ -723,8 +717,6 @@ class ResultAnalyzer:
                 "QED": round(qed_val, 3),
                 "SA": round(sa_val, 2),
                 "SAscore": round(sa_val, 2),
-                "RAscore": round(max(0.0, 1.0 - (sa_val / 10.0)), 2),
-                "Has_Catechol": has_catechol,
                 "HBD": hbd,
                 "HBA": hba,
                 "TPSA": round(tpsa, 1),
@@ -796,12 +788,6 @@ class ResultAnalyzer:
         viable = df_analyzed[df_analyzed["Valid"]].copy()
         if viable.empty:
             return pd.DataFrame()
-
-        # Prioritize catechol-free candidates if available to eliminate liability
-        if "Has_Catechol" in viable.columns:
-            non_cat = viable[~viable["Has_Catechol"]].copy()
-            if not non_cat.empty:
-                viable = non_cat
 
         # Sort descending by multi-objective anti-collapse Desirability score
         viable = viable.sort_values(by="Desirability", ascending=False).reset_index(drop=True)

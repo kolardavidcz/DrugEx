@@ -23,15 +23,11 @@ from rdkit import Chem
 
 from _david.code import (
     GraphTransformer,
-    SequenceRNN,
     prepare_query_conformer,
-    scaffold_funnel,
     thesis_benchmark,
 )
 from _david.code.fallback_monitor import FallbackMonitor
 from _david.code.result_analyzer import ResultAnalyzer
-
-CATECHOL_SMARTS: str = "c1c([OH])c([OH])ccc1"
 
 
 def get_gpu_telemetry() -> dict[str, Any]:
@@ -214,7 +210,7 @@ class MoleculePipeline:
         ref_sdf: Path = ref_dir / "query_molecule_3d.sdf"
         seed_core_tsv: Path = ref_dir / "seed_core_scaffold.tsv"
 
-        print("\n[Stage 0] Generating 3D reference conformer ensemble & 75-D ElectroShape moments...")
+        print("\n[Stage 0] Generating 3D reference conformer ensemble...")
         preparer = prepare_query_conformer.QueryConformerPreparer(references_dir=ref_dir)
         preparer.generate_reference_sdf(smiles=primary_molecule, output_path=ref_sdf)
         preparer.extract_seed_core_scaffold(smiles=primary_molecule, output_path=seed_core_tsv)
@@ -259,7 +255,6 @@ class MoleculePipeline:
         env = optimizer.build_environment(
             ref_sdf,
             seed_smiles=primary_molecule,
-            toxicophore_smarts=CATECHOL_SMARTS,
         )
         seed_loader, seed_dataset = optimizer._prepare_seed_fragments(
             primary_molecule, n_prompts=self.N_SAMPLES, scaffolds_path=seed_core_tsv

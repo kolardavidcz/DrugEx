@@ -35,7 +35,7 @@ from drugex.training.interfaces import RewardScheme
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore, SmoothHump
-from drugex.training.scorers.properties import Property, Scaffold
+from drugex.training.scorers.properties import Property
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 # [PACKAGE: rdkit] WHY: 3D conformer handling, molecular validation, and scaffold extraction. WHAT: Cheminformatics toolkit. HOW: Chem.MolFromSmiles, Chem.MolToSmiles, Draw.MolsToGridImage.
 from rdkit import Chem
@@ -152,7 +152,6 @@ class GraphTransformerOptimizer:
         self,
         ref_sdf_path: Path | str,
         seed_smiles: str = MY_MOLECULE,
-        toxicophore_smarts: str | Sequence[str] | None = None,
         reward_scheme: RewardScheme | None = None,
     ) -> DrugExEnvironment:
         """Construct multi-objective DrugExEnvironment for reinforcement learning."""
@@ -189,17 +188,6 @@ class GraphTransformerOptimizer:
         scorers: list[Scorer] = [rocs_scorer, *dynamic_scorers, sa_scorer]
         # ROCS threshold = 0.50 (corresponds to Combo score >= 1.0), envelopes = 0.50, SA = 0.50
         thresholds: list[float] = [ROCS_THRESHOLD] + [0.50] * len(dynamic_scorers) + [SA_THRESHOLD]
-
-        # Optional target-specific toxicophore suppression
-        if toxicophore_smarts is not None:
-            smarts_list = [toxicophore_smarts] if isinstance(toxicophore_smarts, str) else list(toxicophore_smarts)
-            for smart in smarts_list:
-                toxicophore_scorer = Scaffold(
-                    smart=smart,
-                    is_match=False,
-                )
-                scorers.append(toxicophore_scorer)
-                thresholds.append(0.99)
 
         # Anti-collapse soft-gate reward scheme: col 0 is ROCS, col 4 is SA floor
         scheme = (
@@ -285,7 +273,6 @@ class GraphTransformerOptimizer:
         epochs: int = RL_EPOCHS,
         n_samples: int = RL_N_SAMPLES,
         scaffolds_path: Path | str | None = None,
-        toxicophore_smarts: str | Sequence[str] | None = None,
     ) -> tuple[GraphTransformer, pd.DataFrame]:
         """Execute fragment-conditioned RL exploration on GraphTransformer with peak recovery."""
         preparer = QueryConformerPreparer(self.ROOT_PATH / "_david" / "references")
@@ -303,7 +290,7 @@ class GraphTransformerOptimizer:
             ref_sdf = self.OUTPUT_DIR / "references" / f"seed_{seed_hash}_3d.sdf"
             ref_sdf = preparer.generate_reference_sdf(molecule_smile, ref_sdf)
 
-        env = self.build_environment(ref_sdf, seed_smiles=molecule_smile, toxicophore_smarts=toxicophore_smarts)
+        env = self.build_environment(ref_sdf, seed_smiles=molecule_smile)
         seed_loader, seed_dataset = self._prepare_seed_fragments(molecule_smile, n_prompts=n_samples, scaffolds_path=scaffolds_path)
 
         explorer = FragGraphExplorer(

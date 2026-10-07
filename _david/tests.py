@@ -4,7 +4,7 @@ These tests empirically verify:
 1. AugmentedChebyshevReward penalizes unbalanced candidates exploiting QED/SA at the expense of 3D shape.
 2. GeometricMeanReward calculates mathematically correct weighted geometric means.
 3. SmoothHump modifier creates smooth bell curves for molecular properties.
-4. Scaffold modifier correctly detects and penalizes PAINS catechol toxicophores.
+4. Scaffold modifier correctly flags arbitrary substructure patterns.
 5. dummyMolsFromFragments successfully constructs graph fragment datasets from intact Murcko cores.
 6. Edge case handling (empty inputs, zero scores, 1.0 scores).
 7. FallbackMonitor tracks, alerts, counts, and exports fallback audits.
@@ -64,17 +64,14 @@ class TestAntiCheatingRewards(unittest.TestCase):
         score_high = hump(60.0)
         self.assertLess(score_high, 0.05)
 
-    def test_scaffold_catechol_penalty(self) -> None:
-        """Verify Scaffold correctly flags catechol toxicophore in EGCG."""
-        catechol_smarts = "c1c([OH])c([OH])ccc1"
-        scaffold_filter = Scaffold(smart=catechol_smarts, is_match=False)
-        egcg_smiles = "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1"
-        egcg_mol = Chem.MolFromSmiles(egcg_smiles)
-        # EGCG contains catechol/gallate rings, is_match=False -> should be penalized (score 0.0)
-        scores_egcg = scaffold_filter([egcg_mol])
-        self.assertEqual(scores_egcg[0], 0.0)
+    def test_scaffold_substructure_penalty(self) -> None:
+        """Verify Scaffold correctly flags substructures using arbitrary query SMARTS."""
+        nitro_smarts = "[$([NX3](=O)=O),$([NX3+](=O)[O-])]"
+        scaffold_filter = Scaffold(smart=nitro_smarts, is_match=False)
+        nitrobenzene_mol = Chem.MolFromSmiles("c1ccccc1[N+](=O)[O-]")
+        scores_nitro = scaffold_filter([nitrobenzene_mol])
+        self.assertEqual(scores_nitro[0], 0.0)
 
-        # Benzene has no catechol -> should pass (score 1.0)
         benzene_mol = Chem.MolFromSmiles("c1ccccc1")
         scores_benzene = scaffold_filter([benzene_mol])
         self.assertEqual(scores_benzene[0], 1.0)
@@ -224,25 +221,37 @@ class TestAntiCheatingRewards(unittest.TestCase):
             self.assertEqual(funnel_caffeine.MAX_CANDIDATE_HEAVY_ATOMS, 19)
 
     def test_universal_environment_defaults(self) -> None:
-        """Verify SequenceRNNOptimizer builds 5 universal objectives by default and 6 with custom toxicophore."""
+        """Verify GraphTransformerOptimizer builds 5 universal objectives with zero approximations or hardcoded toxicophores."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            optimizer = SequenceRNNOptimizer(output_dir=Path(tmp_dir))
+            optimizer = GraphTransformerOptimizer(output_dir=Path(tmp_dir))
             ref_sdf = Path(__file__).parent / "references" / "my_molecule_3d.sdf"
             if not ref_sdf.exists():
                 QueryConformerPreparer(ref_sdf.parent).generate_reference_sdf(output_path=ref_sdf)
 
-            # Default environment: 5 universal objectives (ElectroShape, Heavy, RAscore, QED, SA)
+            # 5 universal objectives: RDKit ROCS (TanimotoCombo), 3 dynamic property envelopes (HAC, CLogP, TPSA), and SA floor
             env_default = optimizer.build_environment(ref_sdf)
             self.assertEqual(len(env_default.scorers), 5)
-            scorer_keys = [s.getKey() for s in env_default.scorers]
-            self.assertIn("ElectroShape", scorer_keys)
-            self.assertIn("Heavy", scorer_keys)
-            self.assertIn("QED", scorer_keys)
-            self.assertIn("SA", scorer_keys)
 
-            # Environment with optional toxicophore: 6 objectives
-            env_tox = optimizer.build_environment(ref_sdf, toxicophore_smarts="c1c([OH])c([OH])ccc1")
-            self.assertEqual(len(env_tox.scorers), 6)
+            # Verify RDKit ROCS scorer
+            rocs_scorer = env_default.scorers[0]
+            self.assertEqual(rocs_scorer.score_type, "TanimotoCombo")
+            self.assertEqual(rocs_scorer.color_ff, "oe_mills_dean")
+
+            # Verify property keys
+            scorer_keys: list[str] = []
+            for s in env_default.scorers:
+                k = s.getKey()
+                if isinstance(k, list):
+                    scorer_keys.extend(k)
+                else:
+                    scorer_keys.append(k)
+            self.assertIn("Heavy", scorer_keys)
+            self.assertIn("logP", scorer_keys)
+            self.assertIn("TPSA", scorer_keys)
+            self.assertIn("SA", scorer_keys)
+            self.assertNotIn("ElectroShape", scorer_keys)
+            self.assertNotIn("USRCAT", scorer_keys)
+            self.assertNotIn("RAscore", scorer_keys)
 
     def test_scaffold_funnel_gated_execution(self) -> None:
         """Verify ScaffoldFunnel correctly pre-filters candidates before Stage 2 clustering."""
@@ -612,14 +621,14 @@ class TestAntiCheatingRewards(unittest.TestCase):
             self.assertLessEqual(s, 1.0)
 
     def test_result_analyzer_candidate_profiling(self) -> None:
-        """Verify ResultAnalyzer accurately profiles candidate molecules across 2D, 3D, and liabilities."""
+        """Verify ResultAnalyzer accurately profiles candidate molecules across 2D, 3D, and properties."""
         from _david.code.result_analyzer import ResultAnalyzer
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             analyzer = ResultAnalyzer(output_dir=Path(tmp_dir), seed_smiles="c1ccccc1")
             candidates = [
-                "c1ccccc1",  # Benzene (valid, clean, no catechol)
-                "c1c(O)c(O)ccc1",  # Catechol (liability)
+                "c1ccccc1",  # Benzene (valid, clean)
+                "c1ccccc1O",  # Phenol (valid)
                 "INVALID_SMILES_STRING",  # Invalid SMILES
             ]
             df = analyzer.analyze_candidates(candidates)
@@ -629,19 +638,18 @@ class TestAntiCheatingRewards(unittest.TestCase):
             self.assertTrue(df.loc[df["SMILES"] == "c1ccccc1", "Valid"].values[0])
             self.assertFalse(df.loc[df["SMILES"] == "INVALID_SMILES_STRING", "Valid"].values[0])
 
-            # Check catechol detection
-            cat_rows = df[df["Has_Catechol"]]
-            self.assertEqual(len(cat_rows), 1)
-            self.assertFalse(df.loc[df["SMILES"] == "c1ccccc1", "Has_Catechol"].values[0])
-
             # Check properties computed
             self.assertIn("QED", df.columns)
             self.assertIn("MW", df.columns)
+            self.assertIn("SA", df.columns)
+            self.assertIn("SAscore", df.columns)
             self.assertIn("Desirability", df.columns)
+            self.assertNotIn("RAscore", df.columns)
+            self.assertNotIn("Has_Catechol", df.columns)
             self.assertGreater(df.loc[df["SMILES"] == "c1ccccc1", "QED"].values[0], 0.0)
 
     def test_result_analyzer_lead_prioritization_and_export(self) -> None:
-        """Verify ResultAnalyzer prioritizes catechol-free diverse leads and exports visualizations and JSON summary."""
+        """Verify ResultAnalyzer prioritizes diverse leads and exports visualizations and JSON summary."""
         from _david.code.result_analyzer import ResultAnalyzer
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -650,16 +658,19 @@ class TestAntiCheatingRewards(unittest.TestCase):
             candidates = [
                 "c1ccccc1CC",
                 "c1ccccc1O",
-                "c1c(O)c(O)ccc1",  # Should be filtered out by catechol check
+                "c1ccc(CC)cc1",
                 "c1ccncc1",
             ]
             df_all = analyzer.analyze_candidates(candidates)
             df_leads = analyzer.prioritize_leads(df_all, top_k=2)
 
             self.assertLessEqual(len(df_leads), 2)
-            # Ensure prioritized leads are catechol-free
-            for has_cat in df_leads["Has_Catechol"]:
-                self.assertFalse(has_cat)
+            self.assertNotIn("Has_Catechol", df_leads.columns)
+            self.assertNotIn("RAscore", df_leads.columns)
+
+            # Ensure sorted by Desirability descending
+            des_vals = df_leads["Desirability"].tolist()
+            self.assertEqual(des_vals, sorted(des_vals, reverse=True))
 
             # Test visualization generation
             figs = analyzer.visualize_leads(df_leads, df_all)

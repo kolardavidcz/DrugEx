@@ -16,8 +16,11 @@ from drugex.training.scorers.interfaces import Scorer
 if TYPE_CHECKING:
     from drugex.training.scorers.interfaces import ScoreModifier
 
-# [PACKAGE: RAscore] WHY: Retrosynthetic accessibility scoring using XGBoost CASP models. WHAT: Chemical retrosynthesis predictor.
-from RAscore import RAscore_XGB  # type: ignore
+try:
+    # [PACKAGE: RAscore] WHY: Retrosynthetic accessibility scoring using XGBoost CASP models. WHAT: Chemical retrosynthesis predictor.
+    from RAscore import RAscore_XGB  # type: ignore
+except ImportError:
+    RAscore_XGB = None
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,8 @@ class RetrosyntheticAccessibilityScorer(Scorer):
     def __init__(self, modifier: ScoreModifier | None = None) -> None:
         """Initialize retrosynthetic accessibility scorer with optional score modifier."""
         super().__init__(modifier=modifier)
+        if RAscore_XGB is None:
+            raise ImportError("The 'RAscore' package is required to use RetrosyntheticAccessibilityScorer.")
         self.scorer: Any = RAscore_XGB.RAScorerXGB(model_path=XGB_MODEL_PATH)
 
     def getScores(
