@@ -58,25 +58,86 @@ if not hasattr(GraphFragDataSet, "__len__"):
 warnings.filterwarnings("ignore")
 
 
-# [PACKAGE: torch] WHY: Device probe testing tensor allocation on GPU 0 to safely catch driver faults. WHAT: PyTorch CUDA runtime. HOW: torch.cuda.is_available, torch.zeros.
-def get_safe_gpus() -> tuple[int, ...] | tuple[()]:
-    """Safely detect available and functioning CUDA devices."""
+# [PACKAGE: torch] WHY: Device probe testing tensor allocation and memory across available GPUs. WHAT: PyTorch CUDA runtime. HOW: torch.cuda.is_available, torch.cuda.mem_get_info, torch.zeros.
+def get_safe_gpus(preferred_gpu: int | str | None = None) -> tuple[int, ...] | tuple[()]:
+    """Safely detect available CUDA devices and automatically select the one with most free VRAM.
+
+    Parameters
+    ----------
+    preferred_gpu : int, str, or None, optional
+        Target GPU index (e.g. 0, 1), 'auto', or None. When 'auto' or None, probes all
+        available GPUs and automatically picks the healthy device with the highest free VRAM.
+        Also honors DRUGEX_GPU environment variable.
+
+    Returns
+    -------
+    tuple of int or empty tuple
+        Single-element tuple containing the chosen GPU index, or () if CUDA is unavailable.
+    """
     if not torch.cuda.is_available():
         FallbackMonitor.record_fallback(
             fallback_type="device_cuda_unavailable",
             message="torch.cuda.is_available() is False; falling back to CPU",
         )
         return tuple()
-    try:
-        t = torch.zeros(1, device="cuda:0")
-        del t
-        return (0,)
-    except Exception as e:
+
+    # Parse string representations
+    if isinstance(preferred_gpu, str):
+        preferred_gpu = preferred_gpu.strip().lower()
+        if preferred_gpu.isdigit():
+            preferred_gpu = int(preferred_gpu)
+        elif preferred_gpu == "auto":
+            preferred_gpu = None
+
+    # Check DRUGEX_GPU environment variable if no preferred_gpu passed
+    target_env = os.environ.get("DRUGEX_GPU", "").strip().lower()
+    if preferred_gpu is None and target_env and target_env != "auto":
+        try:
+            preferred_gpu = int(target_env)
+        except ValueError:
+            pass
+
+    device_count: int = torch.cuda.device_count()
+    if device_count == 0:
+        return tuple()
+
+    # If an explicit valid GPU index was requested, probe it first
+    if isinstance(preferred_gpu, int) and 0 <= preferred_gpu < device_count:
+        try:
+            t = torch.zeros(1, device=f"cuda:{preferred_gpu}")
+            del t
+            return (preferred_gpu,)
+        except Exception as e:
+            FallbackMonitor.record_fallback(
+                fallback_type="device_cuda_error",
+                message=f"Requested GPU {preferred_gpu} test allocation failed: {e}; falling back to auto-selection",
+            )
+
+    # Auto-selection: probe all devices and select the device with maximum free VRAM
+    healthy_devices: list[tuple[int, float]] = []
+    for idx in range(device_count):
+        try:
+            t = torch.zeros(1, device=f"cuda:{idx}")
+            del t
+            free_bytes, _ = torch.cuda.mem_get_info(idx)
+            healthy_devices.append((idx, float(free_bytes)))
+        except Exception as e:
+            FallbackMonitor.record_fallback(
+                fallback_type="device_cuda_error",
+                message=f"GPU {idx} test allocation failed: {e}; skipping device",
+            )
+
+    if not healthy_devices:
         FallbackMonitor.record_fallback(
-            fallback_type="device_cuda_error",
-            message=f"CUDA test allocation failed: {e}; falling back to CPU",
+            fallback_type="device_cuda_unavailable",
+            message="No healthy CUDA devices responded to tensor allocation; falling back to CPU",
         )
         return tuple()
+
+    # Pick the device with the highest available free VRAM
+    healthy_devices.sort(key=lambda item: item[1], reverse=True)
+    best_gpu_idx = healthy_devices[0][0]
+    return (best_gpu_idx,)
 
 
 GPUS: tuple[int, ...] | tuple[()] = get_safe_gpus()
@@ -110,10 +171,13 @@ SA_THRESHOLD: float = 0.50
 class GraphTransformerOptimizer:
     """Stage 3 Generative Optimizer executing fragment-conditioned RL on GraphTransformer."""
 
-    def __init__(self, output_dir: Path | None = None) -> None:
+    def __init__(self, output_dir: Path | None = None, gpu: int | str | None = None) -> None:
         """Initialize GraphTransformerOptimizer with pretrained models and vocabularies."""
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.BASE_OUTPUT_DIR: Path = self.ROOT_PATH / "_david" / "output" / "stage3_graph_transformer"
+
+        # Resolve available GPUs and automatically select the healthiest device with most free VRAM
+        self.GPUS: tuple[int, ...] | tuple[()] = get_safe_gpus(preferred_gpu=gpu)
 
         if output_dir is None:
             # [PACKAGE: datetime] WHY: Timestamp string generation for unique directory creation. WHAT: Standard library datetime. HOW: datetime.now.
@@ -142,10 +206,10 @@ class GraphTransformerOptimizer:
         self.MODEL_PRETRAINED: Path = self.PRETRAINED_DIR
 
         self.VOC: VocGraph = VocGraph.fromFile(self.PRETRAINED_DIR / "Papyrus05.5_graph_trans_PT.vocab")
-        self.AGENT: GraphTransformer = GraphTransformer(voc_trg=self.VOC, use_gpus=GPUS)
+        self.AGENT: GraphTransformer = GraphTransformer(voc_trg=self.VOC, use_gpus=self.GPUS)
         self.AGENT.loadStatesFromFile(self.PRETRAINED_DIR / "Papyrus05.5_graph_trans_PT.pkg")
 
-        self.PRIOR: GraphTransformer = GraphTransformer(voc_trg=self.VOC, use_gpus=GPUS)
+        self.PRIOR: GraphTransformer = GraphTransformer(voc_trg=self.VOC, use_gpus=self.GPUS)
         self.PRIOR.loadStatesFromFile(self.PRETRAINED_DIR / "Papyrus05.5_graph_trans_PT.pkg")
 
     def build_environment(
@@ -300,7 +364,7 @@ class GraphTransformerOptimizer:
             epsilon=RL_EPSILON,
             beta=RL_BETA,
             batch_size=RL_BATCH_SIZE,
-            use_gpus=GPUS,
+            use_gpus=self.GPUS,
         )
 
         model_prefix = self.MODEL_DIR / "david_agent"

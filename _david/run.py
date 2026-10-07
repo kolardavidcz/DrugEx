@@ -44,13 +44,16 @@ MOLECULE: str = DEFAULT_MOLECULE
 # Background detachment (True = safe to close VS Code / SSH; False = interactive terminal)
 DETACH: bool = True
 
+# Target GPU device ('auto' automatically selects the GPU with highest free VRAM; or 0, 1 for explicit index)
+GPU: str | int = "auto"
+
 # Custom output directory: None auto-generates timestamped folder in _david/output/
 OUTPUT_DIR: Path | None = None
 
 
 def main() -> None:
     """Entry point for IDE and detached daemon execution."""
-    global MODE, EPOCHS, N_SAMPLES, DETACH, MOLECULE, OUTPUT_DIR
+    global MODE, EPOCHS, N_SAMPLES, DETACH, MOLECULE, OUTPUT_DIR, GPU
 
     is_worker = os.environ.get("DRUGEX_DETACHED_WORKER") == "1"
 
@@ -62,6 +65,7 @@ def main() -> None:
         parser.add_argument("--epochs", type=int, default=EPOCHS)
         parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
         parser.add_argument("--molecule", default=MOLECULE)
+        parser.add_argument("--gpu", default=GPU, help="GPU target: 'auto', 0, 1")
         parser.add_argument("--out-dir", type=Path, default=OUTPUT_DIR)
         parser.add_argument("--no-detach", action="store_false", dest="detach", default=DETACH)
         args, _ = parser.parse_known_args()
@@ -69,6 +73,7 @@ def main() -> None:
         EPOCHS = args.epochs
         N_SAMPLES = args.n_samples
         MOLECULE = args.molecule
+        GPU = args.gpu
         OUTPUT_DIR = args.out_dir
         DETACH = args.detach
 
@@ -97,6 +102,7 @@ def main() -> None:
         worker_env["DRUGEX_OUTPUT_DIR"] = str(target_dir)
         worker_env["DRUGEX_SCORE_NJOBS"] = str(SAFE_CORES)
         worker_env["DRUGEX_MP_CONTEXT"] = "forkserver"
+        worker_env["DRUGEX_GPU"] = str(GPU)
 
         popen_kwargs: dict[str, Any] = {
             "cwd": str(PROJECT_ROOT),
@@ -130,6 +136,7 @@ def main() -> None:
         print("=" * 80)
         print(f" • Process ID (PID): {proc.pid}")
         print(f" • Execution Mode:   {MODE.upper()} ({EPOCHS} epochs, {N_SAMPLES} samples/epoch)")
+        print(f" • Target GPU:       {GPU}")
         print(f" • Output Directory: {target_dir}")
         print(f" • Live Log File:    {log_file}")
         print("-" * 80)
@@ -148,11 +155,16 @@ def main() -> None:
     # -------------------------------------------------------------------------
     # CASE 2: EXECUTE PIPELINE WORKER (INTERACTIVE OR DETACHED DAEMON)
     # -------------------------------------------------------------------------
+    cached_gpu = os.environ.get("DRUGEX_GPU")
+    if cached_gpu:
+        GPU = int(cached_gpu) if cached_gpu.isdigit() else cached_gpu
+
     print("=" * 80)
     print(" DRUGEX LBDD: PIPELINE WORKER ACTIVE")
     print(f" • Mode:       {MODE}")
     print(f" • Epochs:     {EPOCHS}")
     print(f" • Samples:    {N_SAMPLES}")
+    print(f" • Target GPU: {GPU}")
     print(f" • Directory:  {target_dir}")
     print("=" * 80)
 
@@ -161,6 +173,7 @@ def main() -> None:
         mode=MODE,
         epochs=EPOCHS,
         n_samples=N_SAMPLES,
+        gpu=GPU,
     )
     pipeline.run(MOLECULE)
 

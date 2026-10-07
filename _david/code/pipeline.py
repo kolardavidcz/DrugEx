@@ -43,7 +43,11 @@ def get_gpu_telemetry() -> dict[str, Any]:
             allocated = torch.cuda.memory_allocated(i) / (1024 ** 2)
             reserved = torch.cuda.memory_reserved(i) / (1024 ** 2)
             max_alloc = torch.cuda.max_memory_allocated(i) / (1024 ** 2)
-            total_mem = props.total_memory / (1024 ** 2)
+            try:
+                free_bytes, _ = torch.cuda.mem_get_info(i)
+                free_mb = free_bytes / (1024 ** 2)
+            except Exception:
+                free_mb = total_mem - reserved
             telemetry["devices"].append({
                 "index": i,
                 "name": props.name,
@@ -51,6 +55,7 @@ def get_gpu_telemetry() -> dict[str, Any]:
                 "reserved_mb": round(reserved, 2),
                 "max_allocated_mb": round(max_alloc, 2),
                 "total_memory_mb": round(total_mem, 2),
+                "free_memory_mb": round(free_mb, 2),
             })
     return telemetry
 
@@ -74,19 +79,24 @@ class MoleculePipeline:
         mode: str = "full",
         epochs: int = DEFAULT_EPOCHS,
         n_samples: int = DEFAULT_N_SAMPLES,
+        gpu: int | str | None = None,
     ) -> None:
-        """Initialize MoleculePipeline with execution mode and hyperparameter settings.
+        """Initialize MoleculePipeline with execution mode, hyperparameters, and GPU target.
 
         Args:
             output_dir: Custom root output directory for run artifacts.
             mode: Pipeline mode ('full', 'test', or 'benchmark_only').
             epochs: RL training epochs per stage.
             n_samples: Number of molecules sampled per epoch.
+            gpu: Target GPU index (0, 1), 'auto', or None (probes and picks GPU with highest free VRAM).
         """
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.MODE: str = mode.lower()
         self.EPOCHS: int = TEST_EPOCHS if self.MODE == "test" else epochs
         self.N_SAMPLES: int = TEST_N_SAMPLES if self.MODE == "test" else n_samples
+        self.GPU: int | str | None = gpu
+        from _david.code.GraphTransformer import get_safe_gpus
+        self.GPUS: tuple[int, ...] | tuple[()] = get_safe_gpus(preferred_gpu=gpu)
         #? [DateTime] Generates ISO-like timestamp string for run directory isolation.
         self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -256,7 +266,7 @@ class MoleculePipeline:
         from drugex.training.explorers import FragGraphExplorer
         from drugex.training.monitors import PeakRecoveryMonitor
 
-        optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage1_dir)
+        optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage1_dir, gpu=self.GPU)
         env = optimizer.build_environment(
             ref_sdf,
             seed_smiles=primary_molecule,
@@ -273,7 +283,7 @@ class MoleculePipeline:
             epsilon=GraphTransformer.RL_EPSILON,
             beta=GraphTransformer.RL_BETA,
             batch_size=GraphTransformer.RL_BATCH_SIZE,
-            use_gpus=GraphTransformer.GPUS,
+            use_gpus=optimizer.GPUS,
         )
 
         model_prefix = optimizer.MODEL_DIR / "david_agent"
@@ -445,8 +455,11 @@ class MoleculePipeline:
         self.log(f" Directory: {self.BASE_OUTPUT_DIR}")
         gpu_telemetry = get_gpu_telemetry()
         if gpu_telemetry["cuda_available"] and gpu_telemetry["devices"]:
-            dev0 = gpu_telemetry["devices"][0]
-            self.log(f" GPU 0:     {dev0['name']} (Alloc: {dev0['allocated_mb']}MB, Res: {dev0['reserved_mb']}MB, Total: {dev0['total_memory_mb']}MB)")
+            selected_idx = self.GPUS[0] if self.GPUS else 0
+            dev = next((d for d in gpu_telemetry["devices"] if d["index"] == selected_idx), gpu_telemetry["devices"][0])
+            self.log(f" Selected GPU: GPU {selected_idx}: {dev['name']} (Alloc: {dev['allocated_mb']}MB, Free: {dev.get('free_memory_mb', 'N/A')}MB, Total: {dev['total_memory_mb']}MB)")
+            for d in gpu_telemetry["devices"]:
+                self.log(f"   • Device {d['index']}: {d['name']} | Free: {d.get('free_memory_mb', 'N/A')}MB / {d['total_memory_mb']}MB")
         self.log("=" * 80)
 
         try:
