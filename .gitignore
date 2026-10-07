@@ -33,6 +33,8 @@ download.log
 /tutorial/advanced/rocs/*.txt
 _david/outputs/
 **/_david/outputs/
+_david/output/[0-9]*
+_david/output/legacy/
 
 # Test directories, copies & runners
 /_test_*
