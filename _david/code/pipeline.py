@@ -40,6 +40,7 @@ def get_gpu_telemetry() -> dict[str, Any]:
     if torch.cuda.is_available():
         for i in range(torch.cuda.device_count()):
             props = torch.cuda.get_device_properties(i)
+            total_mem = props.total_memory / (1024 ** 2)
             allocated = torch.cuda.memory_allocated(i) / (1024 ** 2)
             reserved = torch.cuda.memory_reserved(i) / (1024 ** 2)
             max_alloc = torch.cuda.max_memory_allocated(i) / (1024 ** 2)
