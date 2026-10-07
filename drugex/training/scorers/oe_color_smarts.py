@@ -38,7 +38,7 @@ references them. Everything that a live PATTERN transitively needs IS expanded.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from rdkit import Chem
 
@@ -265,18 +265,22 @@ OE_TO_CDPKIT_TYPE: Dict[str, Tuple[int, int]] = _cdpkit_type_map()
 _CDPKIT_POS_REF_FLAG = 2  # == CDPL.Pharm.PatternBasedFeatureGenerator.PatternAtomLabelFlag.POS_REF_ATOM_FLAG
 
 
-def build_cdpkit_oe_pharm_generator():
-    """Build a CDPKit ``DefaultPharmacophoreGenerator`` configured to perceive ONLY the 6 OE
-    color types via the expanded ImplicitMillsDean SMARTS.
+def build_cdpkit_oe_pharm_generator() -> Any:
+    """Build a CDPKit DefaultPharmacophoreGenerator configured for OE ImplicitMillsDean.
 
-    All of CDPKit's own default feature perceptions are disabled, then for each OE color type a
-    ``PatternBasedFeatureGenerator`` is installed whose include-patterns are the type's OE
-    SMARTS (every matched atom flagged as a position reference so the feature is centered on the
-    match). Pass the result to ``GaussianShapeGenerator.setPharmacophoreGenerator`` to colour the
-    Gaussian shape with OE typing.
+    All of CDPKit's own default feature perceptions are disabled, then for each OE color
+    type a PatternBasedFeatureGenerator is installed whose include-patterns are the type's
+    OE SMARTS.
 
-    Raises:
-        ImportError: if CDPKit is not installed.
+    Returns
+    -------
+    Pharm.DefaultPharmacophoreGenerator
+        Configured CDPKit pharmacophore generator perceiving the 6 OE color types.
+
+    Raises
+    ------
+    ImportError
+        If CDPKit is not installed.
     """
     import CDPL.Chem as CDPLChem
     import CDPL.Pharm as Pharm

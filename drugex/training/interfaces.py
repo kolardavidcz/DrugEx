@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Literal
+import os
+from pathlib import Path
+from typing import Literal, Union
 
 import numpy as np
 import torch
@@ -124,7 +128,7 @@ class Environment(ModelEvaluator):
         return self.getScores(smiles, frags)
 
     @abstractmethod
-    def getScores(self, smiles, frags=None):
+    def getScores(self, smiles, frags=None, no_multifrag_smiles=True):
         """
         Calculate the scores of all objectives per molecule and qualify generated molecules (valid, accurate, desired).
 
@@ -237,7 +241,6 @@ class Model(nn.Module, ModelProvider, ABC):
     """
 
     def __init__(self, device=DEFAULT_DEVICE, use_gpus=DEFAULT_GPUS):
-        super().__init__()
         """
         Initialize the model with the given device and GPUs.
 
@@ -248,6 +251,7 @@ class Model(nn.Module, ModelProvider, ABC):
         use_gpus : list, optional
             List of GPUs to use for the model. If `None`, the default GPUs are used.
         """
+        super().__init__()
 
         self.device = None
         self.gpus = None
@@ -308,13 +312,13 @@ class Model(nn.Module, ModelProvider, ABC):
         """
         pass
 
-    def loadStatesFromFile(self, path):
+    def loadStatesFromFile(self, path: Union[str, os.PathLike[str], Path]) -> None:
         """
         Load the model states from a file.
 
         Parameters
         ----------
-        path : str
+        path : Union[str, os.PathLike, Path]
             The path to the file containing the model states.
         """
 

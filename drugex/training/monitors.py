@@ -1,5 +1,7 @@
+import os
 import os.path
-from typing import Literal
+from pathlib import Path
+from typing import Callable, Literal, Optional, Union
 
 import pandas as pd
 import torch
@@ -11,7 +13,7 @@ from drugex.training.interfaces import TrainingMonitor, Model
 class NullMonitor(TrainingMonitor):
 
     def getSaveModelOption(self) -> Literal['best', 'all', 'improvement']:
-        pass
+        return 'all'
 
     def saveModel(self, model, identifier=None):
         pass
@@ -39,11 +41,11 @@ class FileMonitor(TrainingMonitor):
 
     def __init__(
             self,
-            path,
-            save_smiles=False,
+            path: Union[str, os.PathLike, Path],
+            save_smiles: bool = False,
             save_model_option: Literal['best', 'all', 'improvement'] = 'best',
-            reset_directory=False,
-            on_model_update=None
+            reset_directory: bool = False,
+            on_model_update: Optional[Callable[[Model], None]] = None
     ):
         """
         Initialize the file monitor.
@@ -56,7 +58,7 @@ class FileMonitor(TrainingMonitor):
         
         Parameters
         ----------
-        path : str
+        path : str or Path
             The path and prefix of the files to be created (i.e. /tmp/drugex_rl/experiment_01). This will ensure all files
             are saved to the given directory and have the given prefix.
         save_smiles : bool
@@ -77,18 +79,16 @@ class FileMonitor(TrainingMonitor):
             instance as the only argument.
         """
         
-        self.path = path
-        self.directory = os.path.dirname(path)
-        if not os.path.exists(self.directory):
-            os.makedirs(self.directory)
-        elif reset_directory:
-            for file in os.listdir(self.directory):
-                if file.startswith(os.path.basename(path)):
-                    logger.warning(f"Removing {file} from {self.directory}")
-                    os.remove(os.path.join(self.directory, file))
-        self.outLog = open(path + '_fit.log', 'w', encoding='utf-8')
-        self.outDF = path + '_fit.tsv'
-        self.outSmiles = path + '_smiles.tsv' if save_smiles else None
+        self.path: Path = Path(path)
+        self.directory: Path = self.path.parent
+        self.directory.mkdir(parents=True, exist_ok=True)
+        if reset_directory:
+            for file in self.directory.glob(f"{self.path.name}*"):
+                logger.warning(f"Removing {file.name} from {self.directory}")
+                file.unlink(missing_ok=True)
+        self.outLog = open(self.path.parent / f"{self.path.name}_fit.log", 'w', encoding='utf-8')
+        self.outDF = self.path.parent / f"{self.path.name}_fit.tsv"
+        self.outSmiles = self.path.parent / f"{self.path.name}_smiles.tsv" if save_smiles else None
         self.outSmilesHeaderDone = False
         self.currentState = None
         self.saveModelOption = save_model_option
@@ -100,7 +100,8 @@ class FileMonitor(TrainingMonitor):
         """
         self.currentState = model.getModel() 
         suffix = '_' + str(identifier) if identifier else ''
-        torch.save(self.currentState, self.path + suffix + '.pkg')
+        pkg_path = self.path.parent / f"{self.path.name}{suffix}.pkg"
+        torch.save(self.currentState, pkg_path)
 
     def saveProgress(self, model: Model, current_step=None, current_epoch=None, total_steps=None, total_epochs=None, loss=None, *args, **kwargs):
         """ 
