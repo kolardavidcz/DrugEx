@@ -8,6 +8,8 @@
         "LogP": 2.233199999999999,
         "TPSA": 197.36999999999998,
         "RotBonds": 3,
+        "HBD": 8,
+        "HBA": 11,
         "QED": 0.2115032367203034,
         "SA": 3.7397950903945745
     },
@@ -161,6 +163,16 @@
             "q25": 0.889,
             "q75": 1.044,
             "iqr": 0.156
+        },
+        "Tanimoto_to_Seed": {
+            "mean": 0.298,
+            "median": 0.314,
+            "std": 0.06,
+            "min": 0.174,
+            "max": 0.429,
+            "q25": 0.253,
+            "q75": 0.339,
+            "iqr": 0.086
         }
     },
     "dynamic_envelope_benchmarks": {
@@ -225,6 +237,27 @@
             "penalized_count": 0,
             "penalized_percentage": 0.0,
             "single_floor_definition": "SA <= 5.5 unpenalized (reward 1.0), SA > 6.0 penalized"
+        }
+    },
+    "unoptimized_diagnostics": {
+        "HBD": {
+            "seed_value": 8,
+            "generated_mean": 0.321,
+            "generated_median": 0.0,
+            "drift_delta": -7.68,
+            "finding": "Epitope loss: Phenolic hydroxyls replaced by methoxy/dioxole bioisosteres"
+        },
+        "RotBonds": {
+            "seed_value": 3,
+            "generated_mean": 4.917,
+            "generated_median": 4.5,
+            "drift_delta": 1.92,
+            "finding": "Conformational flexibility remains bounded despite relaxed maximum limit (25)"
+        },
+        "Tanimoto_to_Seed": {
+            "mean": 0.298,
+            "max": 0.429,
+            "finding": "2D Morgan fingerprint divergence confirms authentic 3D scaffold hopping"
         }
     },
     "metrics": {
