@@ -112,6 +112,17 @@ def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
     raise ValueError(f"Could not parse query molecule: {query!r}")
 
 
+# [PACKAGE: os] WHY: Cap CPU parallel workers to at most 24 cores (half of host cores) to prevent resource starvation. WHAT: Core allocator. HOW: os.cpu_count.
+SAFE_MAX_CPU_CORES: int = 24
+
+
+def get_safe_parallel_jobs(cap: int = SAFE_MAX_CPU_CORES) -> int:
+    """Calculate safe parallel worker count, capping at half of available host CPUs (max 24)."""
+    import os
+    total = os.cpu_count() or 1
+    return max(1, min(cap, total // 2 if total > 2 else total))
+
+
 def create_rocs_scorer(
     references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
     max_conformers: int = ROCS_MAX_CONFORMERS,
@@ -120,7 +131,7 @@ def create_rocs_scorer(
     timeout: int = ROCS_TIMEOUT,
     score_type: str = "TanimotoCombo",
     color_ff: str = "oe_mills_dean",
-    n_jobs: int = -1,
+    n_jobs: int | None = None,
     show_progress: bool = False,
 ) -> RDKitROCSScorer:
     """Construct native DrugEx RDKitROCSScorer with relaxed conformer limits and oe_mills_dean color SMARTS.
@@ -133,12 +144,13 @@ def create_rocs_scorer(
         timeout: Conformer generation timeout in seconds per molecule (default 30s).
         score_type: Alignment score type ('TanimotoCombo', 'shape', 'color').
         color_ff: Pharmacophore feature forcefield ('oe_mills_dean' or 'default').
-        n_jobs: Multi-processing core count (-1 for all available cores via capped_n_jobs).
+        n_jobs: Multi-processing core count (default capped to max 24 CPU cores / half host cores).
         show_progress: Whether to show progress bar during scoring.
 
     Returns:
         RDKitROCSScorer: Fully configured native DrugEx ROCS scorer instance.
     """
+    effective_n_jobs = get_safe_parallel_jobs() if (n_jobs is None or n_jobs == -1) else n_jobs
     conf_gen = RDKitConformerGenerator(
         max_conformers=max_conformers,
         max_heavy_atoms=max_heavy_atoms,
@@ -158,7 +170,7 @@ def create_rocs_scorer(
         references=ref_arg,
         score_type=score_type,
         color_ff=color_ff,
-        n_jobs=n_jobs,
+        n_jobs=effective_n_jobs,
         show_progress=show_progress,
     )
 

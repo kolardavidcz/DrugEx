@@ -62,9 +62,9 @@ except (ImportError, ModuleNotFoundError):
     from _david.code.fallback_monitor import FallbackMonitor
 
 try:
-    from prepare_query_conformer import QueryConformerPreparer
+    from prepare_query_conformer import QueryConformerPreparer, get_safe_parallel_jobs
 except (ImportError, ModuleNotFoundError):
-    from _david.code.prepare_query_conformer import QueryConformerPreparer
+    from _david.code.prepare_query_conformer import QueryConformerPreparer, get_safe_parallel_jobs
 
 # Proof reference molecule: Epigallocatechin gallate (EGCG)
 MY_MOLECULE: str = (
@@ -478,7 +478,7 @@ class ResultAnalyzer:
                 color_ff=ROCS_COLOR_FF,
                 use_colors=True,
                 show_progress=False,
-                n_jobs=-1,
+                n_jobs=get_safe_parallel_jobs(),
             )
             scores = np.asarray(scorer.getScores(smiles_list), dtype=np.float32).flatten()
             return scores

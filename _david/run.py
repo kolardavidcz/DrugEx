@@ -18,6 +18,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from _david.code.pipeline import DEFAULT_MOLECULE, MoleculePipeline
+from _david.code.prepare_query_conformer import get_safe_parallel_jobs
+
+# [PACKAGE: os] WHY: Cap CPU multiprocessing workers across DrugEx to at most 24 cores (half host cores) and enforce forkserver to prevent mutex deadlocks. WHAT: Process env configuration. HOW: os.environ.setdefault.
+SAFE_CORES: int = get_safe_parallel_jobs()
+os.environ.setdefault("DRUGEX_SCORE_NJOBS", str(SAFE_CORES))
+os.environ.setdefault("DRUGEX_MP_CONTEXT", "forkserver")
 
 # =============================================================================
 # TIER 1: EXPERIMENTER HYPERPARAMETERS (TWEAK FREELY IN IDE)
@@ -89,6 +95,8 @@ def main() -> None:
         worker_env = dict(os.environ)
         worker_env["DRUGEX_DETACHED_WORKER"] = "1"
         worker_env["DRUGEX_OUTPUT_DIR"] = str(target_dir)
+        worker_env["DRUGEX_SCORE_NJOBS"] = str(SAFE_CORES)
+        worker_env["DRUGEX_MP_CONTEXT"] = "forkserver"
 
         popen_kwargs: dict[str, Any] = {
             "cwd": str(PROJECT_ROOT),

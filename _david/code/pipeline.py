@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from datetime import datetime
@@ -98,6 +99,11 @@ class MoleculePipeline:
 
         self.PRETRAINED_RNN: Path = self.ROOT_PATH / "data" / "models" / "pretrained" / "smiles-rnn" / "Papyrus05.5_smiles_rnn_PT"
         self.PRETRAINED_GRAPH: Path = self.ROOT_PATH / "data" / "models" / "pretrained" / "graph-trans" / "Papyrus05.5_graph_trans_PT"
+
+        # [PACKAGE: os] WHY: Cap CPU multiprocessing workers across DrugEx to at most 24 cores (half host cores) and enforce forkserver to prevent mutex deadlocks. WHAT: Process env configuration. HOW: os.environ.setdefault.
+        safe_cores = prepare_query_conformer.get_safe_parallel_jobs()
+        os.environ.setdefault("DRUGEX_SCORE_NJOBS", str(safe_cores))
+        os.environ.setdefault("DRUGEX_MP_CONTEXT", "forkserver")
 
         # Execution tracking and telemetry
         self._start_time: datetime = datetime.now()
