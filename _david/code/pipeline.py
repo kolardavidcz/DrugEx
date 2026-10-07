@@ -537,7 +537,8 @@ class MoleculePipeline:
             raise
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """CLI and IDE entry point for running the MoleculePipeline."""
     parser = argparse.ArgumentParser(description="End-to-End Ligand-Based De Novo Drug Design Pipeline in DrugEx")
     parser.add_argument("--molecules", "-m", type=str, default=DEFAULT_MOLECULE, help="Input SMILES string or comma-separated SMILES")
     parser.add_argument("--input-file", "-f", type=Path, default=None, help="Path to input molecules file (.smi, .tsv, .csv, .sdf)")
@@ -551,3 +552,7 @@ if __name__ == "__main__":
     input_data = args.input_file if args.input_file else args.molecules
     pipeline = MoleculePipeline(output_dir=args.out_dir, mode=args.mode, epochs=args.epochs, n_samples=args.n_samples)
     pipeline.run(input_data)
+
+
+if __name__ == "__main__":
+    main()
