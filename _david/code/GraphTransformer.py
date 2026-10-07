@@ -1,6 +1,7 @@
 """Stage 3 Lead Optimization executing fragment-conditioned RL on GraphTransformer."""
 from __future__ import annotations
 
+import os
 import sys
 import warnings
 from collections.abc import Sequence
