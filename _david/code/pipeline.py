@@ -25,7 +25,6 @@ from rdkit import Chem
 from _david.code import (
     GraphTransformer,
     prepare_query_conformer,
-    thesis_benchmark,
 )
 from _david.code.fallback_monitor import FallbackMonitor
 from _david.code.result_analyzer import ResultAnalyzer
@@ -428,21 +427,6 @@ class MoleculePipeline:
     ) -> tuple[pd.DataFrame, Path]:
         """Backward-compatibility alias."""
         return self.stage1_graph_transformer_generation(primary_molecule, ref_sdf, seed_core_tsv=scaffolds_path)
-
-    def stage4_benchmark_and_visualizations(
-        self,
-        stage1_tsv: Path,
-        stage2_tsv: Path | None = None,
-        leads_tsv: Path | None = None,
-        ref_sdf: Path | None = None,
-        primary_molecule: str = DEFAULT_MOLECULE,
-    ) -> tuple[Path, pd.DataFrame]:
-        """Backward-compatibility alias."""
-        benchmark_dir: Path = self.BASE_OUTPUT_DIR / "benchmark"
-        benchmark_dir.mkdir(parents=True, exist_ok=True)
-        benchmark = thesis_benchmark.ThesisBenchmark(output_dir=benchmark_dir, ref_sdf=ref_sdf, seed_smiles=primary_molecule)
-        table_df = benchmark.run_benchmark(rnn_path=stage1_tsv, graph_path=stage2_tsv, funnel_path=leads_tsv)
-        return benchmark_dir, table_df
 
     def run(self, molecules: str | Path | Sequence[str] = DEFAULT_MOLECULE) -> dict[str, Any]:
         """Execute the streamlined Graph-Transformer drug design pipeline.

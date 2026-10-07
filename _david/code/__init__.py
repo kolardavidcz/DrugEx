@@ -2,20 +2,28 @@
 from __future__ import annotations
 
 from _david.code.anti_cheating_rewards import (
+    AntiCollapseSoftGateReward,
     AugmentedChebyshevReward,
     GeometricMeanReward,
 )
 from _david.code.fallback_monitor import FallbackEvent, FallbackMonitor
 from _david.code.GraphTransformer import GraphTransformerOptimizer
 from _david.code.pipeline import MoleculePipeline
-from _david.code.prepare_query_conformer import QueryConformerPreparer
+from _david.code.prepare_query_conformer import QueryConformerPreparer, get_safe_parallel_jobs
 from _david.code.result_analyzer import ResultAnalyzer
-from _david.code.scaffold_funnel import ScaffoldFunnel
-from _david.code.SequenceRNN import SequenceRNNOptimizer
-from _david.code.thesis_benchmark import ThesisBenchmark
-from _david.code.usrcat_scorer import USRCATScorer
 
-__all__ = [
+# Backward-compatibility aliases for legacy experiments
+try:
+    from _david.code.legacy.scaffold_funnel import ScaffoldFunnel
+    from _david.code.legacy.SequenceRNN import SequenceRNNOptimizer
+    from _david.code.legacy.usrcat_scorer import USRCATScorer
+except (ImportError, ModuleNotFoundError):
+    ScaffoldFunnel = None  # type: ignore[assignment, misc]
+    SequenceRNNOptimizer = None  # type: ignore[assignment, misc]
+    USRCATScorer = None  # type: ignore[assignment, misc]
+
+__all__: list[str] = [
+    "AntiCollapseSoftGateReward",
     "AugmentedChebyshevReward",
     "FallbackEvent",
     "FallbackMonitor",
@@ -26,6 +34,6 @@ __all__ = [
     "ResultAnalyzer",
     "ScaffoldFunnel",
     "SequenceRNNOptimizer",
-    "ThesisBenchmark",
     "USRCATScorer",
+    "get_safe_parallel_jobs",
 ]

@@ -40,9 +40,9 @@ from _david.code.anti_cheating_rewards import (
 from _david.code.fallback_monitor import FallbackMonitor
 from _david.code.GraphTransformer import GraphTransformerOptimizer
 from _david.code.prepare_query_conformer import MY_MOLECULE, QueryConformerPreparer
-from _david.code.scaffold_funnel import ScaffoldFunnel
-from _david.code.SequenceRNN import SequenceRNNOptimizer
-from _david.code.usrcat_scorer import USRCATScorer
+from _david.code.legacy.scaffold_funnel import ScaffoldFunnel
+from _david.code.legacy.SequenceRNN import SequenceRNNOptimizer
+from _david.code.legacy.usrcat_scorer import USRCATScorer
 
 
 class TestAntiCheatingRewards(unittest.TestCase):
@@ -328,35 +328,6 @@ class TestAntiCheatingRewards(unittest.TestCase):
         self.assertTrue(hasattr(david_run, "main"))
         self.assertTrue(callable(david_run.main))
 
-    def test_prepare_regime_dataframe_with_frags(self) -> None:
-        """Verify ThesisBenchmark.prepare_regime_dataframe does not treat FRAGS string column as RAscore."""
-        import pandas as pd
-
-        from _david.code.thesis_benchmark import ThesisBenchmark
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            bench = ThesisBenchmark(output_dir=Path(tmp_dir))
-            raw_df = pd.DataFrame({
-                "SMILES": ["c1ccccc1O", "CC(=O)Oc1ccccc1C(=O)O"],
-                "FRAGS": ["c1ccccc1", "c1ccccc1C(=O)O"],
-                "RAscore": [0.85, 0.92],
-                "ROCS": [0.65, 0.70],
-                "Desired": [1, 1],
-            })
-            clean = bench.prepare_regime_dataframe(raw_df)
-            self.assertEqual(len(clean), 2)
-            self.assertAlmostEqual(clean["RAscore"].iloc[0], 0.85, places=2)
-            self.assertAlmostEqual(clean["RAscore"].iloc[1], 0.92, places=2)
-
-            # Test DataFrame with FRAGS but NO RAscore column (should default safely without crash)
-            raw_no_ra = pd.DataFrame({
-                "SMILES": ["c1ccccc1O"],
-                "FRAGS": ["c1ccccc1"],
-            })
-            clean_no_ra = bench.prepare_regime_dataframe(raw_no_ra)
-            self.assertEqual(len(clean_no_ra), 1)
-            self.assertAlmostEqual(clean_no_ra["RAscore"].iloc[0], 0.50, places=2)
-
     def test_ligand_efficiency_scorer_handles_strings_and_mols(self) -> None:
         """Verify drugex LigandEfficiency computes correct scores and handles strings, Mols, and None."""
         from drugex.training.scorers.interfaces import Scorer
@@ -424,35 +395,16 @@ class TestAntiCheatingRewards(unittest.TestCase):
             scorer = USRCATScorer(references=sdf_path, score_type="electroshape")
             np.testing.assert_array_equal(scorer.ref_moments, mock_moments)
 
-    def test_thesis_benchmark_ref_sdf_and_seed_isolation(self) -> None:
-        """Verify ThesisBenchmark correctly accepts custom ref_sdf and seed_smiles."""
-        from _david.code.thesis_benchmark import ThesisBenchmark
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            custom_sdf = Path(tmp_dir) / "custom_seed.sdf"
-            bench = ThesisBenchmark(
-                output_dir=Path(tmp_dir),
-                ref_sdf=custom_sdf,
-                seed_smiles="c1ccccc1O",
-            )
-            self.assertEqual(bench.REF_SDF, custom_sdf)
-            self.assertEqual(bench.seed_smiles, "c1ccccc1O")
-            self.assertIsNotNone(bench.SEED_MOL)
-            self.assertEqual(bench.SEED_MOL.GetNumHeavyAtoms(), 7)
-
     def test_pipeline_benchmark_only_creates_summaries(self) -> None:
         """Verify MoleculePipeline in benchmark_only mode produces summary and audit JSON files."""
+        from unittest.mock import patch
         from _david.code.pipeline import MoleculePipeline
         with tempfile.TemporaryDirectory() as tmp_dir:
             pipe_dir = Path(tmp_dir) / "test_run"
-            bench_dir = pipe_dir / "benchmark"
-            bench_dir.mkdir(parents=True, exist_ok=True)
             pipe = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
-            from unittest.mock import patch
-
-            import pandas as pd
 
             with patch("drugex.training.scorers.sascorer.calculateScore", return_value=3.0), \
-                 patch("_david.code.thesis_benchmark.ThesisBenchmark.run_benchmark", return_value=pd.DataFrame()):
+                 patch("_david.code.result_analyzer.ResultAnalyzer.compute_rocs_scores", side_effect=lambda smi_list: np.full(len(smi_list), 0.75, dtype=np.float32)):
                 summary = pipe.run(molecules="c1ccccc1O")
                 self.assertTrue((pipe_dir / "pipeline_summary.json").exists())
                 self.assertTrue((pipe_dir / "fallback_audit.json").exists())
@@ -463,7 +415,6 @@ class TestAntiCheatingRewards(unittest.TestCase):
     def test_scaffold_funnel_attrition_tracking(self) -> None:
         """Verify ScaffoldFunnel generates funnel_attrition.json with complete cascade statistics."""
         import json
-
         import pandas as pd
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -487,49 +438,6 @@ class TestAntiCheatingRewards(unittest.TestCase):
             self.assertEqual(data["passed_chemical_validity"], 2)
             self.assertIn("tier1_survivors_count", data)
             self.assertIn("unique_scaffolds_count", data)
-
-    def test_thesis_benchmark_regime_deduplication(self) -> None:
-        """Verify ThesisBenchmark avoids duplicating identical datasets under separate regime names."""
-        import pandas as pd
-
-        from _david.code.thesis_benchmark import ThesisBenchmark
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            bench = ThesisBenchmark(output_dir=Path(tmp_dir))
-            tsv_path_rnn = Path(tmp_dir) / "rnn_hits.tsv"
-            tsv_path_leads = Path(tmp_dir) / "leads.tsv"
-            df_rnn = pd.DataFrame({
-                "SMILES": ["c1ccccc1O", "CC(=O)Oc1ccccc1C(=O)O"],
-                "Valid": [1, 1],
-                "ROCS": [0.65, 0.70],
-                "RAscore": [0.80, 0.85],
-                "QED": [0.60, 0.65],
-            })
-            df_leads = pd.DataFrame({
-                "SMILES": ["c1ccncc1", "c1ccc(cc1)Cl"],
-                "Valid": [1, 1],
-                "ROCS": [0.72, 0.75],
-                "RAscore": [0.88, 0.82],
-                "QED": [0.70, 0.68],
-            })
-            df_rnn.to_csv(tsv_path_rnn, sep="\t", index=False)
-            df_leads.to_csv(tsv_path_leads, sep="\t", index=False)
-
-            # 1. Distinct datasets loaded correctly under decoupled regimes
-            loaded = bench.load_real_datasets(
-                rnn_path=tsv_path_rnn,
-                leads_path=tsv_path_leads,
-            )
-            self.assertIn("Sequence-RNN (Pure RL)", loaded)
-            self.assertIn("Prioritized Leads (Top Desirability)", loaded)
-
-            # 2. Passing duplicate TSV to leads_path should deduplicate and avoid redundant overlay
-            loaded_dup = bench.load_real_datasets(
-                rnn_path=tsv_path_rnn,
-                leads_path=tsv_path_rnn,
-            )
-            self.assertIn("Sequence-RNN (Pure RL)", loaded_dup)
-            self.assertNotIn("Prioritized Leads (Top Desirability)", loaded_dup)
 
     def test_seed_hash_and_core_scaffold_extraction(self) -> None:
         """Verify deterministic seed hashing and Murcko core scaffold extraction for universal seeds."""

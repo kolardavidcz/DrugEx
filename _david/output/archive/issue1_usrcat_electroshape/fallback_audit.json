@@ -1,0 +1,572 @@
+{
+    "total_fallbacks": 67,
+    "counts_by_type": {
+        "conformer_embedding_random_coords": 26,
+        "conformer_embedding_failure": 25,
+        "electroshape_unpolarized_charges": 16
+    },
+    "events": [
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:26:09.793252",
+            "context": {
+                "smiles": "O=C(O)Cn1nnc(C2=CN=c3sc(n3CCC3(CCc4cccc(O)c4)CC3)=N2)n1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:26:12.338448",
+            "context": {
+                "smiles": "O=C(O)Cn1nnc(C2=CN=c3sc(n3CCC3(CCc4cccc(O)c4)CC3)=N2)n1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:26:35.805464",
+            "context": {
+                "smiles": "COc1c2c3cc(C(=O)O)c1c-2cc(C)c(-c1ccc(OC(=O)OCCCCCCCCC(=O)O)cc1)o3",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:26:41.831582",
+            "context": {
+                "smiles": "COc1c2c3cc(C(=O)O)c1c-2cc(C)c(-c1ccc(OC(=O)OCCCCCCCCC(=O)O)cc1)o3"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:27:47.824574",
+            "context": {
+                "smiles": "COCC#CC1Cc2c(C(F)(F)F)ccc3c2CCN3C1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:27:48.924439",
+            "context": {
+                "smiles": "COCC#CC1Cc2c(C(F)(F)F)ccc3c2CCN3C1"
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:27:53.174110",
+            "context": {
+                "num_atoms": 41
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:27:53.174444",
+            "context": {
+                "num_atoms": 41
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:27:53.174713",
+            "context": {
+                "num_atoms": 41
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:27:53.174964",
+            "context": {
+                "num_atoms": 41
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:27:53.175214",
+            "context": {
+                "num_atoms": 41
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:27:53.175458",
+            "context": {
+                "num_atoms": 41
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:27:53.175699",
+            "context": {
+                "num_atoms": 41
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:28:12.285794",
+            "context": {
+                "smiles": "O=CN=S(O)(O)=CC12CCC(CC1=S)C2",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:28:12.614093",
+            "context": {
+                "smiles": "O=CN=S(O)(O)=CC12CCC(CC1=S)C2"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:28:36.123067",
+            "context": {
+                "smiles": "Oc1ccc2c3c1OC1C(O)CCC4(O)C(C2)N(C2=NC23)C14",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:28:36.864181",
+            "context": {
+                "smiles": "Oc1ccc2c3c1OC1C(O)CCC4(O)C(C2)N(C2=NC23)C14"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:28:39.580348",
+            "context": {
+                "smiles": "O=[N+]([O-])OC1C2OC=C3CC21C3",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:28:39.752662",
+            "context": {
+                "smiles": "O=[N+]([O-])OC1C2OC=C3CC21C3"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:28:50.254358",
+            "context": {
+                "smiles": "CC=CC=CC(=O)N1CC23C=CC(O2)C(C(=O)NC)(C(F)(F)F)C13",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:28:51.006280",
+            "context": {
+                "smiles": "CC=CC=CC(=O)N1CC23C=CC(O2)C(C(=O)NC)(C(F)(F)F)C13"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:29:54.851557",
+            "context": {
+                "smiles": "CN1C2=CC=C(OCCF)C=C3C4COCCC4C1CCN32",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:29:56.439833",
+            "context": {
+                "smiles": "CN1C2=CC=C(OCCF)C=C3C4COCCC4C1CCN32"
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.165829",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.166192",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.166453",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.166693",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.166926",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.167161",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.167383",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.167603",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "electroshape_unpolarized_charges",
+            "message": "Partial charges unpolarized or zero; charge centroids fell back to geometric centroid",
+            "timestamp": "2026-10-02T16:29:59.167821",
+            "context": {
+                "num_atoms": 42
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:30:03.826270",
+            "context": {
+                "smiles": "CC1=C(C(=O)N2CCC2)OC2=CC(=N1)C(C#N)=C2",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:30:04.394398",
+            "context": {
+                "smiles": "CC1=C(C(=O)N2CCC2)OC2=CC(=N1)C(C#N)=C2"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:30:36.666347",
+            "context": {
+                "smiles": "CC(C)(C)c1nc(C2=CC=c3ccc(n3CCc3cccc(C(=O)N4CCOCC4)c3)=N2)oc1-c1ccccc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:30:43.392808",
+            "context": {
+                "smiles": "CC(C)(C)c1nc(C2=CC=c3ccc(n3CCc3cccc(C(=O)N4CCOCC4)c3)=N2)oc1-c1ccccc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:31:34.232004",
+            "context": {
+                "smiles": "O=C1OC23Cc4ccccc4OC2c2ccc(cc2)OCOc2cc1cc1c2C(C3)ON1c1ccccc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:31:38.739299",
+            "context": {
+                "smiles": "O=C1OC23Cc4ccccc4OC2c2ccc(cc2)OCOc2cc1cc1c2C(C3)ON1c1ccccc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:31:54.772225",
+            "context": {
+                "smiles": "COc1ccc(C(=O)OC2C(c3ccc(OC)c(OC)c3)Oc3ccc4cc3C2C(=O)NC(=O)N4)cc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:31:59.251579",
+            "context": {
+                "smiles": "COc1ccc(C(=O)OC2C(c3ccc(OC)c(OC)c3)Oc3ccc4cc3C2C(=O)NC(=O)N4)cc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:32:24.690794",
+            "context": {
+                "smiles": "COc1ccc(C2Oc3ccccc3CC2OC(=O)c2cc3ccc2OC(C2CC2)C3)cc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:32:28.864332",
+            "context": {
+                "smiles": "COc1ccc(C2Oc3ccccc3CC2OC(=O)c2cc3ccc2OC(C2CC2)C3)cc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:33:28.821200",
+            "context": {
+                "smiles": "O=C1NC(=O)N2C(=O)C3c4ccccc4OC(c4ccccc4-c4ccccc4)C3OC(=O)c3cc1ccc32",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:33:32.816956",
+            "context": {
+                "smiles": "O=C1NC(=O)N2C(=O)C3c4ccccc4OC(c4ccccc4-c4ccccc4)C3OC(=O)c3cc1ccc32"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:34:05.679929",
+            "context": {
+                "smiles": "CC(C)(C)C1CSc2cc1cc(O)c2C(=O)OC1Cc2ccccc2OC1c1ccccc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:34:10.143948",
+            "context": {
+                "smiles": "CC(C)(C)C1CSc2cc1cc(O)c2C(=O)OC1Cc2ccccc2OC1c1ccccc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:34:25.757084",
+            "context": {
+                "smiles": "O=C1OC2C(c3ccccc3)Oc3ccccc3C2Oc2cccc1c2",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:34:27.212024",
+            "context": {
+                "smiles": "O=C1OC2C(c3ccccc3)Oc3ccccc3C2Oc2cccc1c2"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:34:59.816773",
+            "context": {
+                "smiles": "COc1ccc2c(c1)OC(c1ccccc1)C(OC(=O)c1cc3cc(c1)C1C(=O)CCC1=N3)C2OC(C)C",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:35:05.378036",
+            "context": {
+                "smiles": "COc1ccc2c(c1)OC(c1ccccc1)C(OC(=O)c1cc3cc(c1)C1C(=O)CCC1=N3)C2OC(C)C"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:35:20.532290",
+            "context": {
+                "smiles": "CC1COC2(OC(=O)c3ccccc3)Cc3ccccc3OC2c2ccc1cc2",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:35:23.325630",
+            "context": {
+                "smiles": "CC1COC2(OC(=O)c3ccccc3)Cc3ccccc3OC2c2ccc1cc2"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:36:05.095881",
+            "context": {
+                "smiles": "COc1ccc(C2Oc3c4ccc(c3C(OC)C2OC(=O)c2ccccc2)OC4)cc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:36:08.264017",
+            "context": {
+                "smiles": "COc1ccc(C2Oc3c4ccc(c3C(OC)C2OC(=O)c2ccccc2)OC4)cc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:36:42.953325",
+            "context": {
+                "smiles": "O=C(OC1Cc2ccccc2OC1c1ccccc1)c1cc2cc(c1Br)OCCO2",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:36:45.466006",
+            "context": {
+                "smiles": "O=C(OC1Cc2ccccc2OC1c1ccccc1)c1cc2cc(c1Br)OCCO2"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:36:53.336816",
+            "context": {
+                "smiles": "CN(C)N1C(=O)c2cc(C(=O)OC3Cc4ccccc4OC3c3ccccc3)c3cc2C31",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:36:54.747218",
+            "context": {
+                "smiles": "CN(C)N1C(=O)c2cc(C(=O)OC3Cc4ccccc4OC3c3ccccc3)c3cc2C31"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:37:15.208190",
+            "context": {
+                "smiles": "COC(=O)c1ccc(COCC(C(=O)C(=O)OCCOCC=CN=CBr)C(Oc2ccc3c(c2)OC(c2ccccc2)C(OC(=O)c2ccccc2)C3)Oc2cccc(C=CC(=O)O)c2C)cc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:37:54.723317",
+            "context": {
+                "smiles": "O=C(OC1C2CC(=[N+]([O-])Cc3ccccc3)Cc3ccc2c(c3)OC1c1ccccc1)c1ccccc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:38:05.016566",
+            "context": {
+                "smiles": "O=C(OC1C2CC(=[N+]([O-])Cc3ccccc3)Cc3ccc2c(c3)OC1c1ccccc1)c1ccccc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:38:34.308202",
+            "context": {
+                "smiles": "CC(O)c1ccc(C2Oc3cc4ccc3C(O4)C2OC(=O)c2ccc3c(c2)-c2ccccc2CO3)cc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:38:39.008345",
+            "context": {
+                "smiles": "CC(O)c1ccc(C2Oc3cc4ccc3C(O4)C2OC(=O)c2ccc3c(c2)-c2ccccc2CO3)cc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:41:42.036833",
+            "context": {
+                "smiles": "O=C(OC1Cc2ccc(OCc3ccc4cc3CCc3cccc5n[n+]-4ccc35)cc2OC1c1ccccc1)c1ccccc1",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:41:49.518906",
+            "context": {
+                "smiles": "O=C(OC1Cc2ccc(OCc3ccc4cc3CCc3cccc5n[n+]-4ccc35)cc2OC1c1ccccc1)c1ccccc1"
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_random_coords",
+            "message": "Standard ETKDGv3 conformer embedding yielded 0 conformers; relaxed bounds with useRandomCoords=True",
+            "timestamp": "2026-10-02T16:46:29.714684",
+            "context": {
+                "smiles": "O=C1OC2Cc3cc(ccc3OC2c2ccccc2)-c2ccc(cc2)-c2ccc1cc2",
+                "num_conformers": 10
+            }
+        },
+        {
+            "fallback_type": "conformer_embedding_failure",
+            "message": "Conformer embedding completely failed across all stereoisomers; returning score 0.0",
+            "timestamp": "2026-10-02T16:46:32.445566",
+            "context": {
+                "smiles": "O=C1OC2Cc3cc(ccc3OC2c2ccccc2)-c2ccc(cc2)-c2ccc1cc2"
+            }
+        }
+    ]
+}

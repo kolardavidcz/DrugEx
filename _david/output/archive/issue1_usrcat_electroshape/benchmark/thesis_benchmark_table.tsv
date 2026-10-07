@@ -1,0 +1,4 @@
+Regime	N_Generated	Validity (%)	Uniqueness (%)	Desired Ratio (%)	ROCS (Mean)	USRCAT (Mean)	RAscore (Mean)	QED (Mean)	SAscore (Mean)	Heavy Atoms (Mean)	Seed Tanimoto (Mean)	Scaffold Diversity
+Sequence-RNN (Pure RL)	200	100.0	100.0	19.0	0.59	0.98	0.88	0.65	2.65	22.7	0.09	0.93
+Graph-Transformer (Scaffold RL)	200	100.0	13.5	93.0	1.11	0.99	0.9	0.64	2.71	25.8	0.4	0.07
+Prioritized Leads (Top Desirability)	5	100.0	100.0	20.0	0.6	0.98	0.92	0.52	2.34	29.4	0.15	1.0

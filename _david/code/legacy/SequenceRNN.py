@@ -36,7 +36,10 @@ from rdkit.Chem import Draw
 
 from _david.code.anti_cheating_rewards import AugmentedChebyshevReward
 from _david.code.fallback_monitor import FallbackMonitor
-from _david.code.usrcat_scorer import USRCATScorer
+try:
+    from _david.code.legacy.usrcat_scorer import USRCATScorer
+except (ImportError, ModuleNotFoundError):
+    from _david.code.usrcat_scorer import USRCATScorer
 
 warnings.filterwarnings("ignore")
 

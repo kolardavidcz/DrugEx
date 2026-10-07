@@ -1,0 +1,13 @@
+{
+    "run_id": "20261001_130044",
+    "mode": "full",
+    "input_molecules_count": 1,
+    "primary_molecule": "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1",
+    "duration_seconds": 1833.55,
+    "output_directory": "/home/kolarv/DrugEx/_david/outputs/pipeline_runs/20261001_130044",
+    "reference_sdf": "/home/kolarv/DrugEx/_david/outputs/pipeline_runs/20261001_130044/references/query_molecule_3d.sdf",
+    "stage1_hits_file": "/home/kolarv/DrugEx/_david/outputs/pipeline_runs/20261001_130044/stage1_sequence_rnn/rl_generated_candidates_scored.tsv",
+    "stage2_scaffolds_file": "/home/kolarv/DrugEx/_david/outputs/pipeline_runs/20261001_130044/stage2_scaffold_funnel/funnel_scaffolds.tsv",
+    "stage3_leads_file": "/home/kolarv/DrugEx/_david/outputs/pipeline_runs/20261001_130044/stage3_graph_transformer/rl_generated_candidates_scored.tsv",
+    "benchmark_directory": "/home/kolarv/DrugEx/_david/outputs/pipeline_runs/20261001_130044/benchmark"
+}

@@ -1,0 +1,12 @@
+{
+    "total_input_candidates": 227,
+    "passed_chemical_validity": 227,
+    "passed_hac_envelope": 222,
+    "passed_pains_and_toxicophores": 208,
+    "top_k_candidates_evaluated": 100,
+    "tier1_survivors_count": 100,
+    "murcko_frameworks_extracted": 100,
+    "unique_scaffolds_count": 86,
+    "butina_clusters_count": 78,
+    "final_scaffolds_selected": 5
+}

@@ -1,0 +1,42 @@
+{
+    "run_id": "20261002_193919",
+    "mode": "test",
+    "primary_molecule": "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1",
+    "duration_seconds": 31.16,
+    "output_directory": "/home/kolarv/DrugEx/_david/output/20261002_193919",
+    "reference_sdf": "/home/kolarv/DrugEx/_david/output/20261002_193919/references/query_molecule_3d.sdf",
+    "seed_core_scaffold_file": "/home/kolarv/DrugEx/_david/output/20261002_193919/references/seed_core_scaffold.tsv",
+    "generated_candidates_file": "/home/kolarv/DrugEx/_david/output/20261002_193919/stage1_graph_transformer/generated_candidates.tsv",
+    "prioritized_leads_file": "/home/kolarv/DrugEx/_david/output/20261002_193919/stage2_result_analysis/top_prioritized_leads.tsv",
+    "analysis_directory": "/home/kolarv/DrugEx/_david/output/20261002_193919/stage2_result_analysis",
+    "fallback_audit_file": "/home/kolarv/DrugEx/_david/output/20261002_193919/fallback_audit.json",
+    "fallbacks_count": 0,
+    "gpu_telemetry": {
+        "cuda_available": true,
+        "device_count": 2,
+        "devices": [
+            {
+                "index": 0,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 64.0,
+                "reserved_mb": 1090.0,
+                "max_allocated_mb": 2162.83,
+                "total_memory_mb": 23979.44
+            },
+            {
+                "index": 1,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "reserved_mb": 0.0,
+                "max_allocated_mb": 0.0,
+                "total_memory_mb": 23987.81
+            }
+        ]
+    },
+    "stage_statuses": {
+        "INITIALIZING": "RUNNING",
+        "Stage 0: 3D Reference Conformation": "SUCCESS",
+        "Stage 1: Graph-Transformer Generation": "SUCCESS",
+        "Stage 2: Result Analysis": "SUCCESS"
+    }
+}

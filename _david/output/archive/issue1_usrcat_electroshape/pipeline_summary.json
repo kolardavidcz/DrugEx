@@ -1,0 +1,48 @@
+{
+    "run_id": "20261002_162530",
+    "mode": "full",
+    "input_molecules_count": 1,
+    "primary_molecule": "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1",
+    "duration_seconds": 1384.53,
+    "output_directory": "/home/kolarv/DrugEx/_david/output/20261002_162530",
+    "reference_sdf": "/home/kolarv/DrugEx/_david/output/20261002_162530/references/query_molecule_3d.sdf",
+    "seed_core_scaffold_file": "/home/kolarv/DrugEx/_david/output/20261002_162530/references/seed_core_scaffold.tsv",
+    "stage1_hits_file": "/home/kolarv/DrugEx/_david/output/20261002_162530/stage1_sequence_rnn/stage1_hits.tsv",
+    "stage2_leads_file": "/home/kolarv/DrugEx/_david/output/20261002_162530/stage2_graph_transformer/stage2_leads.tsv",
+    "stage3_selected_leads_file": "/home/kolarv/DrugEx/_david/output/20261002_162530/stage3_lead_selection/selected_leads.tsv",
+    "stage2_scaffolds_file": "/home/kolarv/DrugEx/_david/output/20261002_162530/references/seed_core_scaffold.tsv",
+    "stage3_leads_file": "/home/kolarv/DrugEx/_david/output/20261002_162530/stage3_lead_selection/selected_leads.tsv",
+    "benchmark_directory": "/home/kolarv/DrugEx/_david/output/20261002_162530/benchmark",
+    "fallback_audit_file": "/home/kolarv/DrugEx/_david/output/20261002_162530/fallback_audit.json",
+    "fallbacks_count": 67,
+    "gpu_telemetry": {
+        "cuda_available": true,
+        "device_count": 2,
+        "devices": [
+            {
+                "index": 0,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 64.0,
+                "reserved_mb": 1030.0,
+                "max_allocated_mb": 2801.36,
+                "total_memory_mb": 23979.44
+            },
+            {
+                "index": 1,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "reserved_mb": 0.0,
+                "max_allocated_mb": 0.0,
+                "total_memory_mb": 23987.81
+            }
+        ]
+    },
+    "stage_statuses": {
+        "INITIALIZING": "RUNNING",
+        "Stage 0: 3D Reference Conformation": "SUCCESS",
+        "Stage 1: Sequence-RNN Hit Discovery": "SUCCESS",
+        "Stage 2: Graph-Transformer Scaffold RL": "SUCCESS",
+        "Stage 3: Lead Selection & Diversity": "SUCCESS",
+        "Stage 4: Thesis Benchmark": "SUCCESS"
+    }
+}
