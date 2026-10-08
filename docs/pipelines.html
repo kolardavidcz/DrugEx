@@ -1457,7 +1457,7 @@
         feedbackLoop: { fromX: 1000, fromY: 320, toX: 710, toY: 22, label: ".fit() -> 3D Aligned Leads", color: "#0284c7" },
         matrixRows: [
           { step: "01", component: "Reference Pose", input: "Crystallographic co-crystal SDF", operation: "Load query ligand coordinates: Chem.MolFromMolFile(sdf)", output: "target= Mol object", classes: "RDKitROCSScorer" },
-          { step: "02", component: "Conformer Generator", input: "ETKDGv3 settings", operation: "Configure 3D conformer generation: ConfGenerator(max_confs=50)", output: "confgen= instance", classes: "RDKitConformerGenerator, OmegaConformerGenerator" },
+          { step: "02", component: "Conformer Generator", input: "ETKDGv3 settings", operation: "Configure 3D conformer generation: RDKitConformerGenerator(max_conformers=50)", output: "confgen= instance", classes: "RDKitConformerGenerator, OmegaConformerGenerator" },
           { step: "03", component: "Desirability Modifier", input: "Continuous TanimotoCombo metric", operation: "Sigmoidal reward scaling: SmoothClippedScore(1.0, 1.6)", output: "modifier= instance", classes: "SmoothClippedScore, ClippedScore" },
           { step: "04", component: "RDKitROCSScorer", input: "target, modifier, confgen", operation: "Instantiate 3D scorer: RDKitROCSScorer(target, mod, confgen)", output: "rocs_scorer instance", classes: "RDKitROCSScorer, Scorer" },
           { step: "05", component: "QSAR Scorers", input: "QSAR model + modifier", operation: "Instantiate affinity predictor: QSPRPredScorer(model, mod)", output: "qsar_scorer instance", classes: "QSPRPredScorer, Property" },
@@ -1470,9 +1470,9 @@
         id: "fragment",
         title: "Fragment-Based Synthon Assembly (BRICS / Scaffold Hopping)",
         shortTitle: "Fragment Synthon Assembly",
-        tagline: "Bioactive Mols (mols=) -> Fragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN -> FragSequenceExplorer(fragment=scaffold, env=) -> Reassembly",
-        summary: "Component assembly and initialization dependency graph for fragment-based de novo synthon assembly. Illustrates how active chemical series are cleaved by BRICSFragmenter, compiled into FragDataSet with exit vectors [1*]-[16*], and used to initialize FragSequenceRNN models. The core scaffold is passed as fragment= into FragSequenceExplorer alongside DrugExEnvironment to conditionally elaborate fragments into high-affinity candidates.",
-        formulaText: "Bioactive Mols (mols=) -> BRICSFragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN (agent=, mutate=) + Scaffold (fragment=) + DrugExEnvironment (env=) -> FragSequenceExplorer",
+        tagline: "Bioactive Mols (mols=) -> Fragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN -> FragSequenceExplorer(.fit(train_loader=)) -> Reassembly",
+        summary: "Component assembly and initialization dependency graph for fragment-based de novo synthon assembly. Illustrates how active chemical series are cleaved by BRICSFragmenter, compiled into FragDataSet with exit vectors [1*]-[16*], and used to initialize FragSequenceRNN models. The core scaffold pairs are encoded into train_loader and passed to FragSequenceExplorer.fit(train_loader=train_loader) alongside DrugExEnvironment to conditionally elaborate fragments into high-affinity candidates.",
+        formulaText: "Bioactive Mols (mols=) -> BRICSFragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN (agent=, mutate=) + Scaffold (train_loader=) + DrugExEnvironment (env=) -> FragSequenceExplorer",
         equation: [
           { type: "term", text: "Bioactive Compounds", nodeIdx: 0, tag: "input" },
           { type: "op", text: "->" },
@@ -1564,10 +1564,10 @@
             stage: "Core Scaffold",
             stageType: "input",
             label: "Target Input Fragment",
-            sublabel: "Passed as: fragment= -> Explorer",
+            sublabel: "Encoded in: train_loader -> Explorer",
             formula: "scaffold = 'c1ccc(cc1)[1*]'",
             inputContract: "Core fragment SMILES with explicit attachment vectors (e.g. [1*], [2*])",
-            outputContract: "Seed fragment passed as fragment= to FragSequenceExplorer",
+            outputContract: "Seed fragment pairs encoded in train_loader passed to FragSequenceExplorer.fit()",
             description: "The fixed core scaffold (e.g. kinase hinge binder or GPCR anchor) from which the generative agent explores chemical elaborations.",
             drugexSymbols: ["drugex::training::explorers::FragSequenceExplorer", "drugex::data::datasets::SmilesFragDataSet"],
             keyParameters: [
@@ -1615,10 +1615,10 @@
             stage: "Frag Explorer",
             stageType: "output",
             label: "FragSequenceExplorer Assembler",
-            sublabel: "Needs: agent, env, mutate, fragment",
-            formula: "FragSequenceExplorer(agent, env, mutate, fragment=scaffold)",
-            inputContract: "agent: FragGenerator, env: DrugExEnvironment, mutate: FragGenerator, fragment: str",
-            outputContract: ".fit() execution generating combinatorially decorated leads",
+            sublabel: "Needs: agent, env, mutate, train_loader",
+            formula: "FragSequenceExplorer(agent, env, mutate).fit(train_loader=)",
+            inputContract: "agent: FragGenerator, env: DrugExEnvironment, mutate: FragGenerator, train_loader: DataLoader",
+            outputContract: ".fit(train_loader=) execution generating combinatorially decorated leads",
             description: "Orchestrates scaffold-constrained reinforcement learning. Grows substituents from exit vectors and optimizes multi-objective rewards.",
             drugexSymbols: ["drugex::training::explorers::FragSequenceExplorer", "drugex::train::Reinforce", "drugex::training::generators::FragGenerator"],
             keyParameters: [
@@ -1633,7 +1633,7 @@
           { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "mols=", color: "#0d9488" },
           { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "frags=", color: "#0d9488" },
           { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "voc=", color: "#0d9488" },
-          { fromX: 240, fromY: 271, toX: 890, toY: 290, label: "fragment=scaffold", color: "#0d9488" },
+          { fromX: 240, fromY: 271, toX: 890, toY: 290, label: "train_loader=", color: "#0d9488" },
           { fromX: 530, fromY: 271, toX: 600, toY: 271, label: "scorers=", color: "#d97706" },
           { fromX: 820, fromY: 271, toX: 890, toY: 271, label: "env=", color: "#16a34a" },
           { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "agent, mutate", color: "#0284c7" }
@@ -1644,10 +1644,10 @@
           { step: "02", component: "BRICS Cleavage", input: "mols= SMILES list", operation: "Cleave across 16 retrosynthetic rules: Fragmenter", output: "frags= synthons", classes: "FragmentCorpusEncoder, Fragmenter" },
           { step: "03", component: "Synthon Pool", input: "frags= synthon collection", operation: "Compile fragment vocabulary: SmilesFragDataSet", output: "voc= VocSmiles", classes: "SmilesFragDataSet, VocSmiles" },
           { step: "04", component: "Frag Models", input: "voc= VocSmiles vocabulary", operation: "Instantiate conditional models: FragGenerator", output: "agent=, mutate= models", classes: "FragGenerator, FragSequenceExplorer" },
-          { step: "05", component: "Target Scaffold", input: "Seed fragment with [1*] vectors", operation: "Define fixed core scaffold: scaffold = 'c1ccc(cc1)[1*]'", output: "fragment= scaffold", classes: "FragSequenceExplorer, SmilesFragDataSet" },
+          { step: "05", component: "Target Scaffold", input: "Seed fragment with [1*] vectors", operation: "Define fixed core scaffold: scaffold = 'c1ccc(cc1)[1*]'", output: "train_loader= pairs", classes: "FragSequenceExplorer, SmilesFragDataSet" },
           { step: "06", component: "Scorer Array", input: "Property & QSAR functions", operation: "Instantiate objectives: [Property('SA', mod), QSPRPredScorer(...)]", output: "scorers= List[Scorer]", classes: "Scorer, Property" },
           { step: "07", component: "DrugExEnvironment", input: "scorers, thresholds, reward_scheme", operation: "Assemble environment: DrugExEnvironment(scorers, ths, scheme)", output: "env= instance", classes: "DrugExEnvironment, ScoreModifier" },
-          { step: "08", component: "FragSequenceExplorer Assembler", input: "agent, env, mutate, fragment", operation: "Orchestrate fragment RL: FragSequenceExplorer(...).fit()", output: "Decorated Bioactive Leads", classes: "FragSequenceExplorer, Reinforce, FragGenerator" }
+          { step: "08", component: "FragSequenceExplorer Assembler", input: "agent, env, mutate, train_loader", operation: "Orchestrate fragment RL: FragSequenceExplorer(...).fit(train_loader=)", output: "Decorated Bioactive Leads", classes: "FragSequenceExplorer, Reinforce, FragGenerator" }
         ]
       },
       {
@@ -1881,7 +1881,7 @@
       },
       rocs: {
         "01": `from rdkit import Chem\n\n# Ingest high-resolution crystallographic co-crystal inhibitor pose\nref_supplier = Chem.SDMolSupplier("data/co_crystal_ligand.sdf")\nref_mol = next(ref_supplier)\nprint("Reference heavy atoms:", ref_mol.GetNumAtoms())`,
-        "02": `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator\n\n# Conformer generator using ETKDGv3 distance geometry & MMFF94 force field\nconf_gen = RDKitConformerGenerator(n_conf=50, prune_rms=0.5)`,
+        "02": `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator\n\n# Conformer generator using ETKDGv3 distance geometry & MMFF94 force field\nconf_gen = RDKitConformerGenerator(max_conformers=50, num_threads=4, timeout=30)`,
         "03": `from drugex.training.scorers import SmoothClippedScore\n\n# Sigmoidal desirability modifier for continuous TanimotoCombo scores in [0, 2.0]\nmod_rocs = SmoothClippedScore(lower_x=1.0, upper_x=1.6, high=True)`,
         "04": `from drugex.training.scorers import RDKitROCSScorer\n\n# 3D shape and pharmacophore overlap scorer\nrocs_scorer = RDKitROCSScorer(\n    target=ref_mol,\n    modifier=mod_rocs,\n    confgen=conf_gen,\n    score_type="TanimotoCombo"\n)`,
         "05": `from drugex.training.scorers import Property\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Complementary QSAR bioactivity and property scorers\nqsar_scorer = QSPRPredScorer(model_path="models/target_qsar.json", modifier=mod_qsar)\nscorers = [rocs_scorer, qsar_scorer, Property("logP", modifier=mod_logp)]`,
@@ -1891,19 +1891,19 @@
       },
       fragment: {
         "01": `from rdkit import Chem\n\n# Input bioactive series or crystallographic fragment hits\nactives = [\n    "Cc1ccc(nc1)c2ccccc2",\n    "c1c(c2ccccc2)ncn1CC(=O)N3CCNCC3"\n]\nmols = [Chem.MolFromSmiles(s) for s in actives]`,
-        "02": `from drugex.data.fragments import FragmentCorpusEncoder, Fragmenter\n\n# Cleave molecules across 16 retrosynthetic BRICS rules (L1 to L16)\nencoder = FragmentCorpusEncoder()\nfrags = encoder.decompose(actives)\nprint(f"Generated {len(frags)} building block synthons.")`,
+        "02": `from drugex.data.fragments import FragmentCorpusEncoder\nfrom drugex.molecules.converters.fragmenters import Fragmenter\n\n# Cleave molecules across 16 retrosynthetic BRICS rules (L1 to L16)\nfragmenter = Fragmenter(fragmentation_strategy="BRICS")\nencoder = FragmentCorpusEncoder(fragmenter=fragmenter)\nfrags = encoder.decompose(actives)\nprint(f"Generated {len(frags)} building block synthons.")`,
         "03": `from drugex.data.datasets import SmilesFragDataSet\nfrom drugex.data.corpus.vocabulary import VocSmiles\n\n# Compile synthon dataset and fragment-conditioned vocabulary\nvoc = VocSmiles.fromFile("data/vocab.txt", encode_frags=True)\ndataset = SmilesFragDataSet(frags, voc=voc)`,
         "04": `from drugex.training.generators import FragGenerator\nfrom drugex.training.explorers import FragSequenceExplorer\n\n# Fragment-conditioned generative model and exploration anchor\nagent = FragSequenceExplorer.loadModel("models/frag_agent.pkg", voc=voc)\nprior = FragSequenceExplorer.loadModel("models/frag_prior.pkg", voc=voc)`,
         "05": `# Define fixed seed scaffold with designated growth exit vectors [1*]\nscaffold = "c1ccc(cc1)[1*]"\nprint(f"Target core scaffold for elaboration: {scaffold}")`,
-        "06": `from drugex.training.scorers import Property, SAScorer\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Synthetic accessibility and bioactivity scorers\nscorers = [\n    SAScorer(modifier=mod_sa),\n    QSPRPredScorer(model_path="models/target.json", modifier=mod_qsar),\n    Property("MW", modifier=mod_mw)\n]`,
+        "06": `from drugex.training.scorers import Property\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Synthetic accessibility and bioactivity scorers\nscorers = [\n    Property("SA", modifier=mod_sa),\n    QSPRPredScorer(model_path="models/target.json", modifier=mod_qsar),\n    Property("MW", modifier=mod_mw)\n]`,
         "07": `from drugex.training.environment import DrugExEnvironment\n\n# Scaffold-constrained multi-objective evaluation environment\nenv = DrugExEnvironment(\n    scorers=scorers,\n    thresholds=[0.80, 0.75, 0.70],\n    reward_scheme="ParetoCrowdingDistance"\n)`,
-        "08": `from drugex.training.explorers import FragSequenceExplorer\n\n# Fragment-conditioned RL exploration growing leads from seed scaffold\nexplorer = FragSequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    fragment=scaffold,\n    epsilon=0.1\n)\nexplorer.fit(train_loader=train_loader, epochs=50)`
+        "08": `from drugex.training.explorers import FragSequenceExplorer\n\n# Fragment-conditioned RL exploration growing leads from seed scaffold\nexplorer = FragSequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    epsilon=0.1\n)\nexplorer.fit(train_loader=train_loader, epochs=50)`
       },
       telemetry: {
         "01": `from drugex.training.monitors import FileMonitor\n\n# TSV telemetry logger streaming per-epoch loss, V%, U%, and Dr%\nmonitor = FileMonitor(\n    path="experiments/rl_cdk2_run01",\n    save_smiles=True,\n    save_model_option="best"\n)`,
         "02": `from drugex.training.scorers import SmilesChecker\n\n# Chemical valency, aromaticity, and syntax verification gate\nchecker = SmilesChecker()\nsamples = ["c1ccccc1", "c1ccccc", "CC(=O)Oc1ccccc1C(=O)O"]\nvalidity = [SmilesChecker.checkSmiles(s) for s in samples]\nprint("Syntax validity flags:", validity)`,
         "03": `from drugex.training.scorers.modifiers import ThresholdedLinear\nfrom drugex.training.scorers import SmoothClippedScore\n\n# Quality gate modifiers establishing telemetry thresholds\nmod_sa = SmoothClippedScore(lower_x=1.0, upper_x=4.0, high=False)\nmod_unique = ThresholdedLinear(threshold=0.85, high=True)`,
-        "04": `from drugex.training.scorers import SAScorer, Uniqueness, Property\n\n# Diagnostic scoring array tracking synthetic feasibility and mode collapse\nscorers = [\n    Uniqueness(modifier=mod_unique),\n    SAScorer(modifier=mod_sa),\n    Property("MW", modifier=mod_mw)\n]`,
+        "04": `from drugex.training.scorers import Uniqueness, Property\n\n# Diagnostic scoring array tracking synthetic feasibility and mode collapse\nscorers = [\n    Uniqueness(modifier=mod_unique),\n    Property("SA", modifier=mod_sa),\n    Property("MW", modifier=mod_mw)\n]`,
         "05": `# Desirability cutoffs defining multi-objective Desired Ratio (Dr%)\n# Rollouts are marked desirable only if satisfying all cutoffs\nthresholds = [0.85, 0.75, 0.70]\nprint("Active telemetry thresholds:", thresholds)`,
         "06": `from drugex.training.environment import DrugExEnvironment\n\n# Coordinates candidate scoring and tracks batch Desired Ratio\nenv = DrugExEnvironment(\n    scorers=scorers,\n    thresholds=thresholds,\n    reward_scheme="ParetoCrowdingDistance"\n)`,
         "07": `from drugex.data.corpus.vocabulary import VocSmiles\nfrom drugex.training.generators import SequenceRNN\n\n# Generative policy network and frozen prior anchor\nvoc = VocSmiles.fromFile("data/vocab.txt")\nagent = SequenceRNN(voc=voc, is_lstm=True)\nprior = SequenceRNN.loadStates("models/base_prior.pkg")`,

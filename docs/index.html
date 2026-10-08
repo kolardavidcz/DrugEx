@@ -4554,17 +4554,24 @@ mod = MinMaxGaussian(mu=450.0, sigma=50.0, minimize=True)
 candidate_mws = np.array([320.0, 420.0, 450.0, 480.0, 520.0, 600.0])
 scores = mod(candidate_mws)
 
+# Contrast with maximization mode (e.g. demanding pIC50 >= 7.0)
+mod_max = MinMaxGaussian(mu=7.0, sigma=1.0, minimize=False)
+pic50_sample = 6.0
+pic50_score = float(mod_max(pic50_sample))
+
 print(f"MinMaxGaussian threshold: mu={mod.mu} Da, sigma={mod.sigma} Da (minimize={mod.minimize})")
 for val, score in zip(candidate_mws, scores):
     status = "Optimal Plateau (1.0)" if val <= 450.0 else "Decaying Tail"
-    print(f"  MW: {val:5.1f} Da -> Desirability: {score:.4f} ({status})")`,
+    print(f"  MW: {val:5.1f} Da -> Desirability: {score:.4f} ({status})")
+print(f"Maximization test: pIC50 {pic50_sample:.1f} -> Desirability: {pic50_score:.4f}")`,
           output: `MinMaxGaussian threshold: mu=450.0 Da, sigma=50.0 Da (minimize=True)
   MW: 320.0 Da -> Desirability: 1.0000 (Optimal Plateau (1.0))
   MW: 420.0 Da -> Desirability: 1.0000 (Optimal Plateau (1.0))
   MW: 450.0 Da -> Desirability: 1.0000 (Optimal Plateau (1.0))
   MW: 480.0 Da -> Desirability: 0.8353 (Decaying Tail)
   MW: 520.0 Da -> Desirability: 0.3753 (Decaying Tail)
-  MW: 600.0 Da -> Desirability: 0.0111 (Decaying Tail)`
+  MW: 600.0 Da -> Desirability: 0.0111 (Decaying Tail)
+Maximization test: pIC50 6.0 -> Desirability: 0.6065`
         },
         seeAlso: [
           "drugex::training::scorers::Gaussian",
@@ -4651,15 +4658,21 @@ g = Gaussian(mu=350.0, sigma=40.0)
 candidate_weights = np.array([250.0, 310.0, 350.0, 390.0, 450.0])
 desirability = g(candidate_weights)
 
-print(f"Gaussian target mu: {g.mu} Da, sigma: {g.sigma} Da")
+# Evaluate scalar call at exact target center and 2-sigma deviation
+peak_val = float(g(350.0))
+edge_val = float(g(430.0))
+
+print(f"Gaussian target mu: {g.mu} Da, sigma: {g.sigma} Da (peak: {peak_val:.1f})")
 for mw, d in zip(candidate_weights, desirability):
-    print(f"  MW: {mw:5.1f} Da -> Desirability: {d:.4f}")`,
-          output: `Gaussian target mu: 350.0 Da, sigma: 40.0 Da
+    print(f"  MW: {mw:5.1f} Da -> Desirability: {d:.4f}")
+print(f"  Boundary 2-sigma check (430.0 Da): {edge_val:.4f}")`,
+          output: `Gaussian target mu: 350.0 Da, sigma: 40.0 Da (peak: 1.0)
   MW: 250.0 Da -> Desirability: 0.0439
   MW: 310.0 Da -> Desirability: 0.6065
   MW: 350.0 Da -> Desirability: 1.0000
   MW: 390.0 Da -> Desirability: 0.6065
-  MW: 450.0 Da -> Desirability: 0.0439`
+  MW: 450.0 Da -> Desirability: 0.0439
+  Boundary 2-sigma check (430.0 Da): 0.1353`
         },
         seeAlso: [
           "drugex::training::scorers::MinMaxGaussian",
@@ -4766,16 +4779,22 @@ mod = ThresholdedLinear(threshold=8.0)
 pic50_values = np.array([4.0, 6.0, 7.0, 8.0, 9.5])
 scores = mod(pic50_values)
 
+# Evaluate scalar edge cases: below zero and far above threshold
+zero_test = float(mod(0.0))
+over_test = float(mod(12.0))
+
 print(f"ThresholdedLinear saturation boundary: threshold={mod.threshold}")
 for val, s in zip(pic50_values, scores):
     status = "Saturated Plateau (1.0)" if val >= 8.0 else f"Linear Ramp ({s*100:.0f}%)"
-    print(f"  pIC50: {val:4.1f} -> Desirability: {s:.4f} ({status})")`,
+    print(f"  pIC50: {val:4.1f} -> Desirability: {s:.4f} ({status})")
+print(f"Edge cases: pIC50 0.0 -> {zero_test:.4f} | pIC50 12.0 -> {over_test:.4f}")`,
           output: `ThresholdedLinear saturation boundary: threshold=8.0
   pIC50:  4.0 -> Desirability: 0.5000 (Linear Ramp (50%))
   pIC50:  6.0 -> Desirability: 0.7500 (Linear Ramp (75%))
   pIC50:  7.0 -> Desirability: 0.8750 (Linear Ramp (88%))
   pIC50:  8.0 -> Desirability: 1.0000 (Saturated Plateau (1.0))
-  pIC50:  9.5 -> Desirability: 1.0000 (Saturated Plateau (1.0))`
+  pIC50:  9.5 -> Desirability: 1.0000 (Saturated Plateau (1.0))
+Edge cases: pIC50 0.0 -> 0.0000 | pIC50 12.0 -> 1.0000`
         },
         seeAlso: [
           "drugex::training::scorers::Linear",
@@ -4818,16 +4837,22 @@ mod = Squared(target_value=3.0, coefficient=0.25)
 candidate_logp = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
 penalties = mod(candidate_logp)
 
+# Evaluate scalar optimum check and severe out-of-range penalty
+opt_val = float(mod(3.0))
+out_val = float(mod(6.0))
+
 print(f"Squared modifier: target={mod.target_value}, coefficient={mod.coefficient}")
 for val, s in zip(candidate_logp, penalties):
     status = "Exact Optimum (1.0)" if val == 3.0 else f"Deviation Δ={abs(val - 3.0):.1f}"
-    print(f"  LogP: {val:4.1f} -> Reward: {s:6.3f} ({status})")`,
+    print(f"  LogP: {val:4.1f} -> Reward: {s:6.3f} ({status})")
+print(f"Boundary evaluations: LogP 3.0 -> {opt_val:.3f} | LogP 6.0 -> {out_val:.3f}")`,
           output: `Squared modifier: target=3.0, coefficient=0.25
   LogP:  1.0 -> Reward:  0.000 (Deviation Δ=2.0)
   LogP:  2.0 -> Reward:  0.750 (Deviation Δ=1.0)
   LogP:  3.0 -> Reward:  1.000 (Exact Optimum (1.0))
   LogP:  4.0 -> Reward:  0.750 (Deviation Δ=1.0)
-  LogP:  5.0 -> Reward:  0.000 (Deviation Δ=2.0)`
+  LogP:  5.0 -> Reward:  0.000 (Deviation Δ=2.0)
+Boundary evaluations: LogP 3.0 -> 1.000 | LogP 6.0 -> -1.250`
         },
         seeAlso: [
           "drugex::training::scorers::Linear",
@@ -7156,9 +7181,14 @@ for mol in corpus:
     if len(streamed) >= 3:
         break
 
-print(f"Streamed valid entries: {streamed}")
+print(f"Streamed {len(streamed)} valid entries:")
+for idx, mol in enumerate(streamed, 1):
+    print(f"  {idx}: {mol}")
 print(f"Corpus vocabulary type: {type(corpus.getVoc()).__name__}")`,
-          output: `Streamed valid entries: ['c1ccccc1O', 'CC(=O)O', 'c1ccccc1CC(=O)O']
+          output: `Streamed 3 valid entries:
+  1: c1ccccc1O
+  2: CC(=O)O
+  3: c1ccccc1CC(=O)O
 Corpus vocabulary type: VocSmiles`
         },
         seeAlso: [
@@ -7304,9 +7334,13 @@ class SequenceMockPairEncoder(FragmentPairEncoder):
 encoder = SequenceMockPairEncoder()
 src_tensor, trg_tensor = encoder.encode("c1ccccc1", "c1ccccc1O")
 print(f"Source fragment tensor shape: {src_tensor.shape}")
-print(f"Target molecule tensor shape: {trg_tensor.shape}")`,
+print(f"Target molecule tensor shape: {trg_tensor.shape}")
+print(f"Source tokens: {src_tensor.tolist()}")
+print(f"Target tokens: {trg_tensor.tolist()}")`,
           output: `Source fragment tensor shape: torch.Size([5])
-Target molecule tensor shape: torch.Size([6])`
+Target molecule tensor shape: torch.Size([6])
+Source tokens: [1, 80, 80, 80, 0]
+Target tokens: [1, 80, 80, 80, 24, 0]`
         },
         seeAlso: [
           "drugex::data::fragments::SequenceFragmentEncoder",
@@ -7360,13 +7394,21 @@ Target molecule tensor shape: torch.Size([6])`
 voc = VocSmiles(encode_frags=False)
 print(f"Total vocabulary size: {len(voc)}")
 print(f"Token 'c' in vocabulary: {'c' in voc}")
+print(f"Missing token 'XYZ' in voc: {'XYZ' in voc}")
+
 idx_c = voc['c']
 print(f"Index for 'c': {idx_c}")
-print(f"Reverse lookup index {idx_c}: {voc[idx_c]}")`,
+print(f"Reverse lookup index {idx_c}: {voc[idx_c]}")
+print(f"Padding index 0 reserved: {voc[0] is not None}")
+sample_tokens = [voc[i] for i in range(1, 4)]
+print(f"Sample tokens (indices 1-3): {sample_tokens}")`,
           output: `Total vocabulary size: 86
 Token 'c' in vocabulary: True
+Missing token 'XYZ' in voc: False
 Index for 'c': 80
-Reverse lookup index 80: c`
+Reverse lookup index 80: c
+Padding index 0 reserved: True
+Sample tokens (indices 1-3): ['C', 'N', 'O']`
         },
         seeAlso: [
           "drugex::data::corpus::interfaces::SequenceVocabulary",
@@ -7647,14 +7689,21 @@ print(f"Control tokens: {voc.control}")
 # Parse sample atom-valence tokens
 for w in ["4C", "2O", "3N", "1Cl", "1O-"]:
     elem_ch, valence, ch_num, at_num, orig = VocGraph.parseWord(w)
-    print(f"Token '{w}': Element={elem_ch}, Valence={valence}, AtomicNum={at_num}, Charge={ch_num}")`,
+    print(f"Token '{w}': Element={elem_ch}, Valence={valence}, AtomicNum={at_num}, Charge={ch_num}")
+
+# Bidirectional index lookups and mask check
+c_idx = voc['4C']
+print(f"Subscript lookup: '4C' -> Index {c_idx} -> Reverse: '{voc[c_idx]}'")
+print(f"Valence mask tensor shape: {voc.masks.shape}")`,
           output: `Total graph vocabulary words: 40
 Control tokens: ('EOS', 'GO')
 Token '4C': Element=C, Valence=4, AtomicNum=6, Charge=0
 Token '2O': Element=O, Valence=2, AtomicNum=8, Charge=0
 Token '3N': Element=N, Valence=3, AtomicNum=7, Charge=0
 Token '1Cl': Element=Cl, Valence=1, AtomicNum=17, Charge=0
-Token '1O-': Element=O-, Valence=1, AtomicNum=8, Charge=-1`
+Token '1O-': Element=O-, Valence=1, AtomicNum=8, Charge=-1
+Subscript lookup: '4C' -> Index 3 -> Reverse: '4C'
+Valence mask tensor shape: torch.Size([40])`
         },
         seeAlso: [
           "drugex::data::corpus::vocabulary::VocSmiles",
@@ -7796,10 +7845,12 @@ try:
     batch = next(iter(loader))
     print(f"SmilesDataSet batch shape: {batch.shape}")
     print(f"Total batches in loader: {len(loader)}")
+    print(f"Batch tensor dtype: {batch.dtype}")
 finally:
     if os.path.exists(tmp_path): os.remove(tmp_path)`,
           output: `SmilesDataSet batch shape: torch.Size([4, 15])
-Total batches in loader: 2`
+Total batches in loader: 2
+Batch tensor dtype: torch.int64`
         },
         seeAlso: [
           "drugex::data::corpus::SequenceCorpus",
@@ -7878,9 +7929,13 @@ loader = SmilesFragDataSet.dataToLoader(dummy_data, batch_size=2, vocabulary=voc
 mol_batch, frag_batch = next(iter(loader))
 
 print(f"Molecule tensor batch shape: {mol_batch.shape}")
-print(f"Fragment tensor batch shape: {frag_batch.shape}")`,
+print(f"Fragment tensor batch shape: {frag_batch.shape}")
+print(f"Total batches in loader: {len(loader)}")
+print(f"Batch tensor dtype: {mol_batch.dtype}")`,
           output: `Molecule tensor batch shape: torch.Size([2, 20])
-Fragment tensor batch shape: torch.Size([2, 20])`
+Fragment tensor batch shape: torch.Size([2, 20])
+Total batches in loader: 3
+Batch tensor dtype: torch.int64`
         },
         seeAlso: [
           "drugex::data::datasets::SmilesDataSet",
@@ -7939,9 +7994,13 @@ loader = GraphFragDataSet.dataToLoader(dummy_actions, batch_size=2, vocabulary=v
 batch = next(iter(loader))
 
 print(f"Graph action batch shape: {batch.shape}")
-print(f"Batch dimension breakdown: (batch_size={batch.shape[0]}, max_len={batch.shape[1]}, action_dim={batch.shape[2]})")`,
+print(f"Batch dimension breakdown: (batch_size={batch.shape[0]}, max_len={batch.shape[1]}, action_dim={batch.shape[2]})")
+print(f"Total batches in loader: {len(loader)}")
+print(f"Action tensor dtype: {batch.dtype}")`,
           output: `Graph action batch shape: torch.Size([2, 30, 5])
-Batch dimension breakdown: (batch_size=2, max_len=30, action_dim=5)`
+Batch dimension breakdown: (batch_size=2, max_len=30, action_dim=5)
+Total batches in loader: 2
+Action tensor dtype: torch.int64`
         },
         seeAlso: [
           "drugex::data::datasets::SmilesFragDataSet",
@@ -8063,10 +8122,14 @@ frag_code = encoder.encodeFrag("c1ccccc1O", tokens, "c1ccccc1")
 
 print(f"Parent molecule token count: {len(tokens)}")
 print(f"Encoded molecule code length: {len(mol_code)}")
-print(f"Encoded fragment code length: {len(frag_code)}")`,
+print(f"Encoded fragment code length: {len(frag_code)}")
+print(f"Sample leading tokens: {tokens[:4]}")
+print(f"Vocabulary token capacity: {len(encoder.getVoc())}")`,
           output: `Parent molecule token count: 10
 Encoded molecule code length: 100
-Encoded fragment code length: 100`
+Encoded fragment code length: 100
+Sample leading tokens: ['c', '1', 'c', 'c']
+Vocabulary token capacity: 86`
         },
         seeAlso: [
           "drugex::data::fragments::GraphFragmentEncoder",
@@ -8111,10 +8174,14 @@ action_code = encoder.encodeFrag("c1ccccc1O", mol_str, "c1ccccc1")
 
 print(f"Parent molecule string: {mol_str}")
 print(f"Encoded graph action total elements: {len(action_code)}")
-print(f"Action steps represented: {len(action_code) // 5}")`,
+print(f"Action steps represented: {len(action_code) // 5}")
+print(f"Sample leading 5-tuple action: {action_code[:5]}")
+print(f"Graph vocabulary capacity: {encoder.getVoc().size}")`,
           output: `Parent molecule string: c1ccccc1O
 Encoded graph action total elements: 400
-Action steps represented: 80`
+Action steps represented: 80
+Sample leading 5-tuple action: [3, 0, 0, 0, 0]
+Graph vocabulary capacity: 40`
         },
         seeAlso: [
           "drugex::data::fragments::SequenceFragmentEncoder",
@@ -8188,10 +8255,14 @@ collector = FragmentCorpusEncoder.FragmentPairsCollector()
 mols = ["CC(=O)Oc1ccccc1C(=O)O", "c1ccc(NC(=O)C)cc1"]
 encoder.getFragmentPairs(mols, collector)
 
-print(f"Extracted {len(collector.items)} fragment-molecule pairs.")
-print("Sample encoded pair:", collector.items[0])`,
-          output: `Extracted 3 fragment-molecule pairs.
-Sample encoded pair: ('*C(=O)O.*c1ccccc1O', 'CC(=O)Oc1ccccc1C(=O)O')`
+print(f"Extracted {len(collector.items)} fragment-molecule pairs:")
+for idx, item in enumerate(collector.items[:2], 1):
+    print(f"  {idx}: Frag: {item[0]} -> Target: {item[1]}")
+print(f"Parallel worker processes: {encoder.nProc}")`,
+          output: `Extracted 3 fragment-molecule pairs:
+  1: Frag: *C(=O)O.*c1ccccc1O -> Target: CC(=O)Oc1ccccc1C(=O)O
+  2: Frag: *C(=O)C.*c1ccccc1C(=O)O -> Target: CC(=O)Oc1ccccc1C(=O)O
+Parallel worker processes: 2`
         },
         seeAlso: [
           "drugex::data::fragments::Fragmenter",
@@ -8303,9 +8374,13 @@ supplier = FragmentPairsEncodedSupplier(raw_pairs, encoder)
 
 frag_enc, mol_enc = next(iter(supplier))
 print(f"Encoded fragment token length: {len(frag_enc)}")
-print(f"Encoded molecule token length: {len(mol_enc)}")`,
+print(f"Encoded molecule token length: {len(mol_enc)}")
+print(f"Sample leading fragment tokens: {frag_enc[:4]}")
+print(f"Sample leading molecule tokens: {mol_enc[:4]}")`,
           output: `Encoded fragment token length: 100
-Encoded molecule token length: 100`
+Encoded molecule token length: 100
+Sample leading fragment tokens: [1, 24, 80, 80]
+Sample leading molecule tokens: [1, 80, 80, 80]`
         },
         seeAlso: [
           "drugex::data::fragments::FragmentPairsSupplier",
@@ -8488,9 +8563,13 @@ mols = ["CC(=O)Oc1ccccc1C(=O)O", "CC(=O)Nc1ccc(O)cc1"]
 encoder.apply(mols, collector)
 
 print(f"Corpus class: {encoder.corpus.__name__}")
-print(f"Collected results batches count: {len(collector.getList())}")`,
+print(f"Collected results batches count: {len(collector.getList())}")
+print(f"Parallel worker processes: {encoder.nProc}")
+print(f"Active vocabulary size: {len(voc)}")`,
           output: `Corpus class: SequenceCorpus
-Collected results batches count: 2`
+Collected results batches count: 2
+Parallel worker processes: 2
+Active vocabulary size: 86`
         },
         seeAlso: [
           "drugex::data::corpus::SequenceCorpus",
@@ -8584,9 +8663,13 @@ class MockRatioSplitter(DataSplitter):
 splitter = MockRatioSplitter(0.25)
 train, test = splitter(["c1ccccc1", "c1ccccc1O", "CC(=O)O", "CCO"])
 print("Train split count:", len(train))
-print("Test split count:", len(test))`,
+print("Test split count:", len(test))
+print(f"Train samples: {train}")
+print(f"Test samples: {test}")`,
           output: `Train split count: 3
-Test split count: 1`
+Test split count: 1
+Train samples: ['c1ccccc1', 'c1ccccc1O', 'CC(=O)O']
+Test samples: ['CCO']`
         },
         seeAlso: [
           "drugex::data::processing::RandomTrainTestSplitter",
@@ -8625,9 +8708,11 @@ adapter = MockArrayDataLoader()
 data = np.zeros((10, 16), dtype=np.int64)
 loader = adapter(data, batch_size=4, vocabulary=None)
 print("DataLoader batches count:", len(loader))
-print("First batch tensor shape:", next(iter(loader))[0].shape)`,
+print("First batch tensor shape:", next(iter(loader))[0].shape)
+print("Batch tensor dtype:", next(iter(loader))[0].dtype)`,
           output: `DataLoader batches count: 3
-First batch tensor shape: torch.Size([4, 16])`
+First batch tensor shape: torch.Size([4, 16])
+Batch tensor dtype: torch.int64`
         },
         seeAlso: [
           "drugex::data::datasets::SmilesDataSet",
@@ -9046,11 +9131,18 @@ drex_mols = [converter(smi) for smi in smiles_batch]
 
 print(f"Converted {len(drex_mols)} SMILES to DrExMol objects:")
 for m in drex_mols:
-    print(f"  ID: {m.getUniqueID():25} | Heavy atoms: {m.asRDKit().GetNumHeavyAtoms()}")`,
+    print(f"  ID: {m.getUniqueID():25} | Heavy atoms: {m.asRDKit().GetNumHeavyAtoms()}")
+
+# Verify round-trip conversion and RDKit binding
+first_mol = drex_mols[0]
+print(f"First DrExMol smiles: {first_mol.smiles}")
+print(f"First DrExMol conforms: {first_mol.asRDKit() is not None}")`,
           output: `Converted 3 SMILES to DrExMol objects:
   ID: c1ccccc1O                 | Heavy atoms: 7
   ID: CC(=O)Oc1ccccc1C(=O)O     | Heavy atoms: 13
-  ID: c1ccncc1                  | Heavy atoms: 6`
+  ID: c1ccncc1                  | Heavy atoms: 6
+First DrExMol smiles: c1ccccc1O
+First DrExMol conforms: True`
         },
         seeAlso: [
           "drugex::molecules::mol::DrExMol",
@@ -9085,10 +9177,16 @@ extracted_smi = to_smiles(dmol)
 
 print("Source DrExMol unique ID:", dmol.getUniqueID())
 print("Extracted canonical SMILES:", extracted_smi)
-print("Round-trip verified:", extracted_smi == dmol.smiles)`,
+print("Round-trip verified:", extracted_smi == dmol.smiles)
+
+# Batch extraction across multiple DrExMol instances
+batch_mols = [to_drex("c1ccccc1"), to_drex("CCO")]
+batch_smiles = [to_smiles(m) for m in batch_mols]
+print(f"Batch extracted SMILES count: {len(batch_smiles)}")`,
           output: `Source DrExMol unique ID: CC(=O)Oc1ccccc1C(=O)O
 Extracted canonical SMILES: CC(=O)Oc1ccccc1C(=O)O
-Round-trip verified: True`
+Round-trip verified: True
+Batch extracted SMILES count: 2`
         },
         seeAlso: [
           "drugex::molecules::converters::default::SmilesToDrEx",
@@ -9123,9 +9221,12 @@ rd_mols = [
 
 for mol in rd_mols:
     drex_mol = converter(mol)
-    print(f"Converted {Chem.MolToSmiles(mol)} -> DrExMol(ID='{drex_mol.getUniqueID()}')")`,
+    print(f"Converted {Chem.MolToSmiles(mol)} -> DrExMol(ID='{drex_mol.getUniqueID()}')")
+
+print(f"Total converted instances: {len(rd_mols)}")`,
           output: `Converted Oc1ccccc1 -> DrExMol(ID='Oc1ccccc1')
-Converted Cn1cnc2c1c(=O)n(C)c(=O)n2C -> DrExMol(ID='Cn1cnc2c1c(=O)n(C)c(=O)n2C')`
+Converted Cn1cnc2c1c(=O)n(C)c(=O)n2C -> DrExMol(ID='Cn1cnc2c1c(=O)n(C)c(=O)n2C')
+Total converted instances: 2`
         },
         seeAlso: [
           "drugex::molecules::mol::DrExMol",
@@ -9286,10 +9387,13 @@ cleaner = CleanSMILES()
 std_supplier = StandardizedSupplier(base_supplier, standardizer=cleaner)
 cleaned_mols = list(std_supplier)
 
-print("Standardized stream count:", len(cleaned_mols))
-print("First standardized entry:", cleaned_mols[0])`,
+print(f"Standardized stream count: {len(cleaned_mols)}")
+for idx, mol in enumerate(cleaned_mols, 1):
+    print(f"Standardized item {idx}: {mol}")`,
           output: `Standardized stream count: 3
-First standardized entry: c1ccccc1`
+Standardized item 1: c1ccccc1
+Standardized item 2: CCO
+Standardized item 3: CC(=O)O`
         },
         seeAlso: [
           "drugex::molecules::suppliers::ListSupplier",
@@ -9462,9 +9566,11 @@ processor = ChunkMultiplier(n_proc=2, chunk_size=2)
 collector = ListExtend()
 processor.apply([1, 2, 3, 4], collector)
 
+print(f"Optimal chunk size: {processor.getChunkSize([1, 2, 3, 4])}")
 print(f"Processed items count: {len(collector.getList())}")
 print(f"Aggregated results: {collector.getList()}")`,
-          output: `Processed items count: 4
+          output: `Optimal chunk size: 2
+Processed items count: 4
 Aggregated results: [2, 4, 6, 8]`
         },
         seeAlso: [
@@ -9498,14 +9604,21 @@ Aggregated results: [2, 4, 6, 8]`
           code: `from drugex.parallel.collectors import ListExtend
 
 collector = ListExtend()
-collector(["c1ccccc1O", "CC(=O)O"])
-collector(["c1ccncc1", "CCN"])
+batch_1 = ["c1ccccc1O", "CC(=O)O"]
+batch_2 = ["c1ccncc1", "CCN"]
+batch_3 = ["c1ccccc1", "CCO"]
+
+collector(batch_1)
+collector(batch_2)
+collector(batch_3)
 
 results = collector.getList()
 print(f"Total collected items: {len(results)}")
-print(f"First collected item: {results[0]}")`,
-          output: `Total collected items: 4
-First collected item: c1ccccc1O`
+print(f"First collected item: {results[0]}")
+print(f"Last collected item: {results[-1]}")`,
+          output: `Total collected items: 6
+First collected item: c1ccccc1O
+Last collected item: CCO`
         },
         seeAlso: [
           "drugex::parallel::ParallelProcessor",
@@ -9578,9 +9691,11 @@ collector = ListExtend()
 evaluator.apply(data, collector, desc_string="Evaluating batch")
 
 results = collector.getList()
+print(f"Evaluator configured worker processes: {evaluator.nProc}")
 print(f"Evaluated molecules count: {len(results)}")
 print(f"First DrExMol ID: {results[0].getUniqueID()}")`,
-          output: `Evaluated molecules count: 4
+          output: `Evaluator configured worker processes: 2
+Evaluated molecules count: 4
 First DrExMol ID: c1ccccc1`
         },
         seeAlso: [
@@ -9670,14 +9785,19 @@ Parallel Result Collection Summary:
           code: `from drugex.parallel.collectors import ListExtend
 
 collector = ListExtend()
-collector(["c1ccccc1O", "c1ccccc1N"])
-collector(["c1ccccc1Cl", "c1ccccc1F"])
+batch_1 = ["c1ccccc1O", "c1ccccc1N"]
+batch_2 = ["c1ccccc1Cl", "c1ccccc1F"]
+
+collector(batch_1)
+collector(batch_2)
 
 collected = collector.getList()
 print(f"Total collected items in ListCollector: {len(collected)}")
-print("Collected records:", collected)`,
+print(f"First collected item: {collected[0]}")
+print(f"Last collected item: {collected[-1]}")`,
           output: `Total collected items in ListCollector: 4
-Collected records: ['c1ccccc1O', 'c1ccccc1N', 'c1ccccc1Cl', 'c1ccccc1F']`
+First collected item: c1ccccc1O
+Last collected item: c1ccccc1F`
         },
         seeAlso: [
           "drugex::parallel::interfaces::ResultCollector",
@@ -9714,10 +9834,12 @@ for mol in molecules:
     collector(mol)
 
 results = collector.getList()
+print(f"Total collector size: {len(results)}")
 print(f"Appended {len(results)} items sequentially:")
 for i, item in enumerate(results, 1):
     print(f"  Item {i}: {item}")`,
-          output: `Appended 3 items sequentially:
+          output: `Total collector size: 3
+Appended 3 items sequentially:
   Item 1: c1ccccc1O
   Item 2: CC(=O)Oc1ccccc1C(=O)O
   Item 3: CN1C=NC2=C1C(=O)N(C(=O)N2C)C`
@@ -10037,9 +10159,11 @@ args = argparse.Namespace(
     temperature=0.9
 )
 print("Sampling molecules with Design parameters:")
-print(f"Target count: {args.num_samples}, Temperature: {args.temperature}")`,
+print(f"Target count: {args.num_samples}, Temperature: {args.temperature}")
+print(f"Batch size: {args.batch_size}, Model path: {args.model_path}")`,
           output: `Sampling molecules with Design parameters:
-Target count: 10, Temperature: 0.9`
+Target count: 10, Temperature: 0.9
+Batch size: 5, Model path: ./models/generator_final.pkg`
         },
         seeAlso: [
           "drugex::dataset::Dataset",
@@ -18585,7 +18709,7 @@ for idx, smi in enumerate(items, 1):
         feedbackLoop: { fromX: 1000, fromY: 320, toX: 710, toY: 22, label: ".fit() -> 3D Aligned Leads", color: "#0284c7" },
         matrixRows: [
           { step: "01", component: "Reference Pose", input: "Crystallographic co-crystal SDF", operation: "Load query ligand coordinates: Chem.MolFromMolFile(sdf)", output: "target= Mol object", classes: "RDKitROCSScorer" },
-          { step: "02", component: "Conformer Generator", input: "ETKDGv3 settings", operation: "Configure 3D conformer generation: ConfGenerator(max_confs=50)", output: "confgen= instance", classes: "RDKitConformerGenerator, OmegaConformerGenerator" },
+          { step: "02", component: "Conformer Generator", input: "ETKDGv3 settings", operation: "Configure 3D conformer generation: RDKitConformerGenerator(max_conformers=50)", output: "confgen= instance", classes: "RDKitConformerGenerator, OmegaConformerGenerator" },
           { step: "03", component: "Desirability Modifier", input: "Continuous TanimotoCombo metric", operation: "Sigmoidal reward scaling: SmoothClippedScore(1.0, 1.6)", output: "modifier= instance", classes: "SmoothClippedScore, ClippedScore" },
           { step: "04", component: "RDKitROCSScorer", input: "target, modifier, confgen", operation: "Instantiate 3D scorer: RDKitROCSScorer(target, mod, confgen)", output: "rocs_scorer instance", classes: "RDKitROCSScorer, Scorer" },
           { step: "05", component: "QSAR Scorers", input: "QSAR model + modifier", operation: "Instantiate affinity predictor: QSPRPredScorer(model, mod)", output: "qsar_scorer instance", classes: "QSPRPredScorer, Property" },
@@ -18598,9 +18722,9 @@ for idx, smi in enumerate(items, 1):
         id: "fragment",
         title: "Fragment-Based Synthon Assembly (BRICS / Scaffold Hopping)",
         shortTitle: "Fragment Synthon Assembly",
-        tagline: "Bioactive Mols (mols=) -> Fragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN -> FragSequenceExplorer(fragment=scaffold, env=) -> Reassembly",
-        summary: "Component assembly and initialization dependency graph for fragment-based de novo synthon assembly. Illustrates how active chemical series are cleaved by BRICSFragmenter, compiled into FragDataSet with exit vectors [1*]-[16*], and used to initialize FragSequenceRNN models. The core scaffold is passed as fragment= into FragSequenceExplorer alongside DrugExEnvironment to conditionally elaborate fragments into high-affinity candidates.",
-        formulaText: "Bioactive Mols (mols=) -> BRICSFragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN (agent=, mutate=) + Scaffold (fragment=) + DrugExEnvironment (env=) -> FragSequenceExplorer",
+        tagline: "Bioactive Mols (mols=) -> Fragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN -> FragSequenceExplorer(.fit(train_loader=)) -> Reassembly",
+        summary: "Component assembly and initialization dependency graph for fragment-based de novo synthon assembly. Illustrates how active chemical series are cleaved by BRICSFragmenter, compiled into FragDataSet with exit vectors [1*]-[16*], and used to initialize FragSequenceRNN models. The core scaffold pairs are encoded into train_loader and passed to FragSequenceExplorer.fit(train_loader=train_loader) alongside DrugExEnvironment to conditionally elaborate fragments into high-affinity candidates.",
+        formulaText: "Bioactive Mols (mols=) -> BRICSFragmenter (frags=) -> FragDataSet (voc=) -> FragSequenceRNN (agent=, mutate=) + Scaffold (train_loader=) + DrugExEnvironment (env=) -> FragSequenceExplorer",
         equation: [
           { type: "term", text: "Bioactive Compounds", nodeIdx: 0, tag: "input" },
           { type: "op", text: "->" },
@@ -18692,10 +18816,10 @@ for idx, smi in enumerate(items, 1):
             stage: "Core Scaffold",
             stageType: "input",
             label: "Target Input Fragment",
-            sublabel: "Passed as: fragment= -> Explorer",
+            sublabel: "Encoded in: train_loader -> Explorer",
             formula: "scaffold = 'c1ccc(cc1)[1*]'",
             inputContract: "Core fragment SMILES with explicit attachment vectors (e.g. [1*], [2*])",
-            outputContract: "Seed fragment passed as fragment= to FragSequenceExplorer",
+            outputContract: "Seed fragment pairs encoded in train_loader passed to FragSequenceExplorer.fit()",
             description: "The fixed core scaffold (e.g. kinase hinge binder or GPCR anchor) from which the generative agent explores chemical elaborations.",
             drugexSymbols: ["drugex::training::explorers::FragSequenceExplorer", "drugex::data::datasets::SmilesFragDataSet"],
             keyParameters: [
@@ -18743,10 +18867,10 @@ for idx, smi in enumerate(items, 1):
             stage: "Frag Explorer",
             stageType: "output",
             label: "FragSequenceExplorer Assembler",
-            sublabel: "Needs: agent, env, mutate, fragment",
-            formula: "FragSequenceExplorer(agent, env, mutate, fragment=scaffold)",
-            inputContract: "agent: FragGenerator, env: DrugExEnvironment, mutate: FragGenerator, fragment: str",
-            outputContract: ".fit() execution generating combinatorially decorated leads",
+            sublabel: "Needs: agent, env, mutate, train_loader",
+            formula: "FragSequenceExplorer(agent, env, mutate).fit(train_loader=)",
+            inputContract: "agent: FragGenerator, env: DrugExEnvironment, mutate: FragGenerator, train_loader: DataLoader",
+            outputContract: ".fit(train_loader=) execution generating combinatorially decorated leads",
             description: "Orchestrates scaffold-constrained reinforcement learning. Grows substituents from exit vectors and optimizes multi-objective rewards.",
             drugexSymbols: ["drugex::training::explorers::FragSequenceExplorer", "drugex::train::Reinforce", "drugex::training::generators::FragGenerator"],
             keyParameters: [
@@ -18761,7 +18885,7 @@ for idx, smi in enumerate(items, 1):
           { fromX: 240, fromY: 71, toX: 310, toY: 71, label: "mols=", color: "#0d9488" },
           { fromX: 530, fromY: 71, toX: 600, toY: 71, label: "frags=", color: "#0d9488" },
           { fromX: 820, fromY: 71, toX: 890, toY: 71, label: "voc=", color: "#0d9488" },
-          { fromX: 240, fromY: 271, toX: 890, toY: 290, label: "fragment=scaffold", color: "#0d9488" },
+          { fromX: 240, fromY: 271, toX: 890, toY: 290, label: "train_loader=", color: "#0d9488" },
           { fromX: 530, fromY: 271, toX: 600, toY: 271, label: "scorers=", color: "#d97706" },
           { fromX: 820, fromY: 271, toX: 890, toY: 271, label: "env=", color: "#16a34a" },
           { fromX: 1000, fromY: 120, toX: 1000, toY: 222, label: "agent, mutate", color: "#0284c7" }
@@ -18772,10 +18896,10 @@ for idx, smi in enumerate(items, 1):
           { step: "02", component: "BRICS Cleavage", input: "mols= SMILES list", operation: "Cleave across 16 retrosynthetic rules: Fragmenter", output: "frags= synthons", classes: "FragmentCorpusEncoder, Fragmenter" },
           { step: "03", component: "Synthon Pool", input: "frags= synthon collection", operation: "Compile fragment vocabulary: SmilesFragDataSet", output: "voc= VocSmiles", classes: "SmilesFragDataSet, VocSmiles" },
           { step: "04", component: "Frag Models", input: "voc= VocSmiles vocabulary", operation: "Instantiate conditional models: FragGenerator", output: "agent=, mutate= models", classes: "FragGenerator, FragSequenceExplorer" },
-          { step: "05", component: "Target Scaffold", input: "Seed fragment with [1*] vectors", operation: "Define fixed core scaffold: scaffold = 'c1ccc(cc1)[1*]'", output: "fragment= scaffold", classes: "FragSequenceExplorer, SmilesFragDataSet" },
+          { step: "05", component: "Target Scaffold", input: "Seed fragment with [1*] vectors", operation: "Define fixed core scaffold: scaffold = 'c1ccc(cc1)[1*]'", output: "train_loader= pairs", classes: "FragSequenceExplorer, SmilesFragDataSet" },
           { step: "06", component: "Scorer Array", input: "Property & QSAR functions", operation: "Instantiate objectives: [Property('SA', mod), QSPRPredScorer(...)]", output: "scorers= List[Scorer]", classes: "Scorer, Property" },
           { step: "07", component: "DrugExEnvironment", input: "scorers, thresholds, reward_scheme", operation: "Assemble environment: DrugExEnvironment(scorers, ths, scheme)", output: "env= instance", classes: "DrugExEnvironment, ScoreModifier" },
-          { step: "08", component: "FragSequenceExplorer Assembler", input: "agent, env, mutate, fragment", operation: "Orchestrate fragment RL: FragSequenceExplorer(...).fit()", output: "Decorated Bioactive Leads", classes: "FragSequenceExplorer, Reinforce, FragGenerator" }
+          { step: "08", component: "FragSequenceExplorer Assembler", input: "agent, env, mutate, train_loader", operation: "Orchestrate fragment RL: FragSequenceExplorer(...).fit(train_loader=)", output: "Decorated Bioactive Leads", classes: "FragSequenceExplorer, Reinforce, FragGenerator" }
         ]
       },
       {
@@ -19010,7 +19134,7 @@ for idx, smi in enumerate(items, 1):
       },
       rocs: {
         "01": `from rdkit import Chem\n\n# Ingest high-resolution crystallographic co-crystal inhibitor pose\nref_supplier = Chem.SDMolSupplier("data/co_crystal_ligand.sdf")\nref_mol = next(ref_supplier)\nprint("Reference heavy atoms:", ref_mol.GetNumAtoms())`,
-        "02": `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator\n\n# Conformer generator using ETKDGv3 distance geometry & MMFF94 force field\nconf_gen = RDKitConformerGenerator(n_conf=50, prune_rms=0.5)`,
+        "02": `from drugex.training.scorers.conformer_generators import RDKitConformerGenerator\n\n# Conformer generator using ETKDGv3 distance geometry & MMFF94 force field\nconf_gen = RDKitConformerGenerator(max_conformers=50, num_threads=4, timeout=30)`,
         "03": `from drugex.training.scorers import SmoothClippedScore\n\n# Sigmoidal desirability modifier for continuous TanimotoCombo scores in [0, 2.0]\nmod_rocs = SmoothClippedScore(lower_x=1.0, upper_x=1.6, high=True)`,
         "04": `from drugex.training.scorers import RDKitROCSScorer\n\n# 3D shape and pharmacophore overlap scorer\nrocs_scorer = RDKitROCSScorer(\n    target=ref_mol,\n    modifier=mod_rocs,\n    confgen=conf_gen,\n    score_type="TanimotoCombo"\n)`,
         "05": `from drugex.training.scorers import Property\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Complementary QSAR bioactivity and property scorers\nqsar_scorer = QSPRPredScorer(model_path="models/target_qsar.json", modifier=mod_qsar)\nscorers = [rocs_scorer, qsar_scorer, Property("logP", modifier=mod_logp)]`,
@@ -19020,19 +19144,19 @@ for idx, smi in enumerate(items, 1):
       },
       fragment: {
         "01": `from rdkit import Chem\n\n# Input bioactive series or crystallographic fragment hits\nactives = [\n    "Cc1ccc(nc1)c2ccccc2",\n    "c1c(c2ccccc2)ncn1CC(=O)N3CCNCC3"\n]\nmols = [Chem.MolFromSmiles(s) for s in actives]`,
-        "02": `from drugex.data.fragments import FragmentCorpusEncoder, Fragmenter\n\n# Cleave molecules across 16 retrosynthetic BRICS rules (L1 to L16)\nencoder = FragmentCorpusEncoder()\nfrags = encoder.decompose(actives)\nprint(f"Generated {len(frags)} building block synthons.")`,
+        "02": `from drugex.data.fragments import FragmentCorpusEncoder\nfrom drugex.molecules.converters.fragmenters import Fragmenter\n\n# Cleave molecules across 16 retrosynthetic BRICS rules (L1 to L16)\nfragmenter = Fragmenter(fragmentation_strategy="BRICS")\nencoder = FragmentCorpusEncoder(fragmenter=fragmenter)\nfrags = encoder.decompose(actives)\nprint(f"Generated {len(frags)} building block synthons.")`,
         "03": `from drugex.data.datasets import SmilesFragDataSet\nfrom drugex.data.corpus.vocabulary import VocSmiles\n\n# Compile synthon dataset and fragment-conditioned vocabulary\nvoc = VocSmiles.fromFile("data/vocab.txt", encode_frags=True)\ndataset = SmilesFragDataSet(frags, voc=voc)`,
         "04": `from drugex.training.generators import FragGenerator\nfrom drugex.training.explorers import FragSequenceExplorer\n\n# Fragment-conditioned generative model and exploration anchor\nagent = FragSequenceExplorer.loadModel("models/frag_agent.pkg", voc=voc)\nprior = FragSequenceExplorer.loadModel("models/frag_prior.pkg", voc=voc)`,
         "05": `# Define fixed seed scaffold with designated growth exit vectors [1*]\nscaffold = "c1ccc(cc1)[1*]"\nprint(f"Target core scaffold for elaboration: {scaffold}")`,
-        "06": `from drugex.training.scorers import Property, SAScorer\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Synthetic accessibility and bioactivity scorers\nscorers = [\n    SAScorer(modifier=mod_sa),\n    QSPRPredScorer(model_path="models/target.json", modifier=mod_qsar),\n    Property("MW", modifier=mod_mw)\n]`,
+        "06": `from drugex.training.scorers import Property\nfrom drugex.training.scorers.qsprpred import QSPRPredScorer\n\n# Synthetic accessibility and bioactivity scorers\nscorers = [\n    Property("SA", modifier=mod_sa),\n    QSPRPredScorer(model_path="models/target.json", modifier=mod_qsar),\n    Property("MW", modifier=mod_mw)\n]`,
         "07": `from drugex.training.environment import DrugExEnvironment\n\n# Scaffold-constrained multi-objective evaluation environment\nenv = DrugExEnvironment(\n    scorers=scorers,\n    thresholds=[0.80, 0.75, 0.70],\n    reward_scheme="ParetoCrowdingDistance"\n)`,
-        "08": `from drugex.training.explorers import FragSequenceExplorer\n\n# Fragment-conditioned RL exploration growing leads from seed scaffold\nexplorer = FragSequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    fragment=scaffold,\n    epsilon=0.1\n)\nexplorer.fit(train_loader=train_loader, epochs=50)`
+        "08": `from drugex.training.explorers import FragSequenceExplorer\n\n# Fragment-conditioned RL exploration growing leads from seed scaffold\nexplorer = FragSequenceExplorer(\n    agent=agent,\n    env=env,\n    mutate=prior,\n    epsilon=0.1\n)\nexplorer.fit(train_loader=train_loader, epochs=50)`
       },
       telemetry: {
         "01": `from drugex.training.monitors import FileMonitor\n\n# TSV telemetry logger streaming per-epoch loss, V%, U%, and Dr%\nmonitor = FileMonitor(\n    path="experiments/rl_cdk2_run01",\n    save_smiles=True,\n    save_model_option="best"\n)`,
         "02": `from drugex.training.scorers import SmilesChecker\n\n# Chemical valency, aromaticity, and syntax verification gate\nchecker = SmilesChecker()\nsamples = ["c1ccccc1", "c1ccccc", "CC(=O)Oc1ccccc1C(=O)O"]\nvalidity = [SmilesChecker.checkSmiles(s) for s in samples]\nprint("Syntax validity flags:", validity)`,
         "03": `from drugex.training.scorers.modifiers import ThresholdedLinear\nfrom drugex.training.scorers import SmoothClippedScore\n\n# Quality gate modifiers establishing telemetry thresholds\nmod_sa = SmoothClippedScore(lower_x=1.0, upper_x=4.0, high=False)\nmod_unique = ThresholdedLinear(threshold=0.85, high=True)`,
-        "04": `from drugex.training.scorers import SAScorer, Uniqueness, Property\n\n# Diagnostic scoring array tracking synthetic feasibility and mode collapse\nscorers = [\n    Uniqueness(modifier=mod_unique),\n    SAScorer(modifier=mod_sa),\n    Property("MW", modifier=mod_mw)\n]`,
+        "04": `from drugex.training.scorers import Uniqueness, Property\n\n# Diagnostic scoring array tracking synthetic feasibility and mode collapse\nscorers = [\n    Uniqueness(modifier=mod_unique),\n    Property("SA", modifier=mod_sa),\n    Property("MW", modifier=mod_mw)\n]`,
         "05": `# Desirability cutoffs defining multi-objective Desired Ratio (Dr%)\n# Rollouts are marked desirable only if satisfying all cutoffs\nthresholds = [0.85, 0.75, 0.70]\nprint("Active telemetry thresholds:", thresholds)`,
         "06": `from drugex.training.environment import DrugExEnvironment\n\n# Coordinates candidate scoring and tracks batch Desired Ratio\nenv = DrugExEnvironment(\n    scorers=scorers,\n    thresholds=thresholds,\n    reward_scheme="ParetoCrowdingDistance"\n)`,
         "07": `from drugex.data.corpus.vocabulary import VocSmiles\nfrom drugex.training.generators import SequenceRNN\n\n# Generative policy network and frozen prior anchor\nvoc = VocSmiles.fromFile("data/vocab.txt")\nagent = SequenceRNN(voc=voc, is_lstm=True)\nprior = SequenceRNN.loadStates("models/base_prior.pkg")`,
