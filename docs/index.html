@@ -4257,19 +4257,19 @@ print(f"  Valence-constrained action: Dynamic action masking enabled")`,
     @abstractmethod
     def getScores(self, mols: List[str | Chem.Mol], frags: Optional[List[str]] = None) -> np.ndarray:
         ...`,
-        description: "Root abstract class defining the objective scoring contract in DrugEx. Accepts batches of SMILES strings or RDKit Mol objects, computes raw physical or biological values, and passes them through an optional ScoreModifier to produce [0, 1] desirability scores.",
+        description: "Root abstract class defining the unified objective scoring contract in DrugEx. Accepts batches of SMILES strings or RDKit Mol objects, evaluates raw physicochemical, structural (ROCS/substructure), or QSAR biological predictions, and passes them through an optional ScoreModifier to yield normalized desirability metrics in [0.0, 1.0].",
         members: [
-          { name: "getScores(mols, frags=None)", desc: "Calculates scores for a batch of molecules, returning 1D numpy array of floats." },
-          { name: "getKey()", desc: "Returns unique string identifier for this scoring objective." },
-          { name: "setModifier(modifier)", desc: "Attaches a new ScoreModifier to transform raw scores into desirability." }
+          { name: "getScores(mols, frags=None)", desc: "Evaluates scoring objective across batch of molecules (Sequence[Union[str, Chem.Mol, None]]), applying the configured modifier if present. Returns 1D float64 NumPy array of shape (N,)." },
+          { name: "getKey()", desc: "Returns unique string identifier key for this objective (used as column header in DrugExEnvironment score DataFrames)." },
+          { name: "setModifier(modifier)", desc: "Attaches or updates the active ScoreModifier instance used to transform raw objective values into desirability scores." }
         ],
         variables: [
-          { name: "modifier", type: "ScoreModifier | None", desc: "Transformation function mapping raw values to [0, 1] desirability." }
+          { name: "modifier", type: "ScoreModifier | None", desc: "Active desirability function instance (e.g. SmoothClippedScore, MinMaxGaussian) or None for unscaled physical properties." }
         ],
         parameters: [
-          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Desirability modifier." }
+          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Optional desirability function used to normalize raw physical/biological outputs into [0.0, 1.0]. If None, raw unscaled values are returned." }
         ],
-        notes: "If an input molecule is invalid or unparseable, getScores must return 0.0 or np.nan without raising unhandled exceptions.",
+        notes: "Error handling contract: If an input molecule is invalid, unparseable, or contains fragmented valences, getScores must cleanly return 0.0 without throwing unhandled exceptions. In DrugExEnvironment, all registered Scorer instances are evaluated in parallel batches, and their modifier outputs populate the M objective columns for Pareto non-dominated ranking and scalar reward calculation.",
         example: {
           code: `import numpy as np
 from drugex.training.scorers.interfaces import Scorer
@@ -4636,19 +4636,19 @@ for raw, sc, inv in zip(raw_scores, scaled_scores, inverted_scores):
         badges: ["DrugEx 3.4+", "Bell Curve", "Single Optimum"],
         synopsis: `class Gaussian(ScoreModifier):
     def __init__(self, mu: float, sigma: float) -> None`,
-        description: "Symmetric Gaussian bell-curve desirability modifier: y = exp(-0.5 * ((x - mu) / sigma)^2). Peaks at exactly 1.0 when x == mu.",
+        description: "Symmetric Gaussian bell-curve desirability modifier that maps property values into a normalized bell curve: y = exp(-0.5 * ((x - mu) / sigma)^2). Evaluates to exactly 1.0 at x == mu and decays continuously towards 0.0 with increasing distance from the target optimum.",
         members: [
-          { name: "__call__(x)", desc: "Computes Gaussian density scaled to peak height 1.0." }
+          { name: "__call__(x)", desc: "Evaluates symmetric Gaussian desirability for a scalar float or element-wise across a 1D/2D NumPy array of shape (N,)." }
         ],
         variables: [
-          { name: "mu", type: "float", desc: "Target optimal value (peak center)." },
-          { name: "sigma", type: "float", desc: "Tolerance width of the bell curve." }
+          { name: "mu", type: "float", desc: "Target property optimum value where desirability reaches its peak (f(mu) = 1.0)." },
+          { name: "sigma", type: "float", desc: "Standard deviation width parameter controlling Gaussian tolerance bandwidth." }
         ],
         parameters: [
-          { name: "mu", type: "float", desc: "Mean target value." },
-          { name: "sigma", type: "float", desc: "Standard deviation." }
+          { name: "mu", type: "float", desc: "Focal optimal target property mean (e.g. ideal logP, MW, or heavy atom count)." },
+          { name: "sigma", type: "float", desc: "Gaussian standard deviation (sigma > 0); controls width of the reward window. Deviations of 1*sigma evaluate to exp(-0.5) ≈ 0.6065, while 2*sigma deviations evaluate to exp(-2.0) ≈ 0.1353." }
         ],
-        notes: "Narrow sigma values enforce sharp penalization of even slight deviations from mu.",
+        notes: "Mathematical formula: f(x) = exp(-0.5 * ((x - mu) / sigma)^2). Unlike MinMaxGaussian which creates a one-sided plateau, Gaussian enforces a two-sided unimodal reward envelope. It provides continuous non-vanishing gradients across property boundaries, preventing RL policy gradient collapse caused by discontinuous step functions. For array inputs, operations are fully vectorized in NumPy.",
         example: {
           code: `import numpy as np
 from drugex.training.scorers.modifiers import Gaussian
@@ -4693,21 +4693,21 @@ print(f"  Boundary 2-sigma check (430.0 Da): {edge_val:.4f}")`,
         upper_x: float,
         sigma: float = 1.0
     ) -> None`,
-        description: "Smooth bell-curved desirability modifier defining a bounded plateau or trapezoidal response window between lower_x and upper_x with smooth sigmoidal roll-offs. Unlike sharp step thresholds, provides continuous non-vanishing gradients across boundary regions.",
+        description: "Smooth bell-curved desirability modifier defining a trapezoidal response plateau between lower_x and upper_x flanked by half-Gaussian wings. Inside [lower_x, upper_x], desirability evaluates to 1.0; outside this window, scores decay continuously without sharp discontinuities, providing stable non-vanishing gradients for policy gradient reinforcement learning.",
         members: [
-          { name: "__call__(x)", desc: "Transforms input values x into [0, 1] smoothed desirability scores." }
+          { name: "__call__(x)", desc: "Evaluates piecewise trapezoidal-Gaussian desirability across input float scalar or 1D/2D NumPy array of shape (N,)." }
         ],
         variables: [
-          { name: "lower_x", type: "float", desc: "Lower transition bound." },
-          { name: "upper_x", type: "float", desc: "Upper transition bound." },
-          { name: "sigma", type: "float", desc: "Smoothness curvature parameter." }
+          { name: "lower_x", type: "float", desc: "Lower threshold cutoff where full desirability plateau (1.0) begins." },
+          { name: "upper_x", type: "float", desc: "Upper threshold cutoff where full desirability plateau (1.0) ends." },
+          { name: "sigma", type: "float", desc: "Gaussian decay bandwidth parameter controlling roll-off steepness." }
         ],
         parameters: [
-          { name: "lower_x", type: "float", desc: "Lower inflection cutoff." },
-          { name: "upper_x", type: "float", desc: "Upper inflection cutoff." },
-          { name: "sigma", type: "float", desc: "Boundary transition sharpness." }
+          { name: "lower_x", type: "float", desc: "Lower boundary of the optimal property plateau (must satisfy lower_x <= upper_x)." },
+          { name: "upper_x", type: "float", desc: "Upper boundary of the optimal property plateau." },
+          { name: "sigma", type: "float", desc: "Decay curvature bandwidth (default: 1.0). Smaller sigma values produce sharp, steep dropoffs approaching binary boxcar steps; larger sigma values provide permissive gradients extending deep into suboptimal property regimes." }
         ],
-        notes: "Ensures exploration agents receive smooth guidance toward intermediate molecular property target ranges (e.g. logP in [2.5, 4.0]).",
+        notes: "Mathematical definition: Returns 1.0 for lower_x <= x <= upper_x; exp(-0.5 * ((x - lower_x) / sigma)^2) for x < lower_x; and exp(-0.5 * ((x - upper_x) / sigma)^2) for x > upper_x. Essential in multi-objective optimization (such as Lipinski property filtering or heavy atom count bounds) where hard step-function cuts cause vanishing gradients and policy collapse.",
         example: {
           code: `from drugex.training.scorers.modifiers import SmoothHump
 import numpy as np
@@ -5038,18 +5038,18 @@ for smi, score in zip(compounds, scores):
         element: str,
         modifier: Optional[ScoreModifier] = None
     ) -> None`,
-        description: "Evaluates atomic composition counts of a specific chemical element in generated molecules. If element is empty string `\"\"`, counts total atoms (including explicit and implicit hydrogens via AddHs); if `\"H\"`, counts hydrogen atoms; otherwise counts atoms matching the specified element symbol (e.g., `'N'`, `'O'`, `'F'`). To constrain total heavy atom count (HAC), use `Property(\"Heavy\")`.",
+        description: "Evaluates atomic composition counts of a specific chemical element in candidate molecules. If element is an empty string `\"\"`, counts total atoms (including explicit and implicit hydrogens added via Chem.AddHs); if `\"H\"`, counts hydrogen atoms; otherwise counts atoms matching the specified atomic symbol (e.g., `'N'`, `'O'`, `'F'`, `'Cl'`). Frequently paired with Gaussian or MinMaxGaussian modifiers to constrain elemental budgets.",
         members: [
-          { name: "getScores(mols, frags=None)", desc: "Counts matching atoms of the target element in each molecule." }
+          { name: "getScores(mols, frags=None)", desc: "Computes elemental count for each molecule in batch (Sequence[Union[str, Chem.Mol, None]]), applying the configured modifier if present. Returns 1D float64 NumPy array of shape (N,)." }
         ],
         variables: [
-          { name: "element", type: "str", desc: "Target chemical element symbol (e.g. 'N', 'F', 'O'), or '' for total atom count." }
+          { name: "element", type: "str", desc: "Target elemental symbol string (e.g. 'N', 'O', 'F'), or '' for total atoms including explicit hydrogens." }
         ],
         parameters: [
-          { name: "element", type: "str", desc: "Element symbol to count, or '' for all atoms including hydrogens." },
-          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Optional score modifier." }
+          { name: "element", type: "str", desc: "Chemical element symbol string to count. Use '' for total atom count (including added hydrogens), 'H' for hydrogen count, or standard periodic symbols like 'N', 'O', 'S', 'F', 'Cl'." },
+          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Optional score modifier (e.g. MinMaxGaussian, SmoothHump) mapping integer atom counts into [0.0, 1.0] desirability (default: None)." }
         ],
-        notes: "Crucial for preventing runaway molecule elongation during unconstrained autoregressive RL. For heavy atom count constraints, use Property('Heavy').",
+        notes: "Implementation details: Molecules are converted to RDKit Mol instances with Chem.AddHs(mol). If element is non-empty, matches atom.GetSymbol() == element; otherwise sums all atoms. Malformed or invalid SMILES evaluate to 0.0 without throwing exceptions. Note: For constraining Heavy Atom Count (non-hydrogen atoms only), prefer Property('Heavy') which directly calls mol.GetNumHeavyAtoms().",
         example: {
           code: `from drugex.training.scorers.properties import AtomCounter, Property
 
@@ -5154,21 +5154,21 @@ for name, smi in candidates:
         is_match: bool = True,
         modifier: Optional[ScoreModifier] = None
     ) -> None`,
-        description: "Evaluates presence or absence of a SMARTS substructure pattern in generated molecules. Assigns 1.0 if the pattern matches (when is_match=True) or if the pattern is absent (when is_match=False), and 0.0 otherwise.",
+        description: "Evaluates presence or absence of a user-defined SMARTS substructure pattern across generated molecules. Can be operated either in positive-enforcement mode (rewarding retention of a privileged bioisosteric core with 1.0) or negative-exclusion mode (rewarding avoidance of reactive warheads, toxicophores, or PAINS motifs with 1.0).",
         members: [
-          { name: "getScores(mols, frags=None)", desc: "Checks SMARTS substructure match against each molecule, returning 1.0 or 0.0." }
+          { name: "getScores(mols, frags=None)", desc: "Executes substructure search across each molecule in batch (Sequence[Union[str, Chem.Mol, None]]), applying the modifier if present. Returns 1D float64 NumPy array of shape (N,) containing 1.0 or 0.0 indicators." }
         ],
         variables: [
-          { name: "smart", type: "str", desc: "SMARTS substructure pattern string." },
-          { name: "frag", type: "Chem.Mol", desc: "Parsed RDKit Mol pattern from SMARTS query." },
-          { name: "is_match", type: "bool", desc: "Target match condition flag (True to require match, False to penalize match)." }
+          { name: "smart", type: "str", desc: "Target SMARTS pattern string defining the chemical substructure." },
+          { name: "frag", type: "Chem.Mol", desc: "Compiled RDKit Mol query object instantiated from the SMARTS pattern." },
+          { name: "is_match", type: "bool", desc: "Boolean match polarity: True rewards presence of pattern; False rewards absence." }
         ],
         parameters: [
-          { name: "smart", type: "str", desc: "SMARTS pattern of required or penalized substructure." },
-          { name: "is_match", type: "bool", desc: "Whether to reward presence (True, default) or absence (False) of pattern." },
-          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Optional score modifier." }
+          { name: "smart", type: "str", desc: "SMARTS substructure query string (e.g. 'c1ccc2[nH]ccc2c1' for indole, '[#6]1-[#6]-[#6]-[#6]-[#6]-[#6]-1' for cyclohexane)." },
+          { name: "is_match", type: "bool", desc: "Target match polarity (default: True). When True, molecules containing the substructure receive 1.0 (scaffold retention); when False, molecules containing the substructure receive 0.0 while molecules lacking the motif receive 1.0 (substructure avoidance/filtering)." },
+          { name: "modifier", type: "Optional[ScoreModifier]", desc: "Optional score modifier mapping binary 0.0/1.0 indicators to custom desirability values (default: None)." }
         ],
-        notes: "Evaluates substructure match using RDKit HasSubstructMatch with internal error recovery returning 0.0 on malformed structures.",
+        notes: "Algorithmic mechanism: Substructure matching is evaluated via RDKit's mol.HasSubstructMatch(self.frag). If an input molecule is invalid, unparseable, or contains valence errors, the method safely catches the failure and returns 0.0 without throwing unhandled exceptions. In MORL workflows, setting is_match=True prevents the generator from drifting away from the required seed pharmacophore.",
         example: {
           code: `from drugex.training.scorers.properties import Scaffold
 
@@ -5206,13 +5206,13 @@ for name, smi in candidate_structures:
         badges: ["DrugEx 3.4+", "Population Diversity", "Novelty Scorer"],
         synopsis: `class Uniqueness(Scorer):
     def __init__(self) -> None`,
-        description: "Evaluates population-level novelty across a batch of generated molecules. Deduplicates canonical SMILES and assigns 1.0 to unique molecules while zeroing duplicated structures.",
+        description: "Evaluates intra-batch novelty and population diversity during reinforcement learning exploration. Computes canonical SMILES for each candidate in the current rollout, tracking seen structures to assign 1.0 to the first appearance of a unique molecule and 0.0 to subsequent duplicate copies within the same batch.",
         members: [
-          { name: "getScores(mols, frags=None)", desc: "Computes binary uniqueness mask across the input batch." }
+          { name: "getScores(mols, frags=None)", desc: "Identifies intra-batch unique molecules and returns a 1D float64 NumPy array of shape (N,) with 1.0 for unique entries and 0.0 for duplicate occurrences." }
         ],
         variables: [],
         parameters: [],
-        notes: "Deduplication is computed within the current batch; does not store historical molecules across epochs unless chained with a historical memory cache.",
+        notes: "Diversity dynamics: Evaluated strictly within the current batch rollout of shape (N,). Duplicates are zeroed (reward = 0.0) regardless of their physical or biological scores. When paired with Pareto ranking or weighted rewards in DrugExEnvironment, this creates strong evolutionary pressure against policy collapse—preventing the generator from exploiting high-reward local minima by outputting trivial minor variations of the exact same chemical structure.",
         example: {
           code: `from drugex.training.scorers.properties import Uniqueness
 
@@ -5400,21 +5400,22 @@ c1ccc2c(c1)ncn2-c3ccccc3   |          15 |              0.607`
         beta: float = 1.0,
         modifier: Optional[ScoreModifier] = None
     ) -> None`,
-        description: "Evaluates structural similarity against a target reference set using molecular fingerprints and Tversky coefficients: T(A, B) = |A & B| / (|A & B| + alpha*|A \\ B| + beta*|B \\ A|). Setting alpha=beta=1.0 yields standard Tanimoto similarity; asymmetric alpha/beta enables substructure or superstructure biased search.",
+        description: "Evaluates structural similarity against a seed reference molecule using circular or topological fingerprints and asymmetric Tversky coefficients: T(A, B) = |A ∩ B| / (|A ∩ B| + alpha*|A \\ B| + beta*|B \\ A|). When alpha=beta=1.0, reduces to the standard Jaccard/Tanimoto similarity; tuning alpha and beta enables selective substructure or superstructure biased lead optimization.",
         members: [
-            { name: "getScores(mols, frags=None)", desc: "Generates bit vectors and computes Tversky similarity against target molecule." },
-            { name: "getKey()", desc: "Returns unique scorer identifier string with weights and fingerprint type." }
+            { name: "getScores(mols, frags=None)", desc: "Calculates Tversky similarity bit vector overlap across input molecule batch (Sequence[Union[str, Chem.Mol, None]]). Returns 1D float64 NumPy array of shape (N,)." },
+            { name: "getKey()", desc: "Returns unique scorer identifier string: 'Tversky_{fp_type}_{alpha}_{beta}'." }
         ],
         variables: [
-            { name: "fp", type: "ExplicitBitVect", desc: "Cached target bit vector." }
+            { name: "fp", type: "ExplicitBitVect", desc: "Precomputed RDKit ExplicitBitVect fingerprint for the reference query molecule." }
         ],
         parameters: [
-            { name: "smiles", type: "str", desc: "Reference SMILES molecule." },
-            { name: "fp_type", type: "str", desc: "Fingerprint type ('ECFP4', 'ECFP6', 'AP', 'PHCO', 'FCFP6', etc.)." },
-            { name: "alpha", type: "float", desc: "Weight of prototype features missing in generated mol (default: 1.0)." },
-            { name: "beta", type: "float", desc: "Weight of extra features in generated mol (default: 1.0)." }
+            { name: "smiles", type: "str", desc: "SMILES representation of the query reference prototype molecule." },
+            { name: "fp_type", type: "str", desc: "Fingerprint representation type ('ECFP4' for Morgan radius 2, 'ECFP6' for Morgan radius 3, 'FCFP4'/'FCFP6' for pharmacophore features, or 'AP' for atom pairs; default: 'ECFP6')." },
+            { name: "alpha", type: "float", desc: "Weight of reference prototype features missing in the generated molecule (default: 1.0)." },
+            { name: "beta", type: "float", desc: "Weight of extra features in the candidate molecule absent from the reference (default: 1.0)." },
+            { name: "modifier", type: "Optional[ScoreModifier]", desc: "Optional desirability modifier (e.g. ClippedScore, SmoothClippedScore) transforming raw similarity in [0, 1] (default: None)." }
         ],
-        notes: "High beta values heavily penalize decoration, forcing the generator to stick closely to target molecular motifs.",
+        notes: "Asymmetry mechanics: Setting alpha > beta penalizes omission of prototype core motifs (substructure search mode), while setting beta > alpha penalizes excessive peripheral decorations, keeping generated molecules tightly constrained to the reference envelope. If an input candidate is invalid or fails fingerprint extraction, safely returns 0.0 without throwing exceptions.",
         example: {
             code: `import numpy as np
 from drugex.training.scorers.similarity import TverskyFingerprintSimilarity
@@ -8093,23 +8094,23 @@ for frag, mol in pairs:
     def encodeFrag(self, mol: str, mol_tokens: Sequence[str], frag: str) -> Optional[List[int]]: ...
     def encodeMol(self, sequence: str) -> Tuple[Optional[List[str]], Optional[List[int]]]: ...
     def getVoc(self) -> VocSmiles: ...`,
-        description: "Encodes fragment-molecule sequence pairs into index tensors for SequenceTransformer and FragSequenceExplorer models, embedding delimiter tokens ('_') at attachment points.",
+        description: "Encodes fragment-molecule chemical sequence pairs into aligned token integer vectors for autoregressive sequence models (SequenceTransformer, FragSequenceExplorer). Decomposes target SMILES into a conditioning fragment prefix and continuation tokens, inserting fragment attachment point delimiters ('_') to guide autoregressive decoding.",
         members: [
-          { name: "encodeFrag(mol, mol_tokens, frag)", desc: "Encodes scaffold fragment within parent molecule context, returning integer token indices." },
-          { name: "encodeMol(sequence)", desc: "Tokenizes and integer-encodes parent molecule SMILES sequence, returning tokens and numerical codes." },
-          { name: "getVoc()", desc: "Returns the active VocSmiles vocabulary instance." }
+          { name: "encodeFrag(mol, mol_tokens, frag)", desc: "Maps fragment scaffold SMILES within the parent molecule's token stream, returning a 1D List[int] token ID vector padded or truncated to vocabulary.max_len." },
+          { name: "encodeMol(sequence)", desc: "Tokenizes parent molecule SMILES string via vocabulary regex and converts to integer indices, returning (List[str] tokens, List[int] token IDs)." },
+          { name: "getVoc()", desc: "Returns the active VocSmiles vocabulary instance configured with encode_frags=True." }
         ],
         variables: [
-          { name: "vocabulary", type: "VocSmiles", desc: "Active sequence vocabulary supporting fragment delimiters ('_')." },
-          { name: "updateVoc", type: "bool", desc: "Whether to dynamically append newly encountered tokens to vocabulary." },
-          { name: "throw", type: "bool", desc: "Whether to strip newly discovered tokens failing constraints." }
+          { name: "vocabulary", type: "VocSmiles", desc: "Underlying VocSmiles tokenizer supporting fragment separation and attachment tokens ('_')." },
+          { name: "updateVoc", type: "bool", desc: "If True, dynamically registers novel, unseen characters encountered during corpus ingestion." },
+          { name: "throw", type: "bool", desc: "If True, raises EncodingException when encountering out-of-vocabulary tokens; if False, discards the unparseable sequence." }
         ],
         parameters: [
-          { name: "vocabulary", type: "VocSmiles", desc: "Vocabulary supporting fragment delimiter tokens (default: VocSmiles(True))." },
-          { name: "update_voc", type: "bool", desc: "Dynamically register novel tokens (default: True)." },
-          { name: "throw", type: "bool", desc: "Raise exception or discard unparseable sequences (default: False)." }
+          { name: "vocabulary", type: "VocSmiles", desc: "Active SMILES vocabulary instance with fragment token support enabled (default: VocSmiles(True))." },
+          { name: "update_voc", type: "bool", desc: "Whether to dynamically append newly discovered tokens to vocabulary during encoding (default: True)." },
+          { name: "throw", type: "bool", desc: "Behavior on encoding failure: if True, raises EncodingException; if False, returns None (default: False)." }
         ],
-        notes: "Ensures the scaffold portion is aligned with the source fragment to allow causal attention masking.",
+        notes: "Alignment mechanism: For sequence-based fragment elaboration, the source fragment tokens are encoded with delimiter tokens ('_') marking synthetic disconnection loci. In SequenceTransformer, causal self-attention is applied such that the conditioning fragment acts as an invariant prompt, with the transformer generating novel decorating side-chains that preserve core scaffold bioactivity.",
         example: {
           code: `from drugex.data.fragments import SequenceFragmentEncoder
 from drugex.data.corpus.vocabulary import VocSmiles
@@ -8149,19 +8150,19 @@ Vocabulary token capacity: 86`
     def encodeFrag(self, mol: str, mol_tokens: Any, frag: str) -> Optional[List[int]]: ...
     def encodeMol(self, smiles: str) -> Tuple[str, str]: ...
     def getVoc(self) -> VocGraph: ...`,
-        description: "Converts molecular fragments into 5-tuple action sequences for GraphTransformer, preserving atom indexing between scaffold and decorated molecule.",
+        description: "Converts paired molecular scaffolds and decorated target molecules into step-wise 5-tuple graph construction action sequences for GraphTransformer and FragGraphExplorer. Encodes node addition, atom types, connection loci, bond types, and fragment membership indicators into flattened action vectors.",
         members: [
-          { name: "encodeFrag(mol, mol_tokens, frag)", desc: "Encodes paired fragment scaffold and parent molecule into 5-tuple graph action codes." },
-          { name: "encodeMol(smiles)", desc: "Passes parent molecule SMILES through as raw token representations matching interface contract." },
-          { name: "getVoc()", desc: "Returns the active graph vocabulary instance." }
+          { name: "encodeFrag(mol, mol_tokens, frag)", desc: "Transforms paired fragment and parent molecule into a flattened 1D List[int] representing step-wise 5-tuple graph generation actions of length (5 * max_len)." },
+          { name: "encodeMol(smiles)", desc: "Interface pass-through returning (smiles, smiles) to satisfy the FragmentPairEncoder contract for graph architectures." },
+          { name: "getVoc()", desc: "Returns the active VocGraph vocabulary defining atom-valence states, bond orders, and loci tokens." }
         ],
         variables: [
-          { name: "vocabulary", type: "VocGraph", desc: "Active graph vocabulary." }
+          { name: "vocabulary", type: "VocGraph", desc: "Active graph vocabulary tracking valid atomic valence ceilings, bond types (single, double, triple, aromatic), and attachment loci." }
         ],
         parameters: [
-          { name: "vocabulary", type: "VocGraph", desc: "VocGraph instance defining atom-valence states (default: VocGraph())." }
+          { name: "vocabulary", type: "VocGraph", desc: "VocGraph instance defining maximum graph size (max_len) and fragment count limits (default: VocGraph())." }
         ],
-        notes: "Handles dummy atom connection mapping in graph space cleanly without valence errors.",
+        notes: "5-Tuple Action Encoding: Each graph construction step is encoded as an action tuple [prev_atom, next_atom, bond_type, frag_indicator, attach_locus]. The scaffold fragment is anchored as the initial subgraph, and subsequent generation steps autoregressively sample actions that add new atoms and form bonds while strictly verifying atomic valence bounds (preventing pentavalent carbon or over-coordinated nitrogens).",
         example: {
           code: `from drugex.data.fragments import GraphFragmentEncoder
 from drugex.data.corpus.vocabulary import VocGraph
