@@ -23,7 +23,7 @@
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M_TEST | E2E Test Suite & Mirror Cleanup | Mirror cleanup, audit runner alignment, cross-link verification, publication of TEST_READY.md | none | IN_PROGRESS |
+| M_TEST | E2E Test Suite & Mirror Cleanup | Mirror cleanup, audit runner alignment, cross-link verification, publication of TEST_READY.md | none | DONE |
 | M1 | Data Preprocessing & Molecular Graphs | Elevate Sections 1 & 6 (data, molecules, parallel) in DATABASE to publication grade | none | PLANNED |
 | M2 | Deep Generative Architectures & Telemetry | Elevate Sections 2 & 7 (generators, logs, monitors) in DATABASE to publication grade | none | PLANNED |
 | M3 | MORL Policy Exploration & Multi-Objective Rewards | Elevate Section 3 (explorers, environment, rewards, pareto) in DATABASE to publication grade | M1, M2 | PLANNED |

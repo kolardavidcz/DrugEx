@@ -58,12 +58,21 @@ Elevate all technical descriptions, algorithmic documentation, parameter/return 
 | challenger_m_test_1 | teamwork_preview_challenger | M_TEST: Challenger 1 | completed | 19467766-3e7a-4173-8bf3-43ddc2c1d777 |
 | challenger_m_test_2 | teamwork_preview_challenger | M_TEST: Challenger 2 | completed | e11635b3-2712-48d8-a7f7-a690200b1a07 |
 | auditor_m_test_1 | teamwork_preview_auditor | M_TEST: Forensic Integrity Audit | completed | 6664268c-4f22-46b3-8d55-93bc09534c52 |
-| worker_m_test_2 | teamwork_preview_worker | M_TEST Iteration 2: Remediation | in-progress | b6bb6abc-083f-43ff-86f0-a46c5fafecda |
+| worker_m_test_2 | teamwork_preview_worker | M_TEST Iteration 2: Remediation | completed | b6bb6abc-083f-43ff-86f0-a46c5fafecda |
+| reviewer_m_test_iter2_1 | teamwork_preview_reviewer | M_TEST Iter 2 Reviewer | completed | 9d5a330d-1764-47cf-9e40-cf2e65a703b3 |
+| challenger_m_test_iter2_1 | teamwork_preview_challenger | M_TEST Iter 2 Challenger | completed | eaf270a1-5842-4b34-9a65-8810c20cf98f |
+| auditor_m_test_iter2_1 | teamwork_preview_auditor | M_TEST Iter 2 Forensic Auditor | completed | 47f2f146-3a73-48f0-97b3-3b3b69d01550 |
+| worker_m1_1 | teamwork_preview_worker | M1: Data, Molecule & Parallel Symbols | completed | 8a4f7e64-1ef4-4be4-b9ec-7b9b5e2aea89 |
+| reviewer_m1_1 | teamwork_preview_reviewer | M1: Reviewer 1 | in-progress | cb253f30-309d-4966-a2d2-e2b265f9ba2b |
+| reviewer_m1_2 | teamwork_preview_reviewer | M1: Reviewer 2 | in-progress | b2cfb1d8-0099-4775-998d-329ade69131b |
+| challenger_m1_1 | teamwork_preview_challenger | M1: Challenger 1 | in-progress | 27fb0a21-5e31-460c-bb18-ebac0422647a |
+| challenger_m1_2 | teamwork_preview_challenger | M1: Challenger 2 | in-progress | df3552cc-7b61-4157-bc8c-ea848016bb46 |
+| auditor_m1_1 | teamwork_preview_auditor | M1: Forensic Integrity Audit | in-progress | 52f47e99-57b9-4fb2-86f5-5b1301b7943a |
 
 ## Succession Status
-- Succession required: no
-- Spawn count: 10 / 16
-- Pending subagents: b6bb6abc-083f-43ff-86f0-a46c5fafecda
+- Succession required: pending subagents completion
+- Spawn count: 19 / 16
+- Pending subagents: cb253f30-309d-4966-a2d2-e2b265f9ba2b, b2cfb1d8-0099-4775-998d-329ade69131b, 27fb0a21-5e31-460c-bb18-ebac0422647a, df3552cc-7b61-4157-bc8c-ea848016bb46, 52f47e99-57b9-4fb2-86f5-5b1301b7943a
 - Predecessor: none
 - Successor: not yet spawned
 
