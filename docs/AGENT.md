@@ -13,12 +13,25 @@ The documentation platform operates under a strict Single Source of Truth archit
 
 ```
 ~/build_projects/drugex_edu/docs/
-├── index.html                   # Sole authoritative Master Reference SPA entrypoint (DATABASE across 234 symbols)
-├── pipelines.html               # Sole authoritative Pipeline Visualizer page (5 PIPELINE_SCHEMAS)
+├── index.html                   # Clean, zero-build Master Reference SPA HTML shell (links style.css, data/*.js, app.js)
+├── app.js                       # React 18 UI application shell, search engine, and interactive MicroViz components
+├── style.css                    # Definitive cppreference stylesheet (layout, syntax tokens, responsive drawer, micro-viz)
+├── data/                        # Modular Reference Database (11 discrete JS data modules)
+│   ├── sections.js              # 10 Thematic cppreference library sections (window.LIBRARY_SECTIONS)
+│   ├── 01_morl.js               # MORL Environments, Pareto rewards, monitors (15 symbols)
+│   ├── 02_neural.js             # Generator, RNN, Transformers, attention blocks (21 symbols)
+│   ├── 03_explorers.js          # Explorers, Sequence/Graph exploration loops (6 symbols)
+│   ├── 04_scoring.js            # Scorers, 3D ROCS, conformers, SAscore, fingerprints (31 symbols)
+│   ├── 05_modifiers.js          # Desirability modifiers, Gaussian, SmoothHump (11 symbols)
+│   ├── 06_data.js               # Vocabularies, standardization, corpora, suppliers, datasets (31 symbols)
+│   ├── 07_molecules.js          # Molecule, DrExMol, suppliers, converters, exceptions (23 symbols)
+│   ├── 08_workflows.js          # Parallel processors, evaluators, CLI pipelines, loggers (48 symbols)
+│   ├── 09_ecosystem.js          # RDKit 3D/scaffolds, QSPRPred ML, CDPKit pharmacophores (24 symbols)
+│   └── 10_experimental.js       # USRCAT 3D/4D, ProLIF, Chemprop D-MPNN, Vina, OpenFE, Optuna (24 symbols)
 ├── TEST_INFRA.md                # 4-tier testing infrastructure specification and test methodology
 ├── TEST_READY.md                # Test readiness checklist, test runner command, and coverage summary
 ├── tools/
-│   ├── check_docs.mjs           # Master audit & verification suite (validates 234 symbols, links, emojis, schemas)
+│   ├── check_docs.mjs           # Master audit & verification suite (validates 234 symbols, links, emojis, schema)
 │   ├── deep_audit.mjs           # Deep symbol analyzer across core DrugEx modules and codebase
 │   └── audit_gh_pages.mjs       # Legacy comparison scanner against codebase
 ├── vercel.json                  # Clean static SPA rewrite & security header config
@@ -28,11 +41,14 @@ The documentation platform operates under a strict Single Source of Truth archit
 
 ---
 
-## Authoritative Files
+## Authoritative Files & Modular Architecture
 
-- `index.html`: The definitive single source of truth for all 234 symbols in `DATABASE`, 10 `LIBRARY_SECTIONS`, and embedded `PIPELINE_SCHEMAS`. Vercel rewrites routes (`/`, `/docs`, `/cppreference`, `/reference`, `/api`) to this file.
-- `pipelines.html`: The standalone visualizer for interactive workflow inspection. Vercel rewrites routes (`/pipelines`, `/schemas`) to this file.
-- Redundant mirror files in `docs/cppreference/` are strictly deprecated and eliminated; do not recreate them.
+- `index.html`: The lightweight (~40 lines) zero-build static HTML shell. Vercel rewrites routes (`/`, `/docs`, `/cppreference`, `/reference`, `/api`) to this entrypoint.
+- `style.css`: Unified stylesheet eliminating redundant embedded CSS and obsolete pipeline diagram styles.
+- `app.js`: Component shell containing search filtering, responsive navigation, and interactive SVG micro-visualizers.
+- `data/*.js`: The 11 modular data files containing all 234 symbols and 10 library sections. Individual libraries can be inspected, updated, and diffed without context collapse.
+- Obsolete pipeline visualizer files (`pipelines.html`, `PIPELINE_SCHEMAS`) have been eliminated in favor of clean CLI and Python workflows.
+- Redundant mirror files in `docs/cppreference/` remain strictly deprecated and eliminated.
 
 ---
 

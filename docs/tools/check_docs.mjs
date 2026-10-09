@@ -1,7 +1,8 @@
 /**
  * Validation script for DrugEx cppreference documentation platform.
- * Verifies that index.html contains a comprehensive,
- * structurally complete, and error-free reference database with zero broken cross-links.
+ * Verifies that the modular documentation platform (index.html, app.js, style.css,
+ * and 11 discrete data modules in data/) contains a comprehensive, structurally complete,
+ * and error-free reference database with zero broken cross-links and zero emojis.
  */
 
 import fs from 'node:fs';
@@ -29,51 +30,91 @@ let errors = 0;
 
 const html = fs.readFileSync(docsPath, 'utf8');
 
-// 1. Verify basic HTML document structure
+// 1. Verify basic HTML document structure and modular script imports
 if (!html.includes('<!DOCTYPE html>') || !html.includes('<div id="root"></div>')) {
   console.error('Fatal: Malformed HTML template structure.');
   process.exit(1);
 }
 
-// 2. Extract script block
-const scriptMatch = html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/);
-if (!scriptMatch) {
-  console.error('Fatal: No <script type="text/babel"> block found in index.html.');
-  process.exit(1);
+if (!html.includes('<link rel="stylesheet" href="style.css">')) {
+  console.error('Fatal: style.css stylesheet link missing in index.html.');
+  errors++;
 }
 
-const scriptCode = scriptMatch[1];
-
-// 3. Extract and parse DATABASE definition
-const dbStart = scriptCode.indexOf('const DATABASE = {');
-if (dbStart === -1) {
-  console.error('Fatal: DATABASE object definition not found.');
-  process.exit(1);
+if (!html.includes('<script type="text/babel" src="app.js"></script>')) {
+  console.error('Fatal: app.js Babel script tag missing in index.html.');
+  errors++;
 }
 
-// Extract DATABASE snippet safely
-const appStart = scriptCode.indexOf('function App()');
-if (appStart === -1) {
-  console.error('Fatal: App component definition not found.');
-  process.exit(1);
+// 2. Verify all 11 modular data script tags in index.html
+const requiredDataScripts = [
+  'data/sections.js',
+  'data/01_morl.js',
+  'data/02_neural.js',
+  'data/03_explorers.js',
+  'data/04_scoring.js',
+  'data/05_modifiers.js',
+  'data/06_data.js',
+  'data/07_molecules.js',
+  'data/08_workflows.js',
+  'data/09_ecosystem.js',
+  'data/10_experimental.js'
+];
+
+for (const scriptPath of requiredDataScripts) {
+  if (!html.includes(`<script src="${scriptPath}"></script>`)) {
+    console.error(`Fatal: Missing modular script tag in index.html: <script src="${scriptPath}"></script>`);
+    errors++;
+  }
 }
 
-const dbSnippet = scriptCode.slice(dbStart, appStart).trim();
-
-// Execute in isolated sandbox context to validate syntax and inspect data
-const context = {};
+// 3. Load modular data files into isolated VM context
+const dataDir = path.join(projectRoot, 'data');
+const context = {
+  window: {},
+  globalThis: {}
+};
+context.window = context;
+context.globalThis = context;
 vm.createContext(context);
-try {
-  const evalCode = dbSnippet.replace(/^const DATABASE =/, 'globalThis.DATABASE =');
-  vm.runInContext(evalCode, context);
-} catch (err) {
-  console.error('Syntax or evaluation error in DATABASE definition:', err);
+
+const dataFiles = [
+  'sections.js',
+  '01_morl.js',
+  '02_neural.js',
+  '03_explorers.js',
+  '04_scoring.js',
+  '05_modifiers.js',
+  '06_data.js',
+  '07_molecules.js',
+  '08_workflows.js',
+  '09_ecosystem.js',
+  '10_experimental.js'
+];
+
+for (const df of dataFiles) {
+  const filePath = path.join(dataDir, df);
+  if (!fs.existsSync(filePath)) {
+    console.error(`Fatal: Required data file missing: ${filePath}`);
+    process.exit(1);
+  }
+  const code = fs.readFileSync(filePath, 'utf8');
+  try {
+    vm.runInContext(code, context);
+  } catch (err) {
+    console.error(`Syntax or evaluation error in data file ${df}:`, err);
+    process.exit(1);
+  }
+}
+
+const db = context.DATABASE || context.window.DATABASE;
+if (!db || typeof db !== 'object') {
+  console.error('Fatal: DATABASE object was not populated by data modules.');
   process.exit(1);
 }
 
-const db = context.DATABASE;
 const keys = Object.keys(db);
-console.log(`[PASS] DATABASE evaluated successfully: ${keys.length} total symbols registered.`);
+console.log(`[PASS] DATABASE evaluated successfully: ${keys.length} total symbols registered across 10 modular files.`);
 
 if (keys.length < 234) {
   console.error(`Validation failed: Expected at least 234 symbols for complete coverage, got ${keys.length}.`);
@@ -158,419 +199,280 @@ if (brokenLinks.length > 0) {
 
 // 5. Validate LIBRARY_SECTIONS Concentrated Main Index (Matching cppreference.com)
 console.log('\nValidating Concentrated Main Page Library Index (cppreference.com format)...');
-const secStart = scriptCode.indexOf('const LIBRARY_SECTIONS = [');
-if (secStart === -1) {
-  console.error('Fatal: LIBRARY_SECTIONS definition not found in script.');
+const sections = context.LIBRARY_SECTIONS || context.window.LIBRARY_SECTIONS;
+
+if (!Array.isArray(sections) || sections.length !== 10) {
+  console.error(`Expected 10 library categories in LIBRARY_SECTIONS, got ${sections?.length}`);
   errors++;
 } else {
-  const secEnd = scriptCode.indexOf('const DATABASE = {');
-  const secCode = scriptCode.slice(secStart, secEnd).trim();
-  try {
-    const secEvalCode = secCode.replace(/^const LIBRARY_SECTIONS =/, 'globalThis.LIBRARY_SECTIONS =');
-    vm.runInContext(secEvalCode, context);
-    const sections = context.LIBRARY_SECTIONS;
-    
-    if (!Array.isArray(sections) || sections.length !== 10) {
-      console.error(`Expected 10 library categories in LIBRARY_SECTIONS, got ${sections?.length}`);
+  const indexedKeys = new Set();
+  for (const sec of sections) {
+    if (!sec.id || !sec.title || !Array.isArray(sec.subsections)) {
+      console.error(`Invalid section structure for section ${sec.id || 'unknown'}`);
       errors++;
-    } else {
-      const indexedKeys = new Set();
-      for (const sec of sections) {
-        if (!sec.id || !sec.title || !Array.isArray(sec.subsections)) {
-          console.error(`Invalid section structure for section ${sec.id || 'unknown'}`);
-          errors++;
-          continue;
-        }
-        for (const sub of sec.subsections) {
-          if (!sub.subtitle || !Array.isArray(sub.keys)) {
-            console.error(`Invalid subsection structure in section "${sec.title}"`);
-            errors++;
-            continue;
-          }
-          for (const k of sub.keys) {
-            if (!db[k]) {
-              console.error(`Section "${sec.title}" references non-existent key: "${k}"`);
-              errors++;
-            }
-            if (indexedKeys.has(k)) {
-              console.error(`Duplicate key in LIBRARY_SECTIONS: "${k}"`);
-              errors++;
-            }
-            indexedKeys.add(k);
-          }
-        }
+      continue;
+    }
+    for (const sub of sec.subsections) {
+      if (!sub.subtitle || !Array.isArray(sub.keys)) {
+        console.error(`Invalid subsection structure in section "${sec.title}"`);
+        errors++;
+        continue;
       }
-      
-      const missingKeys = keys.filter(k => !indexedKeys.has(k));
-      if (missingKeys.length > 0) {
-        console.error(`${missingKeys.length} symbols missing from LIBRARY_SECTIONS:`, missingKeys);
-        errors += missingKeys.length;
-      } else {
-        console.log(`[PASS] All ${keys.length} symbols 100% indexed across ${sections.length} thematic libraries with 0 duplicates.`);
+      for (const k of sub.keys) {
+        if (!db[k]) {
+          console.error(`Section "${sec.title}" references non-existent key: "${k}"`);
+          errors++;
+        }
+        if (indexedKeys.has(k)) {
+          console.error(`Duplicate key in LIBRARY_SECTIONS: "${k}"`);
+          errors++;
+        }
+        indexedKeys.add(k);
       }
     }
-  } catch (err) {
-    console.error('Error evaluating LIBRARY_SECTIONS:', err);
-    errors++;
+  }
+  
+  const missingKeys = keys.filter(k => !indexedKeys.has(k));
+  if (missingKeys.length > 0) {
+    console.error(`${missingKeys.length} symbols missing from LIBRARY_SECTIONS:`, missingKeys);
+    errors += missingKeys.length;
+  } else {
+    console.log(`[PASS] All ${keys.length} symbols 100% indexed across ${sections.length} thematic libraries with 0 duplicates.`);
   }
 }
 
-// 6. Validate getSymbolTag helper badges
-console.log('\nValidating getSymbolTag helper badges...');
-const tagStart = scriptCode.indexOf('function getSymbolTag(');
-if (tagStart === -1) {
-  console.error('Fatal: getSymbolTag definition not found in script.');
+// 6. Validate helper functions and logic in app.js
+console.log('\nValidating helper functions in app.js...');
+const appJsPath = path.join(projectRoot, 'app.js');
+if (!fs.existsSync(appJsPath)) {
+  console.error(`Fatal: app.js file not found at ${appJsPath}`);
+  process.exit(1);
+}
+
+const appCode = fs.readFileSync(appJsPath, 'utf8');
+
+context.React = {
+  useState: () => [],
+  useMemo: (fn) => fn(),
+  useEffect: () => {},
+  useRef: () => ({ current: null })
+};
+
+const appStart = appCode.indexOf('function App()');
+const helpersCode = appStart !== -1 ? appCode.slice(0, appStart) : appCode;
+
+try {
+  vm.runInContext(helpersCode, context);
+  console.log('[PASS] app.js helper functions evaluated cleanly in sandbox VM context.');
+} catch (err) {
+  console.error('Error evaluating helper functions from app.js in sandbox VM:', err);
+  errors++;
+}
+
+const getSymbolTag = context.getSymbolTag;
+if (typeof getSymbolTag !== 'function') {
+  console.error('getSymbolTag is not a function in app.js.');
   errors++;
 } else {
-  const tagEnd = scriptCode.indexOf('function App()');
-  const tagCode = scriptCode.slice(tagStart, tagEnd).trim();
-  try {
-    vm.runInContext(tagCode, context);
-    const getSymbolTag = context.getSymbolTag;
-    if (typeof getSymbolTag !== 'function') {
-      console.error('getSymbolTag is not a function.');
+  const tests = [
+    { key: 'experimental::usrcat::USRCAT_Screening', expected: '60D' },
+    { key: 'experimental::electroshape::ElectroShape_4D', expected: '4D' },
+    { key: 'rdkit::Chem::rdShapeAlign::AlignMol', expected: 'RDKit' },
+    { key: 'drugex::training::generators::SequenceTransformer', expected: 'GPU' },
+    { key: 'drugex::training::environment::DrugExEnvironment', expected: 'v3.4' }
+  ];
+  for (const t of tests) {
+    const item = db[t.key];
+    const actual = getSymbolTag(t.key, item);
+    if (actual !== t.expected) {
+      console.error(`getSymbolTag("${t.key}") expected "${t.expected}", got "${actual}"`);
       errors++;
-    } else {
-      const tests = [
-        { key: 'experimental::usrcat::USRCAT_Screening', expected: '60D' },
-        { key: 'experimental::electroshape::ElectroShape_4D', expected: '4D' },
-        { key: 'rdkit::Chem::rdShapeAlign::AlignMol', expected: 'RDKit' },
-        { key: 'drugex::training::generators::SequenceTransformer', expected: 'GPU' },
-        { key: 'drugex::training::environment::DrugExEnvironment', expected: 'v3.4' }
-      ];
-      for (const t of tests) {
-        const item = db[t.key];
-        const actual = getSymbolTag(t.key, item);
-        if (actual !== t.expected) {
-          console.error(`getSymbolTag("${t.key}") expected "${t.expected}", got "${actual}"`);
-          errors++;
-        }
-      }
-      console.log('[PASS] getSymbolTag verified for core badges (60D, 4D, RDKit, GPU, v3.4).');
-
-      // Validate isAbstractSymbol helper
-      const isAbstractSymbol = context.isAbstractSymbol;
-      if (typeof isAbstractSymbol !== 'function') {
-        console.error('isAbstractSymbol is not a function.');
-        errors++;
-      } else {
-        const absTrueTests = [
-          'drugex::training::environment::Environment',
-          'drugex::training::scorers::Scorer',
-          'drugex::training::generators::Generator',
-          'drugex::training::explorers::Explorer',
-          'drugex::training::rewards::RewardScheme',
-          'drugex::data::corpus::interfaces::Vocabulary'
-        ];
-        const absFalseTests = [
-          'drugex::training::environment::DrugExEnvironment',
-          'drugex::training::generators::SequenceRNN',
-          'drugex::training::explorers::SequenceExplorer',
-          'drugex::training::rewards::ParetoCrowdingDistance',
-          'drugex::molecules::converters::ConversionException'
-        ];
-        for (const k of absTrueTests) {
-          if (!isAbstractSymbol(k, db[k])) {
-            console.error(`isAbstractSymbol("${k}") expected true, got false`);
-            errors++;
-          }
-        }
-        for (const k of absFalseTests) {
-          if (isAbstractSymbol(k, db[k])) {
-            console.error(`isAbstractSymbol("${k}") expected false, got true`);
-            errors++;
-          }
-        }
-        const totalAbstract = Object.keys(db).filter(k => isAbstractSymbol(k, db[k])).length;
-        if (totalAbstract !== 30) {
-          console.error(`Expected exactly 30 abstract classes in database, found ${totalAbstract}`);
-          errors++;
-        } else {
-          console.log(`[PASS] isAbstractSymbol verified: exactly ${totalAbstract} abstract base classes identified.`);
-        }
-
-        // Validate getEffectiveMembers helper
-        const getEffectiveMembers = context.getEffectiveMembers;
-        if (typeof getEffectiveMembers !== 'function') {
-          console.error('getEffectiveMembers is not a function.');
-          errors++;
-        } else {
-          let classesWithInit = 0;
-          let methodOrderErrors = 0;
-          let checkedClasses = 0;
-          for (const k of keys) {
-            const item = db[k];
-            if (item.kind === 'class') {
-              checkedClasses++;
-              const eff = getEffectiveMembers(item);
-              if (eff.some(m => m.name.startsWith('__init__'))) {
-                console.error(`Class "${k}" unexpectedly has __init__ in getEffectiveMembers (constructors belong in header synopsis).`);
-                classesWithInit++;
-                errors++;
-              }
-              // Verify ordering: all regular methods must appear before any magic methods
-              let seenMagic = false;
-              for (const m of eff) {
-                if (m.name.startsWith('__')) {
-                  seenMagic = true;
-                } else if (seenMagic) {
-                  console.error(`Class "${k}" has regular method "${m.name}" after magic dunder method.`);
-                  methodOrderErrors++;
-                  errors++;
-                  break;
-                }
-              }
-            }
-          }
-          if (classesWithInit === 0 && methodOrderErrors === 0) {
-            console.log(`[PASS] getEffectiveMembers verified: 0 classes have __init__ in member functions; 100% of classes (${checkedClasses}) strictly order regular methods before magic methods.`);
-          }
-        }
-
-        // Validate getMagicMethodOperator helper
-        const getMagicMethodOperator = context.getMagicMethodOperator;
-        if (typeof getMagicMethodOperator !== 'function') {
-          console.error('getMagicMethodOperator is not a function.');
-          errors++;
-        } else {
-          const opTests = [
-            { name: '__init__(args)', expectedOp: '(constructor)', expectedCls: 'op-constructor' },
-            { name: '__call__(smiles)', expectedOp: 'obj(...)', expectedCls: 'op-call' },
-            { name: '__getitem__(key)', expectedOp: 'obj[...]', expectedCls: 'op-subscript' },
-            { name: '__len__()', expectedOp: 'len(obj)', expectedCls: 'op-len' },
-            { name: '__iter__()', expectedOp: 'iter(obj)', expectedCls: 'op-iter' },
-            { name: '__contains__(token)', expectedOp: 'x in obj', expectedCls: 'op-subscript' },
-            { name: 'fit(train_loader)', expectedOp: null },
-            { name: 'generate(100)', expectedOp: null }
-          ];
-          for (const ot of opTests) {
-            const res = getMagicMethodOperator(ot.name);
-            if (ot.expectedOp === null) {
-              if (res !== null) {
-                console.error(`getMagicMethodOperator("${ot.name}") expected null, got:`, res);
-                errors++;
-              }
-            } else {
-              if (!res || res.op !== ot.expectedOp || res.cls !== ot.expectedCls) {
-                console.error(`getMagicMethodOperator("${ot.name}") mismatch: expected op="${ot.expectedOp}" cls="${ot.expectedCls}", got:`, res);
-                errors++;
-              }
-            }
-          }
-          console.log('[PASS] getMagicMethodOperator verified across all special Python operator mappings.');
-        }
-
-        // Validate getMicroVizType helper
-        const getMicroVizType = context.getMicroVizType;
-        if (typeof getMicroVizType !== 'function') {
-          console.error('getMicroVizType is not a function.');
-          errors++;
-        } else {
-          const microVizExpected = {
-            pareto_crowding: [
-              'drugex::training::rewards::ParetoCrowdingDistance',
-              'drugex::utils::pareto::get_Pareto_fronts',
-              'drugex::training::rewards::ParetoRewardScheme',
-              'drugex::training::rewards::RewardScheme',
-              'drugex::training::rewards::WeightedSum'
-            ],
-            pareto_tanimoto: [
-              'drugex::training::rewards::ParetoTanimotoDistance'
-            ],
-            modifier_curve: [
-              'drugex::training::scorers::ScoreModifier',
-              'drugex::training::scorers::SmoothClippedScore',
-              'drugex::training::scorers::ClippedScore',
-              'drugex::training::scorers::MinMaxGaussian',
-              'drugex::training::scorers::modifiers::ThresholdedLinear',
-              'drugex::training::scorers::modifiers::SmoothHump',
-              'drugex::training::scorers::modifiers::Squared',
-              'drugex::training::scorers::modifiers::AbsoluteScore',
-              'drugex::training::scorers::modifiers::Chained',
-              'drugex::training::scorers::Gaussian',
-              'drugex::training::scorers::Linear'
-            ],
-            rl_policy_cycle: [
-              'drugex::training::environment::DrugExEnvironment',
-              'drugex::training::environment::Environment',
-              'drugex::training::explorers::SequenceExplorer',
-              'drugex::training::explorers::FragSequenceExplorer',
-              'drugex::training::explorers::GraphExplorer',
-              'drugex::training::explorers::FragGraphExplorer',
-              'drugex::training::explorers::Explorer',
-              'drugex::training::explorers::FragExplorer',
-              'drugex::training::scorers::SmilesChecker',
-              'drugex::train::Reinforce'
-            ]
-          };
-
-          let microVizTestedCount = 0;
-          for (const [expectedType, symList] of Object.entries(microVizExpected)) {
-            for (const sym of symList) {
-              if (!db[sym]) {
-                console.error(`getMicroVizType test symbol "${sym}" does not exist in DATABASE.`);
-                errors++;
-                continue;
-              }
-              const actualType = getMicroVizType(sym);
-              if (actualType !== expectedType) {
-                console.error(`getMicroVizType("${sym}") expected "${expectedType}", got "${actualType}"`);
-                errors++;
-              } else {
-                microVizTestedCount++;
-              }
-            }
-          }
-          if (getMicroVizType('unknown::key') !== null) {
-            console.error('getMicroVizType("unknown::key") expected null, got non-null.');
-            errors++;
-          }
-          console.log(`[PASS] getMicroVizType verified across ${microVizTestedCount} target symbols with 4 visualization types.`);
-        }
-      }
     }
-  } catch (err) {
-    console.error('Error evaluating getSymbolTag / isAbstractSymbol / getEffectiveMembers / getMagicMethodOperator:', err);
-    errors++;
   }
+  console.log('[PASS] getSymbolTag verified for core badges (60D, 4D, RDKit, GPU, v3.4).');
 }
 
-// 7. Validate PIPELINE_SCHEMAS and pipelines.html Parity
-console.log('\nValidating PIPELINE_SCHEMAS and pipelines.html Parity...');
-
-// Verification for pipelines.html
-const rootPipelines = path.join(projectRoot, 'pipelines.html');
-if (!fs.existsSync(rootPipelines)) {
-  console.error(`Fatal: pipelines.html not found at ${rootPipelines}`);
-  errors++;
-}
-
-// Helper function to validate pipeline schema array and canvas geometry
-function validatePipelineSchemas(pipelines, sourceName) {
-  if (!Array.isArray(pipelines) || pipelines.length !== 5) {
-    console.error(`[${sourceName}] Expected 5 pipeline schemas, got ${pipelines?.length}`);
-    errors++;
-    return;
-  }
-  console.log(`[PASS] [${sourceName}] 5 Pipeline schemas evaluated successfully.`);
-  const requiredIds = ['morl', 'training', 'rocs', 'fragment', 'telemetry'];
-  for (const reqId of requiredIds) {
-    const found = pipelines.find(p => p.id === reqId);
-    if (!found) {
-      console.error(`[${sourceName}] Missing required pipeline ID: "${reqId}"`);
-      errors++;
-    }
-  }
-
-  let missingPipelineSymbols = 0;
-  for (const p of pipelines) {
-    // Check nodes count and coordinates within 1130x355 canvas
-    if (!Array.isArray(p.nodes) || p.nodes.length !== 8) {
-      console.error(`[${sourceName}] Pipeline "${p.id}" expected 8 nodes, got ${p.nodes?.length}`);
-      errors++;
-    }
-    for (const n of p.nodes || []) {
-      if (n.x < 0 || n.x + 220 > 1130 || n.y < 0 || n.y + 98 > 355) {
-        console.error(`[${sourceName}] Pipeline "${p.id}" node "${n.stepLabel}" out of canvas bounds: (${n.x}, ${n.y})`);
-        errors++;
-      }
-      for (const sym of n.drugexSymbols || []) {
-        if (!db[sym]) {
-          console.error(`[${sourceName}] Pipeline "${p.id}" node "${n.stepLabel}" references missing symbol in DATABASE: "${sym}"`);
-          missingPipelineSymbols++;
-          errors++;
-        }
-      }
-    }
-
-    // Check connectors coordinates within 1130x355 canvas
-    if (!Array.isArray(p.connectors) || p.connectors.length < 5) {
-      console.error(`[${sourceName}] Pipeline "${p.id}" has invalid connectors array (${p.connectors?.length})`);
-      errors++;
-    }
-    for (const [cIdx, c] of (p.connectors || []).entries()) {
-      if (c.fromX < 0 || c.fromX > 1130 || c.toX < 0 || c.toX > 1130 || c.fromY < 0 || c.fromY > 355 || c.toY < 0 || c.toY > 355) {
-        console.error(`[${sourceName}] Pipeline "${p.id}" connector ${cIdx} coordinates out of bounds: from(${c.fromX}, ${c.fromY}) to(${c.toX}, ${c.toY})`);
-        errors++;
-      }
-    }
-
-    // Check feedback loop if present
-    if (p.feedbackLoop) {
-      const fb = p.feedbackLoop;
-      if (fb.fromX < 0 || fb.fromX > 1130 || fb.toX < 0 || fb.toX > 1130 || fb.fromY < 0 || fb.fromY > 355 || fb.toY < 0 || fb.toY > 355) {
-        console.error(`[${sourceName}] Pipeline "${p.id}" feedback loop coordinates out of bounds: from(${fb.fromX}, ${fb.fromY}) to(${fb.toX}, ${fb.toY})`);
-        errors++;
-      }
-    }
-
-    // Check matrixRows
-    if (!Array.isArray(p.matrixRows) || p.matrixRows.length !== 8) {
-      console.error(`[${sourceName}] Pipeline "${p.id}" expected 8 matrix rows, got ${p.matrixRows?.length}`);
-      errors++;
-    }
-
-    // Check equation terms point to valid node indices
-    for (const eqItem of (p.equation || [])) {
-      if (eqItem.type === 'term' && (eqItem.nodeIdx === undefined || eqItem.nodeIdx < 0 || eqItem.nodeIdx >= (p.nodes?.length || 0))) {
-        console.error(`[${sourceName}] Pipeline "${p.id}" equation term "${eqItem.text}" has invalid nodeIdx: ${eqItem.nodeIdx}`);
-        errors++;
-      }
-    }
-  }
-
-  if (missingPipelineSymbols === 0) {
-    console.log(`[PASS] [${sourceName}] All drugexSymbols in PIPELINE_SCHEMAS exist in DATABASE.`);
-  }
-}
-
-// Extract PIPELINE_SCHEMAS from index.html
-const pipeStart = scriptCode.indexOf('const PIPELINE_SCHEMAS = [');
-if (pipeStart === -1) {
-  console.error('Fatal: PIPELINE_SCHEMAS definition not found in index.html script.');
+// Validate isAbstractSymbol helper
+const isAbstractSymbol = context.isAbstractSymbol;
+if (typeof isAbstractSymbol !== 'function') {
+  console.error('isAbstractSymbol is not a function in app.js.');
   errors++;
 } else {
-  const pipeEnd = scriptCode.indexOf('function getStageColor');
-  const pipeCode = scriptCode.slice(pipeStart, pipeEnd).trim();
-  try {
-    const pipeEval = pipeCode.replace(/^const PIPELINE_SCHEMAS =/, 'globalThis.PIPELINE_SCHEMAS_INDEX =');
-    vm.runInContext(pipeEval, context);
-    validatePipelineSchemas(context.PIPELINE_SCHEMAS_INDEX, 'index.html');
-  } catch (err) {
-    console.error('Error evaluating PIPELINE_SCHEMAS from index.html:', err);
-    errors++;
+  const absTrueTests = [
+    'drugex::training::environment::Environment',
+    'drugex::training::scorers::Scorer',
+    'drugex::training::generators::Generator',
+    'drugex::training::explorers::Explorer',
+    'drugex::training::rewards::RewardScheme',
+    'drugex::data::corpus::interfaces::Vocabulary'
+  ];
+  const absFalseTests = [
+    'drugex::training::environment::DrugExEnvironment',
+    'drugex::training::generators::SequenceRNN',
+    'drugex::training::explorers::SequenceExplorer',
+    'drugex::training::rewards::ParetoCrowdingDistance',
+    'drugex::molecules::converters::ConversionException'
+  ];
+  for (const k of absTrueTests) {
+    if (!isAbstractSymbol(k, db[k])) {
+      console.error(`isAbstractSymbol("${k}") expected true, got false`);
+      errors++;
+    }
   }
-}
-
-// Extract and validate PIPELINE_SCHEMAS from pipelines.html
-if (fs.existsSync(rootPipelines)) {
-  const pipHtml = fs.readFileSync(rootPipelines, 'utf8');
-  const pipScriptMatch = pipHtml.match(/<script type="text\/babel">([\s\S]*?)<\/script>/);
-  if (!pipScriptMatch) {
-    console.error('Fatal: Babel script block not found in pipelines.html.');
+  for (const k of absFalseTests) {
+    if (isAbstractSymbol(k, db[k])) {
+      console.error(`isAbstractSymbol("${k}") expected false, got true`);
+      errors++;
+    }
+  }
+  const totalAbstract = Object.keys(db).filter(k => isAbstractSymbol(k, db[k])).length;
+  if (totalAbstract !== 30) {
+    console.error(`Expected exactly 30 abstract classes in database, found ${totalAbstract}`);
     errors++;
   } else {
-    const pipScript = pipScriptMatch[1];
-    const pipStart = pipScript.indexOf('const PIPELINE_SCHEMAS = [');
-    const pipEnd = pipScript.indexOf('function getStageColor');
-    if (pipStart === -1 || pipEnd === -1) {
-      console.error('Fatal: PIPELINE_SCHEMAS or getStageColor not found in pipelines.html.');
-      errors++;
+    console.log(`[PASS] isAbstractSymbol verified: exactly ${totalAbstract} abstract base classes identified.`);
+  }
+}
+
+// Validate getEffectiveMembers helper
+const getEffectiveMembers = context.getEffectiveMembers;
+if (typeof getEffectiveMembers !== 'function') {
+  console.error('getEffectiveMembers is not a function in app.js.');
+  errors++;
+} else {
+  let classesWithInit = 0;
+  let methodOrderErrors = 0;
+  let checkedClasses = 0;
+  for (const k of keys) {
+    const item = db[k];
+    if (item.kind === 'class') {
+      checkedClasses++;
+      const eff = getEffectiveMembers(item);
+      if (eff.some(m => m.name.startsWith('__init__'))) {
+        console.error(`Class "${k}" unexpectedly has __init__ in getEffectiveMembers (constructors belong in header synopsis).`);
+        classesWithInit++;
+        errors++;
+      }
+      let seenMagic = false;
+      for (const m of eff) {
+        if (m.name.startsWith('__')) {
+          seenMagic = true;
+        } else if (seenMagic) {
+          console.error(`Class "${k}" has regular method "${m.name}" after magic dunder method.`);
+          methodOrderErrors++;
+          errors++;
+          break;
+        }
+      }
+    }
+  }
+  if (classesWithInit === 0 && methodOrderErrors === 0) {
+    console.log(`[PASS] getEffectiveMembers verified: 0 classes have __init__ in member functions; 100% of classes (${checkedClasses}) strictly order regular methods before magic methods.`);
+  }
+}
+
+// Validate getMagicMethodOperator helper
+const getMagicMethodOperator = context.getMagicMethodOperator;
+if (typeof getMagicMethodOperator !== 'function') {
+  console.error('getMagicMethodOperator is not a function in app.js.');
+  errors++;
+} else {
+  const opTests = [
+    { name: '__init__(args)', expectedOp: '(constructor)', expectedCls: 'op-constructor' },
+    { name: '__call__(smiles)', expectedOp: 'obj(...)', expectedCls: 'op-call' },
+    { name: '__getitem__(key)', expectedOp: 'obj[...]', expectedCls: 'op-subscript' },
+    { name: '__len__()', expectedOp: 'len(obj)', expectedCls: 'op-len' },
+    { name: '__iter__()', expectedOp: 'iter(obj)', expectedCls: 'op-iter' },
+    { name: '__contains__(token)', expectedOp: 'x in obj', expectedCls: 'op-subscript' },
+    { name: 'fit(train_loader)', expectedOp: null },
+    { name: 'generate(100)', expectedOp: null }
+  ];
+  for (const ot of opTests) {
+    const res = getMagicMethodOperator(ot.name);
+    if (ot.expectedOp === null) {
+      if (res !== null) {
+        console.error(`getMagicMethodOperator("${ot.name}") expected null, got:`, res);
+        errors++;
+      }
     } else {
-      const pipCode = pipScript.slice(pipStart, pipEnd).trim();
-      try {
-        const pipEval = pipCode.replace(/^const PIPELINE_SCHEMAS =/, 'globalThis.PIPELINE_SCHEMAS_PIPE =');
-        vm.runInContext(pipEval, context);
-        validatePipelineSchemas(context.PIPELINE_SCHEMAS_PIPE, 'pipelines.html');
-      } catch (err) {
-        console.error('Error evaluating PIPELINE_SCHEMAS from pipelines.html:', err);
+      if (!res || res.op !== ot.expectedOp || res.cls !== ot.expectedCls) {
+        console.error(`getMagicMethodOperator("${ot.name}") mismatch: expected op="${ot.expectedOp}" cls="${ot.expectedCls}", got:`, res);
         errors++;
       }
     }
   }
+  console.log('[PASS] getMagicMethodOperator verified across special Python operator mappings.');
 }
 
-// 8. Strict Emoji Prohibition Check
+// Validate getMicroVizType helper
+const getMicroVizType = context.getMicroVizType;
+if (typeof getMicroVizType !== 'function') {
+  console.error('getMicroVizType is not a function in app.js.');
+  errors++;
+} else {
+  const microVizExpected = {
+    pareto_crowding: [
+      'drugex::training::rewards::ParetoCrowdingDistance',
+      'drugex::utils::pareto::get_Pareto_fronts',
+      'drugex::training::rewards::ParetoRewardScheme',
+      'drugex::training::rewards::RewardScheme',
+      'drugex::training::rewards::WeightedSum'
+    ],
+    pareto_tanimoto: [
+      'drugex::training::rewards::ParetoTanimotoDistance'
+    ],
+    modifier_curve: [
+      'drugex::training::scorers::ScoreModifier',
+      'drugex::training::scorers::SmoothClippedScore',
+      'drugex::training::scorers::ClippedScore',
+      'drugex::training::scorers::MinMaxGaussian',
+      'drugex::training::scorers::modifiers::ThresholdedLinear',
+      'drugex::training::scorers::modifiers::SmoothHump',
+      'drugex::training::scorers::modifiers::Squared',
+      'drugex::training::scorers::modifiers::AbsoluteScore',
+      'drugex::training::scorers::modifiers::Chained',
+      'drugex::training::scorers::Gaussian',
+      'drugex::training::scorers::Linear'
+    ],
+    rl_policy_cycle: [
+      'drugex::training::environment::DrugExEnvironment',
+      'drugex::training::environment::Environment',
+      'drugex::training::explorers::SequenceExplorer',
+      'drugex::training::explorers::FragSequenceExplorer',
+      'drugex::training::explorers::GraphExplorer',
+      'drugex::training::explorers::FragGraphExplorer',
+      'drugex::training::explorers::Explorer',
+      'drugex::training::explorers::FragExplorer',
+      'drugex::training::scorers::SmilesChecker',
+      'drugex::train::Reinforce'
+    ]
+  };
+
+  let microVizTestedCount = 0;
+  for (const [expectedType, symList] of Object.entries(microVizExpected)) {
+    for (const sym of symList) {
+      if (!db[sym]) {
+        console.error(`getMicroVizType test symbol "${sym}" does not exist in DATABASE.`);
+        errors++;
+        continue;
+      }
+      const actualType = getMicroVizType(sym);
+      if (actualType !== expectedType) {
+        console.error(`getMicroVizType("${sym}") expected "${expectedType}", got "${actualType}"`);
+        errors++;
+      } else {
+        microVizTestedCount++;
+      }
+    }
+  }
+  if (getMicroVizType('unknown::key') !== null) {
+    console.error('getMicroVizType("unknown::key") expected null, got non-null.');
+    errors++;
+  }
+  console.log(`[PASS] getMicroVizType verified across ${microVizTestedCount} target symbols with 4 visualization types.`);
+}
+
+// 7. Strict Emoji Prohibition Check
 console.log('\nValidating Strict Zero-Emoji Rule...');
 const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F1E6}-\u{1F1FF}]/u;
 
@@ -585,7 +487,7 @@ function collectDocFiles(dir) {
       }
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
-      if (['.html', '.md', '.mjs', '.js', '.json'].includes(ext)) {
+      if (['.html', '.md', '.mjs', '.js', '.css', '.json'].includes(ext)) {
         docFiles.push(fullPath);
       }
     }
@@ -604,7 +506,6 @@ const rootDocMarkdown = ['README.md', 'AGENT.md', 'TEST_INFRA.md', 'TEST_READY.m
 
 const filesToScan = Array.from(new Set([
   docsPath,
-  rootPipelines,
   ...collectDocFiles(docsDir),
   ...rootDocMarkdown
 ]));
@@ -630,6 +531,4 @@ if (errors > 0) {
   process.exit(1);
 }
 
-console.log('[SUCCESS] All assertions passed: 100% schema compliance, 0 broken cross-links, authentic cppreference format verified!\n');
-
-
+console.log('[SUCCESS] All assertions passed: 100% schema compliance, 0 broken cross-links, modular cppreference platform verified!\n');

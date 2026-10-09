@@ -8,18 +8,17 @@ from pathlib import Path
 repo_dir = Path("repo").resolve()
 sys.path.insert(0, str(repo_dir))
 
-docs_path = Path("docs/index.html")
-content = docs_path.read_text(encoding="utf-8")
-
-m = re.search(r'<script type="text/babel">([\s\S]*?)</script>', content)
-if not m:
-    print("Error: script tag not found")
-    sys.exit(1)
-
-script_text = m.group(1)
+data_dir = Path("docs/data").resolve()
+matches = []
 pattern = r'["\']([^"\']+)["\']:\s*\{\s*category:\s*["\']([^"\']+)["\'][\s\S]*?example:\s*\{\s*code:\s*`([^`]+)`,\s*output:\s*`([^`]*)`'
-matches = list(re.finditer(pattern, script_text))
-print(f"Found {len(matches)} examples via regex")
+
+for f in sorted(data_dir.glob("*.js")):
+    if f.name == "sections.js":
+        continue
+    content = f.read_text(encoding="utf-8")
+    matches.extend(list(re.finditer(pattern, content)))
+
+print(f"Found {len(matches)} examples across modular data files")
 
 import_errors = []
 
