@@ -34,27 +34,26 @@ from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
 from drugex.training.scorers.modifiers import SmoothHump
 from drugex.training.scorers.properties import Scaffold
 from rdkit import Chem
+from rdkit.Chem import AllChem
 
 import _david.run as david_run
-from _david.code.anti_cheating_rewards import (
+from _david.code.analysis import AlignedDepicter, ParetoFrontier, ResultAnalyzer
+from _david.code.experiments import ExperimentRunner, ThresholdAblationRunner
+from _david.code.models import GraphTransformerOptimizer, RL_EPSILON
+from _david.code.objectives import (
     AntiCollapseSoftGateReward,
     AugmentedChebyshevReward,
-    GeometricMeanReward,
-)
-from _david.code.dynamic_envelope import (
     DynamicPropertyEnvelope,
-    create_dynamic_property_scorers,
-)
-from _david.code.fallback_monitor import FallbackMonitor
-from _david.code.GraphTransformer import GraphTransformerOptimizer
-from _david.code.monitor import display_dashboard
-from _david.code.pipeline import MoleculePipeline
-from _david.code.prepare_query_conformer import (
+    GeometricMeanReward,
     MY_MOLECULE,
+    ObjectiveBuilder,
+    ObjectivePreset,
     QueryConformerPreparer,
+    create_dynamic_property_scorers,
     get_seed_hash,
 )
-from _david.code.result_analyzer import ResultAnalyzer
+from _david.code.pipeline import MoleculePipeline
+from _david.code.utils import FallbackMonitor, display_dashboard
 
 
 class TestActivePipeline(unittest.TestCase):
@@ -356,6 +355,76 @@ class TestActivePipeline(unittest.TestCase):
                 self.assertTrue((pipe_dir / "pipeline_status.json").exists())
                 self.assertTrue((pipe_dir / "pipeline.log").exists())
                 self.assertEqual(summary["mode"], "benchmark_only")
+
+    def test_objective_builder_presets(self) -> None:
+        """Verify ObjectiveBuilder correctly constructs environments for pure_3d_sa and gated_envelope presets."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ref_sdf = Path(tmp_dir) / "ref.sdf"
+            # Write minimal valid dummy SDF
+            m = Chem.MolFromSmiles("c1ccccc1O")
+            AllChem.EmbedMolecule(m)
+            w = Chem.SDWriter(str(ref_sdf))
+            w.write(m)
+            w.close()
+
+            # 1. Test PURE_3D_SA preset
+            builder_pure = ObjectiveBuilder(preset=ObjectivePreset.PURE_3D_SA, rocs_threshold=0.25, sa_threshold=0.25)
+            env_pure = builder_pure.build_environment(ref_sdf, seed_smiles="c1ccccc1O")
+            self.assertEqual(len(env_pure.scorers), 2)  # ROCS + SA
+            self.assertEqual(len(env_pure.thresholds), 2)
+            self.assertEqual(env_pure.thresholds[0], 0.25)
+            self.assertEqual(env_pure.thresholds[1], 0.25)
+            self.assertIsInstance(env_pure.rewardScheme, AntiCollapseSoftGateReward)
+            self.assertEqual(env_pure.rewardScheme.rocs_col_idx, 0)
+            self.assertEqual(env_pure.rewardScheme.sa_col_idx, 1)
+            self.assertEqual(env_pure.rewardScheme.w_props, 0.0)
+
+            # 2. Test GATED_ENVELOPE preset
+            builder_env = ObjectiveBuilder(preset=ObjectivePreset.GATED_ENVELOPE, rocs_threshold=0.25, prop_threshold=0.25, sa_threshold=0.25)
+            env_gated = builder_env.build_environment(ref_sdf, seed_smiles="c1ccccc1O")
+            self.assertGreater(len(env_gated.scorers), 2)  # ROCS + properties + SA
+            self.assertEqual(len(env_gated.thresholds), len(env_gated.scorers))
+            self.assertEqual(env_gated.rewardScheme.sa_col_idx, len(env_gated.scorers) - 1)
+            self.assertEqual(env_gated.rewardScheme.w_props, 0.30)
+
+    def test_aligned_depicter(self) -> None:
+        """Verify AlignedDepicter aligns 2D coordinates and generates grid images."""
+        depicter = AlignedDepicter(reference="c1ccccc1O")
+        m1 = Chem.MolFromSmiles("c1ccccc1CC")
+        aligned = depicter.align_molecule(m1)
+        self.assertIsNotNone(aligned)
+        self.assertGreater(aligned.GetNumConformers(), 0)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            img_path = Path(tmp_dir) / "aligned_grid.png"
+            img = depicter.create_aligned_grid([m1], legends=["Lead 1"], output_path=img_path)
+            self.assertIsNotNone(img)
+            self.assertTrue(img_path.exists())
+
+    def test_pareto_frontier(self) -> None:
+        """Verify ParetoFrontier identifies non-dominated candidates and computes Pareto ranks."""
+        pareto = ParetoFrontier()
+        # Candidate 0: ROCS=1.5, SA=2.0 (Dominates candidate 1: ROCS=1.0, SA=4.0)
+        # Candidate 2: ROCS=0.8, SA=1.5 (Non-dominated tradeoff with Candidate 0)
+        df_candidates = pd.DataFrame({
+            "SMILES": ["mol0", "mol1", "mol2"],
+            "ROCS": [1.5, 1.0, 0.8],
+            "SA": [2.0, 4.0, 1.5],
+            "Valid": [True, True, True],
+        })
+        ranked = pareto.rank_pareto_fronts(df_candidates, objectives=("ROCS", "SA"), maximize=(True, False))
+        self.assertTrue(ranked.loc[0, "Pareto_Optimal"])
+        self.assertFalse(ranked.loc[1, "Pareto_Optimal"])
+        self.assertTrue(ranked.loc[2, "Pareto_Optimal"])
+        self.assertEqual(ranked.loc[0, "Pareto_Rank"], 0)
+        self.assertEqual(ranked.loc[1, "Pareto_Rank"], 1)
+        self.assertEqual(ranked.loc[2, "Pareto_Rank"], 0)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            plot_path = Path(tmp_dir) / "pareto.png"
+            p = pareto.plot_pareto_frontier(ranked, x_col="ROCS", y_col="SA", output_path=plot_path)
+            self.assertIsNotNone(p)
+            self.assertTrue(plot_path.exists())
 
 
 if __name__ == "__main__":

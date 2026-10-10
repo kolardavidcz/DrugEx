@@ -17,8 +17,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from _david.code.objectives import get_safe_parallel_jobs
 from _david.code.pipeline import DEFAULT_MOLECULE, MoleculePipeline
-from _david.code.prepare_query_conformer import get_safe_parallel_jobs
 
 # [PACKAGE: os] WHY: Cap CPU multiprocessing workers across DrugEx to at most 24 cores (half host cores) and enforce forkserver to prevent mutex deadlocks. WHAT: Process env configuration. HOW: os.environ.setdefault.
 SAFE_CORES: int = get_safe_parallel_jobs()
@@ -30,6 +30,15 @@ os.environ.setdefault("DRUGEX_MP_CONTEXT", "forkserver")
 # =============================================================================
 # Execution mode: 'full' (train RL), 'test' (1-epoch sanity check), 'benchmark_only'
 MODE: str = "full"
+
+# Objective preset: 'pure_3d_sa' (Simplified Base: ROCS + SA floor) or 'gated_envelope'
+PRESET: str = "pure_3d_sa"
+
+# Exploration mutation rate (0.20 recommended for enhanced scaffold hopping)
+EPSILON: float = 0.20
+
+# Early stopping patience
+PATIENCE: int = 25
 
 # Number of RL epochs (recommend: 10 or 20 on dichtator GPU, 1 on local CPU)
 EPOCHS: int = 10
@@ -53,16 +62,19 @@ OUTPUT_DIR: Path | None = None
 
 def main() -> None:
     """Entry point for IDE and detached daemon execution."""
-    global MODE, EPOCHS, N_SAMPLES, DETACH, MOLECULE, OUTPUT_DIR, GPU
+    global MODE, PRESET, EPSILON, EPOCHS, PATIENCE, N_SAMPLES, DETACH, MOLECULE, OUTPUT_DIR, GPU
 
     is_worker = os.environ.get("DRUGEX_DETACHED_WORKER") == "1"
 
-    # Allow optional CLI flag override if invoked with arguments outside IDE
-    if len(sys.argv) > 1 and not is_worker:
+    # Allow optional CLI flag override if invoked with arguments outside IDE or by worker
+    if len(sys.argv) > 1:
         import argparse
         parser = argparse.ArgumentParser(description="DrugEx LBDD Runner")
         parser.add_argument("--mode", default=MODE, choices=["full", "test", "benchmark_only"])
+        parser.add_argument("--preset", default=PRESET, choices=["pure_3d_sa", "gated_envelope"], help="Objective preset")
+        parser.add_argument("--epsilon", type=float, default=EPSILON, help="Exploration rate from Prior (default 0.20)")
         parser.add_argument("--epochs", type=int, default=EPOCHS)
+        parser.add_argument("--patience", type=int, default=PATIENCE)
         parser.add_argument("--n-samples", type=int, default=N_SAMPLES)
         parser.add_argument("--molecule", default=MOLECULE)
         parser.add_argument("--gpu", default=GPU, help="GPU target: 'auto', 0, 1")
@@ -70,7 +82,10 @@ def main() -> None:
         parser.add_argument("--no-detach", action="store_false", dest="detach", default=DETACH)
         args, _ = parser.parse_known_args()
         MODE = args.mode
+        PRESET = args.preset
+        EPSILON = args.epsilon
         EPOCHS = args.epochs
+        PATIENCE = args.patience
         N_SAMPLES = args.n_samples
         MOLECULE = args.molecule
         GPU = args.gpu
@@ -120,9 +135,24 @@ def main() -> None:
             else:
                 popen_kwargs["start_new_session"] = True
 
+        worker_cmd = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--mode", MODE,
+            "--preset", PRESET,
+            "--epochs", str(EPOCHS),
+            "--patience", str(PATIENCE),
+            "--epsilon", str(EPSILON),
+            "--n-samples", str(N_SAMPLES),
+            "--molecule", MOLECULE,
+            "--gpu", str(GPU),
+            "--out-dir", str(target_dir),
+            "--no-detach",
+        ]
+
         with open(log_file, "a", encoding="utf-8") as f_out:
             proc = subprocess.Popen(
-                [sys.executable, str(Path(__file__).resolve())],
+                worker_cmd,
                 stdout=f_out,
                 stderr=subprocess.STDOUT,
                 **popen_kwargs,
@@ -171,7 +201,10 @@ def main() -> None:
     pipeline = MoleculePipeline(
         output_dir=target_dir,
         mode=MODE,
+        preset=PRESET,
+        epsilon=EPSILON,
         epochs=EPOCHS,
+        patience=PATIENCE,
         n_samples=N_SAMPLES,
         gpu=GPU,
     )

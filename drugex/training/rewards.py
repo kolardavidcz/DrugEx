@@ -178,7 +178,3 @@ class WeightedSum(RewardScheme):
             ((scores >= thresholds).mean(axis=0, keepdims=True) + 0.01)
         weight = weight / weight.sum()
         return scores.dot(weight.T)
-
-
-# [Anti-Cheating Framework] Continuous anti-collapse soft gating imported from _david module
-from _david.code.anti_cheating_rewards import AntiCollapseSoftGateReward

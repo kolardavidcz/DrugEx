@@ -22,43 +22,27 @@ import pandas as pd
 import torch
 from rdkit import Chem
 
-from _david.code import (
-    GraphTransformer,
-    prepare_query_conformer,
+from _david.code.analysis import ResultAnalyzer
+from _david.code.models import (
+    GraphTransformerOptimizer,
+    RL_BATCH_SIZE,
+    RL_BETA,
+    RL_EPSILON,
+    get_safe_gpus,
 )
-from _david.code.fallback_monitor import FallbackMonitor
-from _david.code.result_analyzer import ResultAnalyzer
-
-
-def get_gpu_telemetry() -> dict[str, Any]:
-    """Gather current GPU device and memory metrics."""
-    telemetry: dict[str, Any] = {
-        "cuda_available": torch.cuda.is_available(),
-        "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
-        "devices": [],
-    }
-    if torch.cuda.is_available():
-        for i in range(torch.cuda.device_count()):
-            props = torch.cuda.get_device_properties(i)
-            total_mem = props.total_memory / (1024 ** 2)
-            allocated = torch.cuda.memory_allocated(i) / (1024 ** 2)
-            reserved = torch.cuda.memory_reserved(i) / (1024 ** 2)
-            max_alloc = torch.cuda.max_memory_allocated(i) / (1024 ** 2)
-            try:
-                free_bytes, _ = torch.cuda.mem_get_info(i)
-                free_mb = free_bytes / (1024 ** 2)
-            except Exception:
-                free_mb = total_mem - reserved
-            telemetry["devices"].append({
-                "index": i,
-                "name": props.name,
-                "allocated_mb": round(allocated, 2),
-                "reserved_mb": round(reserved, 2),
-                "max_allocated_mb": round(max_alloc, 2),
-                "total_memory_mb": round(total_mem, 2),
-                "free_memory_mb": round(free_mb, 2),
-            })
-    return telemetry
+from _david.code.objectives import (
+    DEFAULT_PROP_THRESHOLD,
+    DEFAULT_ROCS_THRESHOLD,
+    DEFAULT_SA_THRESHOLD,
+    ObjectiveBuilder,
+    ObjectivePreset,
+    QueryConformerPreparer,
+    get_safe_parallel_jobs,
+)
+from _david.code.utils import (
+    FallbackMonitor,
+    get_gpu_telemetry,
+)
 
 
 DEFAULT_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
@@ -81,16 +65,17 @@ class MoleculePipeline:
         epochs: int = DEFAULT_EPOCHS,
         n_samples: int = DEFAULT_N_SAMPLES,
         gpu: int | str | None = None,
+        preset: ObjectivePreset | str = ObjectivePreset.PURE_3D_SA,
         include_hb: bool = False,
-        include_envelope: bool = True,
+        include_envelope: bool = False,
         drop_off: bool = True,
         patience: int = 15,
         min_epochs: int = 10,
-        rocs_threshold: float = 0.30,
-        prop_threshold: float = 0.30,
-        sa_threshold: float = 0.30,
+        rocs_threshold: float = DEFAULT_ROCS_THRESHOLD,
+        prop_threshold: float = DEFAULT_PROP_THRESHOLD,
+        sa_threshold: float = DEFAULT_SA_THRESHOLD,
         criteria: str = "desired_ratio",
-        epsilon: float = GraphTransformer.RL_EPSILON,
+        epsilon: float = RL_EPSILON,
         use_anti_cheating: bool = True,
     ) -> None:
         """Initialize MoleculePipeline with execution mode, hyperparameters, thresholds, and GPU target.
@@ -101,16 +86,17 @@ class MoleculePipeline:
             epochs: RL training epochs per stage.
             n_samples: Number of molecules sampled per epoch.
             gpu: Target GPU index (0, 1), 'auto', or None (probes and picks GPU with highest free VRAM).
+            preset: Objective preset ('pure_3d_sa' or 'gated_envelope') (default 'pure_3d_sa').
             include_hb: Whether to include H-donor/acceptor envelope optimization (default False).
-            include_envelope: Whether to include secondary physicochemical envelope (HAC, LogP) (default True).
+            include_envelope: Whether to include secondary physicochemical envelope (HAC, LogP) (default False).
             drop_off: Whether to enable early stopping drop-off monitoring (default True).
             patience: Number of consecutive degradation epochs before early stopping triggers (default 15).
             min_epochs: Minimum epochs before early stopping drop-off can trigger (default 10).
-            rocs_threshold: Desirability passing threshold for 3D ROCS alignment (default 0.30).
-            prop_threshold: Desirability passing threshold for secondary dynamic envelopes (default 0.30).
-            sa_threshold: Desirability passing threshold for single SA synthesizability floor (default 0.30).
+            rocs_threshold: Desirability passing threshold for 3D ROCS alignment (default 0.25).
+            prop_threshold: Desirability passing threshold for secondary dynamic envelopes (default 0.25).
+            sa_threshold: Desirability passing threshold for single SA synthesizability floor (default 0.25).
             criteria: Evaluation metric driving PeakRecoveryMonitor checkpoint tracking (default 'desired_ratio').
-            epsilon: Exploration mutation rate sampling from frozen Prior network (default 0.10).
+            epsilon: Exploration mutation rate sampling from frozen Prior network (default 0.20).
             use_anti_cheating: Whether to use AntiCollapseSoftGateReward (True) or native WeightedSum (False).
         """
         self.ROOT_PATH: Path = PROJECT_ROOT
@@ -118,8 +104,13 @@ class MoleculePipeline:
         self.EPOCHS: int = TEST_EPOCHS if self.MODE == "test" else epochs
         self.N_SAMPLES: int = TEST_N_SAMPLES if self.MODE == "test" else n_samples
         self.GPU: int | str | None = gpu
+        if isinstance(preset, str):
+            preset = ObjectivePreset(preset.lower())
+        if include_envelope:
+            preset = ObjectivePreset.GATED_ENVELOPE
+        self.PRESET: ObjectivePreset = preset
         self.INCLUDE_HB: bool = include_hb
-        self.INCLUDE_ENVELOPE: bool = include_envelope
+        self.INCLUDE_ENVELOPE: bool = (self.PRESET == ObjectivePreset.GATED_ENVELOPE)
         self.DROP_OFF: bool = drop_off
         self.PATIENCE: int = patience
         self.MIN_EPOCHS: int = int(min_epochs)
@@ -129,7 +120,6 @@ class MoleculePipeline:
         self.CRITERIA: str = criteria
         self.EPSILON: float = float(epsilon)
         self.USE_ANTI_CHEATING: bool = bool(use_anti_cheating)
-        from _david.code.GraphTransformer import get_safe_gpus
         self.GPUS: tuple[int, ...] | tuple[()] = get_safe_gpus(preferred_gpu=gpu)
         #? [DateTime] Generates ISO-like timestamp string for run directory isolation.
         self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -144,7 +134,7 @@ class MoleculePipeline:
         self.PRETRAINED_GRAPH: Path = self.ROOT_PATH / "data" / "models" / "pretrained" / "graph-trans" / "Papyrus05.5_graph_trans_PT"
 
         # [PACKAGE: os] WHY: Cap CPU multiprocessing workers across DrugEx to at most 24 cores (half host cores) and enforce forkserver to prevent mutex deadlocks. WHAT: Process env configuration. HOW: os.environ.setdefault.
-        safe_cores = prepare_query_conformer.get_safe_parallel_jobs()
+        safe_cores = get_safe_parallel_jobs()
         os.environ.setdefault("DRUGEX_SCORE_NJOBS", str(safe_cores))
         os.environ.setdefault("DRUGEX_MP_CONTEXT", "forkserver")
 
@@ -260,7 +250,7 @@ class MoleculePipeline:
         seed_core_tsv: Path = ref_dir / "seed_core_scaffold.tsv"
 
         print("\n[Stage 0] Generating 3D reference conformer ensemble...")
-        preparer = prepare_query_conformer.QueryConformerPreparer(references_dir=ref_dir)
+        preparer = QueryConformerPreparer(references_dir=ref_dir)
         preparer.generate_reference_sdf(smiles=primary_molecule, output_path=ref_sdf)
         preparer.extract_seed_core_scaffold(smiles=primary_molecule, output_path=seed_core_tsv)
 
@@ -295,23 +285,25 @@ class MoleculePipeline:
         candidates_tsv: Path = stage1_dir / "generated_candidates.tsv"
 
         print("\n[Stage 1] Graph-Transformer Ligand-Based Lead Generation (Seed Core RL)...")
-        print(f"[Stage 1] Executing Graph-Transformer RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
+        print(f"[Stage 1] Executing Graph-Transformer RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES}, preset={self.PRESET.value})...")
 
         from drugex.training.explorers import FragGraphExplorer
         from drugex.training.monitors import PeakRecoveryMonitor
 
-        optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage1_dir, gpu=self.GPU)
+        optimizer = GraphTransformerOptimizer(output_dir=stage1_dir, gpu=self.GPU)
         from drugex.training.rewards import WeightedSum
         scheme = None if self.USE_ANTI_CHEATING else WeightedSum()
-        env = optimizer.build_environment(
-            ref_sdf,
-            seed_smiles=primary_molecule,
-            reward_scheme=scheme,
-            include_hb=self.INCLUDE_HB,
-            include_envelope=self.INCLUDE_ENVELOPE,
+        builder = ObjectiveBuilder(
+            preset=self.PRESET,
             rocs_threshold=self.ROCS_THRESHOLD,
             prop_threshold=self.PROP_THRESHOLD,
             sa_threshold=self.SA_THRESHOLD,
+            include_hb=self.INCLUDE_HB,
+        )
+        env = builder.build_environment(
+            ref_sdf_path=ref_sdf,
+            seed_smiles=primary_molecule,
+            reward_scheme=scheme,
         )
         seed_loader, seed_dataset = optimizer._prepare_seed_fragments(
             primary_molecule, n_prompts=self.N_SAMPLES, scaffolds_path=seed_core_tsv
@@ -323,8 +315,8 @@ class MoleculePipeline:
             env=env,
             mutate=optimizer.PRIOR,
             epsilon=self.EPSILON,
-            beta=GraphTransformer.RL_BETA,
-            batch_size=GraphTransformer.RL_BATCH_SIZE,
+            beta=RL_BETA,
+            batch_size=RL_BATCH_SIZE,
             use_gpus=optimizer.GPUS,
         )
 
