@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np

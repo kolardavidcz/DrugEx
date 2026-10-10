@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from torch.utils.data import DataLoader
 from drugex.data.corpus.vocabulary import VocGraph
 from drugex.data.datasets import GraphFragDataSet
 from drugex.data.fragments import FragmentCorpusEncoder, GraphFragmentEncoder

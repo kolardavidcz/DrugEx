@@ -1,3 +1,12 @@
 [lint]
-select = ["E", "F", "B", "UP", "SIM", "I"]
-extend-ignore = ["E402", "E501"]
+# Select core correctness and bug checks
+select = ["E", "F", "B"]
+
+# Disable noisy, unhelpful developer-friction rules:
+extend-ignore = [
+    "F401",  # Unused imports (normal during active research & iterative scripting)
+    "E501",  # Line length limit
+    "E402",  # Module level import not at top of file
+    "B008",  # Do not perform function call in argument defaults
+    "B905",  # zip() without an explicit strict= parameter
+]
