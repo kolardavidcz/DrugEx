@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 from _david.code.objectives.builder import (
+    DEFAULT_2D_THRESHOLD,
     DEFAULT_PROP_THRESHOLD,
     DEFAULT_ROCS_THRESHOLD,
     DEFAULT_SA_THRESHOLD,
     SA_CEILING,
     SA_FLOOR,
     ObjectiveBuilder,
+    ObjectiveConfig,
     ObjectivePreset,
+    RewardSchemeType,
+    SAMode,
+    SimilarityType,
 )
 from _david.code.objectives.conformer import (
     MY_MOLECULE,
@@ -60,6 +65,7 @@ __all__: list[str] = [
     "SA_FLOOR",
     "SA_CEILING",
     "DEFAULT_ROCS_THRESHOLD",
+    "DEFAULT_2D_THRESHOLD",
     "DEFAULT_PROP_THRESHOLD",
     "DEFAULT_SA_THRESHOLD",
     "ROCS_THRESHOLD",
@@ -67,4 +73,8 @@ __all__: list[str] = [
     "SA_THRESHOLD",
     "ObjectivePreset",
     "ObjectiveBuilder",
+    "ObjectiveConfig",
+    "SimilarityType",
+    "RewardSchemeType",
+    "SAMode",
 ]
