@@ -194,4 +194,122 @@ First this molecule is encoded, then reinforcement learning is done with this sc
     python -m drugex.generate -b ${BASE_DIR} -i scaffold_based_graph.txt -g scaffold_based_graph_trans_RL -gpu 0 -n 5
 
 .. note:: The not fully converged model here will have trouble producing the scaffold that we need so the generate command may take a long time.
-    
+
+
+Programmatic Python API (drugex.train)
+--------------------------------------
+
+In addition to running training via CLI commands, all components in :mod:`drugex.train` can be imported and executed directly in standard Python development scripts (such as custom analysis pipelines or `_david/david.py`). This eliminates the need to manually implement tokenization, dataset splits, or training loops from scratch.
+
+Fine-tuning in a Python Script
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To fine-tune a pretrained model (e.g., SequenceRNN) on a focused ligand set:
+
+.. code-block:: python
+
+    from drugex.train import Finetune
+
+    # Initialize Finetune with keyword arguments
+    finetuner = Finetune(
+        base_dir=".",
+        input="ligand_corpus",
+        agent_path="data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT.pkg",
+        mol_type="smiles",
+        algorithm="rnn",
+        epochs=20,
+        batch_size=64,
+        use_gpus=[0]
+    )
+
+    # Train and retrieve the fine-tuned generator model
+    finetuned_agent = finetuner.fit()
+
+    # Generate novel molecules immediately in memory
+    sample_df = finetuned_agent.generate(num_samples=100)
+    print(sample_df.head())
+
+Using In-Memory DataLoaders Directly
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you already have PyTorch DataLoaders and a vocabulary in memory, you can pass them directly to bypass disk file lookups:
+
+.. code-block:: python
+
+    from drugex.train import Finetune
+
+    finetuner = Finetune(
+        agent_path="data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT.pkg",
+        train_loader=train_loader,
+        valid_loader=valid_loader,
+        voc=voc,
+        mol_type="smiles",
+        algorithm="rnn",
+        epochs=20,
+        use_gpus=[0]
+    )
+    finetuned_agent = finetuner.fit()
+
+Reinforcement Learning in a Python Script
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To optimize a fine-tuned model towards multiple objectives (e.g., QED, synthetic accessibility, and QSPR bioactivity):
+
+.. code-block:: python
+
+    from drugex.train import Reinforce
+
+    rl = Reinforce(
+        base_dir=".",
+        input="ligand_corpus",
+        agent_path="generators/my_finetuned_agent.pkg",
+        prior_path="data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT.pkg",
+        mol_type="smiles",
+        algorithm="rnn",
+        scheme="PRCD",  # Pareto ranking with crowding distance
+        qed=True,
+        sa_score=True,
+        epochs=50,
+        batch_size=128,
+        use_gpus=[0]
+    )
+
+    # Run policy-gradient RL training
+    explorer = rl.fit()
+
+Preparing DataLoaders Directly
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To obtain PyTorch DataLoaders and vocabularies without manually setting up tokenizers or splitters:
+
+.. code-block:: python
+
+    from drugex.train import SmilesDataPreparation
+
+    prep = SmilesDataPreparation(
+        base_dir=".",
+        voc_files=["voc_smiles.txt"],
+        input="ligand_corpus",
+        batch_size=64
+    )
+    voc, train_loader, valid_loader = prep()
+
+Building Multi-Objective Environments
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can also construct a :class:`~drugex.training.environment.DrugExEnvironment` directly using :func:`~drugex.train.CreateEnvironment`:
+
+.. code-block:: python
+
+    from drugex.train import CreateEnvironment
+
+    env = CreateEnvironment(
+        base_dir=".",
+        scheme="PRCD",
+        qed=True,
+        sa_score=True,
+        mw=True,
+        mw_ths=[200, 500],
+        logP=True,
+        logP_ths=[-1.0, 4.0]
+    )

@@ -11,6 +11,7 @@ Evaluates generated molecules against reference 3D query template:
 from __future__ import annotations
 
 import json
+import math
 import sys
 from collections import Counter
 from collections.abc import Sequence
@@ -55,6 +56,11 @@ except Exception:
     def calculate_sa_score(mol: Chem.Mol) -> float:
         """Fallback SA score evaluator returning nominal neutral value."""
         return 3.5
+
+try:
+    from dynamic_envelope import DynamicPropertyEnvelope
+except (ImportError, ModuleNotFoundError):
+    from _david.code.dynamic_envelope import DynamicPropertyEnvelope
 
 try:
     from fallback_monitor import FallbackMonitor
@@ -749,8 +755,30 @@ class ResultAnalyzer:
         tau_3d = 0.60
         g_3d = np.minimum(1.0, s_3d / tau_3d)
 
-        # Secondary property component (QED drug-likeness)
-        s_qed = np.clip(df["QED"].values, 0.0, 1.0)
+        # Physical envelope component: Heavy Atom Count (HAC) and CLogP
+        # (TPSA, HBD, HBA, and QED removed to eliminate artificial constraints)
+        envelope = DynamicPropertyEnvelope.from_query(self.seed_smiles)
+        hac_vals = df["HAC"].values
+        hac_score = np.where(
+            (hac_vals >= envelope.hac_lower) & (hac_vals <= envelope.hac_upper),
+            1.0,
+            np.where(
+                hac_vals < envelope.hac_lower,
+                np.exp(-((hac_vals - envelope.hac_lower) ** 2) / (2 * envelope.hac_sigma ** 2)),
+                np.exp(-((hac_vals - envelope.hac_upper) ** 2) / (2 * envelope.hac_sigma ** 2)),
+            ),
+        )
+        logp_vals = df["LogP"].values
+        logp_score = np.where(
+            (logp_vals >= envelope.clogp_lower) & (logp_vals <= envelope.clogp_upper),
+            1.0,
+            np.where(
+                logp_vals < envelope.clogp_lower,
+                np.exp(-((logp_vals - envelope.clogp_lower) ** 2) / (2 * envelope.clogp_sigma ** 2)),
+                np.exp(-((logp_vals - envelope.clogp_upper) ** 2) / (2 * envelope.clogp_sigma ** 2)),
+            ),
+        )
+        s_props = 0.50 * hac_score + 0.50 * logp_score
 
         # Single synthesizability floor: 1.0 for SA <= 5.5, linearly penalized above 5.5, 0.0 above 6.0
         sa_vals = df["SA"].values
@@ -762,7 +790,7 @@ class ResultAnalyzer:
 
         w_3d = 0.70
         w_props = 0.30
-        base_desirability = w_3d * s_3d + w_props * g_3d * s_qed * s_sa_floor
+        base_desirability = w_3d * s_3d + w_props * g_3d * s_props + s_sa_floor
 
         # Strict anti-cheating zero mask for non-conforming 3D shapes
         zero_mask = s_3d <= 1e-6
@@ -849,7 +877,7 @@ class ResultAnalyzer:
             legends.append(
                 f"QUERY SEED (EGCG)\n"
                 f"HAC: {self.seed_hac} | MW: {self.seed_mw:.1f}\n"
-                f"QED: {self.seed_qed:.2f} | SA: {self.seed_sa:.2f}"
+                f"LogP: {self.seed_logp:.2f} | SA: {self.seed_sa:.2f}"
             )
 
         for idx, row in df_leads.head(max_leads).iterrows():
@@ -859,7 +887,7 @@ class ResultAnalyzer:
                 legends.append(
                     f"Lead #{idx + 1}\n"
                     f"ROCS: {row['ROCS']:.2f} | Des: {row['Desirability']:.2f}\n"
-                    f"MW: {row['MW']:.1f} | QED: {row['QED']:.2f} | SA: {row['SA']:.2f}"
+                    f"MW: {row['MW']:.1f} | LogP: {row['LogP']:.2f} | SA: {row['SA']:.2f}"
                 )
 
         if plot_mols:
@@ -876,138 +904,147 @@ class ResultAnalyzer:
             figures["lead_structures_2d"] = grid_path
             figures["structures_grid"] = grid_path
 
-        # 2. Physicochemical Property Distributions Multi-Panel Chart
+        # 2. Physicochemical Property Distributions Multi-Panel Chart (Dynamic Auto-Plotting)
         eval_df = df_all if df_all is not None and not df_all.empty else df_leads
         valid_df = eval_df[eval_df["Valid"]].copy()
 
         if len(valid_df) >= 1:
-            # [PACKAGE: matplotlib] WHY: Construct 3x3 publication-grade diagnostic grid distinguishing active vs unoptimized features. WHAT: Multi-panel figure generation. HOW: plt.subplots.
-            fig, axes = plt.subplots(3, 3, figsize=(16, 12.5))
+            # Metadata dictionary mapping active molecular descriptors and objectives
+            # (TPSA, HBD, HBA, and QED removed to eliminate artificial constraints)
+            meta_map: dict[str, dict[str, Any]] = {
+                "ROCS": {
+                    "name": "3D Gaussian ROCS Overlap",
+                    "xlabel": "TanimotoCombo (0.0 to 2.0)",
+                    "seed": None,
+                    "target_line": 1.00,
+                    "target_label": "High Overlap (1.00)",
+                    "color": "#2A9D8F",
+                },
+                "Desirability": {
+                    "name": "Multi-Objective Desirability",
+                    "xlabel": "Composite Desirability (0.0 to 1.0)",
+                    "seed": None,
+                    "target_line": 0.50,
+                    "target_label": "Target (>= 0.50)",
+                    "color": "#264653",
+                },
+                "SA": {
+                    "name": "Synthetic Accessibility (SAscore)",
+                    "xlabel": "SA Score (1 = Easy, 10 = Hard)",
+                    "seed": self.seed_sa,
+                    "span": (1.0, 5.5),
+                    "span_label": "Feasible (<= 5.5)",
+                    "color": "#E9C46A",
+                },
+                "Tanimoto_to_Seed": {
+                    "name": "2D ECFP4 Similarity to Seed",
+                    "xlabel": "Tanimoto Similarity",
+                    "seed": None,
+                    "target_line": 0.35,
+                    "target_label": "Scaffold Hop (<= 0.35)",
+                    "color": "#343A40",
+                },
+                "MW": {
+                    "name": "Molecular Weight (MW)",
+                    "xlabel": "MW (Da)",
+                    "seed": self.seed_mw,
+                    "span": (round(0.70 * self.seed_mw, 1), round(1.30 * self.seed_mw, 1)),
+                    "span_label": "Envelope (±30%)",
+                    "color": "#1D3557",
+                },
+                "HAC": {
+                    "name": "Heavy Atom Count (HAC)",
+                    "xlabel": "Heavy Atoms Count",
+                    "seed": self.seed_hac,
+                    "discrete": True,
+                    "span": (round(0.70 * self.seed_hac), round(1.30 * self.seed_hac)),
+                    "span_label": "Envelope (±30%)",
+                    "color": "#3A5A40",
+                },
+                "LogP": {
+                    "name": "Calculated Lipophilicity (CLogP)",
+                    "xlabel": "CLogP",
+                    "seed": self.seed_logp,
+                    "span": (round(self.seed_logp - 1.5, 2), round(self.seed_logp + 1.5, 2)),
+                    "span_label": "Envelope (±1.5)",
+                    "color": "#6D597A",
+                },
+                "RotBonds": {
+                    "name": "Rotatable Bonds (Flexibility)",
+                    "xlabel": "Rotatable Bonds Count",
+                    "seed": self.seed_rotbonds,
+                    "discrete": True,
+                    "color": "#495057",
+                },
+            }
+
+            # Select only curated molecular descriptors present in valid_df
+            active_cols: list[str] = [p for p in meta_map if p in valid_df.columns]
+
+            n_props = len(active_cols)
+            ncols = min(4, n_props) if n_props > 0 else 1
+            nrows = max(1, math.ceil(n_props / ncols))
+            fig, axes = plt.subplots(nrows, ncols, figsize=(5.2 * ncols, 3.8 * nrows))
+            axes_flat = axes.flatten() if hasattr(axes, "flatten") else [axes]
+
             fig.suptitle(
-                "Ligand-Based De Novo Drug Design: Multi-Objective & Diagnostic Profiles",
+                "Ligand-Based De Novo Drug Design: Comprehensive Property Distributions",
                 fontsize=15,
                 weight="bold",
-                y=0.98,
+                y=0.99,
             )
 
-            # Subplot 1: 3D ROCS Distribution (Row 0, Col 0 - Active RL Scorer)
-            ax = axes[0, 0]
-            ax.hist(valid_df["ROCS"], bins=15, color="#2A9D8F", edgecolor="black", alpha=0.80)
-            ax.axvline(1.00, color="#E76F51", linestyle="--", linewidth=1.5, label="High Overlap (1.00)")
-            ax.set_title("3D Gaussian ROCS (TanimotoCombo)", fontsize=11, weight="bold")
-            ax.set_xlabel("ROCS Score (0 to 2.0)")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.5)
+            for idx, col in enumerate(active_cols):
+                ax = axes_flat[idx]
+                col_data = pd.to_numeric(valid_df[col], errors="coerce").dropna()
+                meta = meta_map.get(col, {
+                    "name": col,
+                    "xlabel": col,
+                    "seed": getattr(self, f"seed_{col.lower()}", None),
+                    "color": "#457B9D",
+                })
 
-            # Subplot 2: QED Drug-likeness Distribution (Row 0, Col 1 - Secondary Objective)
-            ax = axes[0, 1]
-            ax.hist(valid_df["QED"], bins=15, color="#457B9D", edgecolor="black", alpha=0.80)
-            ax.axvline(self.seed_qed, color="#E63946", linestyle="--", linewidth=1.5, label=f"Query ({self.seed_qed:.2f})")
-            ax.set_title("Drug-likeness Estimate (QED)", fontsize=11, weight="bold")
-            ax.set_xlabel("QED Score (0 to 1.0)")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.5)
+                color = meta.get("color", "#457B9D")
+                is_discrete = meta.get("discrete", False) or np.all(col_data == np.floor(col_data))
 
-            # Subplot 3: Synthetic Accessibility Floor (Row 0, Col 2 - Active Floor)
-            ax = axes[0, 2]
-            ax.hist(valid_df["SA"], bins=15, color="#E9C46A", edgecolor="black", alpha=0.80)
-            ax.axvspan(1.0, 5.5, color="#2A9D8F", alpha=0.15, label="Feasible (<= 5.5)")
-            ax.axvline(5.5, color="#2A9D8F", linestyle="--", linewidth=1.5)
-            ax.axvline(6.0, color="#E76F51", linestyle=":", linewidth=1.5, label="Penalized (> 6.0)")
-            ax.set_title("Synthetic Accessibility (SAscore)", fontsize=11, weight="bold")
-            ax.set_xlabel("SA Score (1 = Easy, 10 = Hard)")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.5)
+                if is_discrete and len(col_data) > 0:
+                    min_val = int(min(col_data.min(), meta.get("seed", col_data.min()) or col_data.min()))
+                    max_val = int(max(col_data.max(), meta.get("seed", col_data.max()) or col_data.max()))
+                    bins = np.arange(min_val, max_val + 2) - 0.5
+                    ax.hist(col_data, bins=bins, color=color, edgecolor="black", alpha=0.85, rwidth=0.8)
+                else:
+                    ax.hist(col_data, bins=15, color=color, edgecolor="black", alpha=0.80)
 
-            # Subplot 4: Molecular Weight & Dynamic Envelope (Row 1, Col 0 - Active Envelope)
-            ax = axes[1, 0]
-            ax.hist(valid_df["MW"], bins=15, color="#264653", edgecolor="black", alpha=0.80)
-            mw_lo, mw_hi = round(0.70 * self.seed_mw, 1), round(1.30 * self.seed_mw, 1)
-            ax.axvspan(mw_lo, mw_hi, color="#457B9D", alpha=0.15, label=f"Envelope [{mw_lo}, {mw_hi}]")
-            ax.axvline(self.seed_mw, color="#E63946", linestyle="--", linewidth=1.5, label=f"Query ({self.seed_mw:.1f})")
-            ax.set_title("Molecular Weight (MW)", fontsize=11, weight="bold")
-            ax.set_xlabel("MW (Da)")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.5)
+                # Shaded region / envelope
+                if "span" in meta:
+                    lo, hi = meta["span"]
+                    ax.axvspan(lo, hi, color="#457B9D", alpha=0.15, label=f"{meta.get('span_label', 'Target')} [{lo}, {hi}]")
 
-            # Subplot 5: CLogP Lipophilicity & Dynamic Envelope (Row 1, Col 1 - Active Envelope)
-            ax = axes[1, 1]
-            ax.hist(valid_df["LogP"], bins=15, color="#1D3557", edgecolor="black", alpha=0.80)
-            logp_lo, logp_hi = round(self.seed_logp - 1.5, 2), round(self.seed_logp + 1.5, 2)
-            ax.axvspan(logp_lo, logp_hi, color="#457B9D", alpha=0.15, label=f"Envelope [{logp_lo}, {logp_hi}]")
-            ax.axvline(self.seed_logp, color="#E63946", linestyle="--", linewidth=1.5, label=f"Query ({self.seed_logp:.2f})")
-            ax.set_title("Calculated Lipophilicity (CLogP)", fontsize=11, weight="bold")
-            ax.set_xlabel("CLogP")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.5)
+                # Target line
+                if meta.get("target_line") is not None:
+                    ax.axvline(meta["target_line"], color="#E76F51", linestyle="--", linewidth=1.5, label=meta.get("target_label", "Target"))
 
-            # Subplot 6: Polar Surface Area & Dynamic Envelope (Row 1, Col 2 - Active Envelope)
-            ax = axes[1, 2]
-            ax.hist(valid_df["TPSA"], bins=15, color="#6D597A", edgecolor="black", alpha=0.80)
-            tpsa_lo, tpsa_hi = round(0.70 * self.seed_tpsa, 1), round(1.30 * self.seed_tpsa, 1)
-            ax.axvspan(tpsa_lo, tpsa_hi, color="#457B9D", alpha=0.15, label=f"Envelope [{tpsa_lo}, {tpsa_hi}]")
-            ax.axvline(self.seed_tpsa, color="#E63946", linestyle="--", linewidth=1.5, label=f"Query ({self.seed_tpsa:.1f})")
-            ax.set_title("Topological Polar Surface Area (TPSA)", fontsize=11, weight="bold")
-            ax.set_xlabel("TPSA (Å²)")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.5)
+                # Query seed line
+                seed_v = meta.get("seed")
+                if seed_v is not None:
+                    ax.axvline(seed_v, color="#E63946", linestyle="--", linewidth=1.8, label=f"Query ({seed_v:.1f})" if isinstance(seed_v, float) else f"Query ({seed_v})")
 
-            # =========================================================================
-            # ROW 2: UNOPTIMIZED / ORTHOGONAL DIAGNOSTIC PROPERTIES (MUTED GRAY BACKGROUND)
-            # =========================================================================
-            diagnostic_bg = "#F0F2F5"
+                # Cohort mean line
+                if len(col_data) > 0:
+                    m_val = float(col_data.mean())
+                    ax.axvline(m_val, color="#212529", linestyle=":", linewidth=1.8, label=f"Mean ({m_val:.2f})")
 
-            # Subplot 7: Hydrogen Bond Donors (Row 2, Col 0 - Diagnostic Epitope Loss)
-            ax = axes[2, 0]
-            ax.set_facecolor(diagnostic_bg)
-            max_hbd = max(int(valid_df["HBD"].max()) if not valid_df.empty else 0, self.seed_hbd)
-            bins_hbd = np.arange(0, max_hbd + 2) - 0.5
-            ax.hist(valid_df["HBD"], bins=bins_hbd, color="#6C757D", edgecolor="black", alpha=0.85, rwidth=0.8)
-            ax.axvline(self.seed_hbd, color="#E63946", linestyle="--", linewidth=1.8, label=f"Query ({self.seed_hbd})")
-            mean_hbd = float(valid_df["HBD"].mean())
-            ax.axvline(mean_hbd, color="#212529", linestyle=":", linewidth=1.8, label=f"Mean ({mean_hbd:.2f})")
-            ax.set_title("[UNOPTIMIZED] H-Bond Donors (Epitope Loss)", fontsize=11, weight="bold", color="#212529")
-            ax.set_xlabel("HBD Count (Loss vs. Bioactive Query)")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.6, color="#CBD5E0")
+                ax.set_title(meta["name"], fontsize=11, weight="bold")
+                ax.set_xlabel(meta["xlabel"])
+                ax.set_ylabel("Molecule Count")
+                ax.legend(loc="upper right", fontsize=8.0)
+                ax.grid(True, linestyle=":", alpha=0.5)
 
-            # Subplot 8: Rotatable Bonds (Row 2, Col 1 - Conformational Flexibility)
-            ax = axes[2, 1]
-            ax.set_facecolor(diagnostic_bg)
-            max_rot = max(int(valid_df["RotBonds"].max()) if not valid_df.empty else 0, self.seed_rotbonds)
-            bins_rot = np.arange(0, max_rot + 2) - 0.5
-            ax.hist(valid_df["RotBonds"], bins=bins_rot, color="#495057", edgecolor="black", alpha=0.85, rwidth=0.8)
-            ax.axvline(self.seed_rotbonds, color="#E63946", linestyle="--", linewidth=1.8, label=f"Query ({self.seed_rotbonds})")
-            mean_rot = float(valid_df["RotBonds"].mean())
-            ax.axvline(mean_rot, color="#212529", linestyle=":", linewidth=1.8, label=f"Mean ({mean_rot:.2f})")
-            ax.set_title("[UNOPTIMIZED] Rotatable Bonds (Flexibility)", fontsize=11, weight="bold", color="#212529")
-            ax.set_xlabel("Rotatable Bonds Count (Max Allowed: 25)")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.6, color="#CBD5E0")
+            # Hide unused subplots
+            for j in range(n_props, len(axes_flat)):
+                axes_flat[j].set_visible(False)
 
-            # Subplot 9: 2D Morgan Tanimoto to Query (Row 2, Col 2 - Scaffold Hopping)
-            ax = axes[2, 2]
-            ax.set_facecolor(diagnostic_bg)
-            sim_col = valid_df["Tanimoto_to_Seed"] if "Tanimoto_to_Seed" in valid_df.columns else pd.Series([0.0] * len(valid_df))
-            ax.hist(sim_col, bins=15, color="#343A40", edgecolor="black", alpha=0.85)
-            ax.axvline(0.35, color="#0077B6", linestyle=":", linewidth=1.8, label="Hop Threshold (<= 0.35)")
-            mean_sim = float(sim_col.mean())
-            ax.axvline(mean_sim, color="#E63946", linestyle="--", linewidth=1.8, label=f"Mean Sim ({mean_sim:.3f})")
-            ax.set_title("[UNOPTIMIZED] 2D ECFP4 Tanimoto to Seed", fontsize=11, weight="bold", color="#212529")
-            ax.set_xlabel("2D Fingerprint Similarity (Scaffold Divergence)")
-            ax.set_ylabel("Molecule Count")
-            ax.legend(loc="upper right", fontsize=8.5)
-            ax.grid(True, linestyle=":", alpha=0.6, color="#CBD5E0")
-
-            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            plt.tight_layout(rect=[0, 0, 1, 0.98])
             dist_path = self.output_dir / "property_distributions.png"
             plt.savefig(dist_path, dpi=300, bbox_inches="tight")
             plt.close(fig)
@@ -1099,16 +1136,15 @@ class ResultAnalyzer:
                 },
             },
             "metrics": {
-                "mean_rocs": prop_stats["ROCS"]["mean"],
-                "max_rocs": prop_stats["ROCS"]["max"],
-                "median_rocs": prop_stats["ROCS"]["median"],
-                "iqr_rocs": prop_stats["ROCS"]["iqr"],
-                "mean_qed": prop_stats["QED"]["mean"],
-                "max_qed": prop_stats["QED"]["max"],
-                "mean_sa": prop_stats["SA"]["mean"],
-                "mean_mw": prop_stats["MW"]["mean"],
-                "mean_logp": prop_stats["LogP"]["mean"],
-                "mean_tpsa": prop_stats["TPSA"]["mean"],
+                "mean_rocs": prop_stats.get("ROCS", {}).get("mean", 0.0),
+                "max_rocs": prop_stats.get("ROCS", {}).get("max", 0.0),
+                "median_rocs": prop_stats.get("ROCS", {}).get("median", 0.0),
+                "iqr_rocs": prop_stats.get("ROCS", {}).get("iqr", 0.0),
+                "mean_desirability": prop_stats.get("Desirability", {}).get("mean", 0.0),
+                "mean_sa": prop_stats.get("SA", {}).get("mean", 0.0),
+                "mean_mw": prop_stats.get("MW", {}).get("mean", 0.0),
+                "mean_hac": prop_stats.get("HAC", {}).get("mean", 0.0),
+                "mean_logp": prop_stats.get("LogP", {}).get("mean", 0.0),
                 "mean_tanimoto_to_seed": round(float(valid_df["Tanimoto_to_Seed"].mean()), 3) if valid_n > 0 and "Tanimoto_to_Seed" in valid_df.columns else 0.0,
             },
             "top_leads_count": len(df_leads),

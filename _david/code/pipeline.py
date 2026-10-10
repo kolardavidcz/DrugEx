@@ -81,8 +81,19 @@ class MoleculePipeline:
         epochs: int = DEFAULT_EPOCHS,
         n_samples: int = DEFAULT_N_SAMPLES,
         gpu: int | str | None = None,
+        include_hb: bool = False,
+        include_envelope: bool = True,
+        drop_off: bool = True,
+        patience: int = 15,
+        min_epochs: int = 10,
+        rocs_threshold: float = 0.30,
+        prop_threshold: float = 0.30,
+        sa_threshold: float = 0.30,
+        criteria: str = "desired_ratio",
+        epsilon: float = GraphTransformer.RL_EPSILON,
+        use_anti_cheating: bool = True,
     ) -> None:
-        """Initialize MoleculePipeline with execution mode, hyperparameters, and GPU target.
+        """Initialize MoleculePipeline with execution mode, hyperparameters, thresholds, and GPU target.
 
         Args:
             output_dir: Custom root output directory for run artifacts.
@@ -90,12 +101,34 @@ class MoleculePipeline:
             epochs: RL training epochs per stage.
             n_samples: Number of molecules sampled per epoch.
             gpu: Target GPU index (0, 1), 'auto', or None (probes and picks GPU with highest free VRAM).
+            include_hb: Whether to include H-donor/acceptor envelope optimization (default False).
+            include_envelope: Whether to include secondary physicochemical envelope (HAC, LogP) (default True).
+            drop_off: Whether to enable early stopping drop-off monitoring (default True).
+            patience: Number of consecutive degradation epochs before early stopping triggers (default 15).
+            min_epochs: Minimum epochs before early stopping drop-off can trigger (default 10).
+            rocs_threshold: Desirability passing threshold for 3D ROCS alignment (default 0.30).
+            prop_threshold: Desirability passing threshold for secondary dynamic envelopes (default 0.30).
+            sa_threshold: Desirability passing threshold for single SA synthesizability floor (default 0.30).
+            criteria: Evaluation metric driving PeakRecoveryMonitor checkpoint tracking (default 'desired_ratio').
+            epsilon: Exploration mutation rate sampling from frozen Prior network (default 0.10).
+            use_anti_cheating: Whether to use AntiCollapseSoftGateReward (True) or native WeightedSum (False).
         """
         self.ROOT_PATH: Path = PROJECT_ROOT
         self.MODE: str = mode.lower()
         self.EPOCHS: int = TEST_EPOCHS if self.MODE == "test" else epochs
         self.N_SAMPLES: int = TEST_N_SAMPLES if self.MODE == "test" else n_samples
         self.GPU: int | str | None = gpu
+        self.INCLUDE_HB: bool = include_hb
+        self.INCLUDE_ENVELOPE: bool = include_envelope
+        self.DROP_OFF: bool = drop_off
+        self.PATIENCE: int = patience
+        self.MIN_EPOCHS: int = int(min_epochs)
+        self.ROCS_THRESHOLD: float = float(rocs_threshold)
+        self.PROP_THRESHOLD: float = float(prop_threshold)
+        self.SA_THRESHOLD: float = float(sa_threshold)
+        self.CRITERIA: str = criteria
+        self.EPSILON: float = float(epsilon)
+        self.USE_ANTI_CHEATING: bool = bool(use_anti_cheating)
         from _david.code.GraphTransformer import get_safe_gpus
         self.GPUS: tuple[int, ...] | tuple[()] = get_safe_gpus(preferred_gpu=gpu)
         #? [DateTime] Generates ISO-like timestamp string for run directory isolation.
@@ -268,9 +301,17 @@ class MoleculePipeline:
         from drugex.training.monitors import PeakRecoveryMonitor
 
         optimizer = GraphTransformer.GraphTransformerOptimizer(output_dir=stage1_dir, gpu=self.GPU)
+        from drugex.training.rewards import WeightedSum
+        scheme = None if self.USE_ANTI_CHEATING else WeightedSum()
         env = optimizer.build_environment(
             ref_sdf,
             seed_smiles=primary_molecule,
+            reward_scheme=scheme,
+            include_hb=self.INCLUDE_HB,
+            include_envelope=self.INCLUDE_ENVELOPE,
+            rocs_threshold=self.ROCS_THRESHOLD,
+            prop_threshold=self.PROP_THRESHOLD,
+            sa_threshold=self.SA_THRESHOLD,
         )
         seed_loader, seed_dataset = optimizer._prepare_seed_fragments(
             primary_molecule, n_prompts=self.N_SAMPLES, scaffolds_path=seed_core_tsv
@@ -281,21 +322,22 @@ class MoleculePipeline:
             agent=optimizer.AGENT,
             env=env,
             mutate=optimizer.PRIOR,
-            epsilon=GraphTransformer.RL_EPSILON,
+            epsilon=self.EPSILON,
             beta=GraphTransformer.RL_BETA,
             batch_size=GraphTransformer.RL_BATCH_SIZE,
             use_gpus=optimizer.GPUS,
         )
 
         model_prefix = optimizer.MODEL_DIR / "david_agent"
-        patience = min(GraphTransformer.RL_PATIENCE, max(5, self.EPOCHS // 2))
-        min_epochs = min(5, self.EPOCHS)
+        # When drop_off is True (default), trigger early stopping after patience consecutive degradation epochs
+        patience = min(self.PATIENCE, self.EPOCHS) if self.DROP_OFF else self.EPOCHS
+        min_epochs = min(self.MIN_EPOCHS, self.EPOCHS) if self.DROP_OFF else self.EPOCHS
 
         monitor = PeakRecoveryMonitor(
             model_prefix,
             save_smiles=True,
             reset_directory=True,
-            criteria="desired_ratio",
+            criteria=self.CRITERIA,
             patience=patience,
             min_epochs=min_epochs,
         )
@@ -307,7 +349,7 @@ class MoleculePipeline:
             epochs=self.EPOCHS,
             patience=patience,
             min_epochs=min_epochs,
-            criteria="desired_ratio",
+            criteria=self.CRITERIA,
         )
 
         # Restore peak model weights to protect against late-epoch collapse
@@ -316,8 +358,14 @@ class MoleculePipeline:
         df_candidates = optimizer.save_visualizations(
             optimizer.AGENT, env, model_prefix, optimizer.MODEL_DIR, input_dataset=seed_dataset, num_samples=self.N_SAMPLES
         )
-        if not candidates_tsv.exists():
-            df_candidates.to_csv(candidates_tsv, sep="\t", index=False)
+        # Explicitly clean up heavy PyTorch models and cached activations before Stage 2 CPU scoring
+        del explorer
+        del optimizer
+        del env
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         print(f"[Stage 1] Completed. Generated {len(df_candidates)} candidates saved to: {candidates_tsv}")
         return df_candidates, candidates_tsv
@@ -439,11 +487,18 @@ class MoleculePipeline:
         """Backward-compatibility alias."""
         return self.stage1_graph_transformer_generation(primary_molecule, ref_sdf, seed_core_tsv=scaffolds_path)
 
-    def run(self, molecules: str | Path | Sequence[str] = DEFAULT_MOLECULE) -> dict[str, Any]:
+    def run(
+        self,
+        molecules: str | Path | Sequence[str] = DEFAULT_MOLECULE,
+        custom_ref_sdf: Path | str | None = None,
+        custom_seed_core_tsv: Path | str | None = None,
+    ) -> dict[str, Any]:
         """Execute the streamlined Graph-Transformer drug design pipeline.
 
         Args:
             molecules: Query seed molecule SMILES string or file path.
+            custom_ref_sdf: Optional explicit 3D reference conformer SDF path.
+            custom_seed_core_tsv: Optional explicit seed core scaffold TSV path.
 
         Returns:
             Dictionary containing run summary and output file locations.
@@ -472,7 +527,20 @@ class MoleculePipeline:
 
             # 2. Stage 0: 3D reference conformer and seed core scaffold generation
             self.update_status("Stage 0: 3D Reference Conformation", "RUNNING")
-            ref_sdf, seed_core_tsv = self.stage0_prepare_reference_conformer(primary_molecule)
+            if custom_ref_sdf is not None and Path(custom_ref_sdf).exists():
+                ref_sdf = Path(custom_ref_sdf)
+                self.log(f"Using provided custom reference SDF: {ref_sdf}")
+                if custom_seed_core_tsv is not None and Path(custom_seed_core_tsv).exists():
+                    seed_core_tsv = Path(custom_seed_core_tsv)
+                    self.log(f"Using provided custom seed core TSV: {seed_core_tsv}")
+                else:
+                    ref_dir: Path = self.BASE_OUTPUT_DIR / "references"
+                    ref_dir.mkdir(parents=True, exist_ok=True)
+                    seed_core_tsv = ref_dir / "seed_core_scaffold.tsv"
+                    preparer = prepare_query_conformer.QueryConformerPreparer(references_dir=ref_dir)
+                    preparer.extract_seed_core_scaffold(smiles=primary_molecule, output_path=seed_core_tsv)
+            else:
+                ref_sdf, seed_core_tsv = self.stage0_prepare_reference_conformer(primary_molecule)
             self.update_status("Stage 0: 3D Reference Conformation", "SUCCESS")
 
             if self.MODE == "benchmark_only":
@@ -533,6 +601,10 @@ class MoleculePipeline:
             self.log(f" Total Duration: {duration:.2f} seconds")
             self.log(f" All outputs organized in: {self.BASE_OUTPUT_DIR}")
             self.log("=" * 80)
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return summary_info
 
         except Exception as e:
@@ -546,16 +618,51 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="End-to-End Ligand-Based De Novo Drug Design Pipeline in DrugEx")
     parser.add_argument("--molecules", "-m", type=str, default=DEFAULT_MOLECULE, help="Input SMILES string or comma-separated SMILES")
     parser.add_argument("--input-file", "-f", type=Path, default=None, help="Path to input molecules file (.smi, .tsv, .csv, .sdf)")
+    parser.add_argument("--ref-sdf", type=Path, default=None, help="Explicit 3D reference conformer SDF path")
+    parser.add_argument("--seed-scaffold", type=Path, default=None, help="Explicit seed core scaffold TSV path")
     parser.add_argument("--out-dir", "-o", type=Path, default=None, help="Target output directory for pipeline run")
     parser.add_argument("--mode", choices=["full", "test", "benchmark_only"], default="full", help="Execution mode ('full' for training, 'test' for fast verification, 'benchmark_only' for existing data)")
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS, help="Number of RL epochs per stage")
     parser.add_argument("--n-samples", type=int, default=DEFAULT_N_SAMPLES, help="Number of molecules sampled per epoch")
+    parser.add_argument("--gpu", default=None, help="GPU device index (0, 1) or 'auto'")
+    parser.add_argument("--include-hb", action="store_true", help="Include H-donor and acceptor envelope optimization")
+    parser.add_argument("--no-envelope", action="store_true", help="Disable physical-chemical property envelope (pure 3D ROCS + SA floor only)")
+    parser.add_argument("--no-drop-off", action="store_true", help="Disable drop off (early stopping), forcing full epochs")
+    parser.add_argument("--patience", type=int, default=15, help="Early stopping patience epochs (default 15)")
+    parser.add_argument("--min-epochs", type=int, default=10, help="Minimum epochs before early stopping drop-off can trigger (default 10)")
+    parser.add_argument("--rocs-threshold", type=float, default=0.30, help="ROCS desirability passing threshold (default 0.30)")
+    parser.add_argument("--prop-threshold", type=float, default=0.30, help="Dynamic property envelope passing threshold (default 0.30)")
+    parser.add_argument("--sa-threshold", type=float, default=0.30, help="SA synthesizability floor passing threshold (default 0.30)")
+    parser.add_argument("--criteria", type=str, default="desired_ratio", choices=["desired_ratio", "avg_amean", "avg_gmean"], help="Peak recovery selection criteria")
+    parser.add_argument("--epsilon", type=float, default=0.10, help="Exploration mutation rate sampling from Prior (default 0.10)")
+    parser.add_argument("--no-anti-cheating", action="store_true", help="Disable anti-cheating soft-gate reward (use DrugEx native WeightedSum)")
 
     args = parser.parse_args()
 
     input_data = args.input_file if args.input_file else args.molecules
-    pipeline = MoleculePipeline(output_dir=args.out_dir, mode=args.mode, epochs=args.epochs, n_samples=args.n_samples)
-    pipeline.run(input_data)
+    pipeline = MoleculePipeline(
+        output_dir=args.out_dir,
+        mode=args.mode,
+        epochs=args.epochs,
+        n_samples=args.n_samples,
+        gpu=args.gpu,
+        include_hb=args.include_hb,
+        include_envelope=not args.no_envelope,
+        drop_off=not args.no_drop_off,
+        patience=args.patience,
+        min_epochs=args.min_epochs,
+        rocs_threshold=args.rocs_threshold,
+        prop_threshold=args.prop_threshold,
+        sa_threshold=args.sa_threshold,
+        criteria=args.criteria,
+        epsilon=args.epsilon,
+        use_anti_cheating=not args.no_anti_cheating,
+    )
+    pipeline.run(
+        input_data,
+        custom_ref_sdf=args.ref_sdf,
+        custom_seed_core_tsv=args.seed_scaffold,
+    )
 
 
 if __name__ == "__main__":

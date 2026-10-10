@@ -176,9 +176,9 @@ class TestActivePipeline(unittest.TestCase):
         self.assertLess(envelope_caffeine.hac_lower, 14.0)
         self.assertGreater(envelope_caffeine.hac_upper, 14.0)
 
-        # Verify scorers can be instantiated directly
+        # Verify scorers can be instantiated directly (Heavy and logP)
         scorers = create_dynamic_property_scorers(caffeine_smiles)
-        self.assertEqual(len(scorers), 3)
+        self.assertEqual(len(scorers), 2)
 
     def test_graph_transformer_prepare_seed_fragments(self) -> None:
         """Verify GraphTransformerOptimizer._prepare_seed_fragments successfully creates DataLoader and dataset."""
@@ -196,7 +196,7 @@ class TestActivePipeline(unittest.TestCase):
             self.assertEqual(batch.ndim, 3)
 
     def test_universal_environment_defaults(self) -> None:
-        """Verify GraphTransformerOptimizer builds 5 universal objectives with zero approximations."""
+        """Verify GraphTransformerOptimizer builds 4 universal objectives with zero approximations."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             optimizer = GraphTransformerOptimizer(output_dir=Path(tmp_dir))
             ref_sdf = Path(__file__).parent / "references" / "my_molecule_3d.sdf"
@@ -204,7 +204,7 @@ class TestActivePipeline(unittest.TestCase):
                 QueryConformerPreparer(ref_sdf.parent).generate_reference_sdf(output_path=ref_sdf)
 
             env_default = optimizer.build_environment(ref_sdf)
-            self.assertEqual(len(env_default.scorers), 5)
+            self.assertEqual(len(env_default.scorers), 4)
 
             # Verify RDKit ROCS scorer
             rocs_scorer = env_default.scorers[0]
@@ -221,7 +221,7 @@ class TestActivePipeline(unittest.TestCase):
                     scorer_keys.append(k)
             self.assertIn("Heavy", scorer_keys)
             self.assertIn("logP", scorer_keys)
-            self.assertIn("TPSA", scorer_keys)
+            self.assertNotIn("TPSA", scorer_keys)
             self.assertIn("SA", scorer_keys)
             self.assertNotIn("ElectroShape", scorer_keys)
             self.assertNotIn("USRCAT", scorer_keys)

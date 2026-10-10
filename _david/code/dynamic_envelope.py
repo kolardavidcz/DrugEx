@@ -66,6 +66,14 @@ class DynamicPropertyEnvelope:
         tpsa_lower: float,
         tpsa_upper: float,
         tpsa_sigma: float,
+        target_hbd: float = 0.0,
+        target_hba: float = 0.0,
+        hbd_lower: float = 0.0,
+        hbd_upper: float = 5.0,
+        hbd_sigma: float = 1.0,
+        hba_lower: float = 0.0,
+        hba_upper: float = 10.0,
+        hba_sigma: float = 1.0,
     ) -> None:
         """Initialize calibrated property envelope parameters."""
         self.target_hac: float = float(target_hac)
@@ -84,12 +92,23 @@ class DynamicPropertyEnvelope:
         self.tpsa_upper: float = float(tpsa_upper)
         self.tpsa_sigma: float = float(tpsa_sigma)
 
+        self.target_hbd: float = float(target_hbd)
+        self.target_hba: float = float(target_hba)
+        self.hbd_lower: float = float(hbd_lower)
+        self.hbd_upper: float = float(hbd_upper)
+        self.hbd_sigma: float = float(hbd_sigma)
+        self.hba_lower: float = float(hba_lower)
+        self.hba_upper: float = float(hba_upper)
+        self.hba_sigma: float = float(hba_sigma)
+
     @classmethod
     def from_molecule(cls, mol: Chem.Mol) -> DynamicPropertyEnvelope:
         """Compute dynamic envelope directly from an RDKit Mol instance."""
         hac: float = float(Lipinski.HeavyAtomCount(mol))
         clogp: float = float(Crippen.MolLogP(mol))
         tpsa: float = float(AllChem.CalcTPSA(mol))
+        hbd: float = float(Lipinski.NumHDonors(mol))
+        hba: float = float(Lipinski.NumHAcceptors(mol))
 
         # HAC envelope: [0.70 * X, 1.30 * X] bounded to prevent inversion
         hac_lower: float = max(1.0, 0.70 * hac)
@@ -108,6 +127,15 @@ class DynamicPropertyEnvelope:
         tpsa_upper: float = max(tpsa + 10.0 if tpsa < 10.0 else 1.30 * tpsa, 1.30 * tpsa)
         tpsa_sigma: float = max(5.0, 0.12 * tpsa)
 
+        # HBD & HBA envelope: Delta +/- 2 relative to reference
+        hbd_lower: float = max(0.0, hbd - 2.0)
+        hbd_upper: float = hbd + 2.0
+        hbd_sigma: float = 1.0
+
+        hba_lower: float = max(0.0, hba - 2.0)
+        hba_upper: float = hba + 2.0
+        hba_sigma: float = 1.0
+
         return cls(
             target_hac=hac,
             target_clogp=clogp,
@@ -121,6 +149,14 @@ class DynamicPropertyEnvelope:
             tpsa_lower=tpsa_lower,
             tpsa_upper=tpsa_upper,
             tpsa_sigma=tpsa_sigma,
+            target_hbd=hbd,
+            target_hba=hba,
+            hbd_lower=hbd_lower,
+            hbd_upper=hbd_upper,
+            hbd_sigma=hbd_sigma,
+            hba_lower=hba_lower,
+            hba_upper=hba_upper,
+            hba_sigma=hba_sigma,
         )
 
     @classmethod
@@ -150,10 +186,27 @@ class DynamicPropertyEnvelope:
                 "upper_x": self.tpsa_upper,
                 "sigma": self.tpsa_sigma,
             },
+            "HBD": {
+                "target": self.target_hbd,
+                "lower_x": self.hbd_lower,
+                "upper_x": self.hbd_upper,
+                "sigma": self.hbd_sigma,
+            },
+            "HBA": {
+                "target": self.target_hba,
+                "lower_x": self.hba_lower,
+                "upper_x": self.hba_upper,
+                "sigma": self.hba_sigma,
+            },
         }
 
-    def create_scorers(self) -> list[Property]:
-        """Instantiate DrugEx Property scorers configured with SmoothHump modifiers."""
+    def create_scorers(self, include_hb: bool = False) -> list[Property]:
+        """Instantiate DrugEx Property scorers configured with SmoothHump modifiers.
+
+        Focuses strictly on molecular size (Heavy Atom Count) and lipophilicity (CLogP).
+        Redundant 2D counts (TPSA, HBD, HBA) are excluded because 3D ROCS with
+        OpenEye Mills-Dean color already aligns donor and acceptor features directly in 3D.
+        """
         hac_scorer = Property(
             prop="Heavy",
             modifier=SmoothHump(
@@ -170,15 +223,7 @@ class DynamicPropertyEnvelope:
                 sigma=self.clogp_sigma,
             ),
         )
-        tpsa_scorer = Property(
-            prop="TPSA",
-            modifier=SmoothHump(
-                lower_x=self.tpsa_lower,
-                upper_x=self.tpsa_upper,
-                sigma=self.tpsa_sigma,
-            ),
-        )
-        return [hac_scorer, logp_scorer, tpsa_scorer]
+        return [hac_scorer, logp_scorer]
 
 
 def compute_dynamic_envelope(query: str | Path | Chem.Mol) -> dict[str, dict[str, float]]:
@@ -187,7 +232,9 @@ def compute_dynamic_envelope(query: str | Path | Chem.Mol) -> dict[str, dict[str
     return envelope.to_dict()
 
 
-def create_dynamic_property_scorers(query: str | Path | Chem.Mol) -> list[Property]:
-    """Create DrugEx Property scorers with calibrated SmoothHump modifiers for query ligand."""
+def create_dynamic_property_scorers(
+    query: str | Path | Chem.Mol, include_hb: bool = False
+) -> list[Property]:
+    """Create DrugEx Property scorers (Heavy, logP) with calibrated SmoothHump modifiers for query ligand."""
     envelope = DynamicPropertyEnvelope.from_query(query)
-    return envelope.create_scorers()
+    return envelope.create_scorers(include_hb=include_hb)

@@ -45,6 +45,7 @@ from rdkit.Chem import Draw
 from _david.code.anti_cheating_rewards import AntiCollapseSoftGateReward
 from _david.code.dynamic_envelope import create_dynamic_property_scorers
 from _david.code.fallback_monitor import FallbackMonitor
+from _david.code.gpu_manager import ExclusiveGPUManager
 from _david.code.monitor import PeakRecoveryMonitor
 from _david.code.prepare_query_conformer import QueryConformerPreparer, create_rocs_scorer
 
@@ -59,89 +60,27 @@ if not hasattr(GraphFragDataSet, "__len__"):
 warnings.filterwarnings("ignore")
 
 
-# [PACKAGE: torch] WHY: Device probe testing tensor allocation and memory across available GPUs. WHAT: PyTorch CUDA runtime. HOW: torch.cuda.is_available, torch.cuda.mem_get_info, torch.zeros.
+# [PACKAGE: torch] WHY: Device probe testing tensor allocation and memory across available GPUs. WHAT: PyTorch CUDA runtime. HOW: torch.cuda.is_available, torch.cuda.mem_get_info.
 def get_safe_gpus(preferred_gpu: int | str | None = None) -> tuple[int, ...] | tuple[()]:
-    """Safely detect available CUDA devices and automatically select the one with most free VRAM.
+    """Safely detect available CUDA devices, avoid supervisor collisions, and auto-pause if busy.
 
     Parameters
     ----------
     preferred_gpu : int, str, or None, optional
         Target GPU index (e.g. 0, 1), 'auto', or None. When 'auto' or None, probes all
         available GPUs and automatically picks the healthy device with the highest free VRAM.
-        Also honors DRUGEX_GPU environment variable.
+        If devices are occupied by other lab members, pauses until an exclusive device frees up.
 
     Returns
     -------
     tuple of int or empty tuple
         Single-element tuple containing the chosen GPU index, or () if CUDA is unavailable.
     """
-    if not torch.cuda.is_available():
-        FallbackMonitor.record_fallback(
-            fallback_type="device_cuda_unavailable",
-            message="torch.cuda.is_available() is False; falling back to CPU",
-        )
-        return tuple()
-
-    # Parse string representations
-    if isinstance(preferred_gpu, str):
-        preferred_gpu = preferred_gpu.strip().lower()
-        if preferred_gpu.isdigit():
-            preferred_gpu = int(preferred_gpu)
-        elif preferred_gpu == "auto":
-            preferred_gpu = None
-
-    # Check DRUGEX_GPU environment variable if no preferred_gpu passed
-    target_env = os.environ.get("DRUGEX_GPU", "").strip().lower()
-    if preferred_gpu is None and target_env and target_env != "auto":
-        try:
-            preferred_gpu = int(target_env)
-        except ValueError:
-            pass
-
-    device_count: int = torch.cuda.device_count()
-    if device_count == 0:
-        return tuple()
-
-    # If an explicit valid GPU index was requested, probe it first
-    if isinstance(preferred_gpu, int) and 0 <= preferred_gpu < device_count:
-        try:
-            t = torch.zeros(1, device=f"cuda:{preferred_gpu}")
-            del t
-            return (preferred_gpu,)
-        except Exception as e:
-            FallbackMonitor.record_fallback(
-                fallback_type="device_cuda_error",
-                message=f"Requested GPU {preferred_gpu} test allocation failed: {e}; falling back to auto-selection",
-            )
-
-    # Auto-selection: probe all devices and select the device with maximum free VRAM
-    healthy_devices: list[tuple[int, float]] = []
-    for idx in range(device_count):
-        try:
-            t = torch.zeros(1, device=f"cuda:{idx}")
-            del t
-            free_bytes, _ = torch.cuda.mem_get_info(idx)
-            healthy_devices.append((idx, float(free_bytes)))
-        except Exception as e:
-            FallbackMonitor.record_fallback(
-                fallback_type="device_cuda_error",
-                message=f"GPU {idx} test allocation failed: {e}; skipping device",
-            )
-
-    if not healthy_devices:
-        FallbackMonitor.record_fallback(
-            fallback_type="device_cuda_unavailable",
-            message="No healthy CUDA devices responded to tensor allocation; falling back to CPU",
-        )
-        return tuple()
-
-    # Pick the device with the highest available free VRAM
-    healthy_devices.sort(key=lambda item: item[1], reverse=True)
-    best_gpu_idx = healthy_devices[0][0]
-    return (best_gpu_idx,)
+    return ExclusiveGPUManager().wait_for_exclusive_gpu(preferred_gpu=preferred_gpu)
 
 
-GPUS: tuple[int, ...] | tuple[()] = get_safe_gpus()
+# Default inactive placeholder; actual device allocated lazily in GraphTransformerOptimizer.__init__
+GPUS: tuple[int, ...] | tuple[()] = tuple()
 
 MY_MOLECULE: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 
@@ -151,8 +90,8 @@ RL_EPSILON: float = 0.10
 RL_BETA: float = 0.00
 RL_N_SAMPLES: int = 200
 RL_BATCH_SIZE: int = 64
-RL_PATIENCE: int = 10
-RL_MIN_EPOCHS: int = 5
+RL_PATIENCE: int = 15
+RL_MIN_EPOCHS: int = 10
 
 # --- Native DrugEx 3D ROCS Scorer Configuration (Zero 1D Moment Approximations) ---
 ROCS_SCORE_TYPE: str = "TanimotoCombo"
@@ -161,12 +100,14 @@ ROCS_MAX_CONFORMERS: int = 22
 ROCS_MAX_HEAVY_ATOMS: int = 55
 ROCS_MAX_ROTATABLE_BONDS: int = 25
 ROCS_TIMEOUT: int = 30
-ROCS_THRESHOLD: float = 0.50
+# Relaxed ROCS threshold (0.30 normalized = 0.60 raw TanimotoCombo) allowing exploratory candidates to pass
+ROCS_THRESHOLD: float = 0.30
 
-# --- Single Synthesizability Feasibility Floor (1.0 for SA <= 5.5, penalize SA > 6.0) ---
+# --- Dynamic Property Envelope & Feasibility Floor Thresholds ---
+PROP_THRESHOLD: float = 0.30
 SA_FLOOR: float = 5.50
 SA_CEILING: float = 6.00
-SA_THRESHOLD: float = 0.50
+SA_THRESHOLD: float = 0.30
 
 
 class GraphTransformerOptimizer:
@@ -218,6 +159,11 @@ class GraphTransformerOptimizer:
         ref_sdf_path: Path | str,
         seed_smiles: str = MY_MOLECULE,
         reward_scheme: RewardScheme | None = None,
+        include_hb: bool = False,
+        include_envelope: bool = True,
+        rocs_threshold: float = ROCS_THRESHOLD,
+        prop_threshold: float = PROP_THRESHOLD,
+        sa_threshold: float = SA_THRESHOLD,
     ) -> DrugExEnvironment:
         """Construct multi-objective DrugExEnvironment for reinforcement learning."""
         ref_path_str: str = str(ref_sdf_path)
@@ -235,8 +181,12 @@ class GraphTransformerOptimizer:
         # Normalize TanimotoCombo [0, 2] to [0, 1] for reward gating
         rocs_scorer.modifier = ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)
 
-        # 2. Dynamic property envelope scorers (HAC, CLogP, TPSA with SmoothHump relative to query)
-        dynamic_scorers: list[Property] = create_dynamic_property_scorers(seed_smiles)
+        # 2. Dynamic property envelope scorers (HAC, CLogP with SmoothHump relative to query)
+        dynamic_scorers: list[Property] = (
+            create_dynamic_property_scorers(seed_smiles, include_hb=include_hb)
+            if include_envelope
+            else []
+        )
 
         # 3. Single synthesizability feasibility floor (1.0 for SA <= 5.5, penalize SA > 6.0)
         # Purging all conflicting metrics (RAscore, BRICS)
@@ -251,16 +201,18 @@ class GraphTransformerOptimizer:
         )
 
         scorers: list[Scorer] = [rocs_scorer, *dynamic_scorers, sa_scorer]
-        # ROCS threshold = 0.50 (corresponds to Combo score >= 1.0), envelopes = 0.50, SA = 0.50
-        thresholds: list[float] = [ROCS_THRESHOLD] + [0.50] * len(dynamic_scorers) + [SA_THRESHOLD]
+        # Relaxed thresholds allowing learning without single-dimension failure dropouts:
+        # ROCS threshold = rocs_threshold (default 0.30), dynamic envelopes = prop_threshold (default 0.30), SA = sa_threshold (default 0.30)
+        thresholds: list[float] = [rocs_threshold] + [prop_threshold] * len(dynamic_scorers) + [sa_threshold]
 
-        # Anti-collapse soft-gate reward scheme: col 0 is ROCS, col 4 is SA floor
+        # Anti-collapse soft-gate reward scheme: col 0 is ROCS, last col is SA floor
+        sa_index = len(scorers) - 1
         scheme = (
             reward_scheme
             if reward_scheme is not None
             else AntiCollapseSoftGateReward(
                 rocs_col_idx=0,
-                sa_col_idx=4,
+                sa_col_idx=sa_index,
                 w_3d=0.70,
                 w_props=0.30,
                 tau_3d=0.60,
