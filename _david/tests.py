@@ -38,7 +38,7 @@ from rdkit.Chem import AllChem
 
 import _david.run as david_run
 from _david.code.analysis import AlignedDepicter, ParetoFrontier, ResultAnalyzer
-from _david.code.experiments import ExperimentRunner, ThresholdAblationRunner
+from _david.legacy.experiments import ExperimentRunner, ThresholdAblationRunner
 from _david.code.models import GraphTransformerOptimizer, RL_EPSILON
 from _david.code.objectives import (
     AntiCollapseSoftGateReward,
@@ -47,8 +47,12 @@ from _david.code.objectives import (
     GeometricMeanReward,
     MY_MOLECULE,
     ObjectiveBuilder,
+    ObjectiveConfig,
     ObjectivePreset,
     QueryConformerPreparer,
+    RewardSchemeType,
+    SAMode,
+    SimilarityType,
     create_dynamic_property_scorers,
     get_seed_hash,
 )
