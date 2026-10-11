@@ -16,6 +16,7 @@ from _david.code.environment import (
     create_environment,
     extract_seed_core_scaffold,
     generate_reference_conformers,
+    render_reference_ensemble,
 )
 from _david.code.models import GraphTransformerOptimizer
 from _david.code.utils import get_gpu_telemetry
@@ -49,10 +50,12 @@ class MoleculePipeline:
         """Executes full pipeline: conformer curation, RL exploration, and lead analysis."""
         ref_dir = self.BASE_OUTPUT_DIR / "references"
         ref_sdf = ref_dir / "query_molecule_3d.sdf"
+        ref_png = ref_dir / "reference_3d_superposition.png"
         scaffold_tsv = ref_dir / "seed_core_scaffold.tsv"
 
         print(f"\n[Stage 0] Generating 3D reference conformers for: {molecule[:40]}...")
         generate_reference_conformers(molecule, output_path=ref_sdf)
+        render_reference_ensemble(ref_sdf, output_png=ref_png)
         extract_seed_core_scaffold(molecule, output_path=scaffold_tsv)
 
         # Stage 1: Graph-Transformer RL Exploration
