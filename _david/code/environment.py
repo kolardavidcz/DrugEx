@@ -23,6 +23,7 @@ ROCS_TIMEOUT: int = 30
 
 
 def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
+    # query: str (SMILES) | Path (.sdf, .sd, .txt) | Chem.Mol (with 3D conformers)
     if isinstance(query, Chem.Mol):
         return query, (query.GetNumConformers() > 0 and query.GetConformer().Is3D())
 
@@ -57,27 +58,26 @@ def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
         return 1.00
 
     # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
-    # WHAT: SMARTS pattern matching for non-terminal acyclic single bonds.
-    # HOW: Evaluates acyclic single bonds between heavy atoms, excluding terminal methyls/hydroxyls.
-    n_rot = int(Lipinski.NumRotatableBonds(mol))
+    n_rot = int(Lipinski.NumRotatableBonds(mol))  # non-terminal single bonds between heavy atoms
     n_heavy = int(mol.GetNumHeavyAtoms())
 
-    #~ [Ebejer et al., 2012] Rigid/compact leads (N_heavy <= 20 and N_rot <= 2) require 1.00 Å
+    #~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid/compact scaffolds (benzene, aspirin)
     if n_rot <= 2 and n_heavy <= 20:
         return 1.00
 
-    #~ [Hawkins, 2017] Standard drug-like leads (N_heavy in [20, 45] or N_rot in [3, 7], e.g. EGCG) require 1.25 Å
+    #~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
+    #! HYP EGCG has N_rot=3 but N_heavy=33, so it must fall in this drug-like basin
     if n_rot <= 7 and n_heavy <= 45:
         return 1.25
 
-    #~ [Friedrich et al., 2017; Hawkins 2017] Flexible ceiling (N_rot >= 8 or N_heavy > 45) capped at 1.50 Å
+    #~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling (capped at 1.50 Å)
     return 1.50
 
 
 def generate_reference_conformers(
     query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
     output_path: Path | str | None = None,
-    num_conformers: int = 100,
+    num_conformers: int = 100,  #! HYP could be bigger, like 200
     random_seed: int = 42,
 ) -> Path:
     target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
@@ -93,21 +93,22 @@ def generate_reference_conformers(
     mol_h = Chem.AddHs(mol)
     params = AllChem.ETKDGv3()
     params.randomSeed = random_seed
-    params.pruneRmsThresh = 0.20
+    params.pruneRmsThresh = 0.20  # since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
 
-    conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
+    conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))  # based on crystal predictions
     if not conf_ids:
-        params.useRandomCoords = True
+        params.useRandomCoords = True  # based on random initial + gradient optimization
         conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
 
-    props = AllChem.MMFFGetMoleculeProperties(mol_h)
+    props = AllChem.MMFFGetMoleculeProperties(mol_h)  # tuned for organic, drug-like molecules (C, H, N, O, S, P, halogens)
     energies: list[tuple[float, int]] = []
     for cid in conf_ids:
-        ff = AllChem.MMFFGetMoleculeForceField(mol_h, props, confId=cid) if props else None
+        ff = AllChem.MMFFGetMoleculeForceField(mol_h, props, confId=cid)  # returns None if props is None or unparameterized
         if not ff:
-            ff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)
+            ff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)  # for all elements in periodic table
+            
         if ff:
             ff.Minimize(maxIts=500)
             energies.append((float(ff.CalcEnergy()), cid))
@@ -118,8 +119,8 @@ def generate_reference_conformers(
     energies.sort(key=lambda x: x[0])
     min_e = energies[0][0]
 
-    #~ [Hawkins, 2017] <= 8.0 kcal/mol window retains biologically accessible conformational basins
-    accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0}
+    #~ [Hawkins, Physiological energy window, 2017] <= 8.0 kcal/mol window retains biologically accessible conformational basins
+    accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0}  # Whitelist: solves "None" issues
     for cid in conf_ids:
         if cid not in accepted_cids:
             mol_h.RemoveConformer(cid)
@@ -128,17 +129,16 @@ def generate_reference_conformers(
     energy_map = {cid: float(e) for e, cid in energies}
     curated: list[int] = []
 
-    #~ [Hawkins, 2017] Adaptive cutoff isolates distinct conformational basins
+    #~ [Hawkins, Basin curation via Butina clustering, 2017] Adaptive cutoff isolates distinct conformational basins
     if len(remaining_cids) > 1:
         # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
         cutoff = get_adaptive_rmsd_cutoff(mol_h)
-        # [PACKAGE: rdkit.Chem.AllChem.GetConformerRMSMatrix] WHY: Heavy-atom pairwise RMSD distance matrix.
-        # WHAT: Pairwise RMSD matrix aligned to reference conformer.
-        # HOW: Restricts atomIds to heavy atoms (Z > 1) to eliminate superficial RMSD inflation from rotatable hydrogens.
+        # [PACKAGE: rdkit.Chem.AllChem.GetConformerRMSMatrix] Heavy-atom RMSD (Z > 1) prevents rotating Hs from splitting basins
         heavy_atom_ids = [a.GetIdx() for a in mol_h.GetAtoms() if a.GetAtomicNum() > 1]
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, atomIds=heavy_atom_ids, prealigned=False)
         clusters = Butina.ClusterData(rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True)
         for cluster in clusters:
+            # Select the thermodynamic minimum within this conformational basin
             basin_cids = [remaining_cids[idx] for idx in cluster]
             best_cid = min(basin_cids, key=lambda cid: energy_map[cid])
             curated.append(best_cid)
@@ -160,7 +160,7 @@ def generate_reference_conformers(
 def extract_seed_core_scaffold(
     query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
     output_path: Path | str | None = None,
-    scaffold_type: str = "bemis_murcko",
+    scaffold_type: str = "bemis_murcko",  #! HYP "core_ring_system" gives chroman (10 atoms) vs full Bemis-Murcko (25 atoms)
     isomeric: bool = False,
 ) -> str:
     valid_types = {"bemis_murcko", "core_ring_system", "generic_framework"}
@@ -171,34 +171,32 @@ def extract_seed_core_scaffold(
     mol_no_h = Chem.RemoveHs(mol)
 
     # [PACKAGE: rdkit.Chem.Scaffolds.MurckoScaffold] WHY: Deconstruct ligand into fundamental ring frameworks.
-    # WHAT: Bemis-Murcko framework extraction.
-    # HOW: Identifies all ring atoms and connecting linkers, pruning non-linker acyclic substituents.
     scaff_smi = ""
     n_rings = 0
 
     if scaffold_type == "core_ring_system":
+        # Group overlapping rings into contiguous fused/spiro systems to isolate privileged core
         ring_info = mol_no_h.GetRingInfo()
-        atom_rings = ring_info.AtomRings()
+        atom_rings = [set(r) for r in ring_info.AtomRings()]
         if atom_rings:
             ring_systems: list[set[int]] = []
-            for ring in atom_rings:
-                ring_set = set(ring)
-                merged = False
-                for existing in ring_systems:
-                    if existing & ring_set:
-                        existing.update(ring_set)
-                        merged = True
-                        break
-                if not merged:
-                    ring_systems.append(ring_set)
+            for r in atom_rings:
+                matching = [s for s in ring_systems if s & r]
+                non_matching = [s for s in ring_systems if not (s & r)]
+                new_sys = set(r)
+                for s in matching:
+                    new_sys.update(s)
+                ring_systems = non_matching + [new_sys]
 
+            # Select largest contiguous ring system by heavy atom count (e.g. chroman core for EGCG)
             largest_system = max(ring_systems, key=len)
             sub_bonds = [
                 b.GetIdx() for b in mol_no_h.GetBonds()
                 if b.GetBeginAtomIdx() in largest_system and b.GetEndAtomIdx() in largest_system
             ]
-            # [PACKAGE: rdkit.Chem.PathToSubmol] WHY: Extract induced submolecule for core ring system.
+            # [PACKAGE: rdkit.Chem.PathToSubmol] Extract induced submolecule for core ring system
             core_submol = Chem.PathToSubmol(mol_no_h, sub_bonds)
+            # Reset implicit Hs on severed bonds to avoid dangling radical centers
             for atom in core_submol.GetAtoms():
                 atom.SetNoImplicit(False)
                 atom.SetNumExplicitHs(0)
@@ -210,31 +208,25 @@ def extract_seed_core_scaffold(
             n_rings = 0
 
     elif scaffold_type == "generic_framework":
-        try:
-            scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
-            if scaff and scaff.GetNumHeavyAtoms() > 0:
-                gen_scaff = MurckoScaffold.MakeScaffoldGeneric(scaff)
-                Chem.SanitizeMol(gen_scaff)
-                scaff_smi = Chem.MolToSmiles(gen_scaff, isomericSmiles=isomeric)
-                n_rings = gen_scaff.GetRingInfo().NumRings()
-            else:
-                scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-                n_rings = 0
-        except Exception:
+        #~ [Bemis & Murcko, 1996] All-carbon generic framework for topological matching
+        scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
+        if scaff and scaff.GetNumHeavyAtoms() > 0:
+            gen_scaff = MurckoScaffold.MakeScaffoldGeneric(scaff)
+            Chem.SanitizeMol(gen_scaff)
+            scaff_smi = Chem.MolToSmiles(gen_scaff, isomericSmiles=isomeric)
+            n_rings = gen_scaff.GetRingInfo().NumRings()
+        else:
             scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
             n_rings = 0
 
-    else:
-        try:
-            scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
-            if scaff and scaff.GetNumHeavyAtoms() > 0:
-                Chem.SanitizeMol(scaff)
-                scaff_smi = Chem.MolToSmiles(scaff, isomericSmiles=isomeric)
-                n_rings = scaff.GetRingInfo().NumRings()
-            else:
-                scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-                n_rings = 0
-        except Exception:
+    else:  # "bemis_murcko" (default)
+        #~ [Bemis & Murcko, Molecular frameworks, 1996] Complete ring systems + linkers
+        scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
+        if scaff and scaff.GetNumHeavyAtoms() > 0:
+            Chem.SanitizeMol(scaff)
+            scaff_smi = Chem.MolToSmiles(scaff, isomericSmiles=isomeric)
+            n_rings = scaff.GetRingInfo().NumRings()
+        else:
             scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
             n_rings = 0
 
