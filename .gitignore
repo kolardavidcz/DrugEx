@@ -48,6 +48,7 @@ _david/outputs/
 _david/output/*
 !_david/output/archive/
 !_david/output/archive/**
+!_david/output/RUN_DIFFERENCES.md
 
 # Test directories, copies & runners
 /_test_*

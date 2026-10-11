@@ -147,10 +147,12 @@ def generate_reference_conformers(
             basin_cids = [remaining_cids[idx] for idx in cluster]
             best_cid = min(basin_cids, key=lambda cid: energy_map[cid])
             curated.append(best_cid)
+
+        curated.sort(key=lambda cid: energy_map[cid])
+
     else:
         curated = remaining_cids
 
-    curated.sort(key=lambda cid: energy_map[cid])
 
     with Chem.SDWriter(str(target_path)) as writer:
         for i, cid in enumerate(curated):
