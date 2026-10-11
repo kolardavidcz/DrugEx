@@ -31,6 +31,7 @@ Names disambiguated during the merge (identical names, DIFFERENT meanings):
   * ``CDPL`` / ``REF``     -> ``_SCORE_TIMEOUT_CDPL`` / ``_SCORE_TIMEOUT_REF``
 Byte-identical duplicates (``_REPO_ROOT``, ``_REF_SDF``, ``_ROCS_BIN``) are defined once below.
 """
+
 import multiprocessing as mp
 import os
 import shutil
@@ -40,7 +41,7 @@ import time
 import unittest
 from unittest import mock
 
-# [PACKAGE: numpy] WHY: Array operations and numerical tolerances in test assertions. WHAT: Scientific computing library.
+
 import numpy as np
 
 # [PACKAGE: rdkit] WHY: Conformer generation, shape alignment, and chemical structure test fixtures. WHAT: Cheminformatics toolkit.
@@ -52,6 +53,7 @@ from rdkit.Chem import AllChem
 # --------------------------------------------------------------------------------------
 try:
     from rdkit.Chem import rdShapeAlign, rdMolTransforms  # noqa: F401
+
     _RDSHAPEALIGN = True
 except ImportError:
     _RDSHAPEALIGN = False
@@ -101,12 +103,19 @@ from drugex.training.scorers.oe_color_smarts import (
     OE_TO_CDPKIT_TYPE,
 )
 from drugex.training.scorers.conformer_generators import (
-    RDKitConformerGenerator, CDPKitConformerGenerator, OmegaConformerGenerator)
+    RDKitConformerGenerator,
+    CDPKitConformerGenerator,
+    OmegaConformerGenerator,
+)
 from drugex.training.scorers import conformer_generators as cg
 from drugex.training.scorers.protonation import protonate_smiles
 from drugex.training.scorers.parallel import (
-    pool_context, capped_n_jobs, score_timeout, mol_timeout,
-    molecule_time_limit, ScoreTimeout,
+    pool_context,
+    capped_n_jobs,
+    score_timeout,
+    mol_timeout,
+    molecule_time_limit,
+    ScoreTimeout,
 )
 import drugex.training.scorers.rocs_cdpkit as rc
 
@@ -115,9 +124,7 @@ import drugex.training.scorers.rocs_cdpkit as rc
 # --------------------------------------------------------------------------------------
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 # Reference ligands shipped with the CCR2 project (5 rigid, single-conformer mols).
-_REF_SDF = os.path.join(
-    _REPO_ROOT, "tutorial/advanced/rocs/rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf"
-)
+_REF_SDF = os.path.join(_REPO_ROOT, "tutorial/advanced/rocs/rocs_rl_ccr/rdkit_cdpkit/CCR2_reference_ligands.sdf")
 _ROCS_BIN = (
     os.environ.get("ROCS_BINARY")
     or shutil.which("rocs")
@@ -223,9 +230,7 @@ class ColorOptimizationModes(unittest.TestCase):
         best = 0.0
         for pc in self.probe.GetConformers():
             for rc in self.ref0.GetConformers():
-                res = rdShapeAlign.AlignMol(
-                    self.ref0, Chem.Mol(self.probe), rc.GetId(), pc.GetId(), True, 1.0
-                )
+                res = rdShapeAlign.AlignMol(self.ref0, Chem.Mol(self.probe), rc.GetId(), pc.GetId(), True, 1.0)
                 best = max(best, res[1])
         return best
 
@@ -239,8 +244,6 @@ class ColorOptimizationModes(unittest.TestCase):
             msg=f"color-mode ({color_mode:.4f}) must exceed color@shape-pose ({base:.4f}); "
             "score_type must drive opt_param=0.0 for color mode",
         )
-
-
 
 
 def _cdpkit_pharm_shape_modes(rdkit_mol):
@@ -320,9 +323,7 @@ class CDPKitScorerModes(unittest.TestCase):
         smis = ["NCCNCCNc1ccc(C(=O)O)cc1"]  # triamine_acid
         s = {}
         for mode in ("shape", "combo", "color"):
-            scorer = CDPKitROCSScorer(
-                cg, references=_REF_SDF, opt_mode=mode, show_progress=False, n_jobs=1
-            )
+            scorer = CDPKitROCSScorer(cg, references=_REF_SDF, opt_mode=mode, show_progress=False, n_jobs=1)
             s[mode] = float(scorer.getScores(smis)[0, 0])
         # shape & color are Tanimoto in [0,1]; combo = shape + color can exceed 1
         self.assertLessEqual(s["shape"], 1.0 + 1e-6)
@@ -330,8 +331,6 @@ class CDPKitScorerModes(unittest.TestCase):
         self.assertGreaterEqual(s["combo"], s["shape"] - 1e-6)
         # modes must produce different outputs -> opt_mode is actually threaded
         self.assertNotAlmostEqual(s["combo"], s["color"], delta=1e-3)
-
-
 
 
 @unittest.skipUnless(_OE, "OpenEye toolkit not licensed/available")
@@ -347,8 +346,11 @@ class OpenEyeModes(unittest.TestCase):
 
         cg = RDKitConformerGenerator(max_conformers=5, max_isomers=1)
         scorer = OpenEyeROCSScorer(
-            cg, references={"ref": _REF_SDF}, optimization_mode=mode,
-            binary_path=_ROCS_BIN, show_progress=False,
+            cg,
+            references={"ref": _REF_SDF},
+            optimization_mode=mode,
+            binary_path=_ROCS_BIN,
+            show_progress=False,
         )
         return scorer._build_rocs_command("q.sdf", "in.sdf", "out.tsv")
 
@@ -388,6 +390,7 @@ octane (CCCCCCCC) is the golden probe: acyclic + no donor/acceptor/charge -> the
 sees 0 color atoms -> color self-overlap is exactly 0 TODAY; it becomes > 0 only if the
 hydrophobe channel is correctly wired.
 """
+
 
 def _embed_hydrophobe(smi):
     m = Chem.AddHs(Chem.MolFromSmiles(smi))
@@ -468,12 +471,20 @@ class RDKitScorerInjectColorFlag(unittest.TestCase):
         cg = RDKitConformerGenerator(max_conformers=10, max_isomers=1)
         smis = ["CCCCCCCC"]  # octane: pure hydrophobe -> color 0 unless hydrophobe wired
         off = RDKitROCSScorer(
-            cg, references=_REF_SDF, score_type="color",
-            inject_color=False, show_progress=False, n_jobs=1,
+            cg,
+            references=_REF_SDF,
+            score_type="color",
+            inject_color=False,
+            show_progress=False,
+            n_jobs=1,
         ).getScores(smis)[0, 0]
         on = RDKitROCSScorer(
-            cg, references=_REF_SDF, score_type="color",
-            inject_color=True, show_progress=False, n_jobs=1,
+            cg,
+            references=_REF_SDF,
+            score_type="color",
+            inject_color=True,
+            show_progress=False,
+            n_jobs=1,
         ).getScores(smis)[0, 0]
         self.assertEqual(off, 0.0)
         self.assertGreater(on, 0.0)
@@ -487,6 +498,7 @@ class RDKitArgValidation(unittest.TestCase):
     def test_invalid_score_type_raises(self):
         from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+
         cg = RDKitConformerGenerator(max_conformers=2, max_isomers=1)
         with self.assertRaises(ValueError):
             RDKitROCSScorer(cg, references=_REF_SDF, score_type="bogus", show_progress=False)
@@ -537,10 +549,7 @@ def _fires(color_name, smi):
     """True iff ANY OE SMARTS for ``color_name`` matches ``smi`` (2D, no Hs needed)."""
     mol = Chem.MolFromSmiles(smi)
     assert mol is not None, f"bad test SMILES {smi!r}"
-    return any(
-        mol.HasSubstructMatch(Chem.MolFromSmarts(s))
-        for s in OE_MILLS_DEAN_IMPLICIT[color_name]
-    )
+    return any(mol.HasSubstructMatch(Chem.MolFromSmarts(s)) for s in OE_MILLS_DEAN_IMPLICIT[color_name])
 
 
 # ---------------------------------------------------------------------------
@@ -705,9 +714,7 @@ class RDKitOEScoring(unittest.TestCase):
             self.hydrophobe_ref,
             "no CCR2 reference carries an OE hydrophobe feature -- cannot test the channel",
         )
-        base = _score_single_reference(
-            _embed_oe_ff("CCCCCCCC"), self.hydrophobe_ref, "color", True, color_ff="default"
-        )
+        base = _score_single_reference(_embed_oe_ff("CCCCCCCC"), self.hydrophobe_ref, "color", True, color_ff="default")
         oe = _score_single_reference(
             _embed_oe_ff("CCCCCCCC"), self.hydrophobe_ref, "color", True, color_ff="oe_mills_dean"
         )
@@ -729,12 +736,20 @@ class RDKitScorerColorFFFlag(unittest.TestCase):
         cg = RDKitConformerGenerator(max_conformers=10, max_isomers=1)
         smis = ["CCCCCCCC"]  # octane: pure hydrophobe -> color 0 unless hydrophobe wired
         off = RDKitROCSScorer(
-            cg, references=_REF_SDF, score_type="color",
-            color_ff="default", show_progress=False, n_jobs=1,
+            cg,
+            references=_REF_SDF,
+            score_type="color",
+            color_ff="default",
+            show_progress=False,
+            n_jobs=1,
         ).getScores(smis)[0, 0]
         on = RDKitROCSScorer(
-            cg, references=_REF_SDF, score_type="color",
-            color_ff="oe_mills_dean", show_progress=False, n_jobs=1,
+            cg,
+            references=_REF_SDF,
+            score_type="color",
+            color_ff="oe_mills_dean",
+            show_progress=False,
+            n_jobs=1,
         ).getScores(smis)[0, 0]
         self.assertEqual(off, 0.0)
         self.assertGreater(on, 0.0)
@@ -744,12 +759,16 @@ class RDKitScorerColorFFFlag(unittest.TestCase):
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 
         cg = RDKitConformerGenerator(max_conformers=2, max_isomers=1)
-        default = RDKitROCSScorer(
-            cg, references=_REF_SDF, score_type="color", show_progress=False, n_jobs=1
-        ).getKey()[0]
+        default = RDKitROCSScorer(cg, references=_REF_SDF, score_type="color", show_progress=False, n_jobs=1).getKey()[
+            0
+        ]
         oe = RDKitROCSScorer(
-            cg, references=_REF_SDF, score_type="color",
-            color_ff="oe_mills_dean", show_progress=False, n_jobs=1,
+            cg,
+            references=_REF_SDF,
+            score_type="color",
+            color_ff="oe_mills_dean",
+            show_progress=False,
+            n_jobs=1,
         ).getKey()[0]
         self.assertNotEqual(default, oe)
         self.assertTrue(oe.endswith("_oe"), f"expected _oe suffix, got {oe!r}")
@@ -760,9 +779,7 @@ class RDKitScorerColorFFFlag(unittest.TestCase):
 
         cg = RDKitConformerGenerator(max_conformers=2, max_isomers=1)
         with self.assertRaises(ValueError):
-            RDKitROCSScorer(
-                cg, references=_REF_SDF, color_ff="bogus", show_progress=False
-            )
+            RDKitROCSScorer(cg, references=_REF_SDF, color_ff="bogus", show_progress=False)
 
 
 # ---------------------------------------------------------------------------
@@ -781,8 +798,12 @@ class CDPKitScorerColorFFFlag(unittest.TestCase):
         cg = CDPKitConformerGenerator(max_conformers=10, max_isomers=1)
         smis = ["CN(C)CCCOc1ccc(C(=O)O)cc1"]
         oe = CDPKitROCSScorer(
-            cg, references=_REF_SDF, opt_mode="color",
-            color_ff="oe_mills_dean", show_progress=False, n_jobs=1,
+            cg,
+            references=_REF_SDF,
+            opt_mode="color",
+            color_ff="oe_mills_dean",
+            show_progress=False,
+            n_jobs=1,
         ).getScores(smis)[0, 0]
         # OE color FF is hydrophobe-rich vs the hydrophobe-heavy CCR2 ref -> non-trivial color.
         self.assertGreater(float(oe), 0.0)
@@ -792,12 +813,13 @@ class CDPKitScorerColorFFFlag(unittest.TestCase):
         from drugex.training.scorers.conformer_generators import CDPKitConformerGenerator
 
         cg = CDPKitConformerGenerator(max_conformers=2, max_isomers=1)
-        default = CDPKitROCSScorer(
-            cg, references=_REF_SDF, show_progress=False, n_jobs=1
-        ).getKey()[0]
+        default = CDPKitROCSScorer(cg, references=_REF_SDF, show_progress=False, n_jobs=1).getKey()[0]
         oe = CDPKitROCSScorer(
-            cg, references=_REF_SDF, color_ff="oe_mills_dean",
-            show_progress=False, n_jobs=1,
+            cg,
+            references=_REF_SDF,
+            color_ff="oe_mills_dean",
+            show_progress=False,
+            n_jobs=1,
         ).getKey()[0]
         self.assertNotEqual(default, oe)
         self.assertTrue(oe.endswith("_oe"), f"expected _oe suffix, got {oe!r}")
@@ -837,9 +859,7 @@ class DefaultOff(unittest.TestCase):
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 
         cg = RDKitConformerGenerator(max_conformers=2, max_isomers=1)
-        key = RDKitROCSScorer(
-            cg, references=_REF_SDF, score_type="color", show_progress=False, n_jobs=1
-        ).getKey()[0]
+        key = RDKitROCSScorer(cg, references=_REF_SDF, score_type="color", show_progress=False, n_jobs=1).getKey()[0]
         self.assertFalse(key.endswith("_oe"))
 
     def test_default_matches_pre_feature_golden_scores(self):
@@ -867,9 +887,7 @@ class DefaultOff(unittest.TestCase):
 
         probe = _embed_oe_ff("CCCCCCCc1ccccc1")
         legacy = _score_single_reference(probe, self.ref0, "color", True, inject_color=False)
-        default_ff = _score_single_reference(
-            probe, self.ref0, "color", True, inject_color=False, color_ff="default"
-        )
+        default_ff = _score_single_reference(probe, self.ref0, "color", True, inject_color=False, color_ff="default")
         self.assertAlmostEqual(legacy, default_ff, delta=1e-9)
 
 
@@ -924,12 +942,12 @@ def _random_rigid_transform(mol, seed):
     rng = np.random.default_rng(seed)
     a = rng.normal(size=(3, 3))
     q, r = np.linalg.qr(a)
-    q *= np.sign(np.diag(r))          # fix QR sign convention
-    if np.linalg.det(q) < 0:          # ensure a proper rotation (det = +1), not a reflection
+    q *= np.sign(np.diag(r))  # fix QR sign convention
+    if np.linalg.det(q) < 0:  # ensure a proper rotation (det = +1), not a reflection
         q[:, 0] *= -1
     transform = np.eye(4)
     transform[:3, :3] = q
-    transform[:3, 3] = rng.normal(size=3) * 10.0   # translation far from origin
+    transform[:3, 3] = rng.normal(size=3) * 10.0  # translation far from origin
     out = Chem.Mol(mol)
     rdMolTransforms.TransformConformer(out.GetConformer(), transform)
     return out
@@ -938,8 +956,8 @@ def _random_rigid_transform(mol, seed):
 # A reference and a *flexible*, color-rich probe: pose-sensitivity is worst when shape- and
 # color-optimal poses can diverge, which needs rotatable bonds + polar groups (a rigid probe
 # masks the bug). Omeprazole is the molecule from the original issue report.
-_REF_SMILES = "COc1ccc2[nH]c(S(=O)Cc3ncc(C)c(OC)c3C)nc2c1"   # omeprazole
-_PROBE_SMILES = "CCCCOc1ccc(CC(=O)NCc2ccccc2OC)cc1"          # 8 rot. bonds, donor/acceptor-rich
+_REF_SMILES = "COc1ccc2[nH]c(S(=O)Cc3ncc(C)c(OC)c3C)nc2c1"  # omeprazole
+_PROBE_SMILES = "CCCCOc1ccc(CC(=O)NCc2ccccc2OC)cc1"  # 8 rot. bonds, donor/acceptor-rich
 _N_POSES = 8
 
 
@@ -957,14 +975,13 @@ class RawAlignMolIsPoseDependent(unittest.TestCase):
         scores = []
         for s in range(_N_POSES):
             posed = _random_rigid_transform(probe, s)
-            shape, color = rdShapeAlign.AlignMol(
-                ref, posed, useColors=True, opt_param=0.5
-            )
+            shape, color = rdShapeAlign.AlignMol(ref, posed, useColors=True, opt_param=0.5)
             scores.append(shape + color)
         spread = max(scores) - min(scores)
         # A true invariant would spread ~0; the documented bug spreads ~0.1.
         self.assertGreater(
-            spread, 10 * _TOL_POSE,
+            spread,
+            10 * _TOL_POSE,
             f"raw AlignMol unexpectedly pose-invariant (spread={spread:.4f}); "
             "issue #8513 may be fixed upstream -- revisit the guard",
         )
@@ -978,9 +995,7 @@ class ScorerIsPoseInvariant(unittest.TestCase):
         ref = _embed_pose(_REF_SMILES, seed=1)
         probe = _embed_pose(_PROBE_SMILES, seed=2)
         return [
-            _score_single_reference(
-                _random_rigid_transform(probe, s), ref, score_type, use_colors=True
-            )
+            _score_single_reference(_random_rigid_transform(probe, s), ref, score_type, use_colors=True)
             for s in range(_N_POSES)
         ]
 
@@ -988,9 +1003,9 @@ class ScorerIsPoseInvariant(unittest.TestCase):
         scores = self._scores_over_poses("TanimotoCombo")
         spread = max(scores) - min(scores)
         self.assertLessEqual(
-            spread, _TOL_POSE,
-            f"TanimotoCombo varies with probe pose (spread={spread:.4f}); "
-            f"scores={np.round(scores, 4)}",
+            spread,
+            _TOL_POSE,
+            f"TanimotoCombo varies with probe pose (spread={spread:.4f}); scores={np.round(scores, 4)}",
         )
 
     def test_shape_score_pose_invariant(self):
@@ -1009,15 +1024,13 @@ class ScorerIsPoseInvariant(unittest.TestCase):
         """
         ref = _embed_pose(_REF_SMILES, seed=1)
         scores = [
-            _score_single_reference(
-                _random_rigid_transform(ref, 100 + s), ref, "shape", use_colors=True
-            )
+            _score_single_reference(_random_rigid_transform(ref, 100 + s), ref, "shape", use_colors=True)
             for s in range(_N_POSES)
         ]
         self.assertGreaterEqual(
-            min(scores), 0.99,
-            f"self-alignment not robust to pose (min shape Tanimoto={min(scores):.4f}); "
-            f"scores={np.round(scores, 4)}",
+            min(scores),
+            0.99,
+            f"self-alignment not robust to pose (min shape Tanimoto={min(scores):.4f}); scores={np.round(scores, 4)}",
         )
 
 
@@ -1029,6 +1042,7 @@ class ScorerIsPoseInvariant(unittest.TestCase):
 
 Run: ~/miniconda3/envs/drugex/bin/python -m drugex.training.scorers.tests
 """
+
 
 def _first_sdf_charge(path):
     mols = [m for m in Chem.SDMolSupplier(path, removeHs=False) if m is not None]
@@ -1082,6 +1096,7 @@ def _sdf_charge(path):
 
 def _oeb_charge(path):
     from openeye import oechem as oe
+
     ifs = oe.oemolistream()
     if not ifs.open(path):
         return None
@@ -1102,7 +1117,9 @@ class CrossBackendProtonationConsistency(unittest.TestCase):
             return _oeb_charge(cg.genConformers([smi], d))
 
     def test_all_available_backends_agree_on_dominant_charge(self):
-        backends = (["RDKit"] if _DIMORPHITE else []) + (["CDPKit"] if _CDPKIT else []) + (["OpenEye"] if _OE_QUACPAC else [])
+        backends = (
+            (["RDKit"] if _DIMORPHITE else []) + (["CDPKit"] if _CDPKIT else []) + (["OpenEye"] if _OE_QUACPAC else [])
+        )
         self.assertGreaterEqual(len(backends), 2, "need >=2 backends to compare")
         for smi, expected in CASES:
             charges = {b: self._charge(b, smi) for b in backends}
@@ -1118,6 +1135,7 @@ class CrossBackendProtonationConsistency(unittest.TestCase):
 
 Run: ~/miniconda3/envs/drugex/bin/python -m drugex.training.scorers.tests
 """
+
 
 def _first_oeb_charge(path):
     from openeye import oechem as oe
@@ -1142,8 +1160,7 @@ class OmegaConformerPrep(unittest.TestCase):
             self.assertEqual(_first_oeb_charge(out), -1)
 
     def test_protonate_off_stays_neutral(self):
-        cg = OmegaConformerGenerator(max_conformers=2, max_centers=1, protonate=False,
-                                     canonicalize_tautomer=False)
+        cg = OmegaConformerGenerator(max_conformers=2, max_centers=1, protonate=False, canonicalize_tautomer=False)
         with tempfile.TemporaryDirectory() as d:
             out = cg.genConformers(["CC(=O)O"], d)
             self.assertEqual(_first_oeb_charge(out), 0)
@@ -1163,6 +1180,7 @@ class OmegaConformerPrep(unittest.TestCase):
 
 Run: ~/miniconda3/envs/drugex/bin/python -m drugex.training.scorers.tests
 """
+
 
 def _first_sdf_mol(path):
     mols = [m for m in Chem.SDMolSupplier(path, removeHs=False) if m is not None]
@@ -1192,9 +1210,7 @@ class RDKitConformerPrep(unittest.TestCase):
     def test_tautomer_canonicalized(self):
         # enol of 2-butanone -> canonical keto tautomer CCC(C)=O
         with tempfile.TemporaryDirectory() as d:
-            cg = RDKitConformerGenerator(
-                max_conformers=2, max_isomers=1, canonicalize_tautomer=True, protonate=False
-            )
+            cg = RDKitConformerGenerator(max_conformers=2, max_isomers=1, canonicalize_tautomer=True, protonate=False)
             sdf = cg.genConformers(["CC(O)=CC"], d)
             mol = _first_sdf_mol(sdf)
             self.assertIsNotNone(mol)
@@ -1210,6 +1226,7 @@ class RDKitConformerPrep(unittest.TestCase):
 
 Run: ~/miniconda3/envs/drugex/bin/python -m drugex.training.scorers.tests
 """
+
 
 def _charge(smi):
     m = Chem.MolFromSmiles(smi)
@@ -1256,9 +1273,11 @@ the cross-dataset enrichment benchmark — job 10416 timed out at 3600s, single
 core). Run: python -m drugex.training.scorers.tests
 """
 
+
 class TestRocsMpi(unittest.TestCase):
     def _scorer(self, mpi_np):
         from drugex.training.scorers.rocs_openeye import OpenEyeROCSScorer
+
         s = OpenEyeROCSScorer.__new__(OpenEyeROCSScorer)
         s.binary_path = "rocs"
         s.mpi_np = mpi_np
@@ -1303,12 +1322,15 @@ enrichment. ALL THREE backends now support it:
   an L2 inner product, so O_ab<=sqrt(sov_a*sov_b) (NOT <=min); the index is clamped to [0,1].
 """
 
+
 def _cdpkit_pharm_shape_tversky(rdkit_mol):
     """Build a colored CDPKit Gaussian shape from an RDKit mol w/ a conformer."""
     import tempfile
 
     sdf = tempfile.mktemp(suffix=".sdf")
-    w = Chem.SDWriter(sdf); w.write(rdkit_mol); w.close()
+    w = Chem.SDWriter(sdf)
+    w.write(rdkit_mol)
+    w.close()
     reader = _CDPLChem.FileSDFMoleculeReader(sdf)
     cm = _CDPLChem.BasicMolecule()
     reader.read(cm)
@@ -1331,27 +1353,32 @@ class CDPKitTverskyVariant(unittest.TestCase):
         cls.rshape = _cdpkit_pharm_shape_tversky(ref0)
         # triamine_acid: size-mismatched vs ref0 -> Tversky must differ from Tanimoto
         m = Chem.AddHs(Chem.MolFromSmiles("NCCNCCNc1ccc(C(=O)O)cc1"))
-        p = AllChem.ETKDGv3(); p.randomSeed = 7
-        AllChem.EmbedMolecule(m, p); AllChem.MMFFOptimizeMolecule(m)
+        p = AllChem.ETKDGv3()
+        p.randomSeed = 7
+        AllChem.EmbedMolecule(m, p)
+        AllChem.MMFFOptimizeMolecule(m)
         cls.qshape = _cdpkit_pharm_shape_tversky(m)
 
     def test_reference_tversky_combo_wired_and_valid(self):
         from drugex.training.scorers.rocs_cdpkit import _align_and_score_helper
+
         tani = _align_and_score_helper(self.qshape, self.rshape, "combo", "tanimoto")
         tvr = _align_and_score_helper(self.qshape, self.rshape, "combo", "tversky_ref")
         self.assertGreater(tvr, 0.0)
-        self.assertLessEqual(tvr, 2.0 + 1e-6)            # combo range [0,2]
+        self.assertLessEqual(tvr, 2.0 + 1e-6)  # combo range [0,2]
         self.assertNotAlmostEqual(tvr, tani, delta=1e-3)  # variant actually threaded
 
     def test_reference_tversky_color_in_unit_range(self):
         from drugex.training.scorers.rocs_cdpkit import _align_and_score_helper
+
         tvr = _align_and_score_helper(self.qshape, self.rshape, "color", "tversky_ref")
         self.assertGreaterEqual(tvr, 0.0)
-        self.assertLessEqual(tvr, 1.0 + 1e-6)            # color Tversky in [0,1]
+        self.assertLessEqual(tvr, 1.0 + 1e-6)  # color Tversky in [0,1]
 
     def test_tanimoto_default_unchanged(self):
         """Default score_variant must reproduce the existing Tanimoto path (no silent change)."""
         from drugex.training.scorers.rocs_cdpkit import _align_and_score_helper
+
         explicit = _align_and_score_helper(self.qshape, self.rshape, "combo", "tanimoto")
         default = _align_and_score_helper(self.qshape, self.rshape, "combo")
         self.assertAlmostEqual(explicit, default, delta=1e-9)
@@ -1368,10 +1395,12 @@ class CDPKitScorerTverskyThreading(unittest.TestCase):
 
         cg = CDPKitConformerGenerator(max_conformers=10, max_isomers=1)
         smis = ["NCCNCCNc1ccc(C(=O)O)cc1"]
-        tani = CDPKitROCSScorer(cg, references=_REF_SDF, opt_mode="combo",
-                                score_variant="tanimoto", show_progress=False, n_jobs=1).getScores(smis)[0, 0]
-        tvr = CDPKitROCSScorer(cg, references=_REF_SDF, opt_mode="combo",
-                               score_variant="tversky_ref", show_progress=False, n_jobs=1).getScores(smis)[0, 0]
+        tani = CDPKitROCSScorer(
+            cg, references=_REF_SDF, opt_mode="combo", score_variant="tanimoto", show_progress=False, n_jobs=1
+        ).getScores(smis)[0, 0]
+        tvr = CDPKitROCSScorer(
+            cg, references=_REF_SDF, opt_mode="combo", score_variant="tversky_ref", show_progress=False, n_jobs=1
+        ).getScores(smis)[0, 0]
         self.assertGreater(tvr, 0.0)
         self.assertNotAlmostEqual(tani, tvr, delta=1e-3)
 
@@ -1384,17 +1413,20 @@ class RDKitTverskyMath(unittest.TestCase):
         """THE faithfulness proof: Tversky(a=b=1) must reproduce the input Tanimoto exactly,
         showing the recovery is on rdShapeAlign's exact native basis."""
         from drugex.training.scorers.rocs_rdkit import _tversky_from_tanimoto
+
         for T, sA, sB in [(0.30, 85.0, 482.0), (0.60, 100.0, 100.0), (0.0, 50.0, 50.0), (0.90, 200.0, 50.0)]:
             self.assertAlmostEqual(_tversky_from_tanimoto(T, sA, sB, 1.0, 1.0), T, places=9)
 
     def test_reference_tversky_forgives_larger_fit(self):
         """small ref (sA) vs big fit (sB): reference-Tversky (a=.95,b=.05) exceeds Tanimoto."""
         from drugex.training.scorers.rocs_rdkit import _tversky_from_tanimoto
+
         T, sA, sB = 0.30, 85.0, 482.0
         self.assertGreater(_tversky_from_tanimoto(T, sA, sB, 0.95, 0.05), T)
 
     def test_zero_tanimoto_gives_zero(self):
         from drugex.training.scorers.rocs_rdkit import _tversky_from_tanimoto
+
         self.assertEqual(_tversky_from_tanimoto(0.0, 50.0, 50.0, 0.95, 0.05), 0.0)
 
 
@@ -1404,21 +1436,31 @@ class RDKitScorerTversky(unittest.TestCase):
 
     def _cg(self):
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+
         return RDKitConformerGenerator(max_conformers=10, max_isomers=1)
 
     def test_scorer_threads_score_variant_end_to_end(self):
         from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+
         smis = ["NCCNCCNc1ccc(C(=O)O)cc1"]
-        tani = RDKitROCSScorer(self._cg(), references=_REF_SDF, score_type="color",
-                               score_variant="tanimoto", show_progress=False, n_jobs=1).getScores(smis)[0, 0]
-        tvr = RDKitROCSScorer(self._cg(), references=_REF_SDF, score_type="color",
-                              score_variant="tversky_ref", show_progress=False, n_jobs=1).getScores(smis)[0, 0]
+        tani = RDKitROCSScorer(
+            self._cg(), references=_REF_SDF, score_type="color", score_variant="tanimoto", show_progress=False, n_jobs=1
+        ).getScores(smis)[0, 0]
+        tvr = RDKitROCSScorer(
+            self._cg(),
+            references=_REF_SDF,
+            score_type="color",
+            score_variant="tversky_ref",
+            show_progress=False,
+            n_jobs=1,
+        ).getScores(smis)[0, 0]
         self.assertGreaterEqual(tvr, 0.0)
         self.assertLessEqual(tvr, 1.0 + 1e-6)
         self.assertNotAlmostEqual(tani, tvr, delta=1e-4)
 
     def test_invalid_score_variant_raises(self):
         from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+
         with self.assertRaises(ValueError):
             RDKitROCSScorer(self._cg(), references=_REF_SDF, score_variant="tversky", show_progress=False)
 
@@ -1431,15 +1473,18 @@ class CDPKitArgValidation(unittest.TestCase):
 
     def _cg(self):
         from drugex.training.scorers.conformer_generators import CDPKitConformerGenerator
+
         return CDPKitConformerGenerator(max_conformers=2, max_isomers=1)
 
     def test_invalid_score_variant_raises(self):
         from drugex.training.scorers.rocs_cdpkit import CDPKitROCSScorer
+
         with self.assertRaises(ValueError):  # "tversky" (missing _ref) must NOT silently == tanimoto
             CDPKitROCSScorer(self._cg(), references=_REF_SDF, score_variant="tversky", show_progress=False)
 
     def test_invalid_opt_mode_raises(self):
         from drugex.training.scorers.rocs_cdpkit import CDPKitROCSScorer
+
         with self.assertRaises(ValueError):
             CDPKitROCSScorer(self._cg(), references=_REF_SDF, opt_mode="bogus", show_progress=False)
 
@@ -1453,6 +1498,7 @@ class GetKeyReflectsFlags(unittest.TestCase):
     def test_rdkit_default_key_unchanged_and_variant_distinct(self):
         from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+
         cg = RDKitConformerGenerator(max_conformers=2, max_isomers=1)
         default = RDKitROCSScorer(cg, references=_REF_SDF, show_progress=False).getKey()[0]
         tvr = RDKitROCSScorer(cg, references=_REF_SDF, score_variant="tversky_ref", show_progress=False).getKey()[0]
@@ -1466,15 +1512,15 @@ class GetKeyReflectsFlags(unittest.TestCase):
     def test_cdpkit_variant_and_mode_distinct(self):
         from drugex.training.scorers.rocs_cdpkit import CDPKitROCSScorer
         from drugex.training.scorers.conformer_generators import CDPKitConformerGenerator
+
         cg = CDPKitConformerGenerator(max_conformers=2, max_isomers=1)
         default = CDPKitROCSScorer(cg, references=_REF_SDF, show_progress=False).getKey()[0]
-        tvr = CDPKitROCSScorer(cg, references=_REF_SDF, opt_mode="color",
-                               score_variant="tversky_ref", show_progress=False).getKey()[0]
+        tvr = CDPKitROCSScorer(
+            cg, references=_REF_SDF, opt_mode="color", score_variant="tversky_ref", show_progress=False
+        ).getKey()[0]
         self.assertNotIn("tversky", default)
         self.assertIn("tversky_ref", tvr)
         self.assertIn("color", tvr)
-
-
 
 
 @unittest.skipUnless(_OE, "OpenEye toolkit not licensed/available")
@@ -1487,9 +1533,16 @@ class OpenEyeTversky(unittest.TestCase):
     def _scorer(self, mode, variant):
         from drugex.training.scorers.rocs_openeye import OpenEyeROCSScorer
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+
         cg = RDKitConformerGenerator(max_conformers=3, max_isomers=1)
-        return OpenEyeROCSScorer(cg, references={"ref": _REF_SDF}, optimization_mode=mode,
-                                 score_variant=variant, binary_path=_ROCS_BIN, show_progress=False)
+        return OpenEyeROCSScorer(
+            cg,
+            references={"ref": _REF_SDF},
+            optimization_mode=mode,
+            score_variant=variant,
+            binary_path=_ROCS_BIN,
+            show_progress=False,
+        )
 
     def test_column_selection_matches_verified_report_names(self):
         self.assertEqual(self._scorer("combo", "tanimoto")._score_column, "TanimotoCombo")
@@ -1508,9 +1561,16 @@ class OpenEyeTversky(unittest.TestCase):
         SHAPE Tversky column (present in a -shapeonly report), NOT RefTverskyCombo (absent)."""
         from drugex.training.scorers.rocs_openeye import OpenEyeROCSScorer
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+
         cg = RDKitConformerGenerator(max_conformers=3, max_isomers=1)
-        s = OpenEyeROCSScorer(cg, references={"ref": _REF_SDF}, shape_only=True,
-                              score_variant="tversky_ref", binary_path=_ROCS_BIN, show_progress=False)
+        s = OpenEyeROCSScorer(
+            cg,
+            references={"ref": _REF_SDF},
+            shape_only=True,
+            score_variant="tversky_ref",
+            binary_path=_ROCS_BIN,
+            show_progress=False,
+        )
         self.assertEqual(s._score_column, "RefTversky")
 
     def test_parse_results_skips_nan_cells(self):
@@ -1518,13 +1578,15 @@ class OpenEyeTversky(unittest.TestCase):
         import tempfile
         from drugex.training.scorers.rocs_openeye import OpenEyeROCSScorer
         from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+
         cg = RDKitConformerGenerator(max_conformers=3, max_isomers=1)
-        s = OpenEyeROCSScorer(cg, references={"ref": _REF_SDF}, optimization_mode="combo",
-                              binary_path=_ROCS_BIN, show_progress=False)
+        s = OpenEyeROCSScorer(
+            cg, references={"ref": _REF_SDF}, optimization_mode="combo", binary_path=_ROCS_BIN, show_progress=False
+        )
         tsv = tempfile.mktemp(suffix=".tsv")
         with open(tsv, "w") as f:  # mol_0: a NaN conformer FIRST, then a good one
             f.write("Name\tTanimotoCombo\n")
-            f.write("mol_0+0\t\n")          # blank -> NaN
+            f.write("mol_0+0\t\n")  # blank -> NaN
             f.write("mol_0+1\t1.234\n")
         scores = s._parse_results(tsv)
         os.unlink(tsv)
@@ -1535,9 +1597,7 @@ class OpenEyeTversky(unittest.TestCase):
     def test_integration_tversky_ref_differs_from_tanimoto(self):
         _libs = os.path.join(_REPO_ROOT, "ccr2_gen/oeye/runtime_libs")
         if os.path.isdir(_libs):
-            os.environ["LD_LIBRARY_PATH"] = (
-                _libs + ":" + os.environ.get("LD_LIBRARY_PATH", "")
-            )
+            os.environ["LD_LIBRARY_PATH"] = _libs + ":" + os.environ.get("LD_LIBRARY_PATH", "")
         _lic = os.path.join(_REPO_ROOT, "ccr2_gen/oe_license.txt")
         if os.path.exists(_lic):
             os.environ.setdefault("OE_LICENSE", _lic)
@@ -1567,7 +1627,6 @@ Run: ~/miniconda3/envs/drugex/bin/python -m drugex.training.scorers.tests
 
 
 class ConformerCaps(unittest.TestCase):
-
     def test_shared_tautomer_enumerator_is_capped(self):
         te = cg._RDKIT_TAUTOMER_ENUMERATOR
         # default RDKit is 1000/1000 (unbounded for our purposes) — must be capped low.
@@ -1744,7 +1803,7 @@ class ParallelHelpers(unittest.TestCase):
 
     def test_cap_does_not_raise_already_low_count(self):
         self._patch_env(DRUGEX_SCORE_NJOBS="16")
-        self.assertEqual(capped_n_jobs(8), 8)       # min(8, 16) -> 8, never increases workers
+        self.assertEqual(capped_n_jobs(8), 8)  # min(8, 16) -> 8, never increases workers
 
     def test_cap_ignored_when_non_positive_or_garbage(self):
         self._patch_env(DRUGEX_SCORE_NJOBS="0")
@@ -1754,12 +1813,12 @@ class ParallelHelpers(unittest.TestCase):
 
     def test_cap_preserves_serial(self):
         self._patch_env(DRUGEX_SCORE_NJOBS="16")
-        self.assertEqual(capped_n_jobs(1), 1)       # serial stays serial
+        self.assertEqual(capped_n_jobs(1), 1)  # serial stays serial
 
     # --- score_timeout: per-batch scoring wall-clock cap (DRUGEX_SCORE_TIMEOUT) ----------
     def test_score_timeout_none_when_env_unset(self):
         self._unset("DRUGEX_SCORE_TIMEOUT")
-        self.assertIsNone(score_timeout())     # default: wait forever (current behaviour)
+        self.assertIsNone(score_timeout())  # default: wait forever (current behaviour)
 
     def test_score_timeout_reads_seconds(self):
         self._patch_env(DRUGEX_SCORE_TIMEOUT="300")
@@ -1785,12 +1844,12 @@ class ParallelHelpers(unittest.TestCase):
     def test_molecule_time_limit_raises_when_exceeded(self):
         with self.assertRaises(ScoreTimeout):
             with molecule_time_limit(0.3):
-                time.sleep(2.0)            # exceeds -> SIGALRM -> ScoreTimeout
+                time.sleep(2.0)  # exceeds -> SIGALRM -> ScoreTimeout
 
     def test_molecule_time_limit_passes_fast_block(self):
         with molecule_time_limit(2.0):
-            x = sum(range(1000))           # well under the limit
-        self.assertEqual(x, 499500)        # no exception, alarm disarmed cleanly
+            x = sum(range(1000))  # well under the limit
+        self.assertEqual(x, 499500)  # no exception, alarm disarmed cleanly
 
     def test_molecule_time_limit_noop_when_none(self):
         # None means "no cap" — must not arm an alarm or raise
@@ -1804,10 +1863,13 @@ class ParallelHelpers(unittest.TestCase):
         def run():
             try:
                 with molecule_time_limit(0.1):
-                    time.sleep(0.3)        # would raise on main thread; off-thread -> no-op
-            except Exception as e:         # noqa: BLE001
+                    time.sleep(0.3)  # would raise on main thread; off-thread -> no-op
+            except Exception as e:  # noqa: BLE001
                 err.append(e)
-        t = threading.Thread(target=run); t.start(); t.join()
+
+        t = threading.Thread(target=run)
+        t.start()
+        t.join()
         self.assertEqual(err, [])
 
 
@@ -1835,13 +1897,11 @@ _SCORE_TIMEOUT_REF = "tutorial/advanced/rocs/rocs_rl_ccr/rdkit_cdpkit/supermol_1
 
 
 class ScoreTimeoutIntegration(unittest.TestCase):
-
     @unittest.skipIf(not _SCORE_TIMEOUT_CDPL, "CDPKit not available")
     def test_pathological_molecule_is_bounded_not_hanging(self):
         from drugex.training.scorers.conformer_generators import CDPKitConformerGenerator
 
         with mock.patch.dict(os.environ, {"DRUGEX_SCORE_MOL_TIMEOUT": "2"}):
-
             # Inject an unbounded hang into the per-conformer alignment (the cell-615 failure site).
             def _hang(*a, **k):
                 time.sleep(30)
@@ -1849,9 +1909,10 @@ class ScoreTimeoutIntegration(unittest.TestCase):
 
             with mock.patch.object(rc, "_align_and_score_helper", _hang):
                 sc = rc.CDPKitROCSScorer(
-                    conformer_generator=CDPKitConformerGenerator(
-                        max_conformers=5, max_isomers=1, show_progress=False),
-                    references={"CCR2": _SCORE_TIMEOUT_REF}, opt_mode="combo", show_progress=False,
+                    conformer_generator=CDPKitConformerGenerator(max_conformers=5, max_isomers=1, show_progress=False),
+                    references={"CCR2": _SCORE_TIMEOUT_REF},
+                    opt_mode="combo",
+                    show_progress=False,
                     n_jobs=1,  # serial path runs in-process so the patched hang is exercised
                 )
                 mol = Chem.MolFromSmiles("O=C(CN1C(=O)COc2ccccc21)N1CCOCC1")

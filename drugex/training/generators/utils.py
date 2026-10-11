@@ -7,8 +7,9 @@ from __future__ import annotations
 import math
 from typing import Callable, Union
 
-# [PACKAGE: numpy] WHY: Contiguous byte-view sorting for finding unique matrix rows. WHAT: Numerical computing library.
+
 import numpy as np
+
 # [PACKAGE: torch] WHY: Tensor indexing, boolean masks, neural network layers (Linear, LayerNorm, Dropout, Module). WHAT: Deep learning framework.
 import torch
 import torch.nn as nn
@@ -90,14 +91,14 @@ class PositionalEmbedding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
 
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Retrieve positional encoding slice corresponding to input sequence length."""
         if self.batch_first:
-            return self.pe[:x.size(1), :].unsqueeze(0).detach()
+            return self.pe[: x.size(1), :].unsqueeze(0).detach()
         else:
-            return self.pe[:x.size(0), :].unsqueeze(1).detach()
+            return self.pe[: x.size(0), :].unsqueeze(1).detach()
 
 
 class PositionalEncoding(nn.Module):
@@ -116,7 +117,7 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
 
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Lookup positional encodings for flattened node/loci index tensor."""

@@ -1,4 +1,5 @@
 """OpenEye-ROCS based ROCS scorer."""
+
 import os
 import shutil
 import subprocess
@@ -8,10 +9,12 @@ from collections import defaultdict
 from contextlib import contextmanager
 from typing import Dict, List, Tuple, Union
 
-# [PACKAGE: numpy] WHY: Array conversions and numeric score outputs. WHAT: Scientific computing library.
+
 import numpy as np
+
 # [PACKAGE: pandas] WHY: Tabular ROCS report parsing. WHAT: Data analysis library.
 import pandas as pd
+
 # [PACKAGE: rdkit] WHY: Chemical structure representations and SMILES conversions. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
@@ -78,10 +81,7 @@ class OpenEyeROCSScorer(Scorer):
             elif optimization_mode == "color":
                 shape_only, score_type, color_optimize = False, "ColorTanimoto", True
             else:
-                raise ValueError(
-                    "optimization_mode must be 'shape', 'combo', or 'color', "
-                    f"got {optimization_mode!r}"
-                )
+                raise ValueError(f"optimization_mode must be 'shape', 'combo', or 'color', got {optimization_mode!r}")
 
         self.conformer_generator = conformer_generator
 
@@ -96,17 +96,21 @@ class OpenEyeROCSScorer(Scorer):
         # parse a different column. score_variant: "tanimoto" | "tversky_ref" | "tversky_fit".
         _valid_variants = {"tanimoto", "tversky_ref", "tversky_fit"}
         if score_variant not in _valid_variants:
-            raise ValueError(
-                f"score_variant must be one of {sorted(_valid_variants)}, got {score_variant!r}"
-            )
+            raise ValueError(f"score_variant must be one of {sorted(_valid_variants)}, got {score_variant!r}")
         self.score_variant = score_variant
         # Derive the mode for Tversky column selection. shape_only=True (whether set directly or
         # via optimization_mode="shape") means the report has ONLY shape columns, so map to
         # "shape" — otherwise a Tversky variant would request RefTverskyCombo, absent from a
         # -shapeonly report, and silently score all-zeros (code-review A).
-        _mode = optimization_mode or ("shape" if shape_only else {
-            "TanimotoCombo": "combo", "ColorTanimoto": "color", "ShapeTanimoto": "shape",
-        }.get(self.score_type, "combo"))
+        _mode = optimization_mode or (
+            "shape"
+            if shape_only
+            else {
+                "TanimotoCombo": "combo",
+                "ColorTanimoto": "color",
+                "ShapeTanimoto": "shape",
+            }.get(self.score_type, "combo")
+        )
         _tversky_cols = {
             ("shape", "tversky_ref"): "RefTversky",
             ("color", "tversky_ref"): "RefColorTversky",
@@ -116,10 +120,7 @@ class OpenEyeROCSScorer(Scorer):
             ("combo", "tversky_fit"): "FitTverskyCombo",
         }
         # Column to read from the ROCS report (tanimoto keeps the legacy score_type column).
-        self._score_column = (
-            self.score_type if score_variant == "tanimoto"
-            else _tversky_cols[(_mode, score_variant)]
-        )
+        self._score_column = self.score_type if score_variant == "tanimoto" else _tversky_cols[(_mode, score_variant)]
 
         self.optimize = optimize
         self.color_optimize = color_optimize
@@ -147,8 +148,7 @@ class OpenEyeROCSScorer(Scorer):
     def _validate_query_files(self):
         """Validate all reference files exist and are readable"""
         assert isinstance(self.queries, dict), (
-            "references must be a dictionary with keys as reference group names and values "
-            "as file paths"
+            "references must be a dictionary with keys as reference group names and values as file paths"
         )
 
         for name, list_of_qf in self.queries.items():
@@ -190,9 +190,7 @@ class OpenEyeROCSScorer(Scorer):
         return smiles_list
 
     @staticmethod
-    def _deduplicate_smiles(
-        smiles_list: List[Union[str, None]]
-    ) -> Tuple[List[str], Dict[int, List[int]]]:
+    def _deduplicate_smiles(smiles_list: List[Union[str, None]]) -> Tuple[List[str], Dict[int, List[int]]]:
         """Group identical SMILES to avoid redundant conformer generation."""
         unique_smiles: List[str] = []
         unique_lookup: Dict[str, int] = {}
@@ -232,16 +230,11 @@ class OpenEyeROCSScorer(Scorer):
             return np.zeros((num_input_mols, len(self.queries)), dtype=np.float32)
 
         if self.show_progress and len(unique_smiles) < len(smiles_list):
-            print(
-                f"  Deduplicated: {len(smiles_list)} -> {len(unique_smiles)} "
-                f"unique SMILES"
-            )
+            print(f"  Deduplicated: {len(smiles_list)} -> {len(unique_smiles)} unique SMILES")
 
         # Prepare conformers for unique SMILES only
         with _managed_tmpdir() as tmpdir:
-            conf_file = self.conformer_generator.genConformers(
-                unique_smiles, tmpdir
-            )
+            conf_file = self.conformer_generator.genConformers(unique_smiles, tmpdir)
 
             # Score using OpenEye ROCS
             scores_dict = self._score(conf_file)
@@ -261,26 +254,31 @@ class OpenEyeROCSScorer(Scorer):
 
         return result_scores
 
-    def _build_rocs_command(
-        self, query_file: str, input_file: str, output_file: str
-    ) -> List[str]:
+    def _build_rocs_command(self, query_file: str, input_file: str, output_file: str) -> List[str]:
         """Build ROCS command matching cli_base_rocs.py exactly"""
         # Extract the directory from output_file
         output_dir = os.path.dirname(output_file) or "."
 
         cmd = [
             self.binary_path,
-            "-query", query_file,
-            "-dbase", input_file,
-            "-report", "one",
-            "-reportfile", output_file,
-            "-prefix", "rocs",
-            "-outputdir", output_dir,
-            "-stats", "best", # Include best overlay(s) for each dbase molecule
-            "-nostructs", # Don't save the structures
+            "-query",
+            query_file,
+            "-dbase",
+            input_file,
+            "-report",
+            "one",
+            "-reportfile",
+            output_file,
+            "-prefix",
+            "rocs",
+            "-outputdir",
+            output_dir,
+            "-stats",
+            "best",  # Include best overlay(s) for each dbase molecule
+            "-nostructs",  # Don't save the structures
             "-scdbase",  # Don't combine contiguous conformers
         ]
-        
+
         if self.shape_only:
             # sets chemff none, optchem false and rankby tanimoto
             cmd.extend(["-shapeonly", "true"])
@@ -376,9 +374,7 @@ class OpenEyeROCSScorer(Scorer):
                 print(f"  ROCS execution: {rocs_timer.Elapsed():.1f}s")
 
             if result.returncode != 0:
-                raise RuntimeError(
-                    f"ROCS failed with return code {result.returncode}:\n{result.stderr}"
-                )
+                raise RuntimeError(f"ROCS failed with return code {result.returncode}:\n{result.stderr}")
 
             if not os.path.exists(output_file):
                 raise RuntimeError(f"ROCS output file not created: {output_file}")
@@ -389,9 +385,7 @@ class OpenEyeROCSScorer(Scorer):
         except RuntimeError as e:
             raise RuntimeError(e)
         except subprocess.TimeoutExpired:
-            raise RuntimeError(
-                f"ROCS execution timed out after {self.timeout}s"
-            )
+            raise RuntimeError(f"ROCS execution timed out after {self.timeout}s")
         except Exception as e:
             raise RuntimeError(f"ROCS execution failed: {e}")
 
@@ -412,10 +406,7 @@ class OpenEyeROCSScorer(Scorer):
             return scores
 
         if "Name" not in df.columns or self._score_column not in df.columns:
-            print(
-                f"ROCS output file is missing required column {self._score_column!r}; "
-                f"available: {list(df.columns)}"
-            )
+            print(f"ROCS output file is missing required column {self._score_column!r}; available: {list(df.columns)}")
             return scores
 
         # find the maximum score per molecule out of all its conformers/isomers

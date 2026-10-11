@@ -1,4 +1,3 @@
-# [PACKAGE: numpy] WHY: Matrix calculations, array sorting, and vector operations. WHAT: Numerical computing library.
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Optional, Sequence, Union

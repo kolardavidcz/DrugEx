@@ -5,8 +5,9 @@ import tempfile
 import collections
 from unittest import TestCase
 
-# [PACKAGE: numpy] WHY: Numerical calculations and assertions. WHAT: Numerical computing library.
+
 import numpy as np
+
 # [PACKAGE: pandas] WHY: TSV reading and DataFrame manipulation in tests. WHAT: Data manipulation library.
 import pandas as pd
 from drugex.data.corpus.corpus import SequenceCorpus
@@ -42,12 +43,12 @@ from drugex.training.rewards import ParetoCrowdingDistance
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import Property
+
 # [PACKAGE: rdkit] WHY: Chemical structure validation in test cases. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
 
 class TestModelMonitor(TrainingMonitor):
-
     @staticmethod
     def onModelUpdate(model: Model):
         assert isinstance(model, Model)
@@ -55,107 +56,119 @@ class TestModelMonitor(TrainingMonitor):
 
     def __init__(self, submonitors=None):
         self.execution = {
-            'model' : False,
-            'progress' : False,
-            'performance' : False,
-            'end' : False,
-            'close' : False,
+            "model": False,
+            "progress": False,
+            "performance": False,
+            "end": False,
+            "close": False,
         }
-        self.submonitors = [
-            FileMonitor(
-                tempfile.NamedTemporaryFile().name,
-                save_smiles=True,
-                save_model_option="all",
-                reset_directory=True,
-                on_model_update=self.onModelUpdate
-            ),
-            FileMonitor(
-                tempfile.NamedTemporaryFile().name,
-                save_smiles=True,
-                save_model_option="best",
-                reset_directory=True,
-                on_model_update=self.onModelUpdate
-            ),
-            FileMonitor(
-                tempfile.NamedTemporaryFile().name,
-                save_smiles=True,
-                save_model_option="improvement",
-                reset_directory=True,
-                on_model_update=self.onModelUpdate
-            )
-        ] if not submonitors else submonitors
+        self.submonitors = (
+            [
+                FileMonitor(
+                    tempfile.NamedTemporaryFile().name,
+                    save_smiles=True,
+                    save_model_option="all",
+                    reset_directory=True,
+                    on_model_update=self.onModelUpdate,
+                ),
+                FileMonitor(
+                    tempfile.NamedTemporaryFile().name,
+                    save_smiles=True,
+                    save_model_option="best",
+                    reset_directory=True,
+                    on_model_update=self.onModelUpdate,
+                ),
+                FileMonitor(
+                    tempfile.NamedTemporaryFile().name,
+                    save_smiles=True,
+                    save_model_option="improvement",
+                    reset_directory=True,
+                    on_model_update=self.onModelUpdate,
+                ),
+            ]
+            if not submonitors
+            else submonitors
+        )
 
     def passToSubmonitors(self, method, *args, **kwargs):
         for monitor in self.submonitors:
             return getattr(monitor, method)(*args, **kwargs)
 
     def saveModel(self, model, identifier=None):
-        self.execution['model'] = True
-        self.passToSubmonitors('saveModel', model, identifier)
+        self.execution["model"] = True
+        self.passToSubmonitors("saveModel", model, identifier)
 
-    def saveProgress(self, model: Model, current_step=None, current_epoch=None, total_steps=None, total_epochs=None, *args, **kwargs):
+    def saveProgress(
+        self, model: Model, current_step=None, current_epoch=None, total_steps=None, total_epochs=None, *args, **kwargs
+    ):
         print("Test Progress Monitor:")
-        print(json.dumps({
-            'current_step' : current_step,
-            'current_epoch' : current_epoch,
-            'total_steps' : total_steps,
-            'total_epochs' : total_epochs,
-        }, indent=4))
+        print(
+            json.dumps(
+                {
+                    "current_step": current_step,
+                    "current_epoch": current_epoch,
+                    "total_steps": total_steps,
+                    "total_epochs": total_epochs,
+                },
+                indent=4,
+            )
+        )
         if args:
             print("Args:", args)
         if kwargs:
             print("Kwargs:", json.dumps(kwargs, indent=4))
-        self.execution['progress'] = True
-        self.passToSubmonitors('saveProgress', model, current_step, current_epoch, total_steps, total_epochs, *args, **kwargs)
+        self.execution["progress"] = True
+        self.passToSubmonitors(
+            "saveProgress", model, current_step, current_epoch, total_steps, total_epochs, *args, **kwargs
+        )
 
     def savePerformanceInfo(self, performance_dict, df_smiles=None):
         print("Test Performance Monitor:")
         print(json.dumps(performance_dict, indent=4))
-        self.execution['performance'] = True
-        self.passToSubmonitors('savePerformanceInfo', performance_dict, df_smiles)
+        self.execution["performance"] = True
+        self.passToSubmonitors("savePerformanceInfo", performance_dict, df_smiles)
 
     def endStep(self, step, epoch):
         print(f"Finished step {step} of epoch {epoch}.")
-        self.execution['end'] = True
-        self.passToSubmonitors('endStep', step, epoch)
-        
+        self.execution["end"] = True
+        self.passToSubmonitors("endStep", step, epoch)
+
     def getModel(self):
-        return self.passToSubmonitors('getModel')
+        return self.passToSubmonitors("getModel")
 
     def getSaveModelOption(self):
-        return self.passToSubmonitors('getSaveModelOption')
+        return self.passToSubmonitors("getSaveModelOption")
 
     def close(self):
         print("Training done.")
-        self.execution['close'] = True
-        self.passToSubmonitors('close')
+        self.execution["close"] = True
+        self.passToSubmonitors("close")
 
     def allMethodsExecuted(self):
         return all([self.execution[key] for key in self.execution])
 
 
 class MockScorer(Scorer):
-
     def getScores(self, mols, frags=None):
         return list(np.random.random(len(mols)))
 
-
     def getKey(self):
         return "MockScorer"
-    
+
+
 class MultiTaskMockScorer(Scorer):
-    
-        def getScores(self, mols, frags=None):
-            return np.random.random((len(mols), 2))
-    
-        def getKey(self):
-            return ["MockScorer_Task1", "MockScorer_Task2"]
+    def getScores(self, mols, frags=None):
+        return np.random.random((len(mols), 2))
+
+    def getKey(self):
+        return ["MockScorer_Task1", "MockScorer_Task2"]
 
 
 def getPredictor(path, **kwargs):
     try:
         from drugex.training.scorers.qsprpred import QSPRPredScorer
         from qsprpred.models import QSPRModel
+
         model = QSPRModel.fromFile(
             os.path.join(os.path.dirname(__file__), "test_data", path),
         )
@@ -164,10 +177,9 @@ def getPredictor(path, **kwargs):
         logging.warning("QSPRPred not installed. Using mock scorer.")
         ret = MockScorer()
     return ret
-        
+
 
 class TestScorer(TestCase):
-
     def getScores_test(self, scorer):
         # test with invalid
         mols = ["CCO", "XXXX"]
@@ -192,96 +204,95 @@ class TestScorer(TestCase):
         scores = scorer.getScores(mols)
         self.assertEqual(len(scores), len(mols))
         self.assertTrue(all([isinstance(score, float) for score in scores.flatten()]))
-        
+
     def test_reg_scorer(self):
         path = "A2AR_RF_reg/A2AR_RF_reg_meta.json"
         scorer = getPredictor(path)
         self.getScores_test(scorer)
-        
+
     def test_single_class_scorer(self):
         path = "A2AR_RF_cls/A2AR_RF_cls_meta.json"
-        
+
         # test with probabilities
         scorer = getPredictor(path)
         self.getScores_test(scorer)
-        
+
         # test with predictions
         scorer = getPredictor(path, use_probas=False)
         self.getScores_test(scorer)
-        
+
     def test_multi_class_scorer(self):
         path = "A2AR_RF_multicls/A2AR_RF_multicls_meta.json"
-        
+
         ## test with probabilities
         # test with all classes
         scorer = getPredictor(path)
         self.getScores_test(scorer)
-        
+
         # test with selected classes
         scorer = getPredictor(path, classes=[0, 1])
         self.getScores_test(scorer)
-        
+
         ## test with predictions
         scorer = getPredictor(path, use_probas=False)
         self.getScores_test(scorer)
-        
+
     def test_multi_task_reg_scorer(self):
         path = "AR_RF_reg/AR_RF_reg_meta.json"
-        
+
         # test with all tasks
         scorer = getPredictor(path)
         self.getScores_test(scorer)
-        
+
         # test with selected tasks
         scorer = getPredictor(path, tasks=["P29274", "P30542"])
         self.getScores_test(scorer)
-        
+
     def test_multi_task_cls_scorer(self):
         path = "AR_RF_cls/AR_RF_cls_meta.json"
-        
+
         # test with probabilities
         scorer = getPredictor(path)
         self.getScores_test(scorer)
-        
+
         # test with predictions
         scorer = getPredictor(path, use_probas=False)
         self.getScores_test(scorer)
-        
-    def test_invalids_score(self):    
+
+    def test_invalids_score(self):
         path = "AR_RF_reg/AR_RF_reg_meta.json"
 
         # test with list of invalidscores
         # check that with incorrect number of invalid scores, an assertion error is raised
         with self.assertRaises(AssertionError):
             scorer = getPredictor(path, invalids_score=[-1, -2])
-        
-        scorer = getPredictor(path, invalids_score=[-1., -2., -3., -4.])
+
+        scorer = getPredictor(path, invalids_score=[-1.0, -2.0, -3.0, -4.0])
         self.getScores_test(scorer)
 
     def test_with_app(self):
-        class dummyAD():            
+        class dummyAD:
             # returns half of the molecules as outliers
             def contains(self, mols):
                 return pd.DataFrame(np.array([0 if i % 2 == 0 else 1 for i in range(len(mols))]).reshape(-1, 1))
-        
+
         dummy_ad = dummyAD()
-        
+
         path = "A2AR_RF_reg/A2AR_RF_reg_meta.json"
         scorer = getPredictor(path, app_domain=True)
         scorer.model.applicabilityDomain = dummy_ad
         self.getScores_test(scorer)
 
-        scorer = getPredictor(path, app_domain='invalid')
+        scorer = getPredictor(path, app_domain="invalid")
         scorer.model.applicabilityDomain = dummy_ad
         self.getScores_test(scorer)
-        
+
 
 class TrainingTestCase(TestCase):
-
     # input file information
-    test_data_dir = os.path.join(os.path.dirname(__file__), 'test_data')
-    pretraining_file = os.path.join(test_data_dir, 'ZINC_raw_small.txt')
-    finetuning_file = os.path.join(test_data_dir, 'A2AR_raw_small.txt')
+    test_data_dir = os.path.join(os.path.dirname(__file__), "test_data")
+    pretraining_file = os.path.join(test_data_dir, "ZINC_raw_small.txt")
+    finetuning_file = os.path.join(test_data_dir, "A2AR_raw_small.txt")
 
     # global calculation settings
     N_PROC = 2
@@ -293,11 +304,8 @@ class TrainingTestCase(TestCase):
     # environment objectives (TODO: we should test more options and combinations here)
     path = "AR_RF_reg/AR_RF_reg_meta.json"
     scorers = [
-        Property(
-            "MW",
-            modifier=ClippedScore(lower_x=1000, upper_x=500)
-        ),
-        getPredictor(path, tasks=["P29274", "P30542"])
+        Property("MW", modifier=ClippedScore(lower_x=1000, upper_x=500)),
+        getPredictor(path, tasks=["P29274", "P30542"]),
     ]
     thresholds = [0.5, 0.99, 0.99]
 
@@ -311,7 +319,11 @@ class TrainingTestCase(TestCase):
 
     def getSmiles(self, _file):
         """Read and standardize a sampled subset of canonical SMILES from file."""
-        return self.standardize(pd.read_csv(_file, header=0, sep='\t')['CANONICAL_SMILES'].sample(self.MAX_SMILES, random_state=self.SEED).tolist())
+        return self.standardize(
+            pd.read_csv(_file, header=0, sep="\t")["CANONICAL_SMILES"]
+            .sample(self.MAX_SMILES, random_state=self.SEED)
+            .tolist()
+        )
 
     def standardize(self, smiles):
         """Standardize input SMILES strings using multi-threaded standardization."""
@@ -325,12 +337,10 @@ class TrainingTestCase(TestCase):
         # create and encode fragments
         splitter = FragmentPairsSplitter(0.1, 1e4, seed=self.SEED)
         encoder = FragmentCorpusEncoder(
-            fragmenter=Fragmenter(4, 4, 'brics'),
-            encoder=SequenceFragmentEncoder(
-                VocSmiles(True)
-            ),
+            fragmenter=Fragmenter(4, 4, "brics"),
+            encoder=SequenceFragmentEncoder(VocSmiles(True)),
             pairs_splitter=splitter,
-            n_proc=self.N_PROC
+            n_proc=self.N_PROC,
         )
 
         # get training data
@@ -342,7 +352,12 @@ class TrainingTestCase(TestCase):
         encoder.apply(ft_smiles, encodingCollectors=[ft_data_set_test, ft_data_set_train])
 
         # get vocabulary (we will join all generated vocabularies to make sure the one used to create data loaders contains all tokens)
-        vocabulary = pr_data_set_test.getVoc() + pr_data_set_train.getVoc() + ft_data_set_train.getVoc() + ft_data_set_test.getVoc()
+        vocabulary = (
+            pr_data_set_test.getVoc()
+            + pr_data_set_train.getVoc()
+            + ft_data_set_train.getVoc()
+            + ft_data_set_test.getVoc()
+        )
         pr_data_set_test.setVoc(vocabulary)
         pr_data_set_train.setVoc(vocabulary)
         ft_data_set_train.setVoc(vocabulary)
@@ -372,10 +387,10 @@ class TrainingTestCase(TestCase):
         monitor = TestModelMonitor()
         model.fit(train_loader, test_loader, epochs=self.N_EPOCHS, monitor=monitor, loss_tolerance=loss_tolerance)
         pr_model = monitor.getModel()
-        
+
         self.assertTrue(type(pr_model) == collections.OrderedDict)
         self.assertTrue(monitor.allMethodsExecuted())
-        model.loadStates(pr_model) # initialize from the best state
+        model.loadStates(pr_model)  # initialize from the best state
         return model, monitor
 
     def test_sequence_rnn(self):
@@ -387,13 +402,7 @@ class TrainingTestCase(TestCase):
         ft_smiles = self.getSmiles(self.finetuning_file)
 
         # get training data
-        encoder = CorpusEncoder(
-                SequenceCorpus,
-                {
-                    'vocabulary': VocSmiles(False)
-                },
-                n_proc=self.N_PROC
-        )
+        encoder = CorpusEncoder(SequenceCorpus, {"vocabulary": VocSmiles(False)}, n_proc=self.N_PROC)
         pre_data_set = SmilesDataSet(self.getRandomFile())
         encoder.apply(pre_smiles, pre_data_set)
         ft_data_set = SmilesDataSet(self.getRandomFile())
@@ -444,12 +453,10 @@ class TrainingTestCase(TestCase):
         # create and encode fragments
         splitter = FragmentPairsSplitter(0.1, 1e4, seed=self.SEED)
         encoder = FragmentCorpusEncoder(
-            fragmenter=Fragmenter(4, 4, 'brics'),
-            encoder=GraphFragmentEncoder(
-                VocGraph(n_frags=4)
-            ),
+            fragmenter=Fragmenter(4, 4, "brics"),
+            encoder=GraphFragmentEncoder(VocGraph(n_frags=4)),
             pairs_splitter=splitter,
-            n_proc=self.N_PROC
+            n_proc=self.N_PROC,
         )
 
         # get training data
@@ -492,32 +499,32 @@ class TrainingTestCase(TestCase):
         self.assertTrue(monitor.allMethodsExecuted())
 
         # test molecule generation
-        pretrained.generate([
-            "c1ccncc1CCC",
-            "CCO"
-        ], num_samples=2, evaluator=environment, drop_invalid=False, raw_scores=True)
-        pretrained.generate([
-            "c1ccncc1CCC",
-            "CCO"
-        ], num_samples=2, evaluator=environment, drop_invalid=False, raw_scores=False)
-        pretrained.generate(input_dataset=pr_data_set_test, num_samples=20, evaluator=environment, drop_invalid=False, raw_scores=True)
-        pretrained.generate(input_dataset=pr_data_set_test, num_samples=20, evaluator=environment, drop_invalid=False, raw_scores=False)
+        pretrained.generate(
+            ["c1ccncc1CCC", "CCO"], num_samples=2, evaluator=environment, drop_invalid=False, raw_scores=True
+        )
+        pretrained.generate(
+            ["c1ccncc1CCC", "CCO"], num_samples=2, evaluator=environment, drop_invalid=False, raw_scores=False
+        )
+        pretrained.generate(
+            input_dataset=pr_data_set_test, num_samples=20, evaluator=environment, drop_invalid=False, raw_scores=True
+        )
+        pretrained.generate(
+            input_dataset=pr_data_set_test, num_samples=20, evaluator=environment, drop_invalid=False, raw_scores=False
+        )
 
     def test_graph_transformer_scaffold(self):
         """
         Test RL with fragment-based graph transformer model with scaffold input.
         """
 
-        frags = ['c1ccncc1', 'c1cncnc1.CCO', 'CCl']
+        frags = ["c1ccncc1", "c1cncnc1.CCO", "CCl"]
 
         # create dummy molecules and encode molecule-fragments pairs
         encoder = FragmentCorpusEncoder(
             fragmenter=dummyMolsFromFragments(),
-            encoder=GraphFragmentEncoder(
-                VocGraph(n_frags=4)
-            ),
+            encoder=GraphFragmentEncoder(VocGraph(n_frags=4)),
             pairs_splitter=None,
-            n_proc=self.N_PROC
+            n_proc=self.N_PROC,
         )
 
         # get training data
@@ -546,7 +553,9 @@ class TrainingTestCase(TestCase):
         self.assertTrue(monitor.allMethodsExecuted())
 
         # generate molecules
-        pretrained.generate(input_dataset=data_set, num_samples=5, evaluator=environment, drop_invalid=False, raw_scores=True)
+        pretrained.generate(
+            input_dataset=data_set, num_samples=5, evaluator=environment, drop_invalid=False, raw_scores=True
+        )
         pretrained.generate(frags, num_samples=5, evaluator=environment, drop_invalid=False, raw_scores=False)
 
     def test_sequence_transformer(self):
@@ -574,30 +583,22 @@ class TrainingTestCase(TestCase):
         self.assertTrue(type(monitor.getModel()) == collections.OrderedDict)
         self.assertTrue(monitor.allMethodsExecuted())
 
-        pretrained.generate([
-            "c1ccncc1CCC",
-            "CCO"
-        ], num_samples=1, evaluator=environment, drop_invalid=False)
+        pretrained.generate(["c1ccncc1CCC", "CCO"], num_samples=1, evaluator=environment, drop_invalid=False)
 
     def test_sequence_transformer_scaffold(self):
         """
         Test RL with fragment-based sequence transformer model with scaffold input.
         """
 
-        frags = ['c1ccncc1', 'CCl', 'c1cncnc1.CCO']
+        frags = ["c1ccncc1", "CCl", "c1cncnc1.CCO"]
 
         # create dummy molecules and encode molecule-fragments pairs
         encoder = FragmentCorpusEncoder(
             fragmenter=dummyMolsFromFragments(),
-            encoder=SequenceFragmentEncoder(
-                VocSmiles(True, min_len=2),
-                update_voc=False,
-                throw=True
-            ),
+            encoder=SequenceFragmentEncoder(VocSmiles(True, min_len=2), update_voc=False, throw=True),
             pairs_splitter=None,
-            n_proc=self.N_PROC
+            n_proc=self.N_PROC,
         )
-
 
         # get training data
         data_set = SmilesFragDataSet(self.getRandomFile())

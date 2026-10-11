@@ -123,7 +123,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Optional, Union
 
-# [PACKAGE: numpy] WHY: Matrix calculations, array sorting, clipping, and vector operations. WHAT: Numerical computing library. HOW: np.asarray, np.nan_to_num, np.clip, np.where, np.log, np.exp.
+
 import numpy as np
 from drugex.training.interfaces import RewardScheme
 
@@ -174,7 +174,9 @@ class AugmentedChebyshevReward(RewardScheme):
     where \\text{Cheb}_{\\max} = \\max_j(w_j) + \\rho \\sum_j w_j.
     """
 
-    def __init__(self, weights: Sequence[float] | None = None, rho: float = 0.02) -> None:
+    def __init__(
+        self, weights: Sequence[float] | None = None, rho: float = 0.02
+    ) -> None:
         """Initialize AugmentedChebyshevReward with optional objective weights and rho.
 
         Args:
@@ -217,18 +219,26 @@ class AugmentedChebyshevReward(RewardScheme):
             )
 
         if scores_arr.ndim == 1:
-            scores_arr = scores_arr.reshape(1, -1) if len(scores_arr) > 0 else scores_arr.reshape(0, 1)
+            scores_arr = (
+                scores_arr.reshape(1, -1)
+                if len(scores_arr) > 0
+                else scores_arr.reshape(0, 1)
+            )
 
         n_samples = scores_arr.shape[0]
         if n_samples == 0:
             return np.zeros((0, 1), dtype=np.float64)
 
-        #? [NumPy] Clean NaN/Inf, clip scores into [0.0, 1.0], and ensure 2D array shape.
+        # ? [NumPy] Clean NaN/Inf, clip scores into [0.0, 1.0], and ensure 2D array shape.
         scores_raw = np.nan_to_num(scores_arr, nan=0.0, posinf=1.0, neginf=0.0)
         scores_clean = np.clip(scores_raw, 0.0, 1.0)
         n_objs = scores_clean.shape[1]
 
-        if self.weights is None or len(self.weights) != n_objs or np.sum(self.weights) == 0:
+        if (
+            self.weights is None
+            or len(self.weights) != n_objs
+            or np.sum(self.weights) == 0
+        ):
             w = np.ones(n_objs, dtype=np.float64) / float(n_objs)
         else:
             w = self.weights / np.sum(self.weights)
@@ -246,7 +256,9 @@ class AugmentedChebyshevReward(RewardScheme):
         max_possible = np.max(w) + self.rho * np.sum(w)
 
         # Invert distance so higher scores yield higher rewards in [0.0, 1.0]
-        rewards = 1.0 - (raw_cheb / max_possible) if max_possible > 0 else 1.0 - raw_cheb
+        rewards = (
+            1.0 - (raw_cheb / max_possible) if max_possible > 0 else 1.0 - raw_cheb
+        )
         rewards = np.clip(rewards, 0.0, 1.0)
 
         return rewards.reshape(-1, 1)
@@ -284,7 +296,9 @@ class GeometricMeanReward(RewardScheme):
          geometric reward exponentially toward zero without inducing NaN numerical failures.
     """
 
-    def __init__(self, weights: Sequence[float] | None = None, eps: float = 1e-4) -> None:
+    def __init__(
+        self, weights: Sequence[float] | None = None, eps: float = 1e-4
+    ) -> None:
         """Initialize GeometricMeanReward with optional objective weights and epsilon floor.
 
         Args:
@@ -327,23 +341,33 @@ class GeometricMeanReward(RewardScheme):
             )
 
         if scores_arr.ndim == 1:
-            scores_arr = scores_arr.reshape(1, -1) if len(scores_arr) > 0 else scores_arr.reshape(0, 1)
+            scores_arr = (
+                scores_arr.reshape(1, -1)
+                if len(scores_arr) > 0
+                else scores_arr.reshape(0, 1)
+            )
 
         n_samples = scores_arr.shape[0]
         if n_samples == 0:
             return np.zeros((0, 1), dtype=np.float64)
 
-        #? [NumPy] Clean NaN/Inf, floor scores at eps to protect log evaluation from underflow, and ensure 2D shape.
-        scores_raw = np.nan_to_num(scores_arr, nan=self.eps, posinf=1.0, neginf=self.eps)
+        # ? [NumPy] Clean NaN/Inf, floor scores at eps to protect log evaluation from underflow, and ensure 2D shape.
+        scores_raw = np.nan_to_num(
+            scores_arr, nan=self.eps, posinf=1.0, neginf=self.eps
+        )
         scores_clean = np.clip(scores_raw, self.eps, 1.0)
         n_objs = scores_clean.shape[1]
 
-        if self.weights is None or len(self.weights) != n_objs or np.sum(self.weights) == 0:
+        if (
+            self.weights is None
+            or len(self.weights) != n_objs
+            or np.sum(self.weights) == 0
+        ):
             w = np.ones(n_objs, dtype=np.float64) / float(n_objs)
         else:
             w = self.weights / np.sum(self.weights)
 
-        #? [NumPy] Vectorized log-sum-exp computation for geometric mean.
+        # ? [NumPy] Vectorized log-sum-exp computation for geometric mean.
         log_scores = np.log(scores_clean)
         weighted_log_mean = np.sum(log_scores * w, axis=1) / np.sum(w)
         rewards = np.exp(weighted_log_mean)

@@ -16,12 +16,15 @@ from typing import (
     Union,
 )
 
-# [PACKAGE: numpy] WHY: Array operations for token sequences and action matrices. WHAT: Zero-filled matrices and index concatenation.
+
 import numpy as np
+
 # [PACKAGE: pandas] WHY: Tabular file I/O for vocabulary export/import. WHAT: Reading and writing TSV vocabulary files.
 import pandas as pd
+
 # [PACKAGE: PyTorch] WHY: Tensor data structures for model input batches. WHAT: LongTensor allocation and manipulation.
 import torch
+
 # [PACKAGE: RDKit] WHY: Molecular manipulation and substructure queries. WHAT: Atom/bond querying, kekulization, fragmentation, and SMILES generation.
 from rdkit import Chem
 
@@ -40,14 +43,91 @@ class VocSmiles(SequenceVocabulary):
     """
 
     defaultWords: Tuple[str, ...] = (
-        "#", "%", "(", ")", "-", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-        "=", "B", "C", "F", "I", "L", "N", "O", "P", "R", "S", "[Ag-3]", "[As+]",
-        "[As]", "[B-]", "[BH-]", "[BH2-]", "[BH3-]", "[B]", "[C+]", "[C-]", "[CH-]",
-        "[CH2]", "[CH]", "[I+]", "[IH2]", "[N+]", "[N-]", "[NH+]", "[NH-]", "[NH2+]",
-        "[N]", "[O+]", "[O-]", "[OH+]", "[O]", "[P+]", "[PH]", "[S+]", "[S-]", "[SH+]",
-        "[SH2]", "[SH]", "[Se+]", "[SeH]", "[Se]", "[SiH2]", "[SiH]", "[Si]", "[Te]",
-        "[b-]", "[c+]", "[c-]", "[cH-]", "[n+]", "[n-]", "[nH+]", "[nH]", "[o+]",
-        "[s+]", "[se+]", "[se]", "[te+]", "[te]", "b", "c", "n", "o", "p", "s",
+        "#",
+        "%",
+        "(",
+        ")",
+        "-",
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "=",
+        "B",
+        "C",
+        "F",
+        "I",
+        "L",
+        "N",
+        "O",
+        "P",
+        "R",
+        "S",
+        "[Ag-3]",
+        "[As+]",
+        "[As]",
+        "[B-]",
+        "[BH-]",
+        "[BH2-]",
+        "[BH3-]",
+        "[B]",
+        "[C+]",
+        "[C-]",
+        "[CH-]",
+        "[CH2]",
+        "[CH]",
+        "[I+]",
+        "[IH2]",
+        "[N+]",
+        "[N-]",
+        "[NH+]",
+        "[NH-]",
+        "[NH2+]",
+        "[N]",
+        "[O+]",
+        "[O-]",
+        "[OH+]",
+        "[O]",
+        "[P+]",
+        "[PH]",
+        "[S+]",
+        "[S-]",
+        "[SH+]",
+        "[SH2]",
+        "[SH]",
+        "[Se+]",
+        "[SeH]",
+        "[Se]",
+        "[SiH2]",
+        "[SiH]",
+        "[Si]",
+        "[Te]",
+        "[b-]",
+        "[c+]",
+        "[c-]",
+        "[cH-]",
+        "[n+]",
+        "[n-]",
+        "[nH+]",
+        "[nH]",
+        "[o+]",
+        "[s+]",
+        "[se+]",
+        "[se]",
+        "[te+]",
+        "[te]",
+        "b",
+        "c",
+        "n",
+        "o",
+        "p",
+        "s",
     )
 
     def __init__(
@@ -215,10 +295,43 @@ class VocGraph(Vocabulary):
     """
 
     defaultWords: Tuple[str, ...] = (
-        "2O", "3O+", "1O-", "4C", "3C+", "3C-", "3N", "4N+", "2N-", "1Cl", "2S", "6S",
-        "4S", "3S+", "5S+", "1S-", "1F", "1I", "5I", "2I+", "1Br", "5P", "3P", "4P+",
-        "2Se", "6Se", "4Se", "3Se+", "4Si", "3B", "4B-", "5As", "3As", "4As+", "2Te",
-        "4Te", "3Te+",
+        "2O",
+        "3O+",
+        "1O-",
+        "4C",
+        "3C+",
+        "3C-",
+        "3N",
+        "4N+",
+        "2N-",
+        "1Cl",
+        "2S",
+        "6S",
+        "4S",
+        "3S+",
+        "5S+",
+        "1S-",
+        "1F",
+        "1I",
+        "5I",
+        "2I+",
+        "1Br",
+        "5P",
+        "3P",
+        "4P+",
+        "2Se",
+        "6Se",
+        "4Se",
+        "3Se+",
+        "4Si",
+        "3B",
+        "4B-",
+        "5As",
+        "3As",
+        "4As+",
+        "2Te",
+        "4Te",
+        "3Te+",
     )
 
     def __init__(
@@ -243,9 +356,7 @@ class VocGraph(Vocabulary):
         self.ix2ch: Dict[int, int] = {0: 0, 1: 0}
         self.E: Dict[int, str] = {0: "", 1: "+", -1: "-"}
 
-        self.wordsParsed: List[Tuple[str, int, int, int, str]] = [
-            self.parseWord(word) for word in words_unique
-        ]
+        self.wordsParsed: List[Tuple[str, int, int, int, str]] = [self.parseWord(word) for word in words_unique]
         self.words = list(self.control) + words_unique
         if "*" not in words_unique:
             self.words.append("*")
@@ -337,15 +448,11 @@ class VocGraph(Vocabulary):
             for s_idx in sub_idxs:
                 sub_idx = s_idx
                 sub_bond = [
-                    mol.GetBondBetweenAtoms(
-                        sub_idx[b.GetBeginAtomIdx()], sub_idx[b.GetEndAtomIdx()]
-                    ).GetIdx()
+                    mol.GetBondBetweenAtoms(sub_idx[b.GetBeginAtomIdx()], sub_idx[b.GetEndAtomIdx()]).GetIdx()
                     for b in sub.GetBonds()
                 ]
                 sub_atom = [mol.GetAtomWithIdx(ix) for ix in sub_idx]
-                split_bond = {
-                    b.GetIdx() for a in sub_atom for b in a.GetBonds() if b.GetIdx() not in sub_bond
-                }
+                split_bond = {b.GetIdx() for a in sub_atom for b in a.GetBonds() if b.GetIdx() not in sub_bond}
                 single = sum([int(mol.GetBondWithIdx(b).GetBondType()) for b in split_bond])
                 if single == len(split_bond):
                     break

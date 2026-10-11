@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Sequence
 
-# [PACKAGE: numpy] WHY: Array allocation for float64 scores. WHAT: Scientific computing library.
+
 import numpy as np
+
 # [PACKAGE: rdkit] WHY: Molecule conversion and SMILES export. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 from rdkit.Chem import MolToSmiles

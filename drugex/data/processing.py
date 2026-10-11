@@ -5,8 +5,9 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple, Type, Union
 
-# [PACKAGE: numpy] WHY: Array conversions for parallel batch inputs. WHAT: Vectorized array conversions.
+
 import numpy as np
+
 # [PACKAGE: scikit-learn] WHY: Dataset partitioning. WHAT: Random train/test split execution.
 from sklearn.model_selection import train_test_split
 
@@ -40,7 +41,7 @@ class Standardization(ParallelProcessor):
         n_proc: Optional[int] = None,
         chunk_size: Optional[int] = 1000,
         chunks: Optional[int] = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> None:
         """Initialize worker processes and chemical standardizer with optional chunking configuration."""
         super().__init__(n_proc=n_proc, chunk_size=chunk_size, chunks=chunks, **kwargs)
@@ -50,17 +51,15 @@ class Standardization(ParallelProcessor):
         """Apply standardization across input molecules in parallel, returning collected structures."""
         standardizer = ParallelSupplierEvaluator(
             StandardizedSupplier,
-            kwargs={
-                "standardizer": self.standardizer
-            },
+            kwargs={"standardizer": self.standardizer},
             chunk_size=self.chunkSize,
             chunks=self.chunks,
-            n_proc=self.nProc
+            n_proc=self.nProc,
         )
 
         collector = collector if collector else self.Collector()
         standardizer.apply(np.asarray(list(mols)), collector, desc_string="Standardizing molecules")
-        return collector.getList() if hasattr(collector, 'getList') else None
+        return collector.getList() if hasattr(collector, "getList") else None
 
 
 class CorpusEncoder(ParallelProcessor):
@@ -71,7 +70,7 @@ class CorpusEncoder(ParallelProcessor):
         corpus_class: Type[Any],
         corpus_options: Dict[str, Any],
         n_proc: Optional[int] = None,
-        chunk_size: Optional[int] = None
+        chunk_size: Optional[int] = None,
     ) -> None:
         """Configure parallel worker pool with corpus class implementation and constructor options."""
         super().__init__(n_proc, chunk_size)
@@ -81,10 +80,7 @@ class CorpusEncoder(ParallelProcessor):
     def apply(self, mols: Iterable[Any], collector: ResultCollector) -> None:
         """Encode input molecules across parallel processes using configured corpus evaluator."""
         evaluator = ParallelSupplierEvaluator(
-            self.corpus,
-            kwargs=self.options,
-            chunk_size=self.chunkSize,
-            chunks=self.chunks
+            self.corpus, kwargs=self.options, chunk_size=self.chunkSize, chunks=self.chunks
         )
         evaluator.apply(mols, collector)
 

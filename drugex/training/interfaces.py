@@ -5,8 +5,9 @@ import os
 from pathlib import Path
 from typing import Literal, Union
 
-# [PACKAGE: numpy] WHY: Array manipulations and reward vector calculations. WHAT: Numerical computing library.
+
 import numpy as np
+
 # [PACKAGE: torch] WHY: Tensor computing, GPU device abstraction, and neural net modules. WHAT: PyTorch deep learning framework.
 import torch
 from drugex import DEFAULT_DEVICE, DEFAULT_GPUS
@@ -23,22 +24,19 @@ class ModelEvaluator(ABC):
         pass
 
 
-
-
 class RewardScheme(ABC):
     """Abstract reward scheme calculating scalar rewards and ranking solutions from multi-objective scores."""
 
-
     class RewardException(Exception):
         """Exception raised during reward calculation or solution ranking errors."""
+
         pass
-
-
 
     @abstractmethod
     def __call__(self, smiles, scores, thresholds):
         """Compute scalar reinforcement learning rewards and ranks from multi-objective evaluation matrix."""
         pass
+
 
 class Environment(ModelEvaluator):
     """Reinforcement learning environment coordinating objective scorers, thresholds, and reward schemes."""
@@ -49,7 +47,9 @@ class Environment(ModelEvaluator):
         self.scorers = scorers
         num_scorers = len(self.getScorerKeys()) if isinstance(self.scorers, list) else 1
         self.thresholds = thresholds if thresholds is not None else [0.99] * num_scorers
-        assert num_scorers == len(self.thresholds), f"Number of scorers ({num_scorers}) and thresholds ({len(self.thresholds)}) do not match."
+        assert num_scorers == len(self.thresholds), (
+            f"Number of scorers ({num_scorers}) and thresholds ({len(self.thresholds)}) do not match."
+        )
         self.rewardScheme = reward_scheme
 
     def __call__(self, smiles, frags=None):
@@ -71,11 +71,11 @@ class Environment(ModelEvaluator):
 
         # Get scores
         scores = self.getScores(smiles, frags=frags)
-        scores['SMILES'] = smiles  
+        scores["SMILES"] = smiles
         self.scores = scores
 
         # Initialize rewards to 0
-        rewards = np.zeros((len(smiles),1))
+        rewards = np.zeros((len(smiles), 1))
         valid_idx = scores[scores.Valid == 1].index.tolist()
         # Compute rewards for valid molecules
         if len(valid_idx) > 0:
@@ -99,6 +99,7 @@ class Environment(ModelEvaluator):
                 keys.append(scorer_keys)
         return keys
 
+
 class ModelProvider(ABC):
     """Interface for components providing or serializing DrugEx model state."""
 
@@ -106,6 +107,7 @@ class ModelProvider(ABC):
     def getModel(self):
         """Return the current model instance or serialized state dictionary."""
         pass
+
 
 class Model(nn.Module, ModelProvider, ABC):
     """Base PyTorch model managing device placement, GPU allocations, and state persistence."""
@@ -121,11 +123,11 @@ class Model(nn.Module, ModelProvider, ABC):
     def updateDevices(self, device, gpus):
         """Update execution device and GPU allocations for the model."""
 
-        if device.type == 'cpu':
-            self.device = torch.device('cpu')
+        if device.type == "cpu":
+            self.device = torch.device("cpu")
             self.gpus = (-1,)
-        elif device.type == 'cuda':
-            self.device = torch.device(f'cuda:{gpus[0]}')
+        elif device.type == "cuda":
+            self.device = torch.device(f"cuda:{gpus[0]}")
             self.attachToGPUs(gpus)
         else:
             raise ValueError(f"Unknown device: {device}")
@@ -148,6 +150,7 @@ class Model(nn.Module, ModelProvider, ABC):
         """Load model weights from state dictionary."""
         self.load_state_dict(state_dict, strict=strict)
 
+
 class TrainingMonitor(ModelProvider, ABC):
     """Interface for monitoring model training progress, performance metrics, and checkpoints."""
 
@@ -162,7 +165,9 @@ class TrainingMonitor(ModelProvider, ABC):
         pass
 
     @abstractmethod
-    def saveProgress(self, model: Model, current_step=None, current_epoch=None, total_steps=None, total_epochs=None, *args, **kwargs):
+    def saveProgress(
+        self, model: Model, current_step=None, current_epoch=None, total_steps=None, total_epochs=None, *args, **kwargs
+    ):
         """Notify monitor of current training step, epoch, and progress counters."""
         pass
 
@@ -177,6 +182,6 @@ class TrainingMonitor(ModelProvider, ABC):
         pass
 
     @abstractmethod
-    def getSaveModelOption(self) -> Literal['best', 'all', 'improvement']:
+    def getSaveModelOption(self) -> Literal["best", "all", "improvement"]:
         """Return checkpoint saving scheme ('best', 'all', or 'improvement')."""
         pass

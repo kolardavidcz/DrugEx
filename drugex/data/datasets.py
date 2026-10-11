@@ -7,10 +7,12 @@ from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Tuple, Type, Union
 
-# [PACKAGE: numpy] WHY: Array conversions and tensor conversions. WHAT: Zero-filled arrays and type casting.
+
 import numpy as np
+
 # [PACKAGE: pandas] WHY: Tabular deduplication. WHAT: Series drop_duplicates for unique sequences.
 import pandas as pd
+
 # [PACKAGE: PyTorch] WHY: Tensor representations and DataLoader batching. WHAT: Tensor conversion and Dataset/DataLoader classes.
 import torch
 from torch.utils.data import DataLoader, Dataset, TensorDataset
@@ -29,9 +31,11 @@ class SmilesDataSet(DataSet):
     training, mapping chemical tokens to vocabulary indices.
     """
 
-    columns: Tuple[str, str] = ('Smiles', 'Token')
+    columns: Tuple[str, str] = ("Smiles", "Token")
 
-    def __init__(self, path: Union[str, os.PathLike, Path], voc: Optional[VocSmiles] = None, rewrite: bool = False) -> None:
+    def __init__(
+        self, path: Union[str, os.PathLike, Path], voc: Optional[VocSmiles] = None, rewrite: bool = False
+    ) -> None:
         """Initialize the encoded SMILES dataset and its token vocabulary."""
         super().__init__(path, rewrite=rewrite)
         self.setVoc(voc if voc else VocSmiles(False))
@@ -50,9 +54,11 @@ class SmilesDataSet(DataSet):
 
     def getColumns(self) -> List[str]:
         """Generate TSV column header names corresponding to sequence positions."""
-        return ['C%d' % d for d in range(self.getVoc().max_len)]
+        return ["C%d" % d for d in range(self.getVoc().max_len)]
 
-    def readVocs(self, paths: Sequence[Union[str, os.PathLike[str], Path]], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any) -> None:
+    def readVocs(
+        self, paths: Sequence[Union[str, os.PathLike[str], Path]], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any
+    ) -> None:
         """Read and combine vocabulary files into the active dataset vocabulary."""
         super().readVocs(paths, voc_class=voc_class, *args, **kwargs)
 
@@ -64,7 +70,7 @@ class SmilesFragDataSet(DataSet):
     for conditioned chemical sequence generation.
     """
 
-    columns: Tuple[str, str] = ('Input', 'Output')
+    columns: Tuple[str, str] = ("Input", "Output")
 
     class TargetCreator(DataToLoader):
         """Historical test data creator retained for reference."""
@@ -94,7 +100,7 @@ class SmilesFragDataSet(DataSet):
         def __call__(self, data: np.ndarray, batch_size: int, vocabulary: VocSmiles) -> DataLoader:
             dataset = data[:, 0]
             dataset = pd.Series(dataset).drop_duplicates()
-            dataset = [seq.split(' ') for seq in dataset]
+            dataset = [seq.split(" ") for seq in dataset]
             dataset = vocabulary.encode(dataset)
             dataset = self.TgtData(dataset, ix=[vocabulary.decode(seq, is_tk=False) for seq in dataset])
             dataset = DataLoader(dataset, batch_size=batch_size, collate_fn=dataset.collate_fn)
@@ -106,7 +112,7 @@ class SmilesFragDataSet(DataSet):
         voc: Optional[VocSmiles] = None,
         rewrite: bool = False,
         save_voc: bool = True,
-        voc_file: Optional[str] = None
+        voc_file: Optional[str] = None,
     ) -> None:
         """Initialize the fragment-molecule SMILES dataset and its fragment-aware vocabulary."""
         super().__init__(path, rewrite=rewrite, save_voc=save_voc, voc_file=voc_file)
@@ -122,7 +128,7 @@ class SmilesFragDataSet(DataSet):
         data: np.ndarray,
         batch_size: int,
         splitter: Optional[DataSplitter] = None,
-        converter: Optional[Callable[[np.ndarray, int, VocSmiles], DataLoader]] = None
+        converter: Optional[Callable[[np.ndarray, int, VocSmiles], DataLoader]] = None,
     ) -> List[Any]:
         """Split data and construct PyTorch DataLoaders for each partition."""
         splits = []
@@ -136,17 +142,19 @@ class SmilesFragDataSet(DataSet):
     def dataToLoader(data: np.ndarray, batch_size: int, vocabulary: VocSmiles) -> DataLoader:
         """Convert concatenated fragment and molecule embeddings into a PyTorch DataLoader."""
         dataset = TensorDataset(
-            torch.from_numpy(data[:, :vocabulary.max_len]).long().view(len(data), vocabulary.max_len),
-            torch.from_numpy(data[:, vocabulary.max_len:]).long().view(len(data), vocabulary.max_len)
+            torch.from_numpy(data[:, : vocabulary.max_len]).long().view(len(data), vocabulary.max_len),
+            torch.from_numpy(data[:, vocabulary.max_len :]).long().view(len(data), vocabulary.max_len),
         )
         loader = DataLoader(dataset, batch_size=batch_size, drop_last=False, shuffle=True)
         return loader
 
     def getColumns(self) -> List[str]:
         """Generate TSV column header names for concatenated fragment and molecule sequences."""
-        return ['C%d' % d for d in range(self.getVoc().max_len * 2)]
+        return ["C%d" % d for d in range(self.getVoc().max_len * 2)]
 
-    def readVocs(self, paths: Sequence[Union[str, os.PathLike[str], Path]], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any) -> None:
+    def readVocs(
+        self, paths: Sequence[Union[str, os.PathLike[str], Path]], voc_class: Type[VocSmiles], *args: Any, **kwargs: Any
+    ) -> None:
         """Read and combine vocabulary files into the active dataset vocabulary."""
         super().readVocs(paths, voc_class=voc_class, *args, **kwargs)
 
@@ -166,7 +174,7 @@ class GraphFragDataSet(DataSet):
         voc: Optional[VocGraph] = None,
         rewrite: bool = False,
         save_voc: bool = True,
-        voc_file: Optional[str] = None
+        voc_file: Optional[str] = None,
     ) -> None:
         """Initialize the graph fragment dataset and its action vocabulary."""
         super().__init__(path, rewrite=rewrite, save_voc=save_voc, voc_file=voc_file)
@@ -180,7 +188,7 @@ class GraphFragDataSet(DataSet):
 
     def getColumns(self) -> List[str]:
         """Generate TSV column header names for 5-tuple graph action sequences."""
-        return ['C%d' % d for d in range(self.getVoc().max_len * 5)]
+        return ["C%d" % d for d in range(self.getVoc().max_len * 5)]
 
     @staticmethod
     def dataToLoader(data: np.ndarray, batch_size: int, vocabulary: VocGraph) -> DataLoader:

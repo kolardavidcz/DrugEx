@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Sequence, Tuple
 
-# [PACKAGE: numpy] WHY: Vectorized score calculations, arrays, and mathematical operations. WHAT: Numerical computing library.
+
 import numpy as np
+
 # [PACKAGE: tqdm] WHY: Progress bar tracking during substructure matching across candidate molecules. WHAT: Progress bar utility.
 import tqdm
+
 # [PACKAGE: rdkit] WHY: Calculation of physicochemical properties, atom counting, substructure matching, and SMILES canonicalization. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 from rdkit.Chem import AllChem, Crippen
@@ -57,9 +59,7 @@ class Property(Scorer):
             "Bertz": BertzCT,
         }
         if self.prop not in self.prop_dict:
-            raise KeyError(
-                f"Unknown property: {self.prop}. Available properties: {list(self.prop_dict.keys())}"
-            )
+            raise KeyError(f"Unknown property: {self.prop}. Available properties: {list(self.prop_dict.keys())}")
 
     def getScores(
         self,
@@ -239,10 +239,7 @@ class Uniqueness(Scorer):
             return scores
 
         # Canonicalize to SMILES strings for accurate comparison
-        smiles_list: List[str | None] = [
-            Chem.MolToSmiles(m) if isinstance(m, Chem.Mol) else m
-            for m in mols
-        ]
+        smiles_list: List[str | None] = [Chem.MolToSmiles(m) if isinstance(m, Chem.Mol) else m for m in mols]
         for i, mol in enumerate(smiles_list):
             if mol is not None:
                 scores[i] = (smiles_list.count(mol) - 1) / (n - 1)

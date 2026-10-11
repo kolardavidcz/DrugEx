@@ -12,6 +12,7 @@ This module harvests experimentally validated binding data for Human DNA methylt
    - Experiment 2 (Multi-Reference Ensemble): 5 diverse DNMT1 actives multi-record SDF (dnmt1_actives_multi_3d.sdf)
    - Experiment 3 (True Consensus Model): Deterministic agglomerative consensus pharmacophore (dnmt1_consensus_pharmacophore.sdf)
 """
+
 from __future__ import annotations
 
 import json
@@ -28,13 +29,18 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # Ensure project root is in sys.path
 SCRIPT_DIR: Path = Path(__file__).resolve().parent
-PROJECT_ROOT: Path = SCRIPT_DIR.parent.parent if (SCRIPT_DIR.parent.parent / "drugex").exists() else SCRIPT_DIR.parent
+PROJECT_ROOT: Path = (
+    SCRIPT_DIR.parent.parent
+    if (SCRIPT_DIR.parent.parent / "drugex").exists()
+    else SCRIPT_DIR.parent
+)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# [PACKAGE: numpy] WHY: Distance matrix computations, centroid averaging, and array conversions. WHAT: Numerical computing library. HOW: np.asarray, np.mean, np.zeros.
+
 import numpy as np
 import pandas as pd
+
 # [PACKAGE: rdkit] WHY: Chemical structure standardization, fingerprinting, clustering, 3D conformer generation, and pharmacophore feature perception. WHAT: Cheminformatics toolkit. HOW: Chem.MolFromSmiles, rdMolStandardize, AllChem.ETKDGv3, rdMolAlign.GetO3A.
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem, Descriptors, Lipinski, rdMolDescriptors, rdMolAlign
@@ -42,13 +48,17 @@ from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.ML.Cluster import Butina
 
 logger = logging.getLogger("fetch_target_actives")
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s"
+)
 
 # Default Target: Human DNMT1 (DNA methyltransferase 1)
 DEFAULT_TARGET_ID: str = "CHEMBL1993"
 DEFAULT_TARGET_NAME: str = "Human DNA Methyltransferase 1 (DNMT1)"
 # Proof seed query: Epigallocatechin gallate (EGCG)
-EGCG_SMILES: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+EGCG_SMILES: str = (
+    "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+)
 DEFAULT_NUM_ACTIVES: int = 5
 
 
@@ -88,7 +98,9 @@ class ChEMBLActivesHarvester:
         self.target_chembl_id: str = target_chembl_id
         self.min_pchembl: float = float(min_pchembl)
         self.output_dir: Path = (
-            Path(output_dir) if output_dir is not None else PROJECT_ROOT / "_david" / "references"
+            Path(output_dir)
+            if output_dir is not None
+            else PROJECT_ROOT / "_david" / "references"
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -98,7 +110,9 @@ class ChEMBLActivesHarvester:
             f"https://www.ebi.ac.uk/chembl/api/data/activity.json?"
             f"target_chembl_id={self.target_chembl_id}&pchembl_value__gte={self.min_pchembl}&limit={limit}"
         )
-        logger.info(f"Querying ChEMBL API for target {self.target_chembl_id} (pChEMBL >= {self.min_pchembl})...")
+        logger.info(
+            f"Querying ChEMBL API for target {self.target_chembl_id} (pChEMBL >= {self.min_pchembl})..."
+        )
 
         headers = {"User-Agent": "DrugEx-LBDD-Academic-Thesis/1.0"}
         req = urllib.request.Request(url, headers=headers)
@@ -108,13 +122,17 @@ class ChEMBLActivesHarvester:
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     payload = json.loads(resp.read().decode("utf-8"))
                     activities = payload.get("activities", [])
-                    logger.info(f"Retrieved {len(activities)} raw activity records from ChEMBL.")
+                    logger.info(
+                        f"Retrieved {len(activities)} raw activity records from ChEMBL."
+                    )
                     return activities
             except Exception as exc:
                 logger.warning(f"ChEMBL API attempt {attempt} failed: {exc}")
                 time.sleep(2 * attempt)
 
-        logger.error("Failed to query ChEMBL API after 3 attempts. Utilizing verified fallback records.")
+        logger.error(
+            "Failed to query ChEMBL API after 3 attempts. Utilizing verified fallback records."
+        )
         return []
 
     def standardize_molecule(self, smiles: str) -> Chem.Mol | None:
@@ -156,7 +174,10 @@ class ChEMBLActivesHarvester:
             std_type = str(act.get("standard_type", "IC50"))
             std_val = float(act.get("standard_value") or (10 ** (9 - pchembl)))
 
-            if chembl_id not in candidate_records or pchembl > candidate_records[chembl_id]["pchembl"]:
+            if (
+                chembl_id not in candidate_records
+                or pchembl > candidate_records[chembl_id]["pchembl"]
+            ):
                 candidate_records[chembl_id] = {
                     "chembl_id": chembl_id,
                     "smiles": can_smi,
@@ -191,8 +212,12 @@ class ChEMBLActivesHarvester:
             fps.append(fp)
 
         if not valid_compounds:
-            logger.warning("No valid compounds harvested. Generating synthetic EGCG baseline.")
-            egcg_std = self.standardize_molecule(EGCG_SMILES) or Chem.MolFromSmiles(EGCG_SMILES)
+            logger.warning(
+                "No valid compounds harvested. Generating synthetic EGCG baseline."
+            )
+            egcg_std = self.standardize_molecule(EGCG_SMILES) or Chem.MolFromSmiles(
+                EGCG_SMILES
+            )
             return [
                 CuratedActive(
                     chembl_id="CHEMBL297453",
@@ -219,7 +244,9 @@ class ChEMBLActivesHarvester:
         # [PACKAGE: rdkit] WHY: Partition chemical space into structurally diverse clusters. WHAT: Butina clustering. HOW: Butina.ClusterData.
         cutoff: float = 0.50
         clusters = Butina.ClusterData(dists, n_mols, cutoff, isDistData=True)
-        logger.info(f"Butina partitioned {n_mols} molecules into {len(clusters)} distinct structural clusters.")
+        logger.info(
+            f"Butina partitioned {n_mols} molecules into {len(clusters)} distinct structural clusters."
+        )
 
         # Pick highest-affinity molecule from each top cluster
         selected: list[CuratedActive] = []
@@ -248,7 +275,9 @@ class ChEMBLActivesHarvester:
                 )
             )
 
-        logger.info(f"Selected {len(selected)} structurally diverse leads representing distinct clusters.")
+        logger.info(
+            f"Selected {len(selected)} structurally diverse leads representing distinct clusters."
+        )
         return selected
 
     def generate_3d_conformers(self, mol: Chem.Mol, max_confs: int = 20) -> Chem.Mol:
@@ -285,13 +314,17 @@ class ChEMBLActivesHarvester:
         """
         # [PACKAGE: rdkit] WHY: Align 3D conformations to the first reference. WHAT: 3D molecular superposition. HOW: rdMolAlign.GetO3A.
         aligned_mols: list[Chem.Mol] = [Chem.Mol(mols[0])]
-        ref_conf_id = mols[0].GetConformer().GetId() if mols[0].GetNumConformers() > 0 else 0
+        ref_conf_id = (
+            mols[0].GetConformer().GetId() if mols[0].GetNumConformers() > 0 else 0
+        )
 
         for probe in mols[1:]:
             probe_copy = Chem.Mol(probe)
             if probe_copy.GetNumConformers() > 0 and mols[0].GetNumConformers() > 0:
                 try:
-                    o3a = rdMolAlign.GetO3A(probe_copy, mols[0], probeConfId=0, refConfId=ref_conf_id)
+                    o3a = rdMolAlign.GetO3A(
+                        probe_copy, mols[0], probeConfId=0, refConfId=ref_conf_id
+                    )
                     o3a.Align()
                 except Exception:
                     pass
@@ -358,17 +391,24 @@ class ChEMBLActivesHarvester:
             symbol = type_to_element.get(f_type, "C")
             atom_idx = mol_synth.AddAtom(Chem.Atom(symbol))
             from rdkit.Geometry import Point3D
-            conf_synth.SetAtomPosition(atom_idx, Point3D(float(pos[0]), float(pos[1]), float(pos[2])))
+
+            conf_synth.SetAtomPosition(
+                atom_idx, Point3D(float(pos[0]), float(pos[1]), float(pos[2]))
+            )
 
         mol_synth.AddConformer(conf_synth)
         final_mol = mol_synth.GetMol()
-        logger.info(f"Constructed consensus pharmacophore with {len(consensus_centroids)} essential feature centroids.")
+        logger.info(
+            f"Constructed consensus pharmacophore with {len(consensus_centroids)} essential feature centroids."
+        )
         return final_mol
 
     def execute_and_export_deliverables(self) -> dict[str, Path]:
         """Harvest, cluster, embed, and export all deliverables for Experiments 1, 2, and 3."""
         raw_acts = self.fetch_raw_activities()
-        actives = self.cluster_and_select_diverse_actives(raw_acts, target_count=DEFAULT_NUM_ACTIVES)
+        actives = self.cluster_and_select_diverse_actives(
+            raw_acts, target_count=DEFAULT_NUM_ACTIVES
+        )
 
         # 1. Export summary TSV
         tsv_records: list[dict[str, Any]] = []
@@ -386,18 +426,20 @@ class ChEMBLActivesHarvester:
             if act.chembl_id == "CHEMBL297453" or "EGCG" in act.chembl_id:
                 egcg_3d = m3d
 
-            tsv_records.append({
-                "ChEMBL_ID": act.chembl_id,
-                "Cluster_ID": act.cluster_id,
-                "pChEMBL": act.pchembl,
-                "Standard_Type": act.standard_type,
-                "Standard_Value_nM": act.standard_value_nm,
-                "MW": act.mw,
-                "CLogP": act.clogp,
-                "HBD": act.hbd,
-                "HBA": act.hba,
-                "SMILES": act.smiles,
-            })
+            tsv_records.append(
+                {
+                    "ChEMBL_ID": act.chembl_id,
+                    "Cluster_ID": act.cluster_id,
+                    "pChEMBL": act.pchembl,
+                    "Standard_Type": act.standard_type,
+                    "Standard_Value_nM": act.standard_value_nm,
+                    "MW": act.mw,
+                    "CLogP": act.clogp,
+                    "HBD": act.hbd,
+                    "HBA": act.hba,
+                    "SMILES": act.smiles,
+                }
+            )
 
         df_summary = pd.DataFrame(tsv_records)
         summary_tsv = self.output_dir / "dnmt1_actives_summary.tsv"
@@ -421,11 +463,15 @@ class ChEMBLActivesHarvester:
         with Chem.SDWriter(str(exp2_sdf)) as writer:
             for m in mols_3d:
                 writer.write(m)
-        logger.info(f"[Experiment 2 Reference] Saved to: {exp2_sdf} ({len(mols_3d)} molecules)")
+        logger.info(
+            f"[Experiment 2 Reference] Saved to: {exp2_sdf} ({len(mols_3d)} molecules)"
+        )
 
         # 4. Experiment 3 Deliverable: True Consensus Pharmacophore Model SDF
         consensus_mol = self.build_consensus_pharmacophore_model(mols_3d)
-        consensus_mol.SetProp("_Name", f"DNMT1_Consensus_Pharmacophore (N={len(mols_3d)})")
+        consensus_mol.SetProp(
+            "_Name", f"DNMT1_Consensus_Pharmacophore (N={len(mols_3d)})"
+        )
         exp3_sdf = self.output_dir / "dnmt1_consensus_pharmacophore.sdf"
         with Chem.SDWriter(str(exp3_sdf)) as writer:
             writer.write(consensus_mol)

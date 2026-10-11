@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional, Sequence, Union
 
-# [PACKAGE: numpy] WHY: Array manipulation and vector score handling for multi-objective evaluations. WHAT: Numerical computing library.
+
 import numpy as np
 
 if TYPE_CHECKING:
@@ -27,25 +27,18 @@ class ScoreModifier(ABC):
 class Scorer(ABC):
     """Abstract base class for all objective evaluators and reward functions."""
 
-    def __init__(
-        self,
-        modifier: Optional[Union[ScoreModifier, list[ScoreModifier]]] = None
-    ) -> None:
+    def __init__(self, modifier: Optional[Union[ScoreModifier, list[ScoreModifier]]] = None) -> None:
         self.modifier = modifier
 
     @abstractmethod
     def getScores(
-        self,
-        mols: Sequence[Union[str, Chem.Mol]],
-        frags: Optional[Sequence[Union[str, Chem.Mol]]] = None
+        self, mols: Sequence[Union[str, Chem.Mol]], frags: Optional[Sequence[Union[str, Chem.Mol]]] = None
     ) -> np.ndarray:
         """Calculate raw objective scores for input molecules."""
         pass
 
     def __call__(
-        self,
-        mols: Sequence[Union[str, Chem.Mol]],
-        frags: Optional[Sequence[Union[str, Chem.Mol]]] = None
+        self, mols: Sequence[Union[str, Chem.Mol]], frags: Optional[Sequence[Union[str, Chem.Mol]]] = None
     ) -> np.ndarray:
         """Evaluate molecules and return modifier-transformed scores."""
         return self.getModifiedScores(self.getScores(mols, frags))
@@ -69,10 +62,7 @@ class Scorer(ABC):
         """Return the unique identifier key or list of keys for this scorer."""
         pass
 
-    def setModifier(
-        self,
-        modifier: Optional[Union[ScoreModifier, list[ScoreModifier]]]
-    ) -> None:
+    def setModifier(self, modifier: Optional[Union[ScoreModifier, list[ScoreModifier]]]) -> None:
         """Update the active score modifier."""
         self.modifier = modifier
 

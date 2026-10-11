@@ -7,8 +7,9 @@ from multiprocessing import cpu_count, TimeoutError as MPTimeoutError
 from dataclasses import dataclass
 from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
-# [PACKAGE: numpy] WHY: Numerical array processing and score aggregations. WHAT: Scientific computing library.
+
 import numpy as np
+
 # [PACKAGE: rdkit] WHY: Chemical structure representations and sanitization. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
@@ -28,7 +29,12 @@ except ImportError:
 from drugex.training.scorers.interfaces import ConformerGenerator, Scorer
 from drugex.training.scorers.oe_color_smarts import build_cdpkit_oe_pharm_generator
 from drugex.training.scorers.parallel import (
-    pool_context, capped_n_jobs, score_timeout, mol_timeout, molecule_time_limit, ScoreTimeout,
+    pool_context,
+    capped_n_jobs,
+    score_timeout,
+    mol_timeout,
+    molecule_time_limit,
+    ScoreTimeout,
 )
 
 MAX_OPTIMIZATION_ITERATIONS = 20
@@ -57,6 +63,7 @@ def _get_oe_pharm_generator():
     if _OE_PHARM_GEN_CACHE is None:
         _OE_PHARM_GEN_CACHE = build_cdpkit_oe_pharm_generator()
     return _OE_PHARM_GEN_CACHE
+
 
 # Built once at import (not per scoring call). Maps (score_variant x opt_mode) -> the CDPKit
 # native score function. Empty when CDPKit is unavailable (the scorer raises ImportError first).
@@ -144,9 +151,7 @@ class CDPKitScoringWorker:
                         for ref_idx in ref_indices:
                             ref_shape = ctx.reference_shapes[ref_idx]
                             for query_shape in query_shapes:
-                                score = _align_and_score_helper(
-                                    query_shape, ref_shape, ctx.opt_mode, ctx.score_variant
-                                )
+                                score = _align_and_score_helper(query_shape, ref_shape, ctx.opt_mode, ctx.score_variant)
                                 if score > best:
                                     best = score
                         group_scores[group_idx] = best
@@ -261,18 +266,11 @@ class CDPKitROCSScorer(Scorer):
             raise ImportError("CDPKit is required. Install with `pip install cdpkit`.")
 
         if opt_mode not in _VALID_OPT_MODES:
-            raise ValueError(
-                f"opt_mode must be one of {sorted(_VALID_OPT_MODES)}, got {opt_mode!r}"
-            )
+            raise ValueError(f"opt_mode must be one of {sorted(_VALID_OPT_MODES)}, got {opt_mode!r}")
         if score_variant not in _VALID_SCORE_VARIANTS:
-            raise ValueError(
-                f"score_variant must be one of {sorted(_VALID_SCORE_VARIANTS)}, "
-                f"got {score_variant!r}"
-            )
+            raise ValueError(f"score_variant must be one of {sorted(_VALID_SCORE_VARIANTS)}, got {score_variant!r}")
         if color_ff not in _VALID_COLOR_FFS:
-            raise ValueError(
-                f"color_ff must be one of {sorted(_VALID_COLOR_FFS)}, got {color_ff!r}"
-            )
+            raise ValueError(f"color_ff must be one of {sorted(_VALID_COLOR_FFS)}, got {color_ff!r}")
 
         self.conformer_generator = conformer_generator
         self.opt_mode = opt_mode
@@ -297,15 +295,10 @@ class CDPKitROCSScorer(Scorer):
         self.group_to_indices: List[List[int]] = []
         self._load_reference_groups()
 
-        self._is_supermol = (
-            len(self.group_names) == 1 and len(self.group_to_indices[0]) == 1
-        )
+        self._is_supermol = len(self.group_names) == 1 and len(self.group_to_indices[0]) == 1
 
         if self.show_progress:
-            print(
-                f"CDPKit ROCS ready with {len(self.reference_shapes)} reference "
-                "shape(s)."
-            )
+            print(f"CDPKit ROCS ready with {len(self.reference_shapes)} reference shape(s).")
 
     def _prepare_reference_groups(
         self, references: Union[str, List[str], Dict[str, List[str]]]
@@ -323,9 +316,7 @@ class CDPKitROCSScorer(Scorer):
             raise ValueError("At least one reference group must be provided")
         return groups
 
-    def _normalize_reference_list(
-        self, refs: Union[str, List[str]]
-    ) -> List[str]:
+    def _normalize_reference_list(self, refs: Union[str, List[str]]) -> List[str]:
         if isinstance(refs, str):
             refs = [refs]
         if not isinstance(refs, list) or not refs:
@@ -352,9 +343,7 @@ class CDPKitROCSScorer(Scorer):
                     self.reference_mols.append(mol)
                     self.reference_shapes.append(shape)
             if not group_indices:
-                raise ValueError(
-                    f"Reference group '{name}' produced no valid Gaussian shapes"
-                )
+                raise ValueError(f"Reference group '{name}' produced no valid Gaussian shapes")
             self.group_to_indices.append(group_indices)
 
     def _load_reference_molecules(self, filepath: str) -> List:
@@ -394,10 +383,7 @@ class CDPKitROCSScorer(Scorer):
             sfx += f"_{self.score_variant}"
         if self.color_ff == "oe_mills_dean":
             sfx += "_oe"
-        if (
-            len(self.group_names) == 1
-            and self.group_names[0] == _DEFAULT_CDPKIT_GROUP_NAME
-        ):
+        if len(self.group_names) == 1 and self.group_names[0] == _DEFAULT_CDPKIT_GROUP_NAME:
             if self._is_supermol:
                 return [f"CDPKit_ROCS_Supermol_TanimotoCombo{sfx}"]
             refs = len(self.reference_shapes)
@@ -512,16 +498,12 @@ class CDPKitROCSScorer(Scorer):
                                     )
                                 )
                             except ImportError:
-                                results = pool.map_async(
-                                    worker, worker_args, chunksize=chunksize
-                                ).get(timeout=timeout)
+                                results = pool.map_async(worker, worker_args, chunksize=chunksize).get(timeout=timeout)
                         else:
                             # map_async(...).get(timeout) bounds the batch: if a molecule hangs
                             # in a pure-C step the per-molecule SIGALRM can't interrupt, the get
                             # times out and the with-exit terminates the wedged worker.
-                            results = pool.map_async(
-                                worker, worker_args, chunksize=chunksize
-                            ).get(timeout=timeout)
+                            results = pool.map_async(worker, worker_args, chunksize=chunksize).get(timeout=timeout)
                     for mol_id, group_scores in results:
                         if 0 <= mol_id < num_unique and len(group_scores) == num_groups:
                             scores_unique[mol_id] = np.asarray(group_scores, dtype=np.float32)
@@ -536,10 +518,7 @@ class CDPKitROCSScorer(Scorer):
                         )
                 except Exception as exc:
                     if self.show_progress:
-                        print(
-                            f"Warning: parallel processing failed ({exc}), "
-                            "switching to sequential mode"
-                        )
+                        print(f"Warning: parallel processing failed ({exc}), switching to sequential mode")
                     # Transient parallel failure (NOT a hang). The serial path is bounded
                     # per-molecule by the worker's SIGALRM (molecule_time_limit), so it cannot
                     # hang either.

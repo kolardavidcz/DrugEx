@@ -83,14 +83,20 @@ from typing import Any
 
 # Ensure project root is on sys.path
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parent.parent.parent if (SCRIPT_DIR.parent.parent.parent / "drugex").exists() else SCRIPT_DIR.parent.parent
+REPO_ROOT = (
+    SCRIPT_DIR.parent.parent.parent
+    if (SCRIPT_DIR.parent.parent.parent / "drugex").exists()
+    else SCRIPT_DIR.parent.parent
+)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-# [PACKAGE: numpy] WHY: Computes mean desirability and summary statistics across elite candidate pools. WHAT: Numerical computing library. HOW: np.mean.
+
 import numpy as np
+
 # [PACKAGE: pandas] WHY: Tabular summary DataFrame construction and TSV export. WHAT: Data manipulation library. HOW: pd.DataFrame, df.to_csv.
 import pandas as pd
+
 # [PACKAGE: torch] WHY: Device memory probe and CUDA environment initialization. WHAT: PyTorch deep learning framework. HOW: torch.cuda.
 import torch
 
@@ -98,7 +104,9 @@ from _david.code.models import GraphTransformerOptimizer, get_safe_gpus
 from _david.code.pipeline import MoleculePipeline
 from _david.code.utils import get_gpu_telemetry
 
-EGCG_SMILES: str = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+EGCG_SMILES: str = (
+    "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+)
 DEFAULT_EPOCHS: int = 35
 DEFAULT_N_SAMPLES: int = 200
 
@@ -207,13 +215,18 @@ class ThresholdAblationRunner:
         self.patience: int = patience
 
         from _david.code.models import get_safe_gpus
+
         self.safe_gpus: tuple[int, ...] | tuple[()] = get_safe_gpus(preferred_gpu=gpu)
-        self.selected_gpu_idx: int | None = self.safe_gpus[0] if len(self.safe_gpus) > 0 else None
+        self.selected_gpu_idx: int | None = (
+            self.safe_gpus[0] if len(self.safe_gpus) > 0 else None
+        )
 
         # Unique output directory for this benchmark session
         self.run_id: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         if output_dir is None:
-            self.output_dir: Path = self.repo_root / "_david" / "output" / f"ablation_{self.run_id}"
+            self.output_dir: Path = (
+                self.repo_root / "_david" / "output" / f"ablation_{self.run_id}"
+            )
         else:
             self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -259,7 +272,9 @@ class ThresholdAblationRunner:
             "overall_status": overall_status,
             "current_study": current_study,
             "elapsed_seconds": round(elapsed, 2),
-            "selected_gpu": f"GPU {self.selected_gpu_idx}" if self.selected_gpu_idx is not None else "CPU",
+            "selected_gpu": f"GPU {self.selected_gpu_idx}"
+            if self.selected_gpu_idx is not None
+            else "CPU",
             "epochs_per_study": self.epochs,
             "samples_per_epoch": self.n_samples,
             "drop_off": self.drop_off,
@@ -278,7 +293,9 @@ class ThresholdAblationRunner:
         self.log("=" * 85)
         self.log(f" STARTING THRESHOLD & ENVELOPE ABLATION STUDY: {self.run_id}")
         self.log(f" Target Studies:    {self.study_ids}")
-        self.log(f" Epochs / Samples:  {self.epochs} epochs, {self.n_samples} samples/epoch")
+        self.log(
+            f" Epochs / Samples:  {self.epochs} epochs, {self.n_samples} samples/epoch"
+        )
         self.log(f" Selected GPU:      Device {self.selected_gpu_idx}")
         self.log(f" Output Directory:  {self.output_dir}")
         self.log("=" * 85)
@@ -293,7 +310,9 @@ class ThresholdAblationRunner:
             self.log("\n" + "#" * 85)
             self.log(f" >>> STARTING {spec['title']}")
             self.log(f" Description: {spec['description']}")
-            self.log(f" Envelope:    {spec['include_envelope']} | ROCS_tau: {spec['rocs_threshold']} | Prop_tau: {spec['prop_threshold']} | SA_tau: {spec['sa_threshold']}")
+            self.log(
+                f" Envelope:    {spec['include_envelope']} | ROCS_tau: {spec['rocs_threshold']} | Prop_tau: {spec['prop_threshold']} | SA_tau: {spec['sa_threshold']}"
+            )
             self.log("#" * 85)
 
             study_dir = self.output_dir / f"study{study_id}_{spec['name']}"
@@ -302,7 +321,10 @@ class ThresholdAblationRunner:
             self.update_status(
                 "RUNNING",
                 current_study=study_id,
-                details={"study_title": spec["title"], "stage": f"Running Study {study_id}"},
+                details={
+                    "study_title": spec["title"],
+                    "stage": f"Running Study {study_id}",
+                },
             )
 
             study_start = datetime.now()
@@ -341,7 +363,9 @@ class ThresholdAblationRunner:
                     "output_dir": str(study_dir),
                     "summary": run_summary,
                 }
-                self.log(f" [SUCCESS] Study {study_id} completed in {study_duration:.1f}s.")
+                self.log(
+                    f" [SUCCESS] Study {study_id} completed in {study_duration:.1f}s."
+                )
 
             except Exception as e:
                 study_duration = (datetime.now() - study_start).total_seconds()
@@ -363,12 +387,16 @@ class ThresholdAblationRunner:
             "COMPLETED",
             details={
                 "total_duration_seconds": round(total_duration, 2),
-                "studies_completed": len([r for r in results.values() if r.get("status") == "SUCCESS"]),
+                "studies_completed": len(
+                    [r for r in results.values() if r.get("status") == "SUCCESS"]
+                ),
             },
         )
 
         self.log("\n" + "=" * 85)
-        self.log(f" ALL STUDIES FINISHED (Total Time: {total_duration / 60.0:.2f} minutes)")
+        self.log(
+            f" ALL STUDIES FINISHED (Total Time: {total_duration / 60.0:.2f} minutes)"
+        )
         self.log(f" Results & summaries stored in: {self.output_dir}")
         self.log("=" * 85)
 
@@ -376,77 +404,103 @@ class ThresholdAblationRunner:
             "run_id": self.run_id,
             "duration_seconds": round(total_duration, 2),
             "results": results,
-            "comparative_table": comparative_df.to_dict(orient="records") if comparative_df is not None else [],
+            "comparative_table": comparative_df.to_dict(orient="records")
+            if comparative_df is not None
+            else [],
         }
 
-    def generate_comparative_matrix(self, results: dict[int, dict[str, Any]]) -> pd.DataFrame | None:
+    def generate_comparative_matrix(
+        self, results: dict[int, dict[str, Any]]
+    ) -> pd.DataFrame | None:
         """Compile comparative metrics across all completed studies into tabular summary."""
         records: list[dict[str, Any]] = []
 
         for study_id, res in results.items():
             spec = ABLATION_SPECS[study_id]
             if res.get("status") != "SUCCESS":
-                records.append({
-                    "Study_ID": study_id,
-                    "Study_Name": spec["name"],
-                    "Status": "FAILED",
-                    "Duration_s": res.get("duration_seconds", 0.0),
-                })
+                records.append(
+                    {
+                        "Study_ID": study_id,
+                        "Study_Name": spec["name"],
+                        "Status": "FAILED",
+                        "Duration_s": res.get("duration_seconds", 0.0),
+                    }
+                )
                 continue
 
             exp_dir = Path(res["output_dir"])
-            summary_json_path = exp_dir / "stage2_result_analysis" / "result_analysis_summary.json"
+            summary_json_path = (
+                exp_dir / "stage2_result_analysis" / "result_analysis_summary.json"
+            )
             if not summary_json_path.exists():
-                records.append({
-                    "Study_ID": study_id,
-                    "Study_Name": spec["name"],
-                    "Status": "SUCCESS_NO_SUMMARY",
-                    "Duration_s": res.get("duration_seconds", 0.0),
-                })
+                records.append(
+                    {
+                        "Study_ID": study_id,
+                        "Study_Name": spec["name"],
+                        "Status": "SUCCESS_NO_SUMMARY",
+                        "Duration_s": res.get("duration_seconds", 0.0),
+                    }
+                )
                 continue
 
             with open(summary_json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             vun = data.get("vun_metrics", {})
-            scaff = data.get("bemis_murcko_scaffold_diversity", data.get("scaffold_diversity", {}))
-            elite = data.get("top_leads", data.get("prioritized_leads", data.get("elite_leads", [])))
+            scaff = data.get(
+                "bemis_murcko_scaffold_diversity", data.get("scaffold_diversity", {})
+            )
+            elite = data.get(
+                "top_leads", data.get("prioritized_leads", data.get("elite_leads", []))
+            )
             means = data.get("physicochemical_distributions", {})
 
-            scaff_count = scaff.get("unique_scaffold_count", scaff.get("distinct_scaffolds", 0))
-            scaff_ratio = scaff.get("diversity_ratio", scaff.get("scaffold_diversity_ratio", 0.0))
-            leads_count = data.get("top_leads_count", len(elite) if isinstance(elite, list) else 0)
+            scaff_count = scaff.get(
+                "unique_scaffold_count", scaff.get("distinct_scaffolds", 0)
+            )
+            scaff_ratio = scaff.get(
+                "diversity_ratio", scaff.get("scaffold_diversity_ratio", 0.0)
+            )
+            leads_count = data.get(
+                "top_leads_count", len(elite) if isinstance(elite, list) else 0
+            )
             des_mean = means.get("Desirability", {}).get("mean", 0.0)
             if des_mean == 0.0 and isinstance(elite, list) and len(elite) > 0:
-                des_vals = [float(row.get("Desirability", 0.0)) for row in elite if isinstance(row, dict)]
+                des_vals = [
+                    float(row.get("Desirability", 0.0))
+                    for row in elite
+                    if isinstance(row, dict)
+                ]
                 if des_vals:
                     des_mean = float(np.mean(des_vals))
 
-            records.append({
-                "Study_ID": study_id,
-                "Study_Name": spec["name"],
-                "Envelope_Enabled": spec["include_envelope"],
-                "Prop_Threshold": spec["prop_threshold"],
-                "Target_Epochs": spec.get("epochs", self.epochs),
-                "Mutate_Epsilon": spec.get("epsilon", 0.10),
-                "Anti_Cheating_Reward": spec.get("use_anti_cheating", True),
-                "Status": "SUCCESS",
-                "Duration_s": res.get("duration_seconds", 0.0),
-                "Total_Generated": vun.get("total_generated", 0),
-                "Valid_Count": vun.get("valid_count", 0),
-                "Validity_%": vun.get("validity_percentage", 0.0),
-                "Uniqueness_%": vun.get("uniqueness_percentage", 0.0),
-                "Novelty_%": vun.get("novelty_percentage", 0.0),
-                "Distinct_Scaffolds": scaff_count,
-                "Scaffold_Diversity_Ratio": round(scaff_ratio, 4),
-                "Prioritized_Leads_Count": leads_count,
-                "ROCS_Mean": means.get("ROCS", {}).get("mean", 0.0),
-                "MW_Mean": means.get("MW", {}).get("mean", 0.0),
-                "HAC_Mean": means.get("HAC", {}).get("mean", 0.0),
-                "LogP_Mean": means.get("LogP", {}).get("mean", 0.0),
-                "SA_Mean": means.get("SA", {}).get("mean", 0.0),
-                "Desirability_Mean": round(des_mean, 4),
-            })
+            records.append(
+                {
+                    "Study_ID": study_id,
+                    "Study_Name": spec["name"],
+                    "Envelope_Enabled": spec["include_envelope"],
+                    "Prop_Threshold": spec["prop_threshold"],
+                    "Target_Epochs": spec.get("epochs", self.epochs),
+                    "Mutate_Epsilon": spec.get("epsilon", 0.10),
+                    "Anti_Cheating_Reward": spec.get("use_anti_cheating", True),
+                    "Status": "SUCCESS",
+                    "Duration_s": res.get("duration_seconds", 0.0),
+                    "Total_Generated": vun.get("total_generated", 0),
+                    "Valid_Count": vun.get("valid_count", 0),
+                    "Validity_%": vun.get("validity_percentage", 0.0),
+                    "Uniqueness_%": vun.get("uniqueness_percentage", 0.0),
+                    "Novelty_%": vun.get("novelty_percentage", 0.0),
+                    "Distinct_Scaffolds": scaff_count,
+                    "Scaffold_Diversity_Ratio": round(scaff_ratio, 4),
+                    "Prioritized_Leads_Count": leads_count,
+                    "ROCS_Mean": means.get("ROCS", {}).get("mean", 0.0),
+                    "MW_Mean": means.get("MW", {}).get("mean", 0.0),
+                    "HAC_Mean": means.get("HAC", {}).get("mean", 0.0),
+                    "LogP_Mean": means.get("LogP", {}).get("mean", 0.0),
+                    "SA_Mean": means.get("SA", {}).get("mean", 0.0),
+                    "Desirability_Mean": round(des_mean, 4),
+                }
+            )
 
         if not records:
             return None
@@ -498,7 +552,11 @@ def print_status(target_dir: Path | None = None) -> None:
             print("No output directories found.")
             return
         candidates = sorted(
-            [d for d in out_root.iterdir() if d.is_dir() and d.name.startswith("ablation_")],
+            [
+                d
+                for d in out_root.iterdir()
+                if d.is_dir() and d.name.startswith("ablation_")
+            ],
             reverse=True,
         )
         if not candidates:
@@ -558,7 +616,11 @@ def stop_runner(target_dir: Path | None = None) -> None:
     if target_dir is None:
         out_root = REPO_ROOT / "_david" / "output"
         candidates = sorted(
-            [d for d in out_root.iterdir() if d.is_dir() and d.name.startswith("ablation_")],
+            [
+                d
+                for d in out_root.iterdir()
+                if d.is_dir() and d.name.startswith("ablation_")
+            ],
             reverse=True,
         )
         if not candidates:
@@ -592,16 +654,53 @@ def main() -> None:
         default="1,2,3,4,5,6",
         help="Studies to run: comma-separated list '1,2,3,4,5,6' or 'all' (default: '1,2,3,4,5,6')",
     )
-    parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS, help="RL epochs per study (default: 35)")
-    parser.add_argument("--n-samples", type=int, default=DEFAULT_N_SAMPLES, help="Samples per epoch (default: 200)")
-    parser.add_argument("--gpu", default="auto", help="GPU index (0, 1) or 'auto' (default: auto)")
-    parser.add_argument("--patience", type=int, default=15, help="Early stopping patience epochs (default: 15)")
-    parser.add_argument("--no-drop-off", action="store_true", help="Disable drop off (early stopping), forcing full epochs")
-    parser.add_argument("--out-dir", "-o", type=Path, default=None, help="Root output directory")
-    parser.add_argument("--detach", action="store_true", help="Launch detached background daemon surviving SSH logout (default behavior)")
-    parser.add_argument("--no-detach", action="store_true", help="Run synchronously in current shell session")
-    parser.add_argument("--status", action="store_true", help="Inspect real-time status of latest background run")
-    parser.add_argument("--stop", action="store_true", help="Terminate active background run")
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=DEFAULT_EPOCHS,
+        help="RL epochs per study (default: 35)",
+    )
+    parser.add_argument(
+        "--n-samples",
+        type=int,
+        default=DEFAULT_N_SAMPLES,
+        help="Samples per epoch (default: 200)",
+    )
+    parser.add_argument(
+        "--gpu", default="auto", help="GPU index (0, 1) or 'auto' (default: auto)"
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=15,
+        help="Early stopping patience epochs (default: 15)",
+    )
+    parser.add_argument(
+        "--no-drop-off",
+        action="store_true",
+        help="Disable drop off (early stopping), forcing full epochs",
+    )
+    parser.add_argument(
+        "--out-dir", "-o", type=Path, default=None, help="Root output directory"
+    )
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="Launch detached background daemon surviving SSH logout (default behavior)",
+    )
+    parser.add_argument(
+        "--no-detach",
+        action="store_true",
+        help="Run synchronously in current shell session",
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Inspect real-time status of latest background run",
+    )
+    parser.add_argument(
+        "--stop", action="store_true", help="Terminate active background run"
+    )
 
     args = parser.parse_args()
 
@@ -622,7 +721,9 @@ def main() -> None:
     # If detached mode requested or default (when not --no-detach):
     if args.detach or not args.no_detach:
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        target_out = args.out_dir or (REPO_ROOT / "_david" / "output" / f"ablation_{run_id}")
+        target_out = args.out_dir or (
+            REPO_ROOT / "_david" / "output" / f"ablation_{run_id}"
+        )
         fwd_args = [
             f"--studies={args.studies}",
             f"--epochs={args.epochs}",
@@ -644,8 +745,12 @@ def main() -> None:
         print(f" • Log File:     {target_out / 'ablation.log'}")
         print(f" • Status File:  {target_out / 'status.json'}")
         print(f" • Studies:      {study_ids}")
-        print(f" • Epochs:       {args.epochs} per study (Total: {len(study_ids) * args.epochs} epochs)")
-        print(f" • Drop-Off:     {'Enabled (Patience = ' + str(args.patience) + ' epochs)' if not args.no_drop_off else 'Disabled (Forced full epochs)'}")
+        print(
+            f" • Epochs:       {args.epochs} per study (Total: {len(study_ids) * args.epochs} epochs)"
+        )
+        print(
+            f" • Drop-Off:     {'Enabled (Patience = ' + str(args.patience) + ' epochs)' if not args.no_drop_off else 'Disabled (Forced full epochs)'}"
+        )
         print(f" • Samples:      {args.n_samples} per epoch")
         print("=" * 85)
         print(" >>> YOU CAN NOW SAFELY CLOSE SSH AND DISCONNECT CISCO VPN! <<<")

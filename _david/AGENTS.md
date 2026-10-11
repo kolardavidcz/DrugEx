@@ -109,6 +109,6 @@ uv run pytest testing/adversarial_m4_empirical_verification.py -q
 
 1. **Academic Honesty**: No synthetic simulation data. All numbers must come from authentic RDKit/DrugEx calculations.
 2. **Type Annotations**: All Python functions require 100% explicit type hints on parameters and return types.
-3. **Targeted Comments**: External library functions must follow `# [PACKAGE: NAME] WHY: ... WHAT: ... HOW: ...`. Avoid line-by-line noise.
+3. **Targeted Comments**: Cheminformatics library (outside snatdart one like os, numpy, ...) functions follow `# [PACKAGE: NAME] ...` WHY: / WHAT: / HOW: . Avoid line-by-line noise.
 4. **Direct File Tools Only**: Use `write_to_file` and `replace_file_content`. Never run ad-hoc scripts to patch project code.
 5. **Git Safety**: Stage and commit locally with clear commit messages (`git add . && git commit -m "..."`). **NEVER execute `git push`**.

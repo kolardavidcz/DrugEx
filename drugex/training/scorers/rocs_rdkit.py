@@ -1,12 +1,14 @@
 """RDKit-based ROCS scorer."""
+
 import os
 import tempfile
 from collections import defaultdict
 from multiprocessing import cpu_count
 from typing import Dict, List, Optional, Tuple, Union
 
-# [PACKAGE: numpy] WHY: Array conversions and score matrix operations. WHAT: Scientific computing library.
+
 import numpy as np
+
 # [PACKAGE: rdkit] WHY: 3D shape alignment (rdShapeAlign), pharmacophore feature factory, and molecule manipulation. WHAT: Cheminformatics toolkit.
 from rdkit import Chem, RDConfig
 from rdkit.Chem import rdShapeAlign, AllChem, ChemicalFeatures, rdMolTransforms
@@ -14,7 +16,11 @@ from rdkit.Chem import rdShapeAlign, AllChem, ChemicalFeatures, rdMolTransforms
 from drugex.training.scorers.interfaces import ConformerGenerator, Scorer
 from drugex.training.scorers.oe_color_smarts import OE_MILLS_DEAN_PATTERNS
 from drugex.training.scorers.parallel import (
-    pool_context, capped_n_jobs, mol_timeout, molecule_time_limit, ScoreTimeout,
+    pool_context,
+    capped_n_jobs,
+    mol_timeout,
+    molecule_time_limit,
+    ScoreTimeout,
 )
 
 _RDKIT_WORKER_SETTINGS: Dict[str, object] = {}
@@ -39,9 +45,7 @@ _TVERSKY_AB = {"tversky_ref": (0.95, 0.05), "tversky_fit": (0.05, 0.95)}
 # Annotating from BaseFeatures.fdef activates the full 6-type scheme, matching OpenEye's
 # ImplicitMillsDean color FF. See ccr2_gen/docs/color_validation/HOW_CLOSE_TO_OE.md §1b.
 try:
-    _COLOR_FACTORY = ChemicalFeatures.BuildFeatureFactory(
-        os.path.join(RDConfig.RDDataDir, "BaseFeatures.fdef")
-    )
+    _COLOR_FACTORY = ChemicalFeatures.BuildFeatureFactory(os.path.join(RDConfig.RDDataDir, "BaseFeatures.fdef"))
 except Exception:  # pragma: no cover - BaseFeatures.fdef ships with RDKit
     _COLOR_FACTORY = None
 
@@ -133,9 +137,7 @@ def _annotate_color_features(mol: Chem.Mol, color_ff: str = "default") -> Chem.M
     return mol
 
 
-def _tversky_from_tanimoto(
-    tanimoto: float, self_a: float, self_b: float, alpha: float, beta: float
-) -> float:
+def _tversky_from_tanimoto(tanimoto: float, self_a: float, self_b: float, alpha: float, beta: float) -> float:
     """Tversky index on rdShapeAlign's NATIVE first-order Gaussian basis.
 
     rdShapeAlign reports only Tanimoto ``T = O_ab/(sov_a + sov_b - O_ab)`` but exposes the
@@ -389,8 +391,13 @@ def _score_molecule_rdkit_worker(args: Tuple[int, List[Chem.Mol]]) -> Tuple[int,
                     for ref_idx in ref_indices:
                         ref_mol = reference_mols[ref_idx]
                         score = _score_single_reference(
-                            conf_mol, ref_mol, score_type, use_colors, inject_color,
-                            score_variant, color_ff,
+                            conf_mol,
+                            ref_mol,
+                            score_type,
+                            use_colors,
+                            inject_color,
+                            score_variant,
+                            color_ff,
                         )
                         if score > group_scores[group_idx]:
                             group_scores[group_idx] = score
@@ -398,6 +405,7 @@ def _score_molecule_rdkit_worker(args: Tuple[int, List[Chem.Mol]]) -> Tuple[int,
         return mol_id, [0.0] * num_groups
     except (RuntimeError, ValueError, AttributeError, TypeError) as exc:
         import sys
+
         print(f"Warning: Error scoring molecule {mol_id}: {exc}", file=sys.stderr)
         return mol_id, [0.0] * num_groups
 
@@ -434,18 +442,11 @@ class RDKitROCSScorer(Scorer):
         super().__init__()
 
         if score_type not in _VALID_SCORE_TYPES:
-            raise ValueError(
-                f"score_type must be one of {sorted(_VALID_SCORE_TYPES)}, got {score_type!r}"
-            )
+            raise ValueError(f"score_type must be one of {sorted(_VALID_SCORE_TYPES)}, got {score_type!r}")
         if score_variant not in _VALID_SCORE_VARIANTS:
-            raise ValueError(
-                f"score_variant must be one of {sorted(_VALID_SCORE_VARIANTS)}, "
-                f"got {score_variant!r}"
-            )
+            raise ValueError(f"score_variant must be one of {sorted(_VALID_SCORE_VARIANTS)}, got {score_variant!r}")
         if color_ff not in _VALID_COLOR_FFS:
-            raise ValueError(
-                f"color_ff must be one of {sorted(_VALID_COLOR_FFS)}, got {color_ff!r}"
-            )
+            raise ValueError(f"color_ff must be one of {sorted(_VALID_COLOR_FFS)}, got {color_ff!r}")
 
         self.conformer_generator = conformer_generator
         self.score_type = score_type
@@ -496,9 +497,7 @@ class RDKitROCSScorer(Scorer):
         if isinstance(refs, (str, Chem.Mol)):
             refs = [refs]
         if not isinstance(refs, list):
-            raise TypeError(
-                "references must be str, List[str], Chem.Mol, List[Chem.Mol], or dict thereof"
-            )
+            raise TypeError("references must be str, List[str], Chem.Mol, List[Chem.Mol], or dict thereof")
 
         normalized: List[Chem.Mol] = []
         for item in refs:
@@ -507,17 +506,13 @@ class RDKitROCSScorer(Scorer):
             elif isinstance(item, Chem.Mol):
                 normalized.append(item)
             else:
-                raise TypeError(
-                    "Reference entries must be file paths or RDKit molecules"
-                )
+                raise TypeError("Reference entries must be file paths or RDKit molecules")
 
         if not normalized:
             raise ValueError("Reference group cannot be empty")
         return normalized
 
-    def _flatten_groups(
-        self, groups: List[Tuple[str, List[Chem.Mol]]]
-    ) -> Tuple[List[Chem.Mol], List[List[int]]]:
+    def _flatten_groups(self, groups: List[Tuple[str, List[Chem.Mol]]]) -> Tuple[List[Chem.Mol], List[List[int]]]:
         reference_mols: List[Chem.Mol] = []
         group_to_indices: List[List[int]] = []
 
@@ -572,9 +567,7 @@ class RDKitROCSScorer(Scorer):
         for idx, ref_mol in enumerate(self.reference_mols):
             if ref_mol is None or ref_mol.GetNumConformers() == 0:
                 if self.show_progress:
-                    print(
-                        f"Warning: reference molecule at index {idx} is invalid or lacks conformers"
-                    )
+                    print(f"Warning: reference molecule at index {idx} is invalid or lacks conformers")
                 continue
             index_map[idx] = len(valid_refs)
             valid_refs.append(ref_mol)
@@ -586,9 +579,7 @@ class RDKitROCSScorer(Scorer):
         for name, indices in zip(self.group_names, self.group_to_indices):
             mapped = [index_map[i] for i in indices if i in index_map]
             if not mapped:
-                raise ValueError(
-                    f"Reference group '{name}' has no valid molecules with conformers"
-                )
+                raise ValueError(f"Reference group '{name}' has no valid molecules with conformers")
             new_group_to_indices.append(mapped)
 
         self.reference_mols = valid_refs
@@ -607,10 +598,7 @@ class RDKitROCSScorer(Scorer):
 
     def getKey(self) -> List[str]:
         sfx = self._key_suffix()
-        if (
-            len(self.group_names) == 1
-            and self.group_names[0] == _DEFAULT_RDKIT_GROUP_NAME
-        ):
+        if len(self.group_names) == 1 and self.group_names[0] == _DEFAULT_RDKIT_GROUP_NAME:
             prefix = "RDKit_Supermol" if self._single_reference else "RDKit_Aggregate"
             refs = len(self.reference_mols)
             if prefix == "RDKit_Aggregate":
@@ -619,9 +607,7 @@ class RDKitROCSScorer(Scorer):
         return [f"RDKit_{name}{sfx}" for name in self.group_names]
 
     @staticmethod
-    def _deduplicate_smiles(
-        smiles_list: List[Union[str, None]]
-    ) -> Tuple[List[str], Dict[int, List[int]]]:
+    def _deduplicate_smiles(smiles_list: List[Union[str, None]]) -> Tuple[List[str], Dict[int, List[int]]]:
         """Group identical SMILES to avoid redundant conformer generation."""
         unique_smiles: List[str] = []
         unique_lookup: Dict[str, int] = {}
@@ -672,8 +658,13 @@ class RDKitROCSScorer(Scorer):
                     for ref_idx in ref_indices:
                         ref_mol = self.reference_mols[ref_idx]
                         score = _score_single_reference(
-                            conf_mol, ref_mol, self.score_type, self.use_colors,
-                            self.inject_color, self.score_variant, self.color_ff,
+                            conf_mol,
+                            ref_mol,
+                            self.score_type,
+                            self.use_colors,
+                            self.inject_color,
+                            self.score_variant,
+                            self.color_ff,
                         )
                         if score > group_scores[group_idx]:
                             group_scores[group_idx] = score
@@ -683,9 +674,7 @@ class RDKitROCSScorer(Scorer):
 
         return scores_unique
 
-    def getScores(
-        self, mols: List[Chem.Mol], frags: Optional[List[Chem.Mol]] = None
-    ) -> np.ndarray:
+    def getScores(self, mols: List[Chem.Mol], frags: Optional[List[Chem.Mol]] = None) -> np.ndarray:
         num_groups = len(self.group_to_indices)
         if num_groups == 0:
             raise ValueError("No reference groups configured")
@@ -751,14 +740,9 @@ class RDKitROCSScorer(Scorer):
             scores_unique = np.zeros((unique_count, num_groups))
 
             if self.n_jobs == 1:
-                scores_unique = self._score_sequential(
-                    unique_count, conformers_by_mol, num_groups
-                )
+                scores_unique = self._score_sequential(unique_count, conformers_by_mol, num_groups)
             else:
-                worker_args = [
-                    (mol_id, conformers_by_mol.get(mol_id, []))
-                    for mol_id in range(unique_count)
-                ]
+                worker_args = [(mol_id, conformers_by_mol.get(mol_id, [])) for mol_id in range(unique_count)]
                 effective_jobs = max(1, self.n_jobs)
                 chunksize = max(1, unique_count // (effective_jobs * 4))
 
@@ -800,10 +784,7 @@ class RDKitROCSScorer(Scorer):
                                     worker_args,
                                     chunksize=chunksize,
                                 )
-                                print(
-                                    f"  Scored {len(worker_args)} unique molecules "
-                                    "(parallel)"
-                                )
+                                print(f"  Scored {len(worker_args)} unique molecules (parallel)")
                         else:
                             results = pool.map(
                                 _score_molecule_rdkit_worker,
@@ -815,13 +796,8 @@ class RDKitROCSScorer(Scorer):
                             scores_unique[mol_id] = np.asarray(group_scores)
                 except Exception as exc:
                     if self.show_progress:
-                        print(
-                            f"Warning: parallel processing failed ({exc}), "
-                            "switching to sequential mode"
-                        )
-                    scores_unique = self._score_sequential(
-                        unique_count, conformers_by_mol, num_groups
-                    )
+                        print(f"Warning: parallel processing failed ({exc}), switching to sequential mode")
+                    scores_unique = self._score_sequential(unique_count, conformers_by_mol, num_groups)
 
         for unique_id, original_indices in unique_to_original.items():
             if unique_id >= scores_unique.shape[0]:

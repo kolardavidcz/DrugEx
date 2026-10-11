@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Sequence, TypeVar, Union
 
-# [PACKAGE: numpy] WHY: Array operations, power/exp math, min/max clipping, and vector transformations. WHAT: Numerical computing library.
+
 import numpy as np
 
 from drugex.training.scorers.interfaces import ScoreModifier

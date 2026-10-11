@@ -7,10 +7,12 @@ from typing import TYPE_CHECKING, Sequence
 
 # [PACKAGE: networkx] WHY: Molecular graph construction and graph edit distance calculation. WHAT: Network analysis library.
 import networkx
-# [PACKAGE: numpy] WHY: Array operations and square root calculations. WHAT: Numerical computing library.
+
 import numpy as np
+
 # [PACKAGE: tqdm] WHY: Progress bar tracking during similarity calculations. WHAT: Progress bar utility.
 import tqdm
+
 # [PACKAGE: rdkit] WHY: Molecular graph/fingerprint parsing, MCS calculation, and Fraggle similarity. WHAT: Cheminformatics toolkit.
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFMCS

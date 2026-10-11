@@ -15,7 +15,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Optional, Union
 
-# [PACKAGE: numpy] WHY: Matrix calculations, array sorting, clipping, and vector operations. WHAT: Numerical computing library. HOW: np.asarray, np.nan_to_num, np.clip, np.where.
 import numpy as np
 from drugex.training.interfaces import RewardScheme
 

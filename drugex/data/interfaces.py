@@ -7,8 +7,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Optional, Sequence, Tuple, Type, Union
 
-# [PACKAGE: numpy] WHY: Array conversions and manipulations. WHAT: Numerical array conversions and repetitions.
+
 import numpy as np
+
 # [PACKAGE: pandas] WHY: Tabular serialization and deserialization. WHAT: DataFrame TSV reading and writing.
 import pandas as pd
 
@@ -46,7 +47,7 @@ class DataSet(ResultCollector, ABC):
         path: Union[str, os.PathLike, Path],
         rewrite: bool = False,
         save_voc: bool = True,
-        voc_file: Optional[Union[str, os.PathLike, Path]] = None
+        voc_file: Optional[Union[str, os.PathLike, Path]] = None,
     ) -> None:
         """Initialize dataset persistence path, directory structure, and associated vocabulary."""
         self.outpath: Path = Path(path)
@@ -89,26 +90,18 @@ class DataSet(ResultCollector, ABC):
     def sendDataToFile(self, data: Sequence[Any], columns: Optional[Sequence[str]] = None) -> None:
         """Append a batch of records to the on-disk TSV dataset file."""
         header_written = self.outpath.is_file()
-        open_mode = 'a' if header_written else 'w'
-        pd.DataFrame(
-            data,
-            columns=columns if columns else [f'Col{x+1}' for x in range(len(data[0]))]
-        ).to_csv(
-            self.outpath,
-            sep='\t',
-            index=False,
-            header=not header_written,
-            mode=open_mode,
-            encoding='utf-8'
+        open_mode = "a" if header_written else "w"
+        pd.DataFrame(data, columns=columns if columns else [f"Col{x + 1}" for x in range(len(data[0]))]).to_csv(
+            self.outpath, sep="\t", index=False, header=not header_written, mode=open_mode, encoding="utf-8"
         )
 
     def getData(self, chunk_size: Optional[int] = None) -> np.ndarray:
         """Load dataset records from disk into a NumPy array."""
         kwargs: Dict[str, Any] = dict()
         if chunk_size:
-            kwargs['chunksize'] = chunk_size
+            kwargs["chunksize"] = chunk_size
 
-        return pd.read_csv(self.outpath, sep='\t', header=0, **kwargs).to_numpy()
+        return pd.read_csv(self.outpath, sep="\t", header=0, **kwargs).to_numpy()
 
     def updateVoc(self, voc: Vocabulary) -> None:
         """Merge an incoming vocabulary into the active dataset vocabulary and persist if enabled."""
@@ -148,7 +141,7 @@ class DataSet(ResultCollector, ABC):
         splitter: Optional[DataSplitter] = None,
         split_converter: Optional[Union[DataToLoader, Callable[[np.ndarray, int, Any], DataLoader]]] = None,
         n_samples: int = -1,
-        n_samples_ratio: Optional[float] = None
+        n_samples_ratio: Optional[float] = None,
     ) -> Union[DataLoader, List[DataLoader]]:
         """Convert on-disk data into one or more PyTorch DataLoaders with optional splitting/sampling."""
         split_converter = split_converter if split_converter else self.dataToLoader
@@ -161,7 +154,9 @@ class DataSet(ResultCollector, ABC):
             n_samples = int(n_samples * n_samples_ratio)
 
         if n_samples > 0 and n_samples > len(data):
-            logger.info('Replicating original {} samples of data to have set of {} samples.'.format(len(data), n_samples))
+            logger.info(
+                "Replicating original {} samples of data to have set of {} samples.".format(len(data), n_samples)
+            )
             data = np.asarray(data)
             m = int(n_samples / data.shape[0])
             data = data.repeat(m, axis=0)
@@ -186,7 +181,7 @@ class DataSet(ResultCollector, ABC):
         data: np.ndarray,
         batch_size: int,
         splitter: Optional[DataSplitter] = None,
-        converter: Optional[Union[DataToLoader, Callable[[np.ndarray, int, Any], DataLoader]]] = None
+        converter: Optional[Union[DataToLoader, Callable[[np.ndarray, int, Any], DataLoader]]] = None,
     ) -> List[Any]:
         """Partition data and construct DataLoader instances for each resulting subset."""
         splits = []
@@ -201,7 +196,7 @@ class DataSet(ResultCollector, ABC):
         paths: Sequence[Union[str, os.PathLike[str], Path]],
         voc_class: Type[Vocabulary],
         *args: Any,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> None:
         """Read vocabulary files from disk and combine them into the active dataset vocabulary."""
         if not paths:

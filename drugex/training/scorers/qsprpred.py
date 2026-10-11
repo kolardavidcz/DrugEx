@@ -6,13 +6,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional, Sequence, Union
 
-# [PACKAGE: numpy] WHY: Array manipulation and score tensor formatting. WHAT: Scientific computing library.
+
 import numpy as np
+
 # [PACKAGE: rdkit] WHY: Molecule conversion and structure validation. WHAT: Cheminformatics toolkit.
 from rdkit import Chem
 
 from drugex.logs import logger
 from drugex.training.scorers.interfaces import ScoreModifier, Scorer
+
 # [PACKAGE: qsprpred] WHY: Quantitative structure-property relationship surrogate modeling. WHAT: Cheminformatics QSAR library.
 from qsprpred.tasks import TargetProperty, TargetTasks
 
@@ -32,32 +34,33 @@ class QSPRPredScorer(Scorer):
         app_domain: Union[bool, str] = False,
         invalids_score: Union[float, list[float]] = 0.0,
         modifier: Optional[Union[ScoreModifier, list[ScoreModifier]]] = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> None:
         super(QSPRPredScorer, self).__init__(modifier)
         self.model = model
         self.use_probas = use_probas
         self.tasks = tasks
         self.app_domain = app_domain
-        assert self.app_domain in [True, False, 'invalid'], "app_domain must be a boolean or 'invalid'"
+        assert self.app_domain in [True, False, "invalid"], "app_domain must be a boolean or 'invalid'"
         if tasks is not None:
-            assert all(task in TargetProperty.getNames(model.targetProperties) for task in tasks), \
+            assert all(task in TargetProperty.getNames(model.targetProperties) for task in tasks), (
                 f"Tasks {tasks} not found in model tasks {model.targetProperties}"
+            )
         self.classes = classes
         self.invalidsScore = invalids_score
         if isinstance(invalids_score, list):
-            assert len(invalids_score) == self.nTasks, \
+            assert len(invalids_score) == self.nTasks, (
                 "Invalids score list must have the same length as the number of tasks"
-            assert all(isinstance(score, float) for score in invalids_score), \
+            )
+            assert all(isinstance(score, float) for score in invalids_score), (
                 "Invalids score list must contain only floats"
+            )
         else:
             assert isinstance(invalids_score, float), "Invalids score must be a float"
         self.kwargs = kwargs
 
     def getScores(
-        self,
-        mols: Sequence[Union[str, Chem.Mol]],
-        frags: Optional[Sequence[Union[str, Chem.Mol]]] = None
+        self, mols: Sequence[Union[str, Chem.Mol]], frags: Optional[Sequence[Union[str, Chem.Mol]]] = None
     ) -> np.ndarray:
         """Calculate surrogate model predictions or probabilities for input molecules."""
         if len(mols) == 0:
@@ -92,10 +95,7 @@ class QSPRPredScorer(Scorer):
 
         return scores
 
-    def _get_valid_molecules(
-        self,
-        mols: Sequence[Union[str, Chem.Mol]]
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _get_valid_molecules(self, mols: Sequence[Union[str, Chem.Mol]]) -> tuple[np.ndarray, np.ndarray]:
         """Convert input to RDKit Mol objects and filter valid entries."""
         if any(isinstance(mol, str) for mol in mols):
             mols_converted = [Chem.MolFromSmiles(mol) if isinstance(mol, str) else mol for mol in mols]
@@ -110,12 +110,12 @@ class QSPRPredScorer(Scorer):
 
     def _get_predictions(self, mols: np.ndarray) -> np.ndarray:
         """Query QSPRpred model predictions and applicability domain."""
-        include_app = self.app_domain in [True, 'invalid']
+        include_app = self.app_domain in [True, "invalid"]
         res = self.model.predictMols(
             mols,
             use_probas=self.use_probas,
             use_applicability_domain=self.app_domain if include_app else False,
-            **self.kwargs
+            **self.kwargs,
         )
         if include_app:
             scores, app = res
@@ -161,7 +161,7 @@ class QSPRPredScorer(Scorer):
 
     def handle_app_domain(self, scores: np.ndarray, app: Any) -> np.ndarray:
         """Apply applicability domain gating or column concatenation."""
-        if self.app_domain == 'invalid':
+        if self.app_domain == "invalid":
             app_arr = np.array(app).flatten().astype(bool)
             scores[~app_arr] = self.invalidsScore
         else:

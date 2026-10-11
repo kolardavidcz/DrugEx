@@ -10,12 +10,13 @@ ParetoCrowdingDistance) operate stably without this ad-hoc non-linear gating heu
 See _david/legacy/README.md for full mathematical and experimental rationale.
 ====================================================================================================
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Optional, Union
 
-# [PACKAGE: numpy] WHY: Matrix calculations, array sorting, clipping, and vector operations. WHAT: Numerical computing library. HOW: np.asarray, np.nan_to_num, np.clip, np.where.
+
 import numpy as np
 from drugex.training.interfaces import RewardScheme
 
@@ -72,7 +73,9 @@ class AntiCollapseSoftGateReward(RewardScheme):
         """
         super().__init__()
         self.rocs_col_idx: int = int(rocs_col_idx)
-        self.sa_col_idx: Optional[int] = int(sa_col_idx) if sa_col_idx is not None else None
+        self.sa_col_idx: Optional[int] = (
+            int(sa_col_idx) if sa_col_idx is not None else None
+        )
         self.w_3d: float = float(w_3d)
         self.w_props: float = float(w_props)
         self.tau_3d: float = float(tau_3d)
@@ -80,7 +83,9 @@ class AntiCollapseSoftGateReward(RewardScheme):
         self.sa_floor_val: float = float(sa_floor_val)
         self.sa_ceil_val: float = float(sa_ceil_val)
         self.property_weights: Optional[np.ndarray] = (
-            np.asarray(property_weights, dtype=np.float64) if property_weights is not None else None
+            np.asarray(property_weights, dtype=np.float64)
+            if property_weights is not None
+            else None
         )
 
     def gate(self, s_3d: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
@@ -131,7 +136,11 @@ class AntiCollapseSoftGateReward(RewardScheme):
             )
 
         if scores_arr.ndim == 1:
-            scores_arr = scores_arr.reshape(1, -1) if len(scores_arr) > 0 else scores_arr.reshape(0, 1)
+            scores_arr = (
+                scores_arr.reshape(1, -1)
+                if len(scores_arr) > 0
+                else scores_arr.reshape(0, 1)
+            )
 
         n_samples = scores_arr.shape[0]
         if n_samples == 0:
@@ -152,13 +161,17 @@ class AntiCollapseSoftGateReward(RewardScheme):
 
         # 3. Secondary property objectives weighted aggregation
         prop_indices = [
-            i for i in range(scores_clean.shape[1])
+            i
+            for i in range(scores_clean.shape[1])
             if i != col_3d and (self.sa_col_idx is None or i != self.sa_col_idx)
         ]
         if prop_indices:
             props = scores_clean[:, prop_indices]
             n_props = props.shape[1]
-            if self.property_weights is not None and len(self.property_weights) == n_props:
+            if (
+                self.property_weights is not None
+                and len(self.property_weights) == n_props
+            ):
                 w_norm = self.property_weights / np.sum(self.property_weights)
             else:
                 w_norm = np.ones(n_props, dtype=np.float64) / float(n_props)
@@ -172,7 +185,9 @@ class AntiCollapseSoftGateReward(RewardScheme):
 
         # Strict Pareto anti-cheating guard: candidates with S_3D <= 1e-6 receive strictly 0.0
         zero_mask = s_3d <= 1e-6
-        base_reward = effective_w_3d * s_3d + effective_w_props * g_3d * props_weighted_sum
+        base_reward = (
+            effective_w_3d * s_3d + effective_w_props * g_3d * props_weighted_sum
+        )
         base_reward[zero_mask] = 0.0
 
         # 4. Synthesizability Feasibility Floor integration
