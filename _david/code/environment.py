@@ -106,7 +106,7 @@ def generate_reference_conformers(
     energies.sort(key=lambda x: x[0])
     min_e = energies[0][0]
     
-    # 1. Physiological energy window (Hawkins 2017: <= 8.0 kcal/mol)
+    #? Physiological energy window (Hawkins 2017: <= 8.0 kcal/mol)
     accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0} #Whitelist: solves "None" issues
     for cid in conf_ids:
         if cid not in accepted_cids:
@@ -114,12 +114,7 @@ def generate_reference_conformers(
 
     remaining_cids = [conf.GetId() for conf in mol_h.GetConformers()]
     
-    for e, cid in energies:
-        if (e - min_e) < 8.0:
-            
-            remaining_cids.append(mol_h[cid].GetId())
-
-    # 2. Geometric basin curation via Butina RMSD clustering (Hawkins 2017: 1.0–1.25 Å cutoff)
+    #? Geometric basin curation via Butina RMSD clustering (Hawkins 2017: 1.0–1.25 Å cutoff)
     if len(remaining_cids) > 1:
         # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, prealigned=False)
