@@ -115,7 +115,7 @@ def generate_reference_conformers(
 
     remaining_cids = [conf.GetId() for conf in mol_h.GetConformers()]
 
-    # 2. Geometric basin curation via Butina RMSD clustering (1.25 Å cutoff)
+    # 2. Geometric basin curation via Butina RMSD clustering (Butina 1999 / Hawkins 2017: 1.0–1.25 Å cutoff keeps 1 lowest-energy centroid per distinct basin)
     if len(remaining_cids) > 1:
         # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, prealigned=False)
