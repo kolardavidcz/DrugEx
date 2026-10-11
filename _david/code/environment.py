@@ -63,6 +63,34 @@ def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
     raise ValueError(f"Could not parse query: {query!r}")
 
 
+def get_rigid_anchor_atoms(mol: Chem.Mol) -> list[int]:
+    """Identify rigid anchor heavy atom indices for conformer alignment.
+
+    Identifies the largest fused ring system (fused cycles sharing >= 2 atoms).
+    Falls back to the largest single ring, or first 10 heavy atoms if acyclic.
+    """
+    ring_info = mol.GetRingInfo()
+    atom_rings = [set(r) for r in ring_info.AtomRings()]
+    if not atom_rings:
+        heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() != "H"]
+        return heavy[: min(10, len(heavy))]
+
+    fused_groups: list[set[int]] = []
+    for r in atom_rings:
+        connected = [g for g in fused_groups if len(g.intersection(r)) >= 2]
+        if connected:
+            new_group = set(r)
+            for g in connected:
+                new_group.update(g)
+                fused_groups.remove(g)
+            fused_groups.append(new_group)
+        else:
+            fused_groups.append(set(r))
+
+    largest_anchor = max(fused_groups, key=len)
+    return sorted(list(largest_anchor))
+
+
 def generate_reference_conformers(
     query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
     output_path: Path | str | None = None,
@@ -115,7 +143,7 @@ def generate_reference_conformers(
 
     remaining_cids = [conf.GetId() for conf in mol_h.GetConformers()]
 
-    # 2. Geometric basin curation via Butina RMSD clustering (Butina 1999 / Hawkins 2017: 1.0–1.25 Å cutoff keeps 1 lowest-energy centroid per distinct basin)
+    # 2. Geometric basin curation via Butina RMSD clustering (Hawkins 2017: 1.0–1.25 Å cutoff)
     if len(remaining_cids) > 1:
         # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, prealigned=False)
@@ -125,16 +153,16 @@ def generate_reference_conformers(
         curated = remaining_cids
 
     curated_set = set(curated)
+    energy_map = {cid: e for e, cid in energies}
+    curated.sort(key=lambda cid: energy_map.get(cid, 0.0))
     for cid in remaining_cids:
         if cid not in curated_set:
             mol_h.RemoveConformer(cid)
 
-    # 3. Superimpose conformers onto central scaffold
-    scaff = MurckoScaffold.GetScaffoldForMol(Chem.RemoveHs(mol_h))
-    match = mol_h.GetSubstructMatch(scaff) if scaff else ()
-    atom_ids = list(match) if match else list(range(min(10, mol_h.GetNumAtoms())))
+    # 3. Superimpose conformers onto rigid fused anchor
+    anchor_atoms = get_rigid_anchor_atoms(mol_h)
     try:
-        AllChem.AlignMolConformers(mol_h, atomIds=atom_ids)
+        AllChem.AlignMolConformers(mol_h, atomIds=anchor_atoms, refId=curated[0])
     except Exception:
         AllChem.AlignMolConformers(mol_h)
 
@@ -178,9 +206,17 @@ def render_reference_ensemble(
     min_idx = int(np.argmin(de_vals))
     max_idx = int(np.argmax(de_vals))
 
-    scaff = MurckoScaffold.GetScaffoldForMol(Chem.RemoveHs(mols[0]))
-    match = mols[0].GetSubstructMatch(scaff) if scaff else ()
-    core_atoms = set(match) if match else set(range(min(10, mols[0].GetNumAtoms())))
+    anchor_atoms = get_rigid_anchor_atoms(mol_combined)
+    try:
+        AllChem.AlignMolConformers(mol_combined, atomIds=anchor_atoms, refId=min_idx)
+    except Exception:
+        AllChem.AlignMolConformers(mol_combined)
+
+    for i, m in enumerate(mols):
+        m.RemoveAllConformers()
+        m.AddConformer(mol_combined.GetConformer(i))
+
+    core_atoms = set(anchor_atoms)
 
     fig = plt.figure(figsize=(18, 5.5), dpi=200)
     cmap = plt.cm.plasma
@@ -228,8 +264,8 @@ def render_reference_ensemble(
     ax3 = fig.add_subplot(1, 3, 3, projection="3d")
     for i, m in enumerate(mols):
         c = cmap(norm(de_vals[i]))
-        _draw_mol(ax3, m, c, c, alpha=0.75, lw=1.6, pt_size=20)
-    _draw_mol(ax3, mols[min_idx], "#0f172a", "#0f172a", alpha=0.9, lw=2.6, pt_size=35, label_core=True)
+        _draw_mol(ax3, m, c, c, alpha=0.75, lw=1.6, pt_size=20, label_core=True)
+    _draw_mol(ax3, mols[min_idx], "#0f172a", "#0f172a", alpha=0.95, lw=2.8, pt_size=38, label_core=True)
     ax3.set_title(f"(C) Core-Aligned Ensemble ({len(mols)} Centroids)\nPharmacophore Envelope & Rotameric Fanning", fontsize=11, fontweight="bold", pad=12)
     ax3.view_init(elev=20, azim=40)
     ax3.set_xlabel("X (Å)", fontsize=8)
