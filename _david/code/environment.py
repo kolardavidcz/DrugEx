@@ -143,7 +143,7 @@ def generate_reference_conformers(
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, prealigned=False)
         clusters = Butina.ClusterData(rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True)
         for cluster in clusters:
-            # Select the thermodynamic minimum within this conformational basin
+            # Select the energy minimum molecule from each conformational cluster
             basin_cids = [remaining_cids[idx] for idx in cluster]
             best_cid = min(basin_cids, key=lambda cid: energy_map[cid])
             curated.append(best_cid)
