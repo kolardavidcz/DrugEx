@@ -1,7 +1,7 @@
-"""Result analysis and Pareto frontier prioritization."""
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -18,11 +18,9 @@ from _david.code.visualization import (
 
 
 class ParetoFrontier:
-    """Identifies non-dominated Pareto frontiers across multi-objective evaluations."""
 
     @staticmethod
     def identify_pareto_front(scores: np.ndarray, maximize: Sequence[bool]) -> np.ndarray:
-        """Identifies non-dominated points in an N x M score matrix."""
         n_points = scores.shape[0]
         is_pareto = np.ones(n_points, dtype=bool)
         mult = np.array([1.0 if m else -1.0 for m in maximize], dtype=np.float64)
@@ -42,7 +40,6 @@ class ParetoFrontier:
         objectives: Sequence[str],
         maximize: Sequence[bool],
     ) -> pd.DataFrame:
-        """Computes Pareto rank layers (0 = non-dominated, 1 = second front, etc.)."""
         df_ranked = df.copy()
         df_ranked["Pareto_Rank"] = -1
         valid_mask = df_ranked["Valid"].astype(bool) if "Valid" in df_ranked.columns else np.ones(len(df_ranked), dtype=bool)
@@ -62,7 +59,6 @@ class ParetoFrontier:
 
 
 class ResultAnalyzer:
-    """Extracts top lead candidates, Pareto frontiers, and aligned depictions."""
 
     def __init__(self, output_dir: Path | str) -> None:
         self.output_dir = Path(output_dir)
@@ -75,7 +71,6 @@ class ResultAnalyzer:
         ref_sdf: Path | str | None = None,
         top_k: int = 10,
     ) -> pd.DataFrame:
-        """Analyzes generated molecules, extracts Pareto frontier, and generates visualizations."""
         tsv_path = Path(candidates_tsv)
         if not tsv_path.exists():
             return pd.DataFrame()
@@ -88,7 +83,6 @@ class ResultAnalyzer:
             df["Valid"] = [Chem.MolFromSmiles(s) is not None for s in df["SMILES"]]
         valid_df = df[df["Valid"].astype(bool)].copy()
 
-        # Resolve primary score columns
         rocs_col = [c for c in valid_df.columns if any(k in c.upper() for k in ("ROCS", "SIMILARITY", "TANIMOTO"))]
         sa_col = [c for c in valid_df.columns if "SA" in c.upper() and c not in ("SMILES", "DESIRED")]
 
@@ -96,7 +90,6 @@ class ResultAnalyzer:
         sa_name = sa_col[0] if sa_col else None
 
         if rocs_name and sa_name:
-            # Detect whether SA is modified score in [0, 1] (maximize) or raw score 1-10 (minimize)
             max_sa = valid_df[sa_name].max()
             maximize_sa = bool(max_sa <= 1.0)
             pareto = ParetoFrontier()
@@ -125,14 +118,14 @@ class ResultAnalyzer:
         )
 
         if ref_mol and not top_leads.empty:
-            import shutil
             lead_png = self.analysis_dir / "lead_structures_2d.png"
             render_lead_structures_2d(
                 top_leads,
                 output_png=lead_png,
                 reference=ref_mol,
             )
-            shutil.copyfile(lead_png, self.analysis_dir / "aligned_lead_depictions.png")
+            if lead_png.exists():
+                shutil.copyfile(lead_png, self.analysis_dir / "aligned_lead_depictions.png")
 
         summary = {
             "total_generated": len(df),

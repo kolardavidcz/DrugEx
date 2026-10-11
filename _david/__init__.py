@@ -1,4 +1,3 @@
-"""DrugEx Bachelor Thesis LBDD Package."""
 from __future__ import annotations
 
 import sys

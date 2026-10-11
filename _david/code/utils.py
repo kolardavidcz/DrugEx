@@ -1,4 +1,3 @@
-"""Hardware, multiprocessing, telemetry, and fallback monitoring utilities."""
 from __future__ import annotations
 
 import os
@@ -13,7 +12,6 @@ SAFE_MAX_CPU_CORES: int = 24
 
 
 def get_safe_parallel_jobs(cap: int = SAFE_MAX_CPU_CORES) -> int:
-    """Calculate safe CPU worker count (half host CPUs, max 24)."""
     total = os.cpu_count() or 1
     return max(1, min(cap, total // 2 if total > 2 else total))
 
@@ -27,7 +25,6 @@ class FallbackEvent:
 
 
 class FallbackMonitor:
-    """Tracks algorithm fallback events across the pipeline."""
 
     _events: list[FallbackEvent] = []
 
@@ -52,16 +49,21 @@ class FallbackMonitor:
 
 
 class ExclusiveGPUManager:
-    """Probes CUDA devices and selects the GPU with highest free VRAM."""
 
     @staticmethod
     def get_device_vram(device_idx: int) -> tuple[float, float, float]:
         if not torch.cuda.is_available() or device_idx >= torch.cuda.device_count():
             return 0.0, 0.0, 0.0
-        allocated = torch.cuda.memory_allocated(device_idx) / (1024 ** 2)
-        reserved = torch.cuda.memory_reserved(device_idx) / (1024 ** 2)
-        total = torch.cuda.get_device_properties(device_idx).total_memory / (1024 ** 2)
-        free = total - reserved
+        try:
+            free_bytes, total_bytes = torch.cuda.mem_get_info(device_idx)
+            free = free_bytes / (1024 ** 2)
+            total = total_bytes / (1024 ** 2)
+            allocated = torch.cuda.memory_allocated(device_idx) / (1024 ** 2)
+        except Exception:
+            allocated = torch.cuda.memory_allocated(device_idx) / (1024 ** 2)
+            reserved = torch.cuda.memory_reserved(device_idx) / (1024 ** 2)
+            total = torch.cuda.get_device_properties(device_idx).total_memory / (1024 ** 2)
+            free = total - reserved
         return allocated, free, total
 
     @classmethod
@@ -78,7 +80,6 @@ class ExclusiveGPUManager:
 
 
 def get_safe_gpus(preferred_gpu: int | str | None = None) -> tuple[int, ...] | tuple[()]:
-    """Resolve target CUDA device tuple."""
     if not torch.cuda.is_available():
         return ()
     if preferred_gpu is None or preferred_gpu == "auto":
@@ -93,7 +94,6 @@ def get_safe_gpus(preferred_gpu: int | str | None = None) -> tuple[int, ...] | t
 
 
 def get_gpu_telemetry() -> dict[str, Any]:
-    """Retrieve CUDA device count and memory telemetry."""
     if not torch.cuda.is_available():
         return {"cuda_available": False, "device_count": 0, "devices": []}
     devices = []

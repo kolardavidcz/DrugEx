@@ -18,10 +18,8 @@ from _david.code.pipeline import MoleculePipeline
 
 
 class TestLBDDPipeline(unittest.TestCase):
-    """Test suite for clean LBDD environment, scoring, and analysis."""
 
     def test_environment_creation(self) -> None:
-        """Verifies Level 1 environment creation with ROCS and SA scorers."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             ref_sdf = Path(tmp_dir) / "ref.sdf"
             mol = Chem.MolFromSmiles("c1ccccc1O")
@@ -37,7 +35,6 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsInstance(env.rewardScheme, WeightedSum)
 
     def test_conformer_generation(self) -> None:
-        """Verifies 3D conformer ensemble generation."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             ref_sdf = Path(tmp_dir) / "test_confs.sdf"
             out = generate_reference_conformers("c1ccccc1O", output_path=ref_sdf, num_conformers=5)
@@ -47,7 +44,6 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertGreater(len(mols), 0)
 
     def test_pareto_ranking(self) -> None:
-        """Verifies Pareto non-dominated frontier ranking."""
         pareto = ParetoFrontier()
         df = pd.DataFrame({
             "SMILES": ["mol0", "mol1", "mol2"],
@@ -60,7 +56,6 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertGreater(ranked.loc[1, "Pareto_Rank"], 0)
 
     def test_aligned_depiction(self) -> None:
-        """Verifies aligned 2D depiction grid generation."""
         depicter = AlignedDepicter("c1ccccc1O")
         with tempfile.TemporaryDirectory() as tmp_dir:
             img_path = Path(tmp_dir) / "aligned.png"
@@ -69,14 +64,13 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertTrue(img_path.exists())
 
     def test_pipeline_benchmark(self) -> None:
-        """Verifies end-to-end pipeline in benchmark_only mode."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             pipe_dir = Path(tmp_dir) / "run_test"
             pipeline = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
             pipeline.run("Oc1ccccc1")
             self.assertTrue((pipe_dir / "pipeline_status.json").exists())
+
     def test_visualization_suite(self) -> None:
-        """Verifies all publication visualization generators in visualization module."""
         from _david.code.visualization import (
             render_epoch_pareto_evolution,
             render_lead_structures_2d,
@@ -89,13 +83,11 @@ class TestLBDDPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp = Path(tmp_dir)
 
-            # 1. 3D reference superposition
             ref_sdf = tmp / "ref.sdf"
             generate_reference_conformers("c1ccccc1O", output_path=ref_sdf, num_conformers=3)
             ref_png = render_reference_ensemble(ref_sdf, output_png=tmp / "ref_super.png")
             self.assertTrue(ref_png.exists())
 
-            # 2. RL Training curves
             fit_tsv = tmp / "fit.tsv"
             pd.DataFrame({
                 "Epoch": [1, 2, 3],
@@ -108,7 +100,6 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(curves_png)
             self.assertTrue(curves_png.exists())
 
-            # 3. Epoch Pareto evolution
             smiles_tsv = tmp / "smiles.tsv"
             pd.DataFrame({
                 "Epoch": [1, 1, 2, 2],
@@ -120,7 +111,6 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(pareto_evo_png)
             self.assertTrue(pareto_evo_png.exists())
 
-            # 4. Property distributions
             dist_df = pd.DataFrame({
                 "SMILES": ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC"],
                 "ROCS": [0.5, 0.7, 0.6],
@@ -130,12 +120,10 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(dist_png)
             self.assertTrue(dist_png.exists())
 
-            # 5. Lead structures 2D
             lead_png = render_lead_structures_2d(["c1ccccc1O", "c1ccccc1CC"], legends=["L1", "L2"], output_png=tmp / "leads.png")
             self.assertIsNotNone(lead_png)
             self.assertTrue(lead_png.exists())
 
-            # 5b. Lead structures 2D with DataFrame and reference query
             leads_df = pd.DataFrame({
                 "SMILES": ["c1ccccc1O", "c1ccccc1CC"],
                 "ROCS": [0.95, 0.90],
@@ -148,7 +136,6 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(lead_df_png)
             self.assertTrue(lead_df_png.exists())
 
-            # 6. Pareto frontier
             front_df = pd.DataFrame({
                 "SMILES": ["m1", "m2"],
                 "ROCS": [0.8, 0.5],
@@ -160,39 +147,31 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertTrue(front_png.exists())
 
     def test_adaptive_rmsd_cutoff(self) -> None:
-        """Verify adaptive RMSD cutoff bounds and literature expectations."""
         from _david.code.environment import get_adaptive_rmsd_cutoff
-        # 1. Rigid benzene (0 rotatable bonds, 6 heavy atoms) -> 1.00 Å (Ebejer 2012)
         m_rigid = Chem.MolFromSmiles("c1ccccc1")
         self.assertEqual(get_adaptive_rmsd_cutoff(m_rigid), 1.00)
 
-        # 2. Drug-like polyphenol EGCG (3 rotatable bonds, 33 heavy atoms) -> 1.25 Å (Hawkins 2017)
         m_egcg = Chem.MolFromSmiles("C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O")
         self.assertEqual(get_adaptive_rmsd_cutoff(m_egcg), 1.25)
 
-        # 3. Moderately flexible ligand (6 rotatable bonds, 12 heavy atoms) -> 1.25 Å (Hawkins 2017)
         m_med = Chem.MolFromSmiles("CCCCCCc1ccccc1")
         self.assertEqual(get_adaptive_rmsd_cutoff(m_med), 1.25)
 
-        # 4. Highly flexible chain (10 rotatable bonds) -> 1.50 Å (Friedrich 2017)
         m_flex = Chem.MolFromSmiles("CCCCCCCCCCC(=O)O")
         self.assertEqual(get_adaptive_rmsd_cutoff(m_flex), 1.50)
 
     def test_seed_core_scaffold(self) -> None:
-        """Verify multi-strategy scaffold extraction, core ring isolation, and metadata export."""
         from _david.code.environment import extract_seed_core_scaffold, DEFAULT_MOLECULE
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_tsv = Path(tmp_dir) / "scaffold.tsv"
 
-            # 1. Full Bemis-Murcko scaffold (all rings + linkers = 25 atoms)
             smi_bm = extract_seed_core_scaffold(DEFAULT_MOLECULE, output_path=out_tsv, scaffold_type="bemis_murcko")
             mol_bm = Chem.MolFromSmiles(smi_bm)
             self.assertEqual(mol_bm.GetNumHeavyAtoms(), 25)
             self.assertEqual(mol_bm.GetRingInfo().NumRings(), 4)
             self.assertTrue(out_tsv.exists())
 
-            # Verify TSV columns
             with open(out_tsv, "r", encoding="utf-8") as f:
                 header = f.readline().strip()
                 row = f.readline().strip().split("\t")
@@ -202,23 +181,19 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(row[3], "25")
             self.assertEqual(row[4], "4")
 
-            # 2. Privileged core ring system (isolated chroman bicyclic core = 10 atoms)
             smi_core = extract_seed_core_scaffold(DEFAULT_MOLECULE, scaffold_type="core_ring_system")
             mol_core = Chem.MolFromSmiles(smi_core)
             self.assertEqual(mol_core.GetNumHeavyAtoms(), 10)
             self.assertEqual(mol_core.GetRingInfo().NumRings(), 2)
 
-            # 3. Generic framework (all-carbon skeleton = 25 atoms)
             smi_gen = extract_seed_core_scaffold(DEFAULT_MOLECULE, scaffold_type="generic_framework")
             mol_gen = Chem.MolFromSmiles(smi_gen)
             self.assertEqual(mol_gen.GetNumHeavyAtoms(), 25)
             self.assertTrue(all(a.GetSymbol() == "C" for a in mol_gen.GetAtoms()))
 
-            # 4. Acyclic fallback handling (hexanoic acid -> returns acyclic skeleton)
             smi_acyclic = extract_seed_core_scaffold("CCCCCC(=O)O", scaffold_type="bemis_murcko")
             self.assertEqual(smi_acyclic, "CCCCCC(=O)O")
 
 
 if __name__ == "__main__":
     unittest.main()
-

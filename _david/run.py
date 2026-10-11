@@ -1,4 +1,3 @@
-"""CLI and daemon runner for DrugEx LBDD pipeline."""
 from __future__ import annotations
 
 import argparse
@@ -23,6 +22,7 @@ os.environ.setdefault("DRUGEX_MP_CONTEXT", "forkserver")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DrugEx LBDD Runner")
     parser.add_argument("--mode", default="full", choices=["full", "test", "benchmark_only"])
+    parser.add_argument("--test", action="store_const", const="test", dest="mode")
     parser.add_argument("--epochs", type=int, default=35)
     parser.add_argument("--n-samples", type=int, default=200)
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE)
@@ -78,7 +78,6 @@ def main() -> None:
         print(f"Live log: tail -f {log_file}")
         return
 
-    # Direct / Worker execution
     pipeline = MoleculePipeline(
         output_dir=target_dir,
         mode=args.mode,

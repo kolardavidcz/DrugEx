@@ -1,4 +1,3 @@
-"""DrugEx LBDD core modules."""
 from __future__ import annotations
 
 from _david.code.analysis import ParetoFrontier, ResultAnalyzer

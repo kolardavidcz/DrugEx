@@ -1,4 +1,3 @@
-"""Graph-Transformer generative model, Prior/Agent initialization, and fragment preparation."""
 from __future__ import annotations
 
 import sys
@@ -23,7 +22,6 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 
 class GraphTransformerOptimizer:
-    """Manages Pretrained Graph-Transformer Prior and Agent networks for RL exploration."""
 
     def __init__(self, output_dir: Path | str, gpu: int | str | None = "auto") -> None:
         self.OUTPUT_DIR = Path(output_dir)
@@ -52,7 +50,6 @@ class GraphTransformerOptimizer:
         n_prompts: int = 100,
         scaffolds_path: Path | str | None = None,
     ) -> tuple[DataLoader, GraphFragDataSet]:
-        """Prepares fragment dataset and DataLoader from Murcko core scaffold."""
         seed_tsv = self.MODEL_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
 
@@ -90,7 +87,6 @@ class GraphTransformerOptimizer:
         epsilon: float = 0.0,
         batch_size: int = 50,
     ) -> FragGraphExplorer:
-        """Constructs FragGraphExplorer bound to environment and mutation policy."""
         return FragGraphExplorer(
             agent=self.AGENT,
             env=env,

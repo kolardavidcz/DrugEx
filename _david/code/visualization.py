@@ -1,9 +1,3 @@
-"""Comprehensive academic visualization suite for Ligand-Based De Novo Drug Design.
-
-Includes 2D scaffold-aligned depictions, 3D conformer superposition ensembles,
-RL training convergence dynamics, multi-objective Pareto frontiers, and
-physicochemical descriptor distribution benchmarking.
-"""
 from __future__ import annotations
 
 import math
@@ -21,12 +15,6 @@ from drugex.training.scorers.sascorer import calculateScore as calculate_sa_scor
 
 
 def get_universal_rigid_anchor(mol: Chem.Mol) -> list[int]:
-    """Universal First-Principles Rigid Anchor Extraction for Visualization.
-
-    Decomposes any small molecule into internally rigid blocks by cutting
-    all non-ring rotatable single bonds. Returns the heavy atom indices
-    of the largest rigid block (guaranteed zero internal degrees of rotational freedom).
-    """
     rot_smarts = Chem.MolFromSmarts("[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]")
     matches = mol.GetSubstructMatches(rot_smarts)
     rot_bonds = [
@@ -52,7 +40,6 @@ def render_reference_ensemble(
     sdf_path: Path | str,
     output_png: Path | str | None = None,
 ) -> Path:
-    """Render publication-quality 3-panel 3D superposition figure of reference conformers."""
     from rdkit.Chem import AllChem
 
     sdf_file = Path(sdf_path)
@@ -197,7 +184,6 @@ def render_reference_ensemble(
 
 
 class AlignedDepicter:
-    """Generates 2D molecular structure depictions aligned to a reference scaffold."""
 
     def __init__(self, reference: str | Chem.Mol) -> None:
         self.ref_mol = Chem.MolFromSmiles(reference) if isinstance(reference, str) else reference
@@ -209,7 +195,6 @@ class AlignedDepicter:
             self.ref_core = self.ref_mol
 
     def align_molecule(self, mol: Chem.Mol) -> Chem.Mol:
-        """Aligns 2D layout of molecule matching reference core."""
         mol_copy = Chem.Mol(mol)
         rdDepictor.Compute2DCoords(mol_copy)
         if self.ref_core and mol_copy.HasSubstructMatch(self.ref_core):
@@ -227,7 +212,6 @@ class AlignedDepicter:
         mols_per_row: int = 3,
         sub_img_size: tuple[int, int] = (340, 260),
     ) -> Any:
-        """Renders grid image of aligned molecules."""
         mol_objs = []
         for m in molecules:
             mol_obj = Chem.MolFromSmiles(m) if isinstance(m, str) else m
@@ -254,7 +238,6 @@ def render_lead_structures_2d(
     reference: str | Chem.Mol | None = None,
     max_leads: int = 5,
 ) -> Path | None:
-    """Render 2D depiction grid of prioritized elite lead structures with query benchmark."""
     target_png = Path(output_png) if output_png else Path("lead_structures_2d.png")
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
@@ -329,7 +312,6 @@ def render_training_curves(
     fit_tsv_path: Path | str,
     output_png: Path | str | None = None,
 ) -> Path | None:
-    """Render DrugEx native-style RL training convergence dynamics across epochs."""
     tsv_file = Path(fit_tsv_path)
     if not tsv_file.exists():
         return None
@@ -381,7 +363,6 @@ def render_training_curves(
 
 
 def find_sa_column(columns: Sequence[str]) -> str | None:
-    """Safely identify synthesizability (SA) column without matching TPSA or unrelated descriptors."""
     for col in columns:
         c_up = col.upper()
         if c_up in ("SA", "SASCORE", "SA_SCORE", "SYNTHETIC_ACCESSIBILITY"):
@@ -396,7 +377,6 @@ def find_sa_column(columns: Sequence[str]) -> str | None:
 
 
 def find_rocs_column(columns: Sequence[str]) -> str | None:
-    """Safely identify 3D ROCS / shape similarity column."""
     for col in columns:
         c_up = col.upper()
         if any(k in c_up for k in ("ROCS", "TANIMOTOCOMBO", "SHAPE_SIMILARITY", "SIMILARITY_3D")):
@@ -409,7 +389,6 @@ def render_epoch_pareto_evolution(
     output_png: Path | str | None = None,
     max_grid_epochs: int = 6,
 ) -> Path | None:
-    """Generate per-epoch Pareto plots (30 for 30 epochs), interactive viewer, and clean progression grid."""
     tsv_file = Path(smiles_tsv_path)
     if not tsv_file.exists():
         return None
@@ -687,7 +666,6 @@ def render_property_distributions(
     output_png: Path | str | None = None,
     ref_mol: Chem.Mol | str | None = None,
 ) -> Path | None:
-    """Render 9-panel multi-objective & diagnostic property distribution profiles."""
     if df.empty or "SMILES" not in df.columns:
         return None
 
@@ -889,7 +867,6 @@ def render_pareto_frontier(
     rocs_col: str | None = None,
     sa_col: str | None = None,
 ) -> Path | None:
-    """Render multi-tier Pareto frontier diagram with connected frontier curve."""
     if df.empty or "Pareto_Rank" not in df.columns:
         return None
 

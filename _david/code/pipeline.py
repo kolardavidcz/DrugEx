@@ -1,4 +1,3 @@
-"""End-to-end LBDD generation pipeline."""
 from __future__ import annotations
 
 import json
@@ -29,7 +28,6 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 
 class MoleculePipeline:
-    """End-to-end ligand-based de novo lead generation pipeline."""
 
     def __init__(
         self,
@@ -51,7 +49,6 @@ class MoleculePipeline:
         self.BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     def run(self, molecule: str = DEFAULT_MOLECULE) -> Path:
-        """Executes full pipeline: conformer curation, RL exploration, and lead analysis."""
         ref_dir = self.BASE_OUTPUT_DIR / "references"
         ref_sdf = ref_dir / "query_molecule_3d.sdf"
         ref_png = ref_dir / "reference_3d_superposition.png"
@@ -62,7 +59,6 @@ class MoleculePipeline:
         render_reference_ensemble(ref_sdf, output_png=ref_png)
         extract_seed_core_scaffold(molecule, output_path=scaffold_tsv)
 
-        # Stage 1: Graph-Transformer RL Exploration
         stage1_dir = self.BASE_OUTPUT_DIR / "stage1_graph_transformer"
         stage1_dir.mkdir(parents=True, exist_ok=True)
         candidates_tsv = stage1_dir / "generated_candidates.tsv"
@@ -81,7 +77,6 @@ class MoleculePipeline:
             explorer.fit(loader, loader, epochs=self.EPOCHS, monitor=monitor)
             monitor.restore_peak_model(optimizer.AGENT)
 
-            # Stage 1 Visualizations: RL Training Dynamics & Micro-Pareto Evolution
             render_training_curves(f"{model_prefix}_fit.tsv", output_png=optimizer.MODEL_DIR / "rl_training_curves.png")
             render_epoch_pareto_evolution(f"{model_prefix}_smiles.tsv", output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png")
 
@@ -91,12 +86,10 @@ class MoleculePipeline:
             df.insert(1, "FRAGS", frags_list)
             df.to_csv(candidates_tsv, sep="\t", index=False)
 
-        # Stage 2: Result Analysis & Lead Profiling
         print("[Stage 2] Profiling generated leads and Pareto frontier...")
         analyzer = ResultAnalyzer(self.BASE_OUTPUT_DIR)
         analyzer.analyze(candidates_tsv, ref_sdf=ref_sdf)
 
-        # Save status summary
         status = {
             "run_id": self.RUN_ID,
             "mode": self.MODE,
