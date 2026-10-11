@@ -46,10 +46,6 @@ outputs/
 _david/outputs/
 **/_david/outputs/
 _david/output/*
-!_david/output/m4_sanity/
-!_david/output/m4_sanity/**
-!_david/output/m4_empirical/
-!_david/output/m4_empirical/**
 !_david/output/archive/
 !_david/output/archive/**
 
