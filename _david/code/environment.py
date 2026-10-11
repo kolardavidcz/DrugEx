@@ -160,82 +160,65 @@ def generate_reference_conformers(
 def extract_seed_core_scaffold(
     query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
     output_path: Path | str | None = None,
-    scaffold_type: str = "bemis_murcko",  #! HYP "core_ring_system" gives chroman (10 atoms) vs full Bemis-Murcko (25 atoms)
+    scaffold_type: str = "core_ring_system",  # active default
     isomeric: bool = False,
 ) -> str:
-    valid_types = {"bemis_murcko", "core_ring_system", "generic_framework"}
-    if scaffold_type not in valid_types:
-        raise ValueError(f"Unknown scaffold_type {scaffold_type!r}. Must be one of {valid_types}")
-
     mol, _ = load_query_molecule(query)
     mol_no_h = Chem.RemoveHs(mol)
 
-    # [PACKAGE: rdkit.Chem.Scaffolds.MurckoScaffold] WHY: Deconstruct ligand into fundamental ring frameworks.
-    scaff_smi = ""
-    n_rings = 0
+    # Option 1: Core Ring System (Privileged fused/spiro core; e.g. chroman 10 atoms for EGCG - ACTIVE)
+    # [PACKAGE: rdkit.Chem.PathToSubmol] Merge overlapping rings into contiguous core and extract induced submolecule
+    ring_info = mol_no_h.GetRingInfo()
+    atom_rings = [set(r) for r in ring_info.AtomRings()]
+    if atom_rings:
+        ring_systems: list[set[int]] = []
+        for r in atom_rings:
+            matching = [s for s in ring_systems if s & r]
+            non_matching = [s for s in ring_systems if not (s & r)]
+            new_sys = set(r)
+            for s in matching:
+                new_sys.update(s)
+            ring_systems = non_matching + [new_sys]
 
-    if scaffold_type == "core_ring_system":
-        # Group overlapping rings into contiguous fused/spiro systems to isolate privileged core
-        ring_info = mol_no_h.GetRingInfo()
-        atom_rings = [set(r) for r in ring_info.AtomRings()]
-        if atom_rings:
-            ring_systems: list[set[int]] = []
-            for r in atom_rings:
-                matching = [s for s in ring_systems if s & r]
-                non_matching = [s for s in ring_systems if not (s & r)]
-                new_sys = set(r)
-                for s in matching:
-                    new_sys.update(s)
-                ring_systems = non_matching + [new_sys]
+        largest_system = max(ring_systems, key=len)
+        sub_bonds = [
+            b.GetIdx() for b in mol_no_h.GetBonds()
+            if b.GetBeginAtomIdx() in largest_system and b.GetEndAtomIdx() in largest_system
+        ]
+        core_submol = Chem.PathToSubmol(mol_no_h, sub_bonds)
+        for atom in core_submol.GetAtoms():
+            atom.SetNoImplicit(False)
+            atom.SetNumExplicitHs(0)
+        Chem.SanitizeMol(core_submol)
+        scaff_smi = Chem.MolToSmiles(core_submol, isomericSmiles=isomeric)
+    else:
+        scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
 
-            # Select largest contiguous ring system by heavy atom count (e.g. chroman core for EGCG)
-            largest_system = max(ring_systems, key=len)
-            sub_bonds = [
-                b.GetIdx() for b in mol_no_h.GetBonds()
-                if b.GetBeginAtomIdx() in largest_system and b.GetEndAtomIdx() in largest_system
-            ]
-            # [PACKAGE: rdkit.Chem.PathToSubmol] Extract induced submolecule for core ring system
-            core_submol = Chem.PathToSubmol(mol_no_h, sub_bonds)
-            # Reset implicit Hs on severed bonds to avoid dangling radical centers
-            for atom in core_submol.GetAtoms():
-                atom.SetNoImplicit(False)
-                atom.SetNumExplicitHs(0)
-            Chem.SanitizeMol(core_submol)
-            scaff_smi = Chem.MolToSmiles(core_submol, isomericSmiles=isomeric)
-            n_rings = core_submol.GetRingInfo().NumRings()
-        else:
-            scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-            n_rings = 0
+    # Option 2: Bemis-Murcko Framework (Ring systems + linkers; 25 heavy atoms for EGCG)
+    # [PACKAGE: rdkit.Chem.Scaffolds.MurckoScaffold]
+    # scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
+    # scaff_smi = Chem.MolToSmiles(scaff, isomericSmiles=isomeric) if (scaff and scaff.GetNumHeavyAtoms() > 0) else Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
 
-    elif scaffold_type == "generic_framework":
-        #~ [Bemis & Murcko, 1996] All-carbon generic framework for topological matching
-        scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
-        if scaff and scaff.GetNumHeavyAtoms() > 0:
-            gen_scaff = MurckoScaffold.MakeScaffoldGeneric(scaff)
-            Chem.SanitizeMol(gen_scaff)
-            scaff_smi = Chem.MolToSmiles(gen_scaff, isomericSmiles=isomeric)
-            n_rings = gen_scaff.GetRingInfo().NumRings()
-        else:
-            scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-            n_rings = 0
+    # Option 3: Minimal Elementary Ring (Single smallest ring, e.g. benzene 6 atoms)
+    # [PACKAGE: rdkit.Chem.PathToSubmol]
+    # min_ring = min(atom_rings, key=len) if atom_rings else set()
+    # min_bonds = [b.GetIdx() for b in mol_no_h.GetBonds() if b.GetBeginAtomIdx() in min_ring and b.GetEndAtomIdx() in min_ring]
+    # min_submol = Chem.PathToSubmol(mol_no_h, min_bonds)
+    # Chem.SanitizeMol(min_submol)
+    # scaff_smi = Chem.MolToSmiles(min_submol, isomericSmiles=isomeric)
 
-    else:  # "bemis_murcko" (default)
-        #~ [Bemis & Murcko, Molecular frameworks, 1996] Complete ring systems + linkers
-        scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
-        if scaff and scaff.GetNumHeavyAtoms() > 0:
-            Chem.SanitizeMol(scaff)
-            scaff_smi = Chem.MolToSmiles(scaff, isomericSmiles=isomeric)
-            n_rings = scaff.GetRingInfo().NumRings()
-        else:
-            scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-            n_rings = 0
-
-    scaff_mol = Chem.MolFromSmiles(scaff_smi)
-    n_heavy = scaff_mol.GetNumHeavyAtoms() if scaff_mol else 0
+    # Option 4: SequenceRNN (Unconditional Ex Nihilo / 0 atoms)
+    # SequenceRNN does not require an input scaffold seed; it samples de novo from <START> or can take leads from a previous GraphTransformer run.
+    # scaff_smi = ""
 
     if output_path:
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
+        scaff_mol = Chem.MolFromSmiles(scaff_smi)
+        
+        n_heavy = scaff_mol.GetNumHeavyAtoms() if scaff_mol else 0
+        n_rings = scaff_mol.GetRingInfo().NumRings() if scaff_mol else 0
+        
         with open(target, "w", encoding="utf-8") as f:
             f.write("Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings\n")
             f.write(f"{scaff_smi}\t{str(query)}\t{scaffold_type}\t{n_heavy}\t{n_rings}\n")

@@ -166,32 +166,22 @@ class TestLBDDPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_tsv = Path(tmp_dir) / "scaffold.tsv"
 
-            smi_bm = extract_seed_core_scaffold(DEFAULT_MOLECULE, output_path=out_tsv, scaffold_type="bemis_murcko")
-            mol_bm = Chem.MolFromSmiles(smi_bm)
-            self.assertEqual(mol_bm.GetNumHeavyAtoms(), 25)
-            self.assertEqual(mol_bm.GetRingInfo().NumRings(), 4)
+            smi_core = extract_seed_core_scaffold(DEFAULT_MOLECULE, output_path=out_tsv)
+            mol_core = Chem.MolFromSmiles(smi_core)
+            self.assertEqual(mol_core.GetNumHeavyAtoms(), 10)
+            self.assertEqual(mol_core.GetRingInfo().NumRings(), 2)
             self.assertTrue(out_tsv.exists())
 
             with open(out_tsv, "r", encoding="utf-8") as f:
                 header = f.readline().strip()
                 row = f.readline().strip().split("\t")
             self.assertEqual(header, "Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings")
-            self.assertEqual(row[0], smi_bm)
-            self.assertEqual(row[2], "bemis_murcko")
-            self.assertEqual(row[3], "25")
-            self.assertEqual(row[4], "4")
+            self.assertEqual(row[0], smi_core)
+            self.assertEqual(row[2], "core_ring_system")
+            self.assertEqual(row[3], "10")
+            self.assertEqual(row[4], "2")
 
-            smi_core = extract_seed_core_scaffold(DEFAULT_MOLECULE, scaffold_type="core_ring_system")
-            mol_core = Chem.MolFromSmiles(smi_core)
-            self.assertEqual(mol_core.GetNumHeavyAtoms(), 10)
-            self.assertEqual(mol_core.GetRingInfo().NumRings(), 2)
-
-            smi_gen = extract_seed_core_scaffold(DEFAULT_MOLECULE, scaffold_type="generic_framework")
-            mol_gen = Chem.MolFromSmiles(smi_gen)
-            self.assertEqual(mol_gen.GetNumHeavyAtoms(), 25)
-            self.assertTrue(all(a.GetSymbol() == "C" for a in mol_gen.GetAtoms()))
-
-            smi_acyclic = extract_seed_core_scaffold("CCCCCC(=O)O", scaffold_type="bemis_murcko")
+            smi_acyclic = extract_seed_core_scaffold("CCCCCC(=O)O")
             self.assertEqual(smi_acyclic, "CCCCCC(=O)O")
 
 
