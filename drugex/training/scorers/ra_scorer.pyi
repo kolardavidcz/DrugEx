@@ -1,0 +1,89 @@
+"""
+Retrosynthetic Accessibility (RAscore) scoring module using XGBoost CASP models.
+"""
+
+from __future__ import annotations
+
+import logging
+from abc import ABC, abstractmethod
+from typing import Any, Callable, ClassVar, Dict, Generic, Iterable, Iterator, List, Literal, Mapping, Optional, Sequence, Set, Tuple, Type, TypeVar, Union, overload
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from rdkit import Chem
+from drugex.training.scorers.interfaces import ScoreModifier
+
+import logging
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import Sequence
+from rdkit.Chem import MolToSmiles
+from drugex.training.scorers.interfaces import Scorer
+
+logger: logging.Logger
+XGB_MODEL_PATH: str | None
+
+class RetrosyntheticAccessibilityScorer(Scorer):
+    """
+    Scorer evaluating retrosynthetic accessibility via RAscore.
+
+    Given a SMILES string or RDKit molecule, returns a probability score in [0.0, 1.0]
+    indicating the likelihood of finding a synthetic route by computer-aided synthesis
+    planning (CASP) tools (AiZynthFinder), evaluated using an XGBoost model.
+
+    Parameters
+    ----------
+    modifier : ScoreModifier | None, optional
+        Modifier applied to the raw RA scores, by default None.
+
+    Raises
+    ------
+    ImportError
+        If the optional `RAscore` package is not installed.
+    """
+
+    def __init__(self, modifier: ScoreModifier | None = ...) -> None:
+        """
+        Initialize the Retrosynthetic Accessibility Scorer.
+
+        Parameters
+        ----------
+        modifier : ScoreModifier | None, optional
+            A modifier that can be used to modify the scores returned by this scorer.
+        """
+
+        ...
+
+    def getScores(self, mols: Sequence[str | Chem.Mol | None], frags: Sequence[str | None] | None = ...) -> np.ndarray:
+        """
+        Get RA scores for a list of molecules.
+
+        Parameters
+        ----------
+        mols : Sequence[str | Chem.Mol | None]
+            A sequence of SMILES strings or RDKit Mol objects representing molecules.
+        frags : Sequence[str | None] | None, optional
+            A list of fragments used to generate the molecules. Unused by this scorer.
+
+        Returns
+        -------
+        np.ndarray
+            A 1D numpy array of float64 scores in [0.0, 1.0]. Invalid or unparseable molecules
+            receive 0.0.
+        """
+
+        ...
+
+    def getKey(self) -> str:
+        """
+        Return the unique identifier string for this scorer.
+
+        Returns
+        -------
+        str
+            'RAscore'
+        """
+
+        ...
+
