@@ -162,19 +162,61 @@ class TestLBDDPipeline(unittest.TestCase):
     def test_adaptive_rmsd_cutoff(self) -> None:
         """Verify adaptive RMSD cutoff bounds and literature expectations."""
         from _david.code.environment import get_adaptive_rmsd_cutoff
-        # 1. Rigid benzene (0 rotatable bonds) & EGCG (3 rotatable bonds) -> 1.00 Å (Ebejer 2012)
+        # 1. Rigid benzene (0 rotatable bonds, 6 heavy atoms) -> 1.00 Å (Ebejer 2012)
         m_rigid = Chem.MolFromSmiles("c1ccccc1")
         self.assertEqual(get_adaptive_rmsd_cutoff(m_rigid), 1.00)
-        m_egcg = Chem.MolFromSmiles("C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O")
-        self.assertEqual(get_adaptive_rmsd_cutoff(m_egcg), 1.00)
 
-        # 2. Moderately flexible ligand (6 rotatable bonds) -> 1.25 Å (Hawkins 2017)
+        # 2. Drug-like polyphenol EGCG (3 rotatable bonds, 33 heavy atoms) -> 1.25 Å (Hawkins 2017)
+        m_egcg = Chem.MolFromSmiles("C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O")
+        self.assertEqual(get_adaptive_rmsd_cutoff(m_egcg), 1.25)
+
+        # 3. Moderately flexible ligand (6 rotatable bonds, 12 heavy atoms) -> 1.25 Å (Hawkins 2017)
         m_med = Chem.MolFromSmiles("CCCCCCc1ccccc1")
         self.assertEqual(get_adaptive_rmsd_cutoff(m_med), 1.25)
 
-        # 3. Flexible chain (10 rotatable bonds) -> 1.80 Å (Friedrich 2017)
+        # 4. Highly flexible chain (10 rotatable bonds) -> 1.50 Å (Friedrich 2017)
         m_flex = Chem.MolFromSmiles("CCCCCCCCCCC(=O)O")
-        self.assertEqual(get_adaptive_rmsd_cutoff(m_flex), 1.80)
+        self.assertEqual(get_adaptive_rmsd_cutoff(m_flex), 1.50)
+
+    def test_seed_core_scaffold(self) -> None:
+        """Verify multi-strategy scaffold extraction, core ring isolation, and metadata export."""
+        from _david.code.environment import extract_seed_core_scaffold, DEFAULT_MOLECULE
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_tsv = Path(tmp_dir) / "scaffold.tsv"
+
+            # 1. Full Bemis-Murcko scaffold (all rings + linkers = 25 atoms)
+            smi_bm = extract_seed_core_scaffold(DEFAULT_MOLECULE, output_path=out_tsv, scaffold_type="bemis_murcko")
+            mol_bm = Chem.MolFromSmiles(smi_bm)
+            self.assertEqual(mol_bm.GetNumHeavyAtoms(), 25)
+            self.assertEqual(mol_bm.GetRingInfo().NumRings(), 4)
+            self.assertTrue(out_tsv.exists())
+
+            # Verify TSV columns
+            with open(out_tsv, "r", encoding="utf-8") as f:
+                header = f.readline().strip()
+                row = f.readline().strip().split("\t")
+            self.assertEqual(header, "Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings")
+            self.assertEqual(row[0], smi_bm)
+            self.assertEqual(row[2], "bemis_murcko")
+            self.assertEqual(row[3], "25")
+            self.assertEqual(row[4], "4")
+
+            # 2. Privileged core ring system (isolated chroman bicyclic core = 10 atoms)
+            smi_core = extract_seed_core_scaffold(DEFAULT_MOLECULE, scaffold_type="core_ring_system")
+            mol_core = Chem.MolFromSmiles(smi_core)
+            self.assertEqual(mol_core.GetNumHeavyAtoms(), 10)
+            self.assertEqual(mol_core.GetRingInfo().NumRings(), 2)
+
+            # 3. Generic framework (all-carbon skeleton = 25 atoms)
+            smi_gen = extract_seed_core_scaffold(DEFAULT_MOLECULE, scaffold_type="generic_framework")
+            mol_gen = Chem.MolFromSmiles(smi_gen)
+            self.assertEqual(mol_gen.GetNumHeavyAtoms(), 25)
+            self.assertTrue(all(a.GetSymbol() == "C" for a in mol_gen.GetAtoms()))
+
+            # 4. Acyclic fallback handling (hexanoic acid -> returns acyclic skeleton)
+            smi_acyclic = extract_seed_core_scaffold("CCCCCC(=O)O", scaffold_type="bemis_murcko")
+            self.assertEqual(smi_acyclic, "CCCCCC(=O)O")
 
 
 if __name__ == "__main__":
