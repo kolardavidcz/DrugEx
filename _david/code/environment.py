@@ -63,32 +63,31 @@ def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
     raise ValueError(f"Could not parse query: {query!r}")
 
 
-def get_rigid_anchor_atoms(mol: Chem.Mol) -> list[int]:
-    """Identify rigid anchor heavy atom indices for conformer alignment.
+def get_universal_rigid_anchor(mol: Chem.Mol) -> list[int]:
+    """Universal First-Principles Rigid Anchor Extraction for Visualization.
 
-    Identifies the largest fused ring system (fused cycles sharing >= 2 atoms).
-    Falls back to the largest single ring, or first 10 heavy atoms if acyclic.
+    Decomposes any small molecule into internally rigid blocks by cutting
+    all non-ring rotatable single bonds. Returns the heavy atom indices
+    of the largest rigid block (guaranteed zero internal degrees of rotational freedom).
     """
-    ring_info = mol.GetRingInfo()
-    atom_rings = [set(r) for r in ring_info.AtomRings()]
-    if not atom_rings:
+    rot_smarts = Chem.MolFromSmarts("[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]")
+    matches = mol.GetSubstructMatches(rot_smarts)
+    rot_bonds = [
+        b.GetIdx() for a1, a2 in matches
+        if (b := mol.GetBondBetweenAtoms(a1, a2)) is not None and not b.IsInRing()
+    ]
+    if not rot_bonds:
         heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() != "H"]
         return heavy[: min(10, len(heavy))]
 
-    fused_groups: list[set[int]] = []
-    for r in atom_rings:
-        connected = [g for g in fused_groups if len(g.intersection(r)) >= 2]
-        if connected:
-            new_group = set(r)
-            for g in connected:
-                new_group.update(g)
-                fused_groups.remove(g)
-            fused_groups.append(new_group)
-        else:
-            fused_groups.append(set(r))
-
-    largest_anchor = max(fused_groups, key=len)
-    return sorted(list(largest_anchor))
+    frag_mol = Chem.FragmentOnBonds(mol, rot_bonds, addDummies=False)
+    frags = Chem.GetMolFrags(frag_mol, asMols=False, sanitizeFrags=False)
+    heavy_frags = [
+        [idx for idx in f if mol.GetAtomWithIdx(idx).GetSymbol() != "H"]
+        for f in frags
+    ]
+    largest_frag = max(heavy_frags, key=len, default=[])
+    return sorted(largest_frag)
 
 
 def generate_reference_conformers(
@@ -155,21 +154,11 @@ def generate_reference_conformers(
     curated_set = set(curated)
     energy_map = {cid: e for e, cid in energies}
     curated.sort(key=lambda cid: energy_map.get(cid, 0.0))
-    for cid in remaining_cids:
-        if cid not in curated_set:
-            mol_h.RemoveConformer(cid)
-
-    # 3. Superimpose conformers onto rigid fused anchor
-    anchor_atoms = get_rigid_anchor_atoms(mol_h)
-    try:
-        AllChem.AlignMolConformers(mol_h, atomIds=anchor_atoms, refId=curated[0])
-    except Exception:
-        AllChem.AlignMolConformers(mol_h)
 
     with Chem.SDWriter(str(target_path)) as writer:
-        for i, conf in enumerate(mol_h.GetConformers()):
+        for i, cid in enumerate(curated):
             mol_h.SetProp("_Name", f"Conformer_{i+1}")
-            writer.write(mol_h, confId=conf.GetId())
+            writer.write(mol_h, confId=cid)
 
     return target_path
 
@@ -206,7 +195,7 @@ def render_reference_ensemble(
     min_idx = int(np.argmin(de_vals))
     max_idx = int(np.argmax(de_vals))
 
-    anchor_atoms = get_rigid_anchor_atoms(mol_combined)
+    anchor_atoms = get_universal_rigid_anchor(mol_combined)
     try:
         AllChem.AlignMolConformers(mol_combined, atomIds=anchor_atoms, refId=min_idx)
     except Exception:
@@ -218,7 +207,7 @@ def render_reference_ensemble(
 
     core_atoms = set(anchor_atoms)
 
-    fig = plt.figure(figsize=(18, 5.5), dpi=200)
+    fig = plt.figure(figsize=(18, 5.8), dpi=200)
     cmap = plt.cm.plasma
     norm = plt.Normalize(vmin=0.0, vmax=max(de_vals) if max(de_vals) > 0 else 1.0)
 
@@ -278,7 +267,19 @@ def render_reference_ensemble(
     cbar.set_label("Relative Energy ΔE (kcal/mol)", fontsize=8, fontweight="bold")
     cbar.ax.tick_params(labelsize=7)
 
-    plt.tight_layout()
+    fig.text(
+        0.5,
+        0.015,
+        "Note: Superposition aligned on the principal rigid block solely for visual clarity. "
+        "Downstream scoring (RDKitROCSScorer Open3DAlign) evaluates each conformer independently and is fully rotation- and translation-invariant.",
+        ha="center",
+        va="bottom",
+        fontsize=8.5,
+        fontstyle="italic",
+        color="#334155",
+    )
+
+    plt.tight_layout(rect=[0, 0.045, 1, 1])
     plt.savefig(target_png, dpi=200, bbox_inches="tight")
     plt.close()
     return target_png
