@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.rewards import WeightedSum
@@ -63,33 +62,6 @@ def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
     raise ValueError(f"Could not parse query: {query!r}")
 
 
-def get_universal_rigid_anchor(mol: Chem.Mol) -> list[int]:
-    """Universal First-Principles Rigid Anchor Extraction for Visualization.
-
-    Decomposes any small molecule into internally rigid blocks by cutting
-    all non-ring rotatable single bonds. Returns the heavy atom indices
-    of the largest rigid block (guaranteed zero internal degrees of rotational freedom).
-    """
-    rot_smarts = Chem.MolFromSmarts("[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]")
-    matches = mol.GetSubstructMatches(rot_smarts)
-    rot_bonds = [
-        b.GetIdx() for a1, a2 in matches
-        if (b := mol.GetBondBetweenAtoms(a1, a2)) is not None and not b.IsInRing()
-    ]
-    if not rot_bonds:
-        heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() != "H"]
-        return heavy[: min(10, len(heavy))]
-
-    frag_mol = Chem.FragmentOnBonds(mol, rot_bonds, addDummies=False)
-    frags = Chem.GetMolFrags(frag_mol, asMols=False, sanitizeFrags=False)
-    heavy_frags = [
-        [idx for idx in f if mol.GetAtomWithIdx(idx).GetSymbol() != "H"]
-        for f in frags
-    ]
-    largest_frag = max(heavy_frags, key=len, default=[])
-    return sorted(largest_frag)
-
-
 def generate_reference_conformers(
     query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
     output_path: Path | str | None = None,
@@ -135,12 +107,17 @@ def generate_reference_conformers(
     min_e = energies[0][0]
     
     # 1. Physiological energy window (Hawkins 2017: <= 8.0 kcal/mol)
-    accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0}
+    accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0} #Whitelist: solves "None" issues
     for cid in conf_ids:
         if cid not in accepted_cids:
             mol_h.RemoveConformer(cid)
 
     remaining_cids = [conf.GetId() for conf in mol_h.GetConformers()]
+    
+    for e, cid in energies:
+        if (e - min_e) < 8.0:
+            
+            remaining_cids.append(mol_h[cid].GetId())
 
     # 2. Geometric basin curation via Butina RMSD clustering (Hawkins 2017: 1.0–1.25 Å cutoff)
     if len(remaining_cids) > 1:
@@ -161,128 +138,6 @@ def generate_reference_conformers(
             writer.write(mol_h, confId=cid)
 
     return target_path
-
-
-def render_reference_ensemble(
-    sdf_path: Path | str,
-    output_png: Path | str | None = None,
-) -> Path:
-    """Render publication-quality 3-panel 3D superposition figure of reference conformers."""
-    sdf_file = Path(sdf_path)
-    target_png = Path(output_png) if output_png else sdf_file.parent / "reference_3d_superposition.png"
-    target_png.parent.mkdir(parents=True, exist_ok=True)
-
-    suppl = Chem.SDMolSupplier(str(sdf_file), removeHs=False)
-    mols = [m for m in suppl if m is not None]
-    if not mols:
-        return target_png
-
-    mol_combined = Chem.Mol(mols[0])
-    mol_combined.RemoveAllConformers()
-    for m in mols:
-        mol_combined.AddConformer(m.GetConformer(), assignId=True)
-
-    props = AllChem.MMFFGetMoleculeProperties(mol_combined)
-    energies: list[float] = []
-    for i in range(mol_combined.GetNumConformers()):
-        ff = AllChem.MMFFGetMoleculeForceField(mol_combined, props, confId=i) if props else None
-        if not ff:
-            ff = AllChem.UFFGetMoleculeForceField(mol_combined, confId=i)
-        energies.append(float(ff.CalcEnergy()) if ff else 0.0)
-
-    min_e = min(energies)
-    de_vals = [e - min_e for e in energies]
-    min_idx = int(np.argmin(de_vals))
-    max_idx = int(np.argmax(de_vals))
-
-    anchor_atoms = get_universal_rigid_anchor(mol_combined)
-    try:
-        AllChem.AlignMolConformers(mol_combined, atomIds=anchor_atoms, refId=min_idx)
-    except Exception:
-        AllChem.AlignMolConformers(mol_combined)
-
-    for i, m in enumerate(mols):
-        m.RemoveAllConformers()
-        m.AddConformer(mol_combined.GetConformer(i))
-
-    core_atoms = set(anchor_atoms)
-
-    fig = plt.figure(figsize=(18, 5.8), dpi=200)
-    cmap = plt.cm.plasma
-    norm = plt.Normalize(vmin=0.0, vmax=max(de_vals) if max(de_vals) > 0 else 1.0)
-
-    def _draw_mol(ax, mol, bond_c, atom_c, alpha=1.0, lw=2.0, pt_size=30, label_core=False):
-        conf = mol.GetConformer()
-        for b in mol.GetBonds():
-            a1, a2 = b.GetBeginAtom(), b.GetEndAtom()
-            if a1.GetSymbol() == "H" or a2.GetSymbol() == "H":
-                continue
-            p1, p2 = conf.GetAtomPosition(a1.GetIdx()), conf.GetAtomPosition(a2.GetIdx())
-            is_core = (a1.GetIdx() in core_atoms) and (a2.GetIdx() in core_atoms)
-            c = "#1e293b" if (label_core and is_core) else bond_c
-            w = lw * 1.3 if (label_core and is_core) else lw
-            ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color=c, alpha=alpha, linewidth=w)
-
-        heavy = [a for a in mol.GetAtoms() if a.GetSymbol() != "H"]
-        for a in heavy:
-            p = conf.GetAtomPosition(a.GetIdx())
-            is_core = a.GetIdx() in core_atoms
-            c = "#0f172a" if (label_core and is_core) else atom_c
-            s = pt_size * 1.4 if (label_core and is_core) else pt_size
-            ax.scatter([p.x], [p.y], [p.z], color=c, s=s, alpha=alpha, edgecolors="none")
-
-    # Panel A: Ground state
-    ax1 = fig.add_subplot(1, 3, 1, projection="3d")
-    _draw_mol(ax1, mols[min_idx], "#0284c7", "#0284c7", lw=2.4, pt_size=40, label_core=True)
-    ax1.set_title(f"(A) Ground State Basin (ΔE = {de_vals[min_idx]:.2f} kcal/mol)\nCompact Folded Conformation", fontsize=11, fontweight="bold", pad=12)
-    ax1.view_init(elev=20, azim=40)
-    ax1.set_xlabel("X (Å)", fontsize=8)
-    ax1.set_ylabel("Y (Å)", fontsize=8)
-    ax1.set_zlabel("Z (Å)", fontsize=8)
-
-    # Panel B: Most extended state
-    ax2 = fig.add_subplot(1, 3, 2, projection="3d")
-    _draw_mol(ax2, mols[max_idx], "#f59e0b", "#f59e0b", lw=2.4, pt_size=40, label_core=True)
-    ax2.set_title(f"(B) Pocket-Adapted Basin (ΔE = {de_vals[max_idx]:.2f} kcal/mol)\nExtended Conformation", fontsize=11, fontweight="bold", pad=12)
-    ax2.view_init(elev=20, azim=40)
-    ax2.set_xlabel("X (Å)", fontsize=8)
-    ax2.set_ylabel("Y (Å)", fontsize=8)
-    ax2.set_zlabel("Z (Å)", fontsize=8)
-
-    # Panel C: Core-aligned superposition
-    ax3 = fig.add_subplot(1, 3, 3, projection="3d")
-    for i, m in enumerate(mols):
-        c = cmap(norm(de_vals[i]))
-        _draw_mol(ax3, m, c, c, alpha=0.75, lw=1.6, pt_size=20, label_core=True)
-    _draw_mol(ax3, mols[min_idx], "#0f172a", "#0f172a", alpha=0.95, lw=2.8, pt_size=38, label_core=True)
-    ax3.set_title(f"(C) Core-Aligned Ensemble ({len(mols)} Centroids)\nPharmacophore Envelope & Rotameric Fanning", fontsize=11, fontweight="bold", pad=12)
-    ax3.view_init(elev=20, azim=40)
-    ax3.set_xlabel("X (Å)", fontsize=8)
-    ax3.set_ylabel("Y (Å)", fontsize=8)
-    ax3.set_zlabel("Z (Å)", fontsize=8)
-
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax3, shrink=0.6, aspect=15, pad=0.1)
-    cbar.set_label("Relative Energy ΔE (kcal/mol)", fontsize=8, fontweight="bold")
-    cbar.ax.tick_params(labelsize=7)
-
-    fig.text(
-        0.5,
-        0.015,
-        "Note: Superposition aligned on the principal rigid block solely for visual clarity. "
-        "Downstream scoring (RDKitROCSScorer Open3DAlign) evaluates each conformer independently and is fully rotation- and translation-invariant.",
-        ha="center",
-        va="bottom",
-        fontsize=8.5,
-        fontstyle="italic",
-        color="#334155",
-    )
-
-    plt.tight_layout(rect=[0, 0.045, 1, 1])
-    plt.savefig(target_png, dpi=200, bbox_inches="tight")
-    plt.close()
-    return target_png
 
 
 def extract_seed_core_scaffold(

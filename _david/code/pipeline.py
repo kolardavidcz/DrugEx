@@ -16,7 +16,11 @@ from _david.code.environment import (
     create_environment,
     extract_seed_core_scaffold,
     generate_reference_conformers,
+)
+from _david.code.visualization import (
+    render_epoch_pareto_evolution,
     render_reference_ensemble,
+    render_training_curves,
 )
 from _david.code.models import GraphTransformerOptimizer
 from _david.code.utils import get_gpu_telemetry
@@ -76,6 +80,10 @@ class MoleculePipeline:
 
             explorer.fit(loader, loader, epochs=self.EPOCHS, monitor=monitor)
             monitor.restore_peak_model(optimizer.AGENT)
+
+            # Stage 1 Visualizations: RL Training Dynamics & Micro-Pareto Evolution
+            render_training_curves(f"{model_prefix}_fit.tsv", output_png=optimizer.MODEL_DIR / "rl_training_curves.png")
+            render_epoch_pareto_evolution(f"{model_prefix}_smiles.tsv", output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png")
 
             smiles_list, frags_list = optimizer.AGENT.sample(loader)
             df = env.getScores(smiles_list, frags=frags_list)

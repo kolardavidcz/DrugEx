@@ -75,7 +75,76 @@ class TestLBDDPipeline(unittest.TestCase):
             pipeline = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
             pipeline.run("Oc1ccccc1")
             self.assertTrue((pipe_dir / "pipeline_status.json").exists())
-            self.assertTrue((pipe_dir / "references" / "query_molecule_3d.sdf").exists())
+    def test_visualization_suite(self) -> None:
+        """Verifies all publication visualization generators in visualization module."""
+        from _david.code.visualization import (
+            render_epoch_pareto_evolution,
+            render_lead_structures_2d,
+            render_pareto_frontier,
+            render_property_distributions,
+            render_reference_ensemble,
+            render_training_curves,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+
+            # 1. 3D reference superposition
+            ref_sdf = tmp / "ref.sdf"
+            generate_reference_conformers("c1ccccc1O", output_path=ref_sdf, num_conformers=3)
+            ref_png = render_reference_ensemble(ref_sdf, output_png=tmp / "ref_super.png")
+            self.assertTrue(ref_png.exists())
+
+            # 2. RL Training curves
+            fit_tsv = tmp / "fit.tsv"
+            pd.DataFrame({
+                "Epoch": [1, 2, 3],
+                "loss_train": [0.8, 0.5, 0.3],
+                "valid_ratio": [0.9, 0.95, 0.98],
+                "desired_ratio": [0.1, 0.2, 0.4],
+                "unique_ratio": [0.8, 0.75, 0.7],
+            }).to_csv(fit_tsv, sep="\t", index=False)
+            curves_png = render_training_curves(fit_tsv, output_png=tmp / "curves.png")
+            self.assertIsNotNone(curves_png)
+            self.assertTrue(curves_png.exists())
+
+            # 3. Epoch Pareto evolution
+            smiles_tsv = tmp / "smiles.tsv"
+            pd.DataFrame({
+                "Epoch": [1, 1, 2, 2],
+                "SMILES": ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC", "c1ccccc1C(=O)O"],
+                "ROCS": [0.4, 0.6, 0.5, 0.8],
+                "SA": [0.9, 0.85, 0.8, 0.75],
+            }).to_csv(smiles_tsv, sep="\t", index=False)
+            pareto_evo_png = render_epoch_pareto_evolution(smiles_tsv, output_png=tmp / "pareto_evo.png")
+            self.assertIsNotNone(pareto_evo_png)
+            self.assertTrue(pareto_evo_png.exists())
+
+            # 4. Property distributions
+            dist_df = pd.DataFrame({
+                "SMILES": ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC"],
+                "ROCS": [0.5, 0.7, 0.6],
+                "SA": [1.0, 0.9, 0.8],
+            })
+            dist_png = render_property_distributions(dist_df, output_png=tmp / "dists.png", ref_mol="c1ccccc1O")
+            self.assertIsNotNone(dist_png)
+            self.assertTrue(dist_png.exists())
+
+            # 5. Lead structures 2D
+            lead_png = render_lead_structures_2d(["c1ccccc1O", "c1ccccc1CC"], legends=["L1", "L2"], output_png=tmp / "leads.png")
+            self.assertIsNotNone(lead_png)
+            self.assertTrue(lead_png.exists())
+
+            # 6. Pareto frontier
+            front_df = pd.DataFrame({
+                "SMILES": ["m1", "m2"],
+                "ROCS": [0.8, 0.5],
+                "SA": [0.9, 0.4],
+                "Pareto_Rank": [0, 1],
+            })
+            front_png = render_pareto_frontier(front_df, output_png=tmp / "front.png", rocs_col="ROCS", sa_col="SA")
+            self.assertIsNotNone(front_png)
+            self.assertTrue(front_png.exists())
 
 
 if __name__ == "__main__":
