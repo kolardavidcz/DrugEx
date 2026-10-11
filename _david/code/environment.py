@@ -15,6 +15,7 @@ from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 from rdkit import Chem
 from rdkit.Chem import AllChem, Descriptors3D
 from rdkit.Chem.Scaffolds import MurckoScaffold
+from rdkit.ML.Cluster import Butina
 
 from _david.code.utils import FallbackMonitor, get_safe_parallel_jobs
 
@@ -23,22 +24,30 @@ ROCS_TIMEOUT: int = 30
 
 
 def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
-    """Load query molecule and detect whether 3D coordinates are present."""
+    """Load query molecule and detect whether 3D coordinates are present.
+    
+    query: str (SMILES) | Path (to .sdf .sd with H) or (text file with SMILES) | Chem.Mol (with 3d conformers)
+    """
     if isinstance(query, Chem.Mol):
         return query, (query.GetNumConformers() > 0 and query.GetConformer().Is3D())
 
     query_path = Path(str(query))
     if query_path.is_file():
+        
         if query_path.suffix.lower() in {".sdf", ".sd"}:
+            
             suppl = Chem.SDMolSupplier(str(query_path), removeHs=False)
+            
             mols = [m for m in suppl if m is not None]
             if not mols:
                 raise ValueError(f"No valid molecule in SDF: {query_path}")
             base_mol = mols[0]
+            
             for extra in mols[1:]:
                 if extra.GetNumAtoms() == base_mol.GetNumAtoms() and extra.GetNumConformers() > 0:
                     base_mol.AddConformer(extra.GetConformer(), assignId=True)
             return base_mol, (base_mol.GetNumConformers() > 0 and base_mol.GetConformer().Is3D())
+        
         else:
             with open(query_path, "r", encoding="utf-8") as f:
                 smi = f.readline().strip().split()[0]
@@ -56,66 +65,68 @@ def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
 def generate_reference_conformers(
     query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
     output_path: Path | str | None = None,
-    num_conformers: int = 50,
+    num_conformers: int = 100,  #! HYP could be bigger, like 200
     random_seed: int = 42,
 ) -> Path:
-    """Generate low-energy 3D conformer ensemble curated by Radius of Gyration."""
+    """Generate low-energy 3D conformer ensemble curated by Butina RMSD clustering."""
     target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     mol, is_3d = load_query_molecule(query)
+    
     if is_3d:
-        writer = Chem.SDWriter(str(target_path))
-        for conf in mol.GetConformers():
-            writer.write(mol, confId=conf.GetId())
-        writer.close()
+        with Chem.SDWriter(str(target_path)) as writer:
+            for conf in mol.GetConformers():
+                writer.write(mol, confId=conf.GetId())
         return target_path
 
     mol_h = Chem.AddHs(mol)
     params = AllChem.ETKDGv3()
     params.randomSeed = random_seed
-    params.pruneRmsThresh = 0.20
+    params.pruneRmsThresh = 0.20    #?  since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
 
-    conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
+    conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))  #?   based on crystal predictions
     if not conf_ids:
-        params.useRandomCoords = True
+        params.useRandomCoords = True   #?  based on random initial + gradient optimization
         conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
 
+    props = AllChem.MMFFGetMoleculeProperties(mol_h)    #?  tuned for organic, drug-like molecules (C, H, N, O, S, P, halogens)
     energies: list[tuple[float, int]] = []
     for cid in conf_ids:
-        props = AllChem.MMFFGetMoleculeProperties(mol_h)
-        if props is None:
-            AllChem.UFFOptimizeMolecule(mol_h, confId=cid, maxIters=500)
-            uff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)
-            energy = float(uff.CalcEnergy()) if uff else 0.0
-        else:
-            ff = AllChem.MMFFGetMoleculeForceField(mol_h, props, confId=cid)
-            if ff:
-                ff.Minimize(maxIts=500)
-                energy = float(ff.CalcEnergy())
-            else:
-                AllChem.UFFOptimizeMolecule(mol_h, confId=cid, maxIters=500)
-                uff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)
-                energy = float(uff.CalcEnergy()) if uff else 0.0
-        energies.append((energy, cid))
+        ff = AllChem.MMFFGetMoleculeForceField(mol_h, props, confId=cid) if props else None
+        if not ff:
+            ff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)  #?  for all elements in periodic table
+            
+        if ff:
+            ff.Minimize(maxIts=500)
+            energies.append((float(ff.CalcEnergy()), cid))
 
     energies.sort(key=lambda x: x[0])
     min_e = energies[0][0]
-    accepted = [cid for e, cid in energies if (e - min_e) <= 8.0] or [energies[0][1]]
+    
+    # 1. Physiological energy window (Hawkins 2017: <= 8.0 kcal/mol)
+    accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0}
+    for cid in conf_ids:
+        if cid not in accepted_cids:
+            mol_h.RemoveConformer(cid)
 
-    if len(accepted) > 1:
-        rgs = [(Descriptors3D.RadiusOfGyration(mol_h, confId=cid), cid) for cid in accepted]
-        median_rg = float(np.median([rg for rg, _ in rgs]))
-        curated = [cid for rg, cid in rgs if rg >= median_rg] or accepted
+    remaining_cids = [conf.GetId() for conf in mol_h.GetConformers()]
+
+    # 2. Geometric basin curation via Butina RMSD clustering (1.25 Å cutoff)
+    if len(remaining_cids) > 1:
+        # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
+        rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, prealigned=False)
+        clusters = Butina.ClusterData(rms_matrix, len(remaining_cids), distThresh=1.25, isDistData=True)
+        curated = [remaining_cids[c[0]] for c in clusters[:8]]
     else:
-        curated = accepted
+        curated = remaining_cids
 
-    writer = Chem.SDWriter(str(target_path))
-    for cid in curated:
-        writer.write(mol_h, confId=cid)
-    writer.close()
+    with Chem.SDWriter(str(target_path)) as writer:
+        for cid in curated:
+            writer.write(mol_h, confId=cid)
+
     return target_path
 
 
