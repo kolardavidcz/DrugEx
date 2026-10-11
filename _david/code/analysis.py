@@ -126,11 +126,9 @@ class ResultAnalyzer:
 
         if ref_mol and not top_leads.empty:
             import shutil
-            legends = [f"Rank {i+1}" for i in range(len(top_leads))]
             lead_png = self.analysis_dir / "lead_structures_2d.png"
             render_lead_structures_2d(
-                top_leads["SMILES"].tolist(),
-                legends=legends,
+                top_leads,
                 output_png=lead_png,
                 reference=ref_mol,
             )

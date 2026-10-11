@@ -32,11 +32,15 @@ def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
     # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
     n_rot = int(Lipinski.NumRotatableBonds(mol))
 
-    #~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
     #~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid scaffolds with minimal torsional freedom
+    # if n_rot <= 4:
+    #     return 1.00
+
     #~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling
     # if n_rot > 12:
     #     return 1.80
+
+    #~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
     if n_rot <= 8:
         return 1.25
     else:

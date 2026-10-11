@@ -135,6 +135,19 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(lead_png)
             self.assertTrue(lead_png.exists())
 
+            # 5b. Lead structures 2D with DataFrame and reference query
+            leads_df = pd.DataFrame({
+                "SMILES": ["c1ccccc1O", "c1ccccc1CC"],
+                "ROCS": [0.95, 0.90],
+                "Desirability": [0.55, 0.50],
+                "MW": [110.0, 120.0],
+                "QED": [0.60, 0.65],
+                "SA": [2.5, 3.0],
+            })
+            lead_df_png = render_lead_structures_2d(leads_df, output_png=tmp / "leads_df.png", reference="c1ccccc1")
+            self.assertIsNotNone(lead_df_png)
+            self.assertTrue(lead_df_png.exists())
+
             # 6. Pareto frontier
             front_df = pd.DataFrame({
                 "SMILES": ["m1", "m2"],
