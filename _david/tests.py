@@ -170,9 +170,9 @@ class TestLBDDPipeline(unittest.TestCase):
         m_rigid = Chem.MolFromSmiles("c1ccccc1")
         self.assertEqual(get_adaptive_rmsd_cutoff(m_rigid), 1.25)
 
-        # 3. Flexible chain (10 rotatable bonds) -> 1.50 Å (Friedrich 2017)
+        # 3. Flexible chain (10 rotatable bonds) -> 1.25 Å (Hawkins baseline active; Friedrich commented out)
         m_flex = Chem.MolFromSmiles("CCCCCCCCCCC(=O)O")
-        self.assertEqual(get_adaptive_rmsd_cutoff(m_flex), 1.50)
+        self.assertEqual(get_adaptive_rmsd_cutoff(m_flex), 1.25)
 
 
 if __name__ == "__main__":

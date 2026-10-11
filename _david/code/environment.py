@@ -35,16 +35,14 @@ def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
     #~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid scaffolds with minimal torsional freedom
     # if n_rot <= 4:
     #     return 1.00
-
-    #~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling
-    # if n_rot > 12:
-    #     return 1.80
-
     #~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
     if n_rot <= 8:
         return 1.25
+    #~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling
+    # if n_rot > 12:
+    #     return 1.80
     else:
-        return 1.50
+        return 1.25
 
 
 def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
@@ -107,26 +105,21 @@ def generate_reference_conformers(
     mol_h = Chem.AddHs(mol)
     params = AllChem.ETKDGv3()
     params.randomSeed = random_seed
-    #~ [Riniker & Landrum, Conformer pruning threshold, 2015] Cutoff = 0.20 Å prunes duplicate conformers within thermal noise
-    params.pruneRmsThresh = 0.20
+    params.pruneRmsThresh = 0.20  # since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
 
-    #~ [Wang et al., ETKDGv3 experimental torsions, 2020] Embed conformers using experimental torsion angle preferences from CSD/PDB crystal data
-    conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
+    conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))  # based on crystal predictions
     if not conf_ids:
-        #~ [Landrum et al., Distance geometry fallback, 2006] Fallback from distance bounds to random coordinate initialisation for strained rings
-        params.useRandomCoords = True
+        params.useRandomCoords = True  # based on random initial + gradient optimization
         conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
 
-    #~ [Halgren, MMFF94 force field parameterization, 1996] Merck Molecular Force Field parameterized specifically for drug-like organic small molecules
-    props = AllChem.MMFFGetMoleculeProperties(mol_h)
+    props = AllChem.MMFFGetMoleculeProperties(mol_h)  # tuned for organic, drug-like molecules (C, H, N, O, S, P, halogens)
     energies: list[tuple[float, int]] = []
     for cid in conf_ids:
         ff = AllChem.MMFFGetMoleculeForceField(mol_h, props, confId=cid) if props else None
         if not ff:
-            #~ [Rappé et al., Universal Force Field (UFF), 1992] General molecular mechanics covering periodic table elements for non-MMFF atoms
-            ff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)
+            ff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)  # for all elements in periodic table
             
         if ff:
             ff.Minimize(maxIts=500)
@@ -146,7 +139,6 @@ def generate_reference_conformers(
     #~ [Hawkins, Basin curation via Butina clustering, 2017] Adaptive cutoff isolates distinct conformational basins
     if len(remaining_cids) > 1:
         # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
-        #~ [Butina, Sphere-exclusion clustering, 1999] Unsupervised clustering algorithm selecting lowest-energy centroid representatives
         cutoff = get_adaptive_rmsd_cutoff(mol_h)
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, prealigned=False)
         clusters = Butina.ClusterData(rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True)
