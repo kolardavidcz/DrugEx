@@ -33,16 +33,13 @@ def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
     n_rot = int(Lipinski.NumRotatableBonds(mol))
 
     #~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid scaffolds with minimal torsional freedom
-    # if n_rot <= 4:
-    #     return 1.00
+    if n_rot <= 4:
+        return 1.00
     #~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
     if n_rot <= 8:
         return 1.25
     #~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling
-    # if n_rot > 12:
-    #     return 1.80
-    else:
-        return 1.25
+    return 1.80
 
 
 def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:

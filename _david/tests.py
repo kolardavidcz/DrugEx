@@ -162,17 +162,19 @@ class TestLBDDPipeline(unittest.TestCase):
     def test_adaptive_rmsd_cutoff(self) -> None:
         """Verify adaptive RMSD cutoff bounds and literature expectations."""
         from _david.code.environment import get_adaptive_rmsd_cutoff
-        # 1. EGCG query molecule (3 rotatable bonds) -> 1.25 Å (Hawkins 2017)
-        m_egcg = Chem.MolFromSmiles("C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O")
-        self.assertEqual(get_adaptive_rmsd_cutoff(m_egcg), 1.25)
-
-        # 2. Rigid benzene (0 rotatable bonds) -> 1.25 Å (Hawkins 2017 standard baseline)
+        # 1. Rigid benzene (0 rotatable bonds) & EGCG (3 rotatable bonds) -> 1.00 Å (Ebejer 2012)
         m_rigid = Chem.MolFromSmiles("c1ccccc1")
-        self.assertEqual(get_adaptive_rmsd_cutoff(m_rigid), 1.25)
+        self.assertEqual(get_adaptive_rmsd_cutoff(m_rigid), 1.00)
+        m_egcg = Chem.MolFromSmiles("C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O")
+        self.assertEqual(get_adaptive_rmsd_cutoff(m_egcg), 1.00)
 
-        # 3. Flexible chain (10 rotatable bonds) -> 1.25 Å (Hawkins baseline active; Friedrich commented out)
+        # 2. Moderately flexible ligand (6 rotatable bonds) -> 1.25 Å (Hawkins 2017)
+        m_med = Chem.MolFromSmiles("CCCCCCc1ccccc1")
+        self.assertEqual(get_adaptive_rmsd_cutoff(m_med), 1.25)
+
+        # 3. Flexible chain (10 rotatable bonds) -> 1.80 Å (Friedrich 2017)
         m_flex = Chem.MolFromSmiles("CCCCCCCCCCC(=O)O")
-        self.assertEqual(get_adaptive_rmsd_cutoff(m_flex), 1.25)
+        self.assertEqual(get_adaptive_rmsd_cutoff(m_flex), 1.80)
 
 
 if __name__ == "__main__":
