@@ -133,23 +133,30 @@ def generate_reference_conformers(
 
     remaining_cids = [conf.GetId() for conf in mol_h.GetConformers()]
     
+    energy_map = {cid: float(e) for e, cid in energies}
+    curated: list[int] = []
+
     #~ [Hawkins, Basin curation via Butina clustering, 2017] Adaptive cutoff isolates distinct conformational basins
     if len(remaining_cids) > 1:
         # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
         cutoff = get_adaptive_rmsd_cutoff(mol_h)
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, prealigned=False)
         clusters = Butina.ClusterData(rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True)
-        curated = [remaining_cids[c[0]] for c in clusters[:8]]
+        for cluster in clusters:
+            # Select the thermodynamic minimum within this conformational basin
+            basin_cids = [remaining_cids[idx] for idx in cluster]
+            best_cid = min(basin_cids, key=lambda cid: energy_map[cid])
+            curated.append(best_cid)
     else:
         curated = remaining_cids
 
-    curated_set = set(curated)
-    energy_map = {cid: e for e, cid in energies}
-    curated.sort(key=lambda cid: energy_map.get(cid, 0.0))
+    curated.sort(key=lambda cid: energy_map[cid])
 
     with Chem.SDWriter(str(target_path)) as writer:
         for i, cid in enumerate(curated):
             mol_h.SetProp("_Name", f"Conformer_{i+1}")
+            mol_h.SetDoubleProp("Energy_MMFF_kcal_mol", energy_map[cid])
+            mol_h.SetDoubleProp("DeltaE_kcal_mol", energy_map[cid] - min_e)
             writer.write(mol_h, confId=cid)
 
     return target_path
