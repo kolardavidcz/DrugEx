@@ -106,8 +106,8 @@ def generate_reference_conformers(
     energies.sort(key=lambda x: x[0])
     min_e = energies[0][0]
     
-    accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0} #? Physiological energy window (Hawkins 2017: <= 8.0 kcal/mol)
-
+    # 1. Physiological energy window (Hawkins 2017: <= 8.0 kcal/mol)
+    accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0}
     for cid in conf_ids:
         if cid not in accepted_cids:
             mol_h.RemoveConformer(cid)
@@ -116,15 +116,31 @@ def generate_reference_conformers(
 
     # 2. Geometric basin curation via Butina RMSD clustering (1.25 Å cutoff)
     if len(remaining_cids) > 1:
+        # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, prealigned=False)
         clusters = Butina.ClusterData(rms_matrix, len(remaining_cids), distThresh=1.25, isDistData=True)
         curated = [remaining_cids[c[0]] for c in clusters[:8]]
     else:
         curated = remaining_cids
 
+    curated_set = set(curated)
+    for cid in remaining_cids:
+        if cid not in curated_set:
+            mol_h.RemoveConformer(cid)
+
+    # 3. Superimpose conformers onto central scaffold
+    scaff = MurckoScaffold.GetScaffoldForMol(Chem.RemoveHs(mol_h))
+    match = mol_h.GetSubstructMatch(scaff) if scaff else ()
+    atom_ids = list(match) if match else list(range(min(10, mol_h.GetNumAtoms())))
+    try:
+        AllChem.AlignMolConformers(mol_h, atomIds=atom_ids)
+    except Exception:
+        AllChem.AlignMolConformers(mol_h)
+
     with Chem.SDWriter(str(target_path)) as writer:
-        for cid in curated:
-            writer.write(mol_h, confId=cid)
+        for i, conf in enumerate(mol_h.GetConformers()):
+            mol_h.SetProp("_Name", f"Conformer_{i+1}")
+            writer.write(mol_h, confId=conf.GetId())
 
     return target_path
 
