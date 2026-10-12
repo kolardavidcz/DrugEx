@@ -208,7 +208,7 @@ def create_rocs_scorer(references: str | Path | Chem.Mol | list[Chem.Mol] | list
         max_conformers=30, #! HYP could be bigger, like 50
         max_heavy_atoms=55,
         max_rotatable_bonds=25,
-        timeout=ROCS_TIMEOUT,
+        timeout=ROCS_TIMEOUT, #! HYP could be bigger, like 60
     )
     return RDKitROCSScorer(
         references=ref_input,
