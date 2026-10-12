@@ -67,6 +67,9 @@ include-package-data = true
 zip-safe = false
 script-files = ["scripts/drugex"]
 
+[tool.setuptools.package-data]
+drugex = ["py.typed", "*.pyi", "**/*.pyi"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 
