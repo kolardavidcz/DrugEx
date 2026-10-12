@@ -175,10 +175,10 @@ def extract_seed_core_scaffold(
         for r in atom_rings:
             matching = [s for s in ring_systems if s & r]
             non_matching = [s for s in ring_systems if not (s & r)]
-            new_sys = set(r)
+            merged_ring_system = set(r)
             for s in matching:
-                new_sys.update(s)
-            ring_systems = non_matching + [new_sys]
+                merged_ring_system.update(s)
+            ring_systems = non_matching + [merged_ring_system]
 
         largest_system = max(ring_systems, key=len)
         sub_bonds = [
@@ -215,10 +215,8 @@ def extract_seed_core_scaffold(
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         scaff_mol = Chem.MolFromSmiles(scaff_smi)
-        
         n_heavy = scaff_mol.GetNumHeavyAtoms() if scaff_mol else 0
         n_rings = scaff_mol.GetRingInfo().NumRings() if scaff_mol else 0
-        
         with open(target, "w", encoding="utf-8") as f:
             f.write("Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings\n")
             f.write(f"{scaff_smi}\t{str(query)}\t{scaffold_type}\t{n_heavy}\t{n_rings}\n")
