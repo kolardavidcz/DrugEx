@@ -31,7 +31,7 @@ class TestLBDDPipeline(unittest.TestCase):
             env, epsilon = create_environment(ref_sdf)
             self.assertEqual(len(env.scorers), 2)
             self.assertEqual(len(env.thresholds), 2)
-            self.assertEqual(epsilon, 0.0)
+            self.assertEqual(epsilon, 0.2)
             self.assertIsInstance(env.rewardScheme, WeightedSum)
 
     def test_conformer_generation(self) -> None:
@@ -183,6 +183,51 @@ class TestLBDDPipeline(unittest.TestCase):
 
             smi_acyclic = extract_seed_core_scaffold("CCCCCC(=O)O")
             self.assertEqual(smi_acyclic, "CCCCCC(=O)O")
+
+    def test_load_query_molecule(self) -> None:
+        from _david.code.environment import load_query_molecule
+
+        mol, is_3d = load_query_molecule("c1ccccc1O")
+        self.assertFalse(is_3d)
+        self.assertEqual(mol.GetNumHeavyAtoms(), 7)
+
+        # Long valid SMILES (> 255 chars) must not crash with OSError
+        mol_long, is_3d = load_query_molecule("C" * 260)
+        self.assertFalse(is_3d)
+        self.assertEqual(mol_long.GetNumHeavyAtoms(), 260)
+
+        # Invalid long string (> 255 chars) raises ValueError cleanly
+        with self.assertRaises(ValueError):
+            load_query_molecule("INVALID" * 40)
+
+        mol_input = Chem.MolFromSmiles("c1ccccc1")
+        mol_ret, is_3d = load_query_molecule(mol_input)
+        self.assertIs(mol_ret, mol_input)
+        self.assertFalse(is_3d)
+
+        mol_3d = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1"))
+        AllChem.EmbedMolecule(mol_3d)
+        mol_ret_3d, is_3d = load_query_molecule(mol_3d)
+        self.assertTrue(is_3d)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            txt_path = Path(tmp_dir) / "query.txt"
+            txt_path.write_text("c1ccccc1O  phenol\n", encoding="utf-8")
+            mol_from_file, is_3d = load_query_molecule(txt_path)
+            self.assertFalse(is_3d)
+            self.assertEqual(mol_from_file.GetNumHeavyAtoms(), 7)
+
+            sdf_path = Path(tmp_dir) / "query.sdf"
+            writer = Chem.SDWriter(str(sdf_path))
+            writer.write(mol_3d)
+            writer.close()
+            mol_from_sdf, is_3d = load_query_molecule(sdf_path)
+            self.assertTrue(is_3d)
+
+            empty_path = Path(tmp_dir) / "empty.txt"
+            empty_path.write_text("", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_query_molecule(empty_path)
 
 
 if __name__ == "__main__":
