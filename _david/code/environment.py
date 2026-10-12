@@ -167,7 +167,7 @@ def extract_seed_core_scaffold(
     mol_no_h = Chem.RemoveHs(mol)
 
     # Option 1: Core Ring System (Privileged fused/spiro core; e.g. chroman 10 atoms for EGCG - ACTIVE)
-    # [PACKAGE: rdkit.Chem.PathToSubmol] Merge overlapping rings into contiguous core and extract induced submolecule
+    # [PACKAGE: rdkit.Chem.MolFragmentToSmiles] Extract SMILES of largest contiguous ring system directly from atom indices
     ring_info = mol_no_h.GetRingInfo()
     atom_rings = [set(r) for r in ring_info.AtomRings()]
     if atom_rings:
@@ -177,17 +177,8 @@ def extract_seed_core_scaffold(
             isolated = [sys for sys in ring_systems if not (sys & ring)]
             ring_systems = isolated + [ring.union(*overlapping)]
 
-        largest_system = max(ring_systems, key=len)
-        sub_bonds = [
-            b.GetIdx() for b in mol_no_h.GetBonds()
-            if b.GetBeginAtomIdx() in largest_system and b.GetEndAtomIdx() in largest_system
-        ]
-        core_submol = Chem.PathToSubmol(mol_no_h, sub_bonds)
-        for atom in core_submol.GetAtoms():
-            atom.SetNoImplicit(False)
-            atom.SetNumExplicitHs(0)
-        Chem.SanitizeMol(core_submol)
-        scaff_smi = Chem.MolToSmiles(core_submol, isomericSmiles=isomeric)
+        core_atoms = max(ring_systems, key=len)
+        scaff_smi = Chem.MolFragmentToSmiles(mol_no_h, atomsToUse=list(core_atoms), isomericSmiles=isomeric)
     else:
         scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
 
@@ -197,12 +188,9 @@ def extract_seed_core_scaffold(
     # scaff_smi = Chem.MolToSmiles(scaff, isomericSmiles=isomeric) if (scaff and scaff.GetNumHeavyAtoms() > 0) else Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
 
     # Option 3: Minimal Elementary Ring (Single smallest ring, e.g. benzene 6 atoms)
-    # [PACKAGE: rdkit.Chem.PathToSubmol]
+    # [PACKAGE: rdkit.Chem.MolFragmentToSmiles]
     # min_ring = min(atom_rings, key=len) if atom_rings else set()
-    # min_bonds = [b.GetIdx() for b in mol_no_h.GetBonds() if b.GetBeginAtomIdx() in min_ring and b.GetEndAtomIdx() in min_ring]
-    # min_submol = Chem.PathToSubmol(mol_no_h, min_bonds)
-    # Chem.SanitizeMol(min_submol)
-    # scaff_smi = Chem.MolToSmiles(min_submol, isomericSmiles=isomeric)
+    # scaff_smi = Chem.MolFragmentToSmiles(mol_no_h, atomsToUse=list(min_ring), isomericSmiles=isomeric) if min_ring else Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
 
     # Option 4: SequenceRNN (Unconditional Ex Nihilo / 0 atoms)
     # SequenceRNN does not require an input scaffold seed; it samples de novo from <START> or can take leads from a previous GraphTransformer run.
