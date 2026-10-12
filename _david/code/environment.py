@@ -172,13 +172,10 @@ def extract_seed_core_scaffold(
     atom_rings = [set(r) for r in ring_info.AtomRings()]
     if atom_rings:
         ring_systems: list[set[int]] = []
-        for r in atom_rings:
-            matching = [s for s in ring_systems if s & r]
-            non_matching = [s for s in ring_systems if not (s & r)]
-            merged_ring_system = set(r)
-            for s in matching:
-                merged_ring_system.update(s)
-            ring_systems = non_matching + [merged_ring_system]
+        for ring in atom_rings:
+            overlapping = [sys for sys in ring_systems if sys & ring]
+            isolated = [sys for sys in ring_systems if not (sys & ring)]
+            ring_systems = isolated + [ring.union(*overlapping)]
 
         largest_system = max(ring_systems, key=len)
         sub_bonds = [
