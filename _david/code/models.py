@@ -14,8 +14,8 @@ from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
 from rdkit import Chem
-from rdkit.Chem.Scaffolds import MurckoScaffold
 
+from _david.code.environment import extract_seed_core_scaffold
 from _david.code.utils import get_safe_gpus
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
@@ -70,11 +70,7 @@ class GraphTransformerOptimizer:
                     scaffolds.append(parts[0])
 
         if not scaffolds:
-            mol = Chem.MolFromSmiles(molecule_smiles)
-            if mol:
-                scaff = MurckoScaffold.GetScaffoldForMol(Chem.RemoveHs(mol))
-                smi = Chem.MolToSmiles(scaff, isomericSmiles=False) if (scaff and scaff.GetNumHeavyAtoms() > 0) else molecule_smiles
-                scaffolds.append(smi)
+            scaffolds.append(extract_seed_core_scaffold(molecule_smiles))
         n_repeats = max(1, n_prompts // len(scaffolds) + 1)
         expanded_prompts = (scaffolds * n_repeats)[:n_prompts]
         encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
