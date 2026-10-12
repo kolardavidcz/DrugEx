@@ -83,6 +83,7 @@ def generate_reference_conformers(
     target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # 1. Input Loading & 3D Passthrough
     mol, is_3d = load_query_molecule(query)
     if is_3d:
         with Chem.SDWriter(str(target_path)) as writer:
@@ -90,6 +91,7 @@ def generate_reference_conformers(
                 writer.write(mol, confId=conf.GetId())
         return target_path
 
+    # 2. ETKDGv3 Conformer Embedding
     mol_h = Chem.AddHs(mol)
     params = AllChem.ETKDGv3()
     params.randomSeed = random_seed
@@ -102,56 +104,47 @@ def generate_reference_conformers(
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
 
-    props = AllChem.MMFFGetMoleculeProperties(mol_h)  # tuned for organic, drug-like molecules (C, H, N, O, S, P, halogens)
-    energies: list[tuple[float, int]] = []
-    for cid in conf_ids:
-        ff = AllChem.MMFFGetMoleculeForceField(mol_h, props, confId=cid)  # returns None if props is None or unparameterized
-        if not ff:
-            ff = AllChem.UFFGetMoleculeForceField(mol_h, confId=cid)  # for all elements in periodic table
-            
-        if ff:
-            ff.Minimize(maxIts=500)
-            energies.append((float(ff.CalcEnergy()), cid))
+    # 3. Force Field Minimization & Energy Profiling (MMFF94 with UFF fallback)
+    # [PACKAGE: rdkit.Chem.AllChem.MMFFOptimizeMoleculeConfs] Multi-threaded C++ batch minimization across all conformers
+    results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+    if not results:  # fallback for unparameterized elements in periodic table
+        results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+    if not results:
+        raise RuntimeError(f"Force field optimization failed for: {query}")
 
-    if not energies:
-        raise RuntimeError(f"Could not calculate forcefield energies for: {query}")
+    energies = {cid: float(e) for cid, (_, e) in zip(conf_ids, results)}
 
-    energies.sort(key=lambda x: x[0])
-    min_e = energies[0][0]
-
+    # 4. Energy Window Filtering
     #~ [Hawkins, Physiological energy window, 2017] <= 8.0 kcal/mol window retains biologically accessible conformational basins
-    accepted_cids = {cid for e, cid in energies if (e - min_e) <= 8.0}  # Whitelist: solves "None" issues
-    for cid in conf_ids:
-        if cid not in accepted_cids:
+    min_e = min(energies.values())
+    for cid, e in list(energies.items()):
+        if (e - min_e) > 8.0:
             mol_h.RemoveConformer(cid)
+            del energies[cid]
 
-    remaining_cids = [conf.GetId() for conf in mol_h.GetConformers()]
-    energy_map = {cid: float(e) for e, cid in energies}
-    curated: list[int] = []
-
+    # 5. Butina RMSD Basin Curation
     #~ [Hawkins, Basin curation via Butina clustering, 2017] Adaptive cutoff isolates distinct conformational basins
+    remaining_cids = list(energies.keys())
     if len(remaining_cids) > 1:
-        # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD. WHAT: Unsupervised clustering.
+        # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD
         cutoff = get_adaptive_rmsd_cutoff(mol_h)
         # [PACKAGE: rdkit.Chem.AllChem.GetConformerRMSMatrix] Heavy-atom RMSD (Z > 1) prevents rotating Hs from splitting basins
         heavy_atom_ids = [a.GetIdx() for a in mol_h.GetAtoms() if a.GetAtomicNum() > 1]
         rms_matrix = AllChem.GetConformerRMSMatrix(mol_h, atomIds=heavy_atom_ids, prealigned=False)
         clusters = Butina.ClusterData(rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True)
-        for cluster in clusters:
-            # Select the thermodynamic minimum within this conformational basin
-            basin_cids = [remaining_cids[idx] for idx in cluster]
-            best_cid = min(basin_cids, key=lambda cid: energy_map[cid])
-            curated.append(best_cid)
 
-        curated.sort(key=lambda cid: energy_map[cid])
+        # Select thermodynamic minimum within each conformational basin
+        curated = [min([remaining_cids[i] for i in cluster], key=lambda c: energies[c]) for cluster in clusters]
+        curated.sort(key=lambda c: energies[c])
     else:
         curated = remaining_cids
 
+    # 6. Export SDF with Energetic Annotations
     with Chem.SDWriter(str(target_path)) as writer:
         for i, cid in enumerate(curated):
             mol_h.SetProp("_Name", f"Conformer_{i+1}")
-            mol_h.SetDoubleProp("Energy_MMFF_kcal_mol", energy_map[cid])
-            mol_h.SetDoubleProp("DeltaE_kcal_mol", energy_map[cid] - min_e)
+            mol_h.SetDoubleProp("Energy_MMFF_kcal_mol", energies[cid])
+            mol_h.SetDoubleProp("DeltaE_kcal_mol", energies[cid] - min_e)
             writer.write(mol_h, confId=cid)
 
     return target_path
@@ -212,7 +205,7 @@ def extract_seed_core_scaffold(
 def create_rocs_scorer(references: str | Path | Chem.Mol | list[Chem.Mol] | list[str]) -> RDKitROCSScorer:
     ref_input = str(references) if isinstance(references, Path) else references
     conf_gen = RDKitConformerGenerator(
-        max_conformers=22,
+        max_conformers=30, #! HYP could be bigger, like 50
         max_heavy_atoms=55,
         max_rotatable_bonds=25,
         timeout=ROCS_TIMEOUT,
