@@ -24,35 +24,55 @@ DEFAULT_MOLECULE: str = (
 ROCS_TIMEOUT: int = 30
 
 
-def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
-    # query: Chem.Mol (with 3D conformers) | Path / file (.sdf, .sd, .txt) | str (SMILES)
-    if isinstance(query, Chem.Mol):
-        return query, bool(query.GetNumConformers() and query.GetConformer().Is3D())
+# [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
+def load_sdf_ensemble(path: Path | str) -> tuple[Chem.Mol, bool]:
+    mols = [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m]
+    if not mols:
+        raise ValueError(f"No valid molecule in SDF: {path}")
+    base = mols[0]
+    for extra in mols[1:]:
+        base.AddConformer(extra.GetConformer(), assignId=True)
+    is_3d = bool(
+        base.GetNumConformers() > 0
+        and base.GetConformer().Is3D()
+        and any(abs(base.GetConformer().GetAtomPosition(i).z) > 1e-4 for i in range(base.GetNumAtoms()))
+    )
+    return base, is_3d
 
+
+# Parses SMILES string, file path (.sdf, .txt), or direct Chem.Mol instance
+def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
+    # 1. Direct RDKit Mol instance
+    if isinstance(query, Chem.Mol):
+        is_3d = bool(
+            query.GetNumConformers() > 0
+            and query.GetConformer().Is3D()
+            and any(abs(query.GetConformer().GetAtomPosition(i).z) > 1e-4 for i in range(query.GetNumAtoms()))
+        )
+        return query, is_3d
+
+    # 2. Fast Path: SMILES string (avoids OS filesystem syscalls & filename length limits)
+    if isinstance(query, str) and not query.endswith((".sdf", ".sd", ".txt", ".smi")):
+        mol = Chem.MolFromSmiles(query)
+        if mol:
+            return mol, False
+
+    # 3. File Resolution (Path object or path string)
     try:
         path = Path(query)
         if path.is_file():
             if path.suffix.lower() in {".sdf", ".sd"}:
-                mols = [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m]
-                if not mols:
-                    raise ValueError(f"No valid molecule in SDF: {path}")
-                mol = mols[0]
-                for extra in mols[1:]:
-                    mol.AddConformer(extra.GetConformer(), assignId=True)
-                return mol, bool(mol.GetNumConformers() and mol.GetConformer().Is3D())
-
-            content = path.read_text(encoding="utf-8").split()
-            if not content:
-                raise ValueError(f"Empty SMILES file: {path}")
-            query = content[0]
+                return load_sdf_ensemble(path)
+            tokens = path.read_text(encoding="utf-8").split()
+            if not tokens:
+                raise ValueError(f"Empty molecule file: {path}")
+            mol = Chem.MolFromSmiles(tokens[0])
+            if mol:
+                return mol, False
     except OSError:
         pass
 
-    mol = Chem.MolFromSmiles(str(query).strip())
-    if mol is None:
-        raise ValueError(f"Could not parse query molecule: {query!r}")
-
-    return mol, False
+    raise ValueError(f"Could not parse query molecule: {query!r}")
 
 
 def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
@@ -90,6 +110,10 @@ def generate_reference_conformers(
     # 1. Input Loading & 3D Passthrough
     mol, is_3d = load_query_molecule(query)
     if is_3d:
+        assert mol.GetNumConformers() > 0, "Query marked 3D has 0 conformers"
+        assert any(abs(mol.GetConformer().GetAtomPosition(i).z) > 1e-4 for i in range(mol.GetNumAtoms())), (
+            "Query marked 3D has flat z=0.0 coordinates"
+        )
         with Chem.SDWriter(str(target_path)) as writer:
             for conf in mol.GetConformers():
                 writer.write(mol, confId=conf.GetId())
@@ -111,12 +135,20 @@ def generate_reference_conformers(
         )
     if not conf_ids:
         raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
+    assert mol_h.GetNumConformers() > 0, f"ETKDGv3 generated 0 conformers for: {query}"
 
     # 3. Force Field Minimization & Energy Profiling (MMFF94 with UFF fallback)
     # [PACKAGE: rdkit.Chem.AllChem.MMFFOptimizeMoleculeConfs] Multi-threaded C++ batch minimization across all conformers
-    results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+    results = []
+    if AllChem.MMFFHasAllMoleculeParams(mol_h):
+        results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+        if any(status == -1 for status, _ in results):
+            results = []
     if not results:  # fallback for unparameterized elements in periodic table
-        results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+        if AllChem.UFFHasAllMoleculeParams(mol_h):
+            results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+            if any(status == -1 for status, _ in results):
+                results = []
     if not results:
         raise RuntimeError(f"Force field optimization failed for: {query}")
 
@@ -153,6 +185,12 @@ def generate_reference_conformers(
         curated.sort(key=lambda c: energies[c])
     else:
         curated = remaining_cids
+
+    assert len(curated) > 0, f"0 conformers survived energy filtering for: {query}"
+    assert any(
+        abs(mol_h.GetConformer(curated[0]).GetAtomPosition(i).z) > 1e-4
+        for i in range(mol_h.GetNumAtoms())
+    ), "Conformer minimization collapsed to planar z=0.0 coordinates"
 
     # 6. Export SDF with Energetic Annotations
     with Chem.SDWriter(str(target_path)) as writer:
@@ -192,6 +230,13 @@ def extract_seed_core_scaffold(
     else:
         scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
 
+    # Bulletproof sanitization guard: verify extracted scaffold parses and is sanitized
+    scaff_mol = Chem.MolFromSmiles(scaff_smi)
+    if scaff_mol is None:
+        raise ValueError(f"Extracted scaffold SMILES {scaff_smi!r} failed to parse.")
+    Chem.SanitizeMol(scaff_mol)
+    scaff_smi = Chem.MolToSmiles(scaff_mol, isomericSmiles=isomeric)
+
     # Option 2: Bemis-Murcko Framework (Ring systems + linkers; 25 heavy atoms for EGCG)
     # [PACKAGE: rdkit.Chem.Scaffolds.MurckoScaffold]
     # scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
@@ -209,9 +254,8 @@ def extract_seed_core_scaffold(
     if output_path:
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        scaff_mol = Chem.MolFromSmiles(scaff_smi)
-        n_heavy = scaff_mol.GetNumHeavyAtoms() if scaff_mol else 0
-        n_rings = scaff_mol.GetRingInfo().NumRings() if scaff_mol else 0
+        n_heavy = scaff_mol.GetNumHeavyAtoms()
+        n_rings = scaff_mol.GetRingInfo().NumRings()
         with open(target, "w", encoding="utf-8") as f:
             f.write("Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings\n")
             f.write(
@@ -240,10 +284,20 @@ def create_rocs_scorer(
     )
 
 
-def create_environment(
-    ref_sdf: str | Path,
-    epsilon: float = 0.2,
-) -> tuple[DrugExEnvironment, float]:
+# Bulletproof DrugExEnvironment guarding against NaN/Inf and ensuring finite rewards in [0, 1]
+class SafeDrugExEnvironment(DrugExEnvironment):
+    def getScores(self, smiles: list[str], frags: list[str] | None = None, no_multifrag_smiles: bool = True):
+        scores = super().getScores(smiles, frags=frags, no_multifrag_smiles=no_multifrag_smiles)
+        keys = self.getScorerKeys()
+        scores[keys] = scores[keys].fillna(0.0).replace([np.inf, -np.inf], 0.0)
+        scores[keys] = scores[keys].clip(lower=0.0, upper=1.0)
+        undesire = (scores[keys] < self.thresholds)
+        scores["Desired"] = (undesire.sum(axis=1) == 0).astype(int)
+        assert np.isfinite(scores[keys].to_numpy()).all(), "Non-finite scores detected in environment"
+        return scores
+
+
+def create_environment(ref_sdf: str | Path) -> tuple[SafeDrugExEnvironment, float]:
     rocs_scorer = create_rocs_scorer(ref_sdf)
     rocs_scorer.modifier = ClippedScore(
         lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0
@@ -256,8 +310,9 @@ def create_environment(
 
     scorers: list[Scorer] = [rocs_scorer, sa_scorer]
     thresholds: list[float] = [0.25, 0.25]
+    epsilon: float = 0.2
 
-    env = DrugExEnvironment(
+    env = SafeDrugExEnvironment(
         scorers=scorers,
         thresholds=thresholds,
         reward_scheme=WeightedSum(),

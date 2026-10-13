@@ -229,6 +229,48 @@ class TestLBDDPipeline(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_query_molecule(empty_path)
 
+    def test_flat_2d_conformer_rejection(self) -> None:
+        from _david.code.environment import load_query_molecule
+
+        mol_2d = Chem.MolFromSmiles("c1ccccc1")
+        AllChem.Compute2DCoords(mol_2d)
+        ret_mol, is_3d = load_query_molecule(mol_2d)
+        self.assertFalse(is_3d, "Planar 2D conformer with z=0.0 must not be flagged as 3D")
+
+    def test_unparameterized_element_uff_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_sdf = Path(tmp_dir) / "boronic.sdf"
+            # Boronic acid is not parameterized in MMFF94 and triggers status -1
+            res = generate_reference_conformers("OB(O)c1ccccc1", output_path=out_sdf, num_conformers=3)
+            self.assertTrue(res.exists())
+            suppl = Chem.SDMolSupplier(str(res), removeHs=False)
+            mols = [m for m in suppl if m is not None]
+            self.assertGreater(len(mols), 0)
+            energy = float(mols[0].GetProp("Energy_MMFF_kcal_mol"))
+            self.assertGreater(energy, 0.0, "UFF fallback energy must be valid and positive")
+
+    def test_safe_environment_nan_inf_sanitization(self) -> None:
+        from _david.code.environment import SafeDrugExEnvironment
+        import numpy as np
+        from drugex.training.scorers.interfaces import Scorer
+
+        class MockScorer(Scorer):
+            def getScores(self, mols, frags=None):
+                return np.array([np.nan, np.inf, 1.5, -0.2, 0.5])
+            def getKey(self):
+                return "Mock"
+
+        env = SafeDrugExEnvironment(scorers=[MockScorer()], thresholds=[0.25], reward_scheme=WeightedSum())
+        smiles = ["C", "CC", "CCC", "CCCC", "c1ccccc1"]
+        scores = env.getScores(smiles)
+        vals = scores["Mock"].to_numpy()
+        self.assertTrue(np.isfinite(vals).all(), "Scores must be strictly finite")
+        self.assertTrue((vals >= 0.0).all() and (vals <= 1.0).all(), "Scores must be clamped to [0, 1]")
+        self.assertEqual(vals[0], 0.0, "NaN must map to 0.0")
+        self.assertEqual(vals[1], 0.0, "Inf must map to 0.0")
+        self.assertEqual(vals[2], 1.0, "1.5 must clamp to 1.0")
+        self.assertEqual(vals[3], 0.0, "-0.2 must clamp to 0.0")
+
 
 if __name__ == "__main__":
     unittest.main()
