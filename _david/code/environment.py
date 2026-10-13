@@ -21,7 +21,6 @@ from _david.code.utils import FallbackMonitor, get_safe_parallel_jobs
 DEFAULT_MOLECULE: str = (
     "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 )
-ROCS_TIMEOUT: int = 30
 
 class PrepareMolecule:
     # [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
@@ -190,105 +189,62 @@ class PrepareMolecule:
         return output_path_real
 
 
-    # [PACKAGE: rdkit.Chem.rdmolops] WHY: Continuous heavy-atom backbone extraction with passable heteroatom bridges. WHAT: Longest path through carbons and bridging heteroatoms with significant unsaturated appendages. HOW: Subtree size branch filtering & diameter search.
+    # [PACKAGE: rdkit.Chem.rdmolops] WHY: Continuous heavy-atom backbone with passable heteroatom bridges and unsaturated side groups. WHAT: Topological diameter. HOW: Subtree reachability & BFS.
     def get_acyclic_backbone_scaffold(
         self,
         mol: Chem.Mol,
         min_branch_size: int = 2,
         include_unsaturated: bool = True,
     ) -> list[int]:
-        # 1. Null Guard & Trivial Molecule Passthrough
-        if mol is None or mol.GetNumHeavyAtoms() == 0:
+        if not mol or mol.GetNumHeavyAtoms() == 0:
             return []
-        num_atoms = mol.GetNumAtoms()
-        if num_atoms <= 2:
-            return [a.GetIdx() for a in mol.GetAtoms()]
 
-        # 2. Graph Adjacency Construction
-        adj: dict[int, list[int]] = {i: [] for i in range(num_atoms)}
-        for b in mol.GetBonds():
-            u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
-            adj[u].append(v)
-            adj[v].append(u)
+        # 1. Admissible Passable Edges (Bridging Heteroatoms)
+        adj = {a.GetIdx(): [nbr.GetIdx() for nbr in a.GetNeighbors()] for a in mol.GetAtoms()}
 
-        def _get_subtree_info(start: int, parent: int) -> tuple[int, bool]:
-            visited = {parent}
-            stack = [start]
-            count = 0
-            has_carbon = False
+        def branch_ok(curr: int, parent: int) -> bool:
+            seen, stack = {parent}, [curr]
             while stack:
-                curr = stack.pop()
-                if curr in visited:
-                    continue
-                visited.add(curr)
-                count += 1
-                if mol.GetAtomWithIdx(curr).GetAtomicNum() == 6:
-                    has_carbon = True
-                for nbr in adj[curr]:
-                    if nbr not in visited:
-                        stack.append(nbr)
-            return count, has_carbon
+                node = stack.pop()
+                if node not in seen:
+                    seen.add(node)
+                    stack.extend(adj[node])
+            atoms = [mol.GetAtomWithIdx(i) for i in seen - {parent}]
+            return len(atoms) >= min_branch_size and any(a.GetAtomicNum() == 6 for a in atoms)
 
-        # 3. Admissible Passable Bond Identification (Bridging Heteroatoms)
-        passable_edges: list[tuple[int, int]] = []
+        passable: dict[int, list[int]] = {}
         for b in mol.GetBonds():
             u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
-            z_u = mol.GetAtomWithIdx(u).GetAtomicNum()
-            z_v = mol.GetAtomWithIdx(v).GetAtomicNum()
+            zu, zv = mol.GetAtomWithIdx(u).GetAtomicNum(), mol.GetAtomWithIdx(v).GetAtomicNum()
+            if (zu == 6 or branch_ok(u, v)) and (zv == 6 or branch_ok(v, u)):
+                passable.setdefault(u, []).append(v)
+                passable.setdefault(v, []).append(u)
 
-            if z_u == 6 and z_v == 6:
-                passable_edges.append((u, v))
-                continue
+        # 2. Longest Passable Path (BFS)
+        longest: list[int] = []
+        for start in passable:
+            q, seen = [[start]], {start}
+            for path in q:
+                if len(path) > len(longest):
+                    longest = path
+                for nbr in passable.get(path[-1], []):
+                    if nbr not in seen:
+                        seen.add(nbr)
+                        q.append(path + [nbr])
 
-            size_u, c_u = _get_subtree_info(u, v)
-            size_v, c_v = _get_subtree_info(v, u)
+        if not longest:
+            longest = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6] or [a.GetIdx() for a in mol.GetAtoms()]
 
-            # Bridge requires sufficient branch depth and carbon presence on both sides
-            u_valid = (z_u == 6) or (size_u >= min_branch_size and c_u)
-            v_valid = (z_v == 6) or (size_v >= min_branch_size and c_v)
-            if u_valid and v_valid:
-                passable_edges.append((u, v))
-
-        # 4. Longest Passable Path Search (Topological Backbone Diameter)
-        g_pass: dict[int, list[int]] = {i: [] for i in range(num_atoms)}
-        for u, v in passable_edges:
-            g_pass[u].append(v)
-            g_pass[v].append(u)
-
-        longest_path: list[int] = []
-        for start in range(num_atoms):
-            queue = [(start, [start])]
-            visited = {start}
-            while queue:
-                curr, path = queue.pop(0)
-                if len(path) > len(longest_path):
-                    longest_path = path
-                for nbr in g_pass[curr]:
-                    if nbr not in visited:
-                        visited.add(nbr)
-                        queue.append((nbr, path + [nbr]))
-
-        if not longest_path:
-            carbons = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6]
-            longest_path = carbons if carbons else [a.GetIdx() for a in mol.GetAtoms()]
-
-        scaffold_atoms = set(longest_path)
-
-        # 5. Significant Unsaturated Side Groups Preservation (Ketones, Anhydrides, Imines, Sulfones)
+        # 3. Retain Significant Unsaturated Appendages (=O, =N, =S)
+        scaffold = set(longest)
         if include_unsaturated:
-            for idx in longest_path:
-                atom = mol.GetAtomWithIdx(idx)
-                for b in atom.GetBonds():
-                    if b.GetBondType() in (Chem.BondType.DOUBLE, Chem.BondType.TRIPLE):
-                        other = b.GetOtherAtom(atom)
-                        if other.GetAtomicNum() in (7, 8, 16):
-                            scaffold_atoms.add(other.GetIdx())
+            for idx in longest:
+                for b in mol.GetAtomWithIdx(idx).GetBonds():
+                    if b.GetBondTypeAsDouble() > 1.0 and b.GetOtherAtomIdx(idx) not in scaffold:
+                        if mol.GetAtomWithIdx(b.GetOtherAtomIdx(idx)).GetAtomicNum() in (7, 8, 16):
+                            scaffold.add(b.GetOtherAtomIdx(idx))
 
-        return sorted(scaffold_atoms)
-
-    def get_longest_carbon_chain(self, mol: Chem.Mol) -> list[int]:
-        """Backward compatibility: delegates to get_acyclic_backbone_scaffold without unsaturated appendages."""
-        return self.get_acyclic_backbone_scaffold(mol, min_branch_size=2, include_unsaturated=False)
+        return sorted(scaffold)
 
     def extract_seed_core_scaffold(
         self,
@@ -375,7 +331,7 @@ def create_rocs_scorer(
         max_conformers=30,  #! HYP could be bigger, like 50
         max_heavy_atoms=55,
         max_rotatable_bonds=25,
-        timeout=ROCS_TIMEOUT,  #! HYP could be bigger, like 60
+        timeout=60,  #! HYP could be bigger, like 60
     )
 
     # 3. Multi-Threaded ROCS Alignment Construction
@@ -386,7 +342,6 @@ def create_rocs_scorer(
         color_ff="oe_mills_dean",  # standard
         n_jobs=get_safe_parallel_jobs(),
     )
-
 
 def create_environment(
     ref_sdf: str | Path,
