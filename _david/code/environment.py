@@ -225,7 +225,7 @@ class PrepareMolecule:
             if mol.GetAtomWithIdx(u).GetAtomicNum() != 6 or mol.GetAtomWithIdx(v).GetAtomicNum() != 6:
                 mol_rw.RemoveBond(u, v)
 
-        # Collect contiguous carbon clusters (ignoring heteroatoms)
+        # Collect contiguous carbon clusters (ignoring isolated heteroatoms)
         carbon_clusters = [
             set(frag) for frag in Chem.GetMolFrags(mol_rw, asMols=False)
             if mol.GetAtomWithIdx(frag[0]).GetAtomicNum() == 6
