@@ -23,6 +23,21 @@ DEFAULT_MOLECULE: str = (
 )
 
 class PrepareMolecule:
+
+    def __init__(
+        self,
+        num_conformers: int = 100,
+        random_seed: int = 42,
+        min_branch_size: int = 2,
+        max_heteroatom_chain: int = 2,
+        include_unsaturated: bool = False,
+    ) -> None:
+        self.num_conformers = num_conformers
+        self.random_seed = random_seed
+        self.min_branch_size = min_branch_size
+        self.max_heteroatom_chain = max_heteroatom_chain
+        self.include_unsaturated = include_unsaturated
+
     # [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
     def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
         # 1. Multi-Record Conformer Extraction
@@ -194,31 +209,54 @@ class PrepareMolecule:
         self,
         mol: Chem.Mol,
         min_branch_size: int = 2,
+        max_heteroatom_chain: int = 2,
         include_unsaturated: bool = False,
     ) -> list[int]:
         if not mol or mol.GetNumHeavyAtoms() == 0:
             return []
 
-        # 1. Prune Impassable Heteroatom Bonds via RDKit Native Graph Slicing
+        # 1. Prune Impassable Heteroatom Bonds via RDKit Native Fragment Slicing
         rw = Chem.RWMol(mol)
-        for b in mol.GetBonds():
+        for b in list(mol.GetBonds()):
             u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
             zu, zv = mol.GetAtomWithIdx(u).GetAtomicNum(), mol.GetAtomWithIdx(v).GetAtomicNum()
             if zu == 6 and zv == 6:
                 continue
 
             rw.RemoveBond(u, v)
-            frags = [set(f) for f in Chem.GetMolFrags(rw, asMols=False) if u in f or v in f][:2]
-            f_u, f_v = frags[0], frags[1] if len(frags) > 1 else frags[0]
-            u_ok = (zu == 6) or (len(f_u) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in f_u))
-            v_ok = (zv == 6) or (len(f_v) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in f_v))
+            frags = Chem.GetMolFrags(rw, asMols=False)
+            fu = next(f for f in frags if u in f)
+            fv = next(f for f in frags if v in f)
+
+            u_ok = (zu == 6) or (len(fu) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in fu))
+            v_ok = (zv == 6) or (len(fv) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in fv))
             if u_ok and v_ok:
                 rw.AddBond(u, v, b.GetBondType())
 
-        # 2. Extract Topological Backbone Diameter via Distance Matrix & ShortestPath
+        # 2. Extract Longest Passable Path Obeying Max Heteroatom Chain Length
         D = Chem.GetDistanceMatrix(rw)
-        i, j = np.unravel_index(np.argmax(np.where(D < 1e7, D, -1)), D.shape)
-        longest = list(Chem.rdmolops.GetShortestPath(rw, int(i), int(j)))
+        D[D > 1000] = 0
+        pairs = sorted(np.argwhere(D > 0), key=lambda p: D[p[0], p[1]], reverse=True)
+
+        longest: list[int] = []
+        for i, j in pairs:
+            path = list(Chem.rdmolops.GetShortestPath(rw, int(i), int(j)))
+            if len(path) <= len(longest):
+                break
+
+            # Check consecutive heteroatoms constraint
+            consec = max_consec = 0
+            for idx in path:
+                if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6:
+                    consec += 1
+                    max_consec = max(max_consec, consec)
+                else:
+                    consec = 0
+
+            if max_consec <= max_heteroatom_chain:
+                longest = path
+                break
+
         if not longest:
             longest = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6] or [a.GetIdx() for a in mol.GetAtoms()]
 
@@ -227,10 +265,9 @@ class PrepareMolecule:
         if include_unsaturated:
             for idx in longest:
                 for b in mol.GetAtomWithIdx(idx).GetBonds():
-                    if b.GetBondTypeAsDouble() > 1.0:
-                        other = b.GetOtherAtom(mol.GetAtomWithIdx(idx))
-                        if other.GetAtomicNum() in (7, 8, 16):
-                            scaffold.add(other.GetIdx())
+                    if b.GetBondTypeAsDouble() > 1.0 and b.GetOtherAtomIdx(idx) not in scaffold:
+                        if mol.GetAtomWithIdx(b.GetOtherAtomIdx(idx)).GetAtomicNum() in (7, 8, 16):
+                            scaffold.add(b.GetOtherAtomIdx(idx))
 
         return sorted(scaffold)
 
@@ -241,6 +278,7 @@ class PrepareMolecule:
         scaffold_type: str = "core_ring_system",  # active default
         isomeric: bool = False,
         min_branch_size: int = 2,
+        max_heteroatom_chain: int = 2,
         include_unsaturated: bool = False,
     ) -> str:
         # 1. Input Loading & Hydrogen Stripping
@@ -266,7 +304,10 @@ class PrepareMolecule:
         else:
             # 3. Acyclic Fallback: Continuous Heavy-Atom Backbone Scaffold with Passable Linkers
             chain_atoms = self.get_acyclic_backbone_scaffold(
-                mol_no_h, min_branch_size=min_branch_size, include_unsaturated=include_unsaturated
+                mol_no_h,
+                min_branch_size=min_branch_size,
+                max_heteroatom_chain=max_heteroatom_chain,
+                include_unsaturated=include_unsaturated,
             )
             scaff_smi = Chem.MolFragmentToSmiles(
                 mol_no_h, atomsToUse=chain_atoms, isomericSmiles=isomeric

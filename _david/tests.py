@@ -187,6 +187,14 @@ class TestLBDDPipeline(unittest.TestCase):
             smi_peptide = self.preparer.extract_seed_core_scaffold("CC(=O)NCC(=O)O", include_unsaturated=True)
             self.assertEqual(smi_peptide, "CC(=O)NCC=O")
 
+            # Consecutive heteroatom chain limit (default 2 stops traversing across 3+ consecutive heteroatoms)
+            smi_triazane = self.preparer.extract_seed_core_scaffold("CCCCNNNCCCC")
+            self.assertEqual(smi_triazane, "CCCCNN")
+
+            # Allowing 3 consecutive heteroatoms traverses full chain
+            smi_triazane_3 = self.preparer.extract_seed_core_scaffold("CCCCNNNCCCC", max_heteroatom_chain=3)
+            self.assertEqual(smi_triazane_3, "CCCCNNNCCCC")
+
     def test_load_query_molecule(self) -> None:
         mol, is_3d = self.preparer.load_query_molecule("c1ccccc1O")
         self.assertFalse(is_3d)
