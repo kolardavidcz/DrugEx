@@ -182,7 +182,7 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(row[4], "2")
 
             smi_acyclic = extract_seed_core_scaffold("CCCCCC(=O)O")
-            self.assertEqual(smi_acyclic, "CCCCCC(=O)O")
+            self.assertEqual(smi_acyclic, "CCCCCC")
 
     def test_load_query_molecule(self) -> None:
         from _david.code.environment import load_query_molecule

@@ -188,6 +188,71 @@ def generate_reference_conformers(
     return target_path
 
 
+# [PACKAGE: rdkit.Chem] WHY: Tree diameter extraction for acyclic aliphatic backbone. WHAT: Longest carbon chain. HOW: Double BFS.
+def get_longest_carbon_chain(mol: Chem.Mol) -> list[int]:
+    # 1. Induce Carbon-Only Subgraph Indices
+    carbon_indices = {a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6}
+    if not carbon_indices:
+        return [a.GetIdx() for a in mol.GetAtoms()]
+
+    # 2. Build Carbon-Carbon Adjacency Graph
+    adj: dict[int, list[int]] = {idx: [] for idx in carbon_indices}
+    for idx in carbon_indices:
+        atom = mol.GetAtomWithIdx(idx)
+        for nbr in atom.GetNeighbors():
+            n_idx = nbr.GetIdx()
+            if n_idx in carbon_indices:
+                adj[idx].append(n_idx)
+
+    # 3. Find Largest Connected Carbon Component
+    visited: set[int] = set()
+    components: list[list[int]] = []
+    for idx in carbon_indices:
+        if idx not in visited:
+            comp: list[int] = []
+            queue: list[int] = [idx]
+            visited.add(idx)
+            for curr in queue:
+                comp.append(curr)
+                for nbr in adj[curr]:
+                    if nbr not in visited:
+                        visited.add(nbr)
+                        queue.append(nbr)
+            components.append(comp)
+
+    largest_comp = max(components, key=len)
+    if len(largest_comp) <= 1:
+        return largest_comp
+
+    # 4. Double-BFS Tree Diameter Extraction
+    def bfs_farthest(start: int, comp_set: set[int]) -> tuple[int, dict[int, int | None]]:
+        queue: list[int] = [start]
+        parent: dict[int, int | None] = {start: None}
+        dist: dict[int, int] = {start: 0}
+        farthest = start
+        for curr in queue:
+            if dist[curr] > dist[farthest]:
+                farthest = curr
+            for nbr in adj[curr]:
+                if nbr in comp_set and nbr not in parent:
+                    parent[nbr] = curr
+                    dist[nbr] = dist[curr] + 1
+                    queue.append(nbr)
+        return farthest, parent
+
+    comp_set = set(largest_comp)
+    u, _ = bfs_farthest(largest_comp[0], comp_set)
+    v, parent_map = bfs_farthest(u, comp_set)
+
+    # 5. Reconstruct Simple Path from v to u
+    path: list[int] = []
+    curr: int | None = v
+    while curr is not None:
+        path.append(curr)
+        curr = parent_map[curr]
+    return path
+
+
 def extract_seed_core_scaffold(
     query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
     output_path: Path | str | None = None,
@@ -215,8 +280,11 @@ def extract_seed_core_scaffold(
             mol_no_h, atomsToUse=list(core_atoms), isomericSmiles=isomeric
         )
     else:
-        # Acyclic fallback: preserve full molecular framework
-        scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
+        # 3. Acyclic Fallback: Longest Carbon Chain (Aliphatic Backbone Scaffold)
+        chain_atoms = get_longest_carbon_chain(mol_no_h)
+        scaff_smi = Chem.MolFragmentToSmiles(
+            mol_no_h, atomsToUse=chain_atoms, isomericSmiles=isomeric
+        )
 
     # 4. Bulletproof Sanitization Pass
     scaff_mol = Chem.MolFromSmiles(scaff_smi)
