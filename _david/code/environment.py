@@ -248,8 +248,11 @@ class PrepareMolecule:
         while added_cluster and unconnected:
             added_cluster = False
 
-            # Fast atom -> cluster lookup
-            atom_to_cluster = {atom: c for c in unconnected for atom in c}
+            # Inverted index: map each atom in unconnected clusters to its parent cluster for O(1) lookup
+            atom_to_cluster: dict[int, set[int]] = {}
+            for cluster in unconnected:
+                for atom_idx in cluster:
+                    atom_to_cluster[atom_idx] = cluster
 
             # Multi-source BFS starting from current scaffold carbons
             queue: deque[tuple[int, int, list[int]]] = deque()
