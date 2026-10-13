@@ -222,19 +222,18 @@ class PrepareMolecule:
             return mol.GetAtomWithIdx(idx).GetAtomicNum() == 6
 
         # 1. Pure carbon clusters: sever every bond that is not C-C
-        rw = Chem.RWMol(mol)
+        carbon_only = Chem.RWMol(mol)
         for b in mol.GetBonds():
             u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
             if not (is_carbon(u) and is_carbon(v)):
-                rw.RemoveBond(u, v)
+                carbon_only.RemoveBond(u, v)
 
         clusters = [
-            set(frag) for frag in Chem.GetMolFrags(rw)
-            if is_carbon(frag[0])
+            set(frag) for frag in Chem.GetMolFrags(carbon_only) if is_carbon(frag[0])
         ]
 
         # 2. Prune single-atom carbon caps (e.g. -O-CH3) unless nothing larger exists
-        clusters = [c for c in clusters if len(c) >= min_cluster_size] or clusters
+        clusters = [c for c in clusters if len(c) >= min_cluster_size] or clusters #! clusters is alywas (for next if)
         if not clusters:
             return [atom.GetIdx() for atom in mol.GetAtoms()]
 
