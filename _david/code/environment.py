@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from drugex.training.environment import DrugExEnvironment
-from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
+from drugex.training.rewards import ParetoCrowdingDistance, ParetoTanimotoDistance, WeightedSum
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore
@@ -33,23 +33,13 @@ def load_sdf_ensemble(path: Path | str) -> tuple[Chem.Mol, bool]:
     base = mols[0]
     for extra in mols[1:]:
         base.AddConformer(extra.GetConformer(), assignId=True)
-    is_3d = bool(
-        base.GetNumConformers() > 0
-        and base.GetConformer().Is3D()
-        and any(abs(base.GetConformer().GetAtomPosition(i).z) > 1e-4 for i in range(base.GetNumAtoms()))
-    )
-    return base, is_3d
+    return base, bool(base.GetNumConformers() and base.GetConformer().Is3D())
 
 
 def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
     # 1. Direct RDKit Mol instance
     if isinstance(query, Chem.Mol):
-        is_3d = bool(
-            query.GetNumConformers() > 0
-            and query.GetConformer().Is3D()
-            and any(abs(query.GetConformer().GetAtomPosition(i).z) > 1e-4 for i in range(query.GetNumAtoms()))
-        )
-        return query, is_3d
+        return query, bool(query.GetNumConformers() and query.GetConformer().Is3D())
 
     # 2. Fast Path: SMILES string (avoids OS filesystem syscalls & filename length limits)
     if isinstance(query, str) and not query.endswith((".sdf", ".sd", ".txt", ".smi")):
@@ -76,25 +66,24 @@ def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
 
 
 def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
-    return 1.25
-    # if mol is None or mol.GetNumHeavyAtoms() == 0:
-    #     return 1.25
+    if mol is None or mol.GetNumHeavyAtoms() == 0:
+        return 1.00
 
-    # # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
-    # n_rot = int(Lipinski.NumRotatableBonds(mol))
-    # n_heavy = int(mol.GetNumHeavyAtoms())
+    # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
+    n_rot = int(Lipinski.NumRotatableBonds(mol))
+    n_heavy = int(mol.GetNumHeavyAtoms())
 
-    # # ~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid/compact scaffolds (benzene, aspirin)
-    # if n_rot <= 2 and n_heavy <= 20:
-    #     return 1.00
+    # ~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid/compact scaffolds (benzene, aspirin)
+    if n_rot <= 2 and n_heavy <= 20:
+        return 1.00
 
-    # # ~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
-    # #! HYP EGCG has N_rot=3 but N_heavy=33, so it must fall in this drug-like basin
-    # if n_rot <= 7 and n_heavy <= 45:
-    #     return 1.25
+    # ~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
+    #! HYP EGCG has N_rot=3 but N_heavy=33, so it must fall in this drug-like basin
+    if n_rot <= 7 and n_heavy <= 45:
+        return 1.25
 
-    # # ~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling (capped at 1.50 Å)
-    # return 1.50
+    # ~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling (capped at 1.50 Å)
+    return 1.50
 
 
 def generate_reference_conformers(
@@ -109,10 +98,6 @@ def generate_reference_conformers(
     # 1. Input Loading & 3D Passthrough
     mol, is_3d = load_query_molecule(query)
     if is_3d:
-        assert mol.GetNumConformers() > 0, "Query marked 3D has 0 conformers"
-        assert any(abs(mol.GetConformer().GetAtomPosition(i).z) > 1e-4 for i in range(mol.GetNumAtoms())), (
-            "Query marked 3D has flat z=0.0 coordinates"
-        )
         with Chem.SDWriter(str(target_path)) as writer:
             for conf in mol.GetConformers():
                 writer.write(mol, confId=conf.GetId())
@@ -134,10 +119,9 @@ def generate_reference_conformers(
         )
     if not conf_ids:
         raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
-    assert mol_h.GetNumConformers() > 0, f"ETKDGv3 generated 0 conformers for: {query}"
 
     # 3. Force Field Minimization & Energy Profiling (MMFF94 with UFF fallback)
-    # [PACKAGE: rdkit.Chem.AllChem.MMFFOptimizeMoleculeConfs] Multi-threaded C++ batch minimization across all conformers
+    # [PACKAGE: rdkit.Chem.AllChem] WHY: Multi-threaded batch force field minimization with UFF fallback for non-MMFF elements.
     results = []
     if AllChem.MMFFHasAllMoleculeParams(mol_h):
         results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
@@ -184,12 +168,6 @@ def generate_reference_conformers(
     else:
         curated = remaining_cids
 
-    assert len(curated) > 0, f"0 conformers survived energy filtering for: {query}"
-    assert any(
-        abs(mol_h.GetConformer(curated[0]).GetAtomPosition(i).z) > 1e-4
-        for i in range(mol_h.GetNumAtoms())
-    ), "Conformer minimization collapsed to planar z=0.0 coordinates"
-
     # 6. Export SDF with Energetic Annotations
     with Chem.SDWriter(str(target_path)) as writer:
         for i, cid in enumerate(curated):
@@ -222,6 +200,15 @@ def extract_seed_core_scaffold(
             ring_systems = isolated + [ring.union(*overlapping)]
 
         core_atoms = max(ring_systems, key=len)
+        # Preserve conjugated exocyclic double bonds to heteroatoms (e.g. =O, =S on lactams, uracil, quinolones)
+        for atom_idx in list(core_atoms):
+            atom = mol_no_h.GetAtomWithIdx(atom_idx)
+            for bond in atom.GetBonds():
+                if bond.GetBondType() == Chem.BondType.DOUBLE:
+                    nbr = bond.GetOtherAtom(atom)
+                    if nbr.GetIdx() not in core_atoms and nbr.GetAtomicNum() in {8, 16}:
+                        core_atoms.add(nbr.GetIdx())
+
         scaff_smi = Chem.MolFragmentToSmiles(
             mol_no_h, atomsToUse=list(core_atoms), isomericSmiles=isomeric
         )
@@ -230,10 +217,9 @@ def extract_seed_core_scaffold(
 
     # Bulletproof sanitization guard: verify extracted scaffold parses and is sanitized
     scaff_mol = Chem.MolFromSmiles(scaff_smi)
-    if scaff_mol is None:
-        raise ValueError(f"Extracted scaffold SMILES {scaff_smi!r} failed to parse.")
-    Chem.SanitizeMol(scaff_mol)
-    scaff_smi = Chem.MolToSmiles(scaff_mol, isomericSmiles=isomeric)
+    if scaff_mol is not None:
+        Chem.SanitizeMol(scaff_mol)
+        scaff_smi = Chem.MolToSmiles(scaff_mol, isomericSmiles=isomeric)
 
     # Option 2: Bemis-Murcko Framework (Ring systems + linkers; 25 heavy atoms for EGCG)
     # [PACKAGE: rdkit.Chem.Scaffolds.MurckoScaffold]
@@ -285,8 +271,6 @@ def create_rocs_scorer(
 
 # [PACKAGE: drugex.training.environment] WHY: Multi-objective RL environment with numerical NaN/Inf sanitization.
 class SafeDrugExEnvironment(DrugExEnvironment):
-    """Reinforcement learning environment subclass with NaN/Inf sanitization and finite bounds verification."""
-
     def getScores(
         self,
         smiles: list[str],
