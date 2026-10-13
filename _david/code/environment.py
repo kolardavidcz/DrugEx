@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.rewards import ParetoCrowdingDistance, ParetoTanimotoDistance, WeightedSum
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
@@ -269,33 +268,10 @@ def create_rocs_scorer(
     )
 
 
-# [PACKAGE: drugex.training.environment] WHY: Multi-objective RL environment with numerical NaN/Inf sanitization.
-class SafeDrugExEnvironment(DrugExEnvironment):
-    def getScores(
-        self,
-        smiles: list[str],
-        frags: list[str] | None = None,
-        no_multifrag_smiles: bool = True,
-    ) -> pd.DataFrame:
-        scores = super().getScores(
-            smiles, frags=frags, no_multifrag_smiles=no_multifrag_smiles
-        )
-        keys = self.getScorerKeys()
-        # [PACKAGE: pandas] WHY: Sanitize numerical anomalies from unminimizable conformers or extreme modifiers.
-        scores[keys] = scores[keys].fillna(0.0).replace([np.inf, -np.inf], 0.0)
-        scores[keys] = scores[keys].clip(lower=0.0, upper=1.0)
-        undesire = scores[keys] < self.thresholds
-        scores["Desired"] = (undesire.sum(axis=1) == 0).astype(int)
-        assert np.isfinite(
-            scores[keys].to_numpy()
-        ).all(), "Non-finite scores detected in environment"
-        return scores
-
-
 def create_environment(
     ref_sdf: str | Path,
     epsilon: float = 0.2,
-) -> tuple[SafeDrugExEnvironment, float]:
+) -> tuple[DrugExEnvironment, float]:
     rocs_scorer = create_rocs_scorer(ref_sdf)
     rocs_scorer.modifier = ClippedScore(
         lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0
@@ -309,7 +285,7 @@ def create_environment(
     scorers: list[Scorer] = [rocs_scorer, sa_scorer]
     thresholds: list[float] = [0.25, 0.25]
 
-    env = SafeDrugExEnvironment(
+    env = DrugExEnvironment(
         scorers=scorers,
         thresholds=thresholds,
         reward_scheme=ParetoCrowdingDistance(),
