@@ -158,12 +158,12 @@ def generate_reference_conformers(
             rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True
         )
 
-        # Select thermodynamic minimum within each conformational basin
-        curated = [
-            min([remaining_cids[i] for i in cluster], key=lambda c: energies[c])
-            for cluster in clusters
-        ]
-        curated.sort(key=lambda c: energies[c])
+        # Select lowest-energy conformer within each conformational basin
+        curated = []
+        for cluster in clusters:
+            basin_cids = [remaining_cids[i] for i in cluster]
+            curated.append(min(basin_cids, key=energies.get))
+        curated.sort(key=energies.get)
     else:
         curated = remaining_cids
 
@@ -192,6 +192,8 @@ def extract_seed_core_scaffold(
     ring_info = mol_no_h.GetRingInfo()
     atom_rings = [set(r) for r in ring_info.AtomRings()]
     if atom_rings:
+        
+        # 1. Get biggest ring system
         ring_systems: list[set[int]] = []
         for ring in atom_rings:
             overlapping = [sys for sys in ring_systems if sys & ring]
@@ -199,7 +201,7 @@ def extract_seed_core_scaffold(
             ring_systems = isolated + [ring.union(*overlapping)]
 
         core_atoms = max(ring_systems, key=len)
-        # Preserve conjugated exocyclic double bonds to heteroatoms (e.g. =O, =S on lactams, uracil, quinolones)
+        # 2. Preserve conjugated exocyclic double bonds to heteroatoms (e.g. =O, =S on lactams, uracil, quinolones)
         for atom_idx in list(core_atoms):
             atom = mol_no_h.GetAtomWithIdx(atom_idx)
             for bond in atom.GetBonds():
