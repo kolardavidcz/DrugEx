@@ -204,6 +204,19 @@ class PrepareMolecule:
         return output_path_real
 
 
+    def _is_branch_valid(
+        self,
+        mol: Chem.Mol,
+        atom_idx: int,
+        branch_atoms: tuple[int, ...],
+        min_branch_size: int,
+    ) -> bool:
+        """A branch is valid if anchored on carbon, or if it has >= min_branch_size atoms containing carbon."""
+        if mol.GetAtomWithIdx(atom_idx).GetAtomicNum() == 6:
+            return True
+        has_carbon = any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in branch_atoms)
+        return len(branch_atoms) >= min_branch_size and has_carbon
+
     def _is_passable_bridge(
         self,
         mol: Chem.Mol,
@@ -212,19 +225,22 @@ class PrepareMolecule:
         min_branch_size: int,
     ) -> bool:
         u, v = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-        zu, zv = mol.GetAtomWithIdx(u).GetAtomicNum(), mol.GetAtomWithIdx(v).GetAtomicNum()
-        if zu == 6 and zv == 6:
+
+        # 1. Carbon-carbon bonds are always passable
+        if mol.GetAtomWithIdx(u).GetAtomicNum() == 6 and mol.GetAtomWithIdx(v).GetAtomicNum() == 6:
             return True
 
-        # Temporarily cut bond to profile connected component sizes on each side
+        # 2. Temporarily snip the bond to inspect the resulting pieces
         rw.RemoveBond(u, v)
         frags = Chem.GetMolFrags(rw, asMols=False)
-        fu = next(f for f in frags if u in f)
-        fv = next(f for f in frags if v in f)
+        frag_u = next(f for f in frags if u in f)
+        frag_v = next(f for f in frags if v in f)
 
-        u_ok = (zu == 6) or (len(fu) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in fu))
-        v_ok = (zv == 6) or (len(fv) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in fv))
+        # 3. Check if both sides represent substantial carbon-containing branches
+        u_ok = self._is_branch_valid(mol, u, frag_u, min_branch_size)
+        v_ok = self._is_branch_valid(mol, v, frag_v, min_branch_size)
 
+        # 4. If both sides are valid, reconnect the bond; otherwise leave it severed
         if u_ok and v_ok:
             rw.AddBond(u, v, bond.GetBondType())
             return True
