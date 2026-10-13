@@ -172,19 +172,19 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(row[3], "10")
             self.assertEqual(row[4], "2")
 
-            # Acyclic fallback with unsaturated carbonyl preservation
+            # Acyclic fallback (defaults to carbon backbone when include_unsaturated=False)
             smi_acyclic = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O")
-            self.assertEqual(smi_acyclic, "CCCCCC=O")
+            self.assertEqual(smi_acyclic, "CCCCCC")
 
-            # Without unsaturated side groups: drops to pure carbon backbone
-            smi_pure_carbon = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O", include_unsaturated=False)
-            self.assertEqual(smi_pure_carbon, "CCCCCC")
+            # With unsaturated side groups: retains carbonyl =O
+            smi_with_carbonyl = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O", include_unsaturated=True)
+            self.assertEqual(smi_with_carbonyl, "CCCCCC=O")
 
-            # Heteroatom bridging linkers (ester & amide) traversal
-            smi_ester = self.preparer.extract_seed_core_scaffold("CCOC(=O)CC")
+            # Heteroatom bridging linkers (ester & amide) traversal with unsaturated appendages
+            smi_ester = self.preparer.extract_seed_core_scaffold("CCOC(=O)CC", include_unsaturated=True)
             self.assertEqual(smi_ester, "CCOC(=O)CC")
 
-            smi_peptide = self.preparer.extract_seed_core_scaffold("CC(=O)NCC(=O)O")
+            smi_peptide = self.preparer.extract_seed_core_scaffold("CC(=O)NCC(=O)O", include_unsaturated=True)
             self.assertEqual(smi_peptide, "CC(=O)NCC=O")
 
     def test_load_query_molecule(self) -> None:
@@ -254,7 +254,7 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertFalse(is_3d)
         self.assertEqual(mol.GetNumHeavyAtoms(), 7)
 
-        smi = custom_preparer.extract_seed_core_scaffold("CCOC(=O)CC")
+        smi = custom_preparer.extract_seed_core_scaffold("CCOC(=O)CC", include_unsaturated=True)
         self.assertEqual(smi, "CCOC(=O)CC")
 
 

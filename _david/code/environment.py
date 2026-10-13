@@ -189,49 +189,36 @@ class PrepareMolecule:
         return output_path_real
 
 
-    # [PACKAGE: rdkit.Chem.rdmolops] WHY: Continuous heavy-atom backbone with passable heteroatom bridges and unsaturated side groups. WHAT: Topological diameter. HOW: Subtree reachability & BFS.
+    # [PACKAGE: rdkit.Chem.rdmolops] WHY: Continuous heavy-atom backbone with passable heteroatom bridges and unsaturated side groups. WHAT: Topological diameter. HOW: RDKit RWMol bond pruning, distance matrix & GetShortestPath.
     def get_acyclic_backbone_scaffold(
         self,
         mol: Chem.Mol,
         min_branch_size: int = 2,
-        include_unsaturated: bool = True,
+        include_unsaturated: bool = False,
     ) -> list[int]:
         if not mol or mol.GetNumHeavyAtoms() == 0:
             return []
 
-        # 1. Admissible Passable Edges (Bridging Heteroatoms)
-        adj = {a.GetIdx(): [nbr.GetIdx() for nbr in a.GetNeighbors()] for a in mol.GetAtoms()}
-
-        def branch_ok(curr: int, parent: int) -> bool:
-            seen, stack = {parent}, [curr]
-            while stack:
-                node = stack.pop()
-                if node not in seen:
-                    seen.add(node)
-                    stack.extend(adj[node])
-            atoms = [mol.GetAtomWithIdx(i) for i in seen - {parent}]
-            return len(atoms) >= min_branch_size and any(a.GetAtomicNum() == 6 for a in atoms)
-
-        passable: dict[int, list[int]] = {}
+        # 1. Prune Impassable Heteroatom Bonds via RDKit Native Graph Slicing
+        rw = Chem.RWMol(mol)
         for b in mol.GetBonds():
             u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
             zu, zv = mol.GetAtomWithIdx(u).GetAtomicNum(), mol.GetAtomWithIdx(v).GetAtomicNum()
-            if (zu == 6 or branch_ok(u, v)) and (zv == 6 or branch_ok(v, u)):
-                passable.setdefault(u, []).append(v)
-                passable.setdefault(v, []).append(u)
+            if zu == 6 and zv == 6:
+                continue
 
-        # 2. Longest Passable Path (BFS)
-        longest: list[int] = []
-        for start in passable:
-            q, seen = [[start]], {start}
-            for path in q:
-                if len(path) > len(longest):
-                    longest = path
-                for nbr in passable.get(path[-1], []):
-                    if nbr not in seen:
-                        seen.add(nbr)
-                        q.append(path + [nbr])
+            rw.RemoveBond(u, v)
+            frags = [set(f) for f in Chem.GetMolFrags(rw, asMols=False) if u in f or v in f][:2]
+            f_u, f_v = frags[0], frags[1] if len(frags) > 1 else frags[0]
+            u_ok = (zu == 6) or (len(f_u) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in f_u))
+            v_ok = (zv == 6) or (len(f_v) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in f_v))
+            if u_ok and v_ok:
+                rw.AddBond(u, v, b.GetBondType())
 
+        # 2. Extract Topological Backbone Diameter via Distance Matrix & ShortestPath
+        D = Chem.GetDistanceMatrix(rw)
+        i, j = np.unravel_index(np.argmax(np.where(D < 1e7, D, -1)), D.shape)
+        longest = list(Chem.rdmolops.GetShortestPath(rw, int(i), int(j)))
         if not longest:
             longest = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6] or [a.GetIdx() for a in mol.GetAtoms()]
 
@@ -240,9 +227,10 @@ class PrepareMolecule:
         if include_unsaturated:
             for idx in longest:
                 for b in mol.GetAtomWithIdx(idx).GetBonds():
-                    if b.GetBondTypeAsDouble() > 1.0 and b.GetOtherAtomIdx(idx) not in scaffold:
-                        if mol.GetAtomWithIdx(b.GetOtherAtomIdx(idx)).GetAtomicNum() in (7, 8, 16):
-                            scaffold.add(b.GetOtherAtomIdx(idx))
+                    if b.GetBondTypeAsDouble() > 1.0:
+                        other = b.GetOtherAtom(mol.GetAtomWithIdx(idx))
+                        if other.GetAtomicNum() in (7, 8, 16):
+                            scaffold.add(other.GetIdx())
 
         return sorted(scaffold)
 
@@ -253,7 +241,7 @@ class PrepareMolecule:
         scaffold_type: str = "core_ring_system",  # active default
         isomeric: bool = False,
         min_branch_size: int = 2,
-        include_unsaturated: bool = True,
+        include_unsaturated: bool = False,
     ) -> str:
         # 1. Input Loading & Hydrogen Stripping
         mol, _ = self.load_query_molecule(query)
