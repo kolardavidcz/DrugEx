@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -233,7 +232,7 @@ class PrepareMolecule:
         ]
 
         # 2. Prune single-atom carbon caps (e.g. -O-CH3) unless nothing larger exists
-        clusters = [c for c in clusters if len(c) >= min_cluster_size] or clusters #! clusters is alywas (for next if)
+        clusters = [c for c in clusters if len(c) >= min_cluster_size] or clusters
         if not clusters:
             return [atom.GetIdx() for atom in mol.GetAtoms()]
 
