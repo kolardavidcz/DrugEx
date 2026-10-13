@@ -219,33 +219,53 @@ class PrepareMolecule:
             return []
 
         # 1. Pure Carbon Clusters: Sever non-C-C bonds to extract contiguous carbon components
-        mol_rw = Chem.RWMol(mol)
-        for b in list(mol.GetBonds()):
-            u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+        c_rw = Chem.RWMol(mol)
+        for bond in mol.GetBonds():
+            u = bond.GetBeginAtomIdx()
+            v = bond.GetEndAtomIdx()
             if mol.GetAtomWithIdx(u).GetAtomicNum() != 6 or mol.GetAtomWithIdx(v).GetAtomicNum() != 6:
-                mol_rw.RemoveBond(u, v)
+                c_rw.RemoveBond(u, v)
 
-        frags = [set(f) for f in Chem.GetMolFrags(mol_rw, asMols=False)]
-        c_clusters = [f for f in frags if any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in f)]
+        c_clusters: list[set[int]] = []
+        for frag in Chem.GetMolFrags(c_rw, asMols=False):
+            frag_set = set(frag)
+            has_carbon = False
+            for atom_idx in frag_set:
+                if mol.GetAtomWithIdx(atom_idx).GetAtomicNum() == 6:
+                    has_carbon = True
+                    break
+            if has_carbon:
+                c_clusters.append(frag_set)
 
         # 2. Prune Single-Atom Saturated Caps (e.g. -O-CH3) if larger clusters exist
-        max_len = max((len(f) for f in c_clusters), default=0)
-        if max_len >= min_cluster_size:
-            c_clusters = [f for f in c_clusters if len(f) >= min_cluster_size]
+        max_cluster_size = 0
+        for cluster in c_clusters:
+            if len(cluster) > max_cluster_size:
+                max_cluster_size = len(cluster)
+
+        if max_cluster_size >= min_cluster_size:
+            filtered_clusters: list[set[int]] = []
+            for cluster in c_clusters:
+                if len(cluster) >= min_cluster_size:
+                    filtered_clusters.append(cluster)
+            c_clusters = filtered_clusters
 
         if not c_clusters:
-            return [a.GetIdx() for a in mol.GetAtoms()]
+            return list(range(mol.GetNumAtoms()))
 
         # 3. BFS Spanning Tree Across <= max_heteroatom_chain Heteroatom Bridges
         c_clusters.sort(key=len, reverse=True)
         scaffold = set(c_clusters[0])
-        remaining = [set(c) for c in c_clusters[1:]]
+        remaining: list[set[int]] = []
+        for cluster in c_clusters[1:]:
+            remaining.append(set(cluster))
 
         added_new = True
         while added_new and remaining:
             added_new = False
             queue: deque[tuple[int, int, list[int]]] = deque()
             visited: set[int] = set()
+
             for c_idx in scaffold:
                 if mol.GetAtomWithIdx(c_idx).GetAtomicNum() == 6:
                     queue.append((c_idx, 0, []))
@@ -256,9 +276,13 @@ class PrepareMolecule:
 
             while queue and not found_target:
                 curr, consec_h, bridge = queue.popleft()
-                for nbr in [b.GetOtherAtomIdx(curr) for b in mol.GetAtomWithIdx(curr).GetBonds()]:
+                curr_atom = mol.GetAtomWithIdx(curr)
+
+                for bond in curr_atom.GetBonds():
+                    nbr = bond.GetOtherAtomIdx(curr)
                     if nbr in visited:
                         continue
+
                     # Check if neighbor touches an unvisited qualifying carbon cluster
                     for rem in remaining:
                         if nbr in rem:
@@ -267,10 +291,14 @@ class PrepareMolecule:
                             break
                     if found_target:
                         break
+
                     # Traverse heteroatoms if within the chain length budget
-                    if mol.GetAtomWithIdx(nbr).GetAtomicNum() != 6 and consec_h + 1 <= max_heteroatom_chain:
+                    nbr_atom = mol.GetAtomWithIdx(nbr)
+                    if nbr_atom.GetAtomicNum() != 6 and consec_h + 1 <= max_heteroatom_chain:
                         visited.add(nbr)
-                        queue.append((nbr, consec_h + 1, bridge + [nbr]))
+                        next_bridge = list(bridge)
+                        next_bridge.append(nbr)
+                        queue.append((nbr, consec_h + 1, next_bridge))
 
             if found_target and found_bridge is not None:
                 scaffold.update(found_bridge)
