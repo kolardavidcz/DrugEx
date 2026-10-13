@@ -219,13 +219,13 @@ class PrepareMolecule:
             return []
 
         # 1. Pure Carbon Clusters: Sever non-C-C bonds to extract contiguous carbon components
-        c_rw = Chem.RWMol(mol)
+        mol_rw = Chem.RWMol(mol)
         for b in list(mol.GetBonds()):
             u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
             if mol.GetAtomWithIdx(u).GetAtomicNum() != 6 or mol.GetAtomWithIdx(v).GetAtomicNum() != 6:
-                c_rw.RemoveBond(u, v)
+                mol_rw.RemoveBond(u, v)
 
-        frags = [set(f) for f in Chem.GetMolFrags(c_rw, asMols=False)]
+        frags = [set(f) for f in Chem.GetMolFrags(mol_rw, asMols=False)]
         c_clusters = [f for f in frags if any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in f)]
 
         # 2. Prune Single-Atom Saturated Caps (e.g. -O-CH3) if larger clusters exist
