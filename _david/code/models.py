@@ -13,9 +13,7 @@ from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
-from rdkit import Chem
-
-from _david.code.environment import extract_seed_core_scaffold
+from _david.code.environment import PrepareMolecule
 from _david.code.utils import get_safe_gpus
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
@@ -70,7 +68,7 @@ class GraphTransformerOptimizer:
                     scaffolds.append(parts[0])
 
         if not scaffolds:
-            scaffolds.append(extract_seed_core_scaffold(molecule_smiles))
+            scaffolds.append(PrepareMolecule().extract_seed_core_scaffold(molecule_smiles))
         n_repeats = max(1, n_prompts // len(scaffolds) + 1)
         expanded_prompts = (scaffolds * n_repeats)[:n_prompts]
         encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])

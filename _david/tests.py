@@ -13,11 +13,14 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from _david.code.analysis import AlignedDepicter, ParetoFrontier
-from _david.code.environment import create_environment, generate_reference_conformers
+from _david.code.environment import DEFAULT_MOLECULE, PrepareMolecule, create_environment
 from _david.code.pipeline import MoleculePipeline
 
 
 class TestLBDDPipeline(unittest.TestCase):
+
+    def setUp(self) -> None:
+        self.preparer = PrepareMolecule()
 
     def test_environment_creation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -37,7 +40,7 @@ class TestLBDDPipeline(unittest.TestCase):
     def test_conformer_generation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             ref_sdf = Path(tmp_dir) / "test_confs.sdf"
-            out = generate_reference_conformers("c1ccccc1O", output_path=ref_sdf, num_conformers=5)
+            out = self.preparer.generate_reference_conformers("c1ccccc1O", output_path=ref_sdf, num_conformers=5)
             self.assertTrue(out.exists())
             suppl = Chem.SDMolSupplier(str(out), removeHs=False)
             mols = [m for m in suppl if m is not None]
@@ -84,7 +87,7 @@ class TestLBDDPipeline(unittest.TestCase):
             tmp = Path(tmp_dir)
 
             ref_sdf = tmp / "ref.sdf"
-            generate_reference_conformers("c1ccccc1O", output_path=ref_sdf, num_conformers=3)
+            self.preparer.generate_reference_conformers("c1ccccc1O", output_path=ref_sdf, num_conformers=3)
             ref_png = render_reference_ensemble(ref_sdf, output_png=tmp / "ref_super.png")
             self.assertTrue(ref_png.exists())
 
@@ -147,17 +150,14 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertTrue(front_png.exists())
 
     def test_adaptive_rmsd_cutoff(self) -> None:
-        from _david.code.environment import get_adaptive_rmsd_cutoff
         m_rigid = Chem.MolFromSmiles("c1ccccc1")
-        self.assertEqual(get_adaptive_rmsd_cutoff(m_rigid), 1.25)
+        self.assertEqual(self.preparer.get_adaptive_rmsd_cutoff(m_rigid), 1.25)
 
     def test_seed_core_scaffold(self) -> None:
-        from _david.code.environment import extract_seed_core_scaffold, DEFAULT_MOLECULE
-
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_tsv = Path(tmp_dir) / "scaffold.tsv"
 
-            smi_core = extract_seed_core_scaffold(DEFAULT_MOLECULE, output_path=out_tsv)
+            smi_core = self.preparer.extract_seed_core_scaffold(DEFAULT_MOLECULE, output_path=out_tsv)
             mol_core = Chem.MolFromSmiles(smi_core)
             self.assertEqual(mol_core.GetNumHeavyAtoms(), 10)
             self.assertEqual(mol_core.GetRingInfo().NumRings(), 2)
@@ -172,39 +172,49 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(row[3], "10")
             self.assertEqual(row[4], "2")
 
-            smi_acyclic = extract_seed_core_scaffold("CCCCCC(=O)O")
-            self.assertEqual(smi_acyclic, "CCCCCC")
+            # Acyclic fallback with unsaturated carbonyl preservation
+            smi_acyclic = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O")
+            self.assertEqual(smi_acyclic, "CCCCCC=O")
+
+            # Without unsaturated side groups: drops to pure carbon backbone
+            smi_pure_carbon = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O", include_unsaturated=False)
+            self.assertEqual(smi_pure_carbon, "CCCCCC")
+
+            # Heteroatom bridging linkers (ester & amide) traversal
+            smi_ester = self.preparer.extract_seed_core_scaffold("CCOC(=O)CC")
+            self.assertEqual(smi_ester, "CCOC(=O)CC")
+
+            smi_peptide = self.preparer.extract_seed_core_scaffold("CC(=O)NCC(=O)O")
+            self.assertEqual(smi_peptide, "CC(=O)NCC=O")
 
     def test_load_query_molecule(self) -> None:
-        from _david.code.environment import load_query_molecule
-
-        mol, is_3d = load_query_molecule("c1ccccc1O")
+        mol, is_3d = self.preparer.load_query_molecule("c1ccccc1O")
         self.assertFalse(is_3d)
         self.assertEqual(mol.GetNumHeavyAtoms(), 7)
 
         # Long valid SMILES (> 255 chars) must not crash with OSError
-        mol_long, is_3d = load_query_molecule("C" * 260)
+        mol_long, is_3d = self.preparer.load_query_molecule("C" * 260)
         self.assertFalse(is_3d)
         self.assertEqual(mol_long.GetNumHeavyAtoms(), 260)
 
         # Invalid long string (> 255 chars) raises ValueError cleanly
         with self.assertRaises(ValueError):
-            load_query_molecule("INVALID" * 40)
+            self.preparer.load_query_molecule("INVALID" * 40)
 
         mol_input = Chem.MolFromSmiles("c1ccccc1")
-        mol_ret, is_3d = load_query_molecule(mol_input)
+        mol_ret, is_3d = self.preparer.load_query_molecule(mol_input)
         self.assertIs(mol_ret, mol_input)
         self.assertFalse(is_3d)
 
         mol_3d = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1"))
         AllChem.EmbedMolecule(mol_3d)
-        mol_ret_3d, is_3d = load_query_molecule(mol_3d)
+        mol_ret_3d, is_3d = self.preparer.load_query_molecule(mol_3d)
         self.assertTrue(is_3d)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             txt_path = Path(tmp_dir) / "query.txt"
             txt_path.write_text("c1ccccc1O  phenol\n", encoding="utf-8")
-            mol_from_file, is_3d = load_query_molecule(txt_path)
+            mol_from_file, is_3d = self.preparer.load_query_molecule(txt_path)
             self.assertFalse(is_3d)
             self.assertEqual(mol_from_file.GetNumHeavyAtoms(), 7)
 
@@ -212,33 +222,40 @@ class TestLBDDPipeline(unittest.TestCase):
             writer = Chem.SDWriter(str(sdf_path))
             writer.write(mol_3d)
             writer.close()
-            mol_from_sdf, is_3d = load_query_molecule(sdf_path)
+            mol_from_sdf, is_3d = self.preparer.load_query_molecule(sdf_path)
             self.assertTrue(is_3d)
 
             empty_path = Path(tmp_dir) / "empty.txt"
             empty_path.write_text("", encoding="utf-8")
             with self.assertRaises(ValueError):
-                load_query_molecule(empty_path)
+                self.preparer.load_query_molecule(empty_path)
 
     def test_flat_2d_conformer_rejection(self) -> None:
-        from _david.code.environment import load_query_molecule
-
         mol_2d = Chem.MolFromSmiles("c1ccccc1")
         AllChem.Compute2DCoords(mol_2d)
-        ret_mol, is_3d = load_query_molecule(mol_2d)
+        ret_mol, is_3d = self.preparer.load_query_molecule(mol_2d)
         self.assertFalse(is_3d, "Planar 2D conformer with z=0.0 must not be flagged as 3D")
 
     def test_unparameterized_element_uff_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_sdf = Path(tmp_dir) / "boronic.sdf"
             # Boronic acid is not parameterized in MMFF94 and triggers status -1
-            res = generate_reference_conformers("OB(O)c1ccccc1", output_path=out_sdf, num_conformers=3)
+            res = self.preparer.generate_reference_conformers("OB(O)c1ccccc1", output_path=out_sdf, num_conformers=3)
             self.assertTrue(res.exists())
             suppl = Chem.SDMolSupplier(str(res), removeHs=False)
             mols = [m for m in suppl if m is not None]
             self.assertGreater(len(mols), 0)
             energy = float(mols[0].GetProp("Energy_MMFF_kcal_mol"))
             self.assertGreater(energy, 0.0, "UFF fallback energy must be valid and positive")
+
+    def test_prepare_molecule_class(self) -> None:
+        custom_preparer = PrepareMolecule()
+        mol, is_3d = custom_preparer.load_query_molecule("c1ccccc1O")
+        self.assertFalse(is_3d)
+        self.assertEqual(mol.GetNumHeavyAtoms(), 7)
+
+        smi = custom_preparer.extract_seed_core_scaffold("CCOC(=O)CC")
+        self.assertEqual(smi, "CCOC(=O)CC")
 
 
 if __name__ == "__main__":

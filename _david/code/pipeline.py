@@ -12,9 +12,8 @@ from drugex.training.monitors import PeakRecoveryMonitor
 from _david.code.analysis import ResultAnalyzer
 from _david.code.environment import (
     DEFAULT_MOLECULE,
+    PrepareMolecule,
     create_environment,
-    extract_seed_core_scaffold,
-    generate_reference_conformers,
 )
 from _david.code.visualization import (
     render_epoch_pareto_evolution,
@@ -43,6 +42,7 @@ class MoleculePipeline:
         self.N_SAMPLES: int = 10 if self.MODE == "test" else n_samples
         self.GPU = gpu
         self.PATIENCE = patience
+        self.preparer: PrepareMolecule = PrepareMolecule()
 
         self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.BASE_OUTPUT_DIR: Path = Path(output_dir) if output_dir else (PROJECT_ROOT / "_david" / "output" / self.RUN_ID)
@@ -55,9 +55,9 @@ class MoleculePipeline:
         scaffold_tsv = ref_dir / "seed_core_scaffold.tsv"
 
         print(f"\n[Stage 0] Generating 3D reference conformers for: {molecule[:40]}...")
-        generate_reference_conformers(molecule, output_path=ref_sdf)
+        self.preparer.generate_reference_conformers(molecule, output_path=ref_sdf)
         render_reference_ensemble(ref_sdf, output_png=ref_png)
-        extract_seed_core_scaffold(molecule, output_path=scaffold_tsv)
+        self.preparer.extract_seed_core_scaffold(molecule, output_path=scaffold_tsv)
 
         stage1_dir = self.BASE_OUTPUT_DIR / "stage1_graph_transformer"
         stage1_dir.mkdir(parents=True, exist_ok=True)

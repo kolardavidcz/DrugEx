@@ -3,10 +3,9 @@ from __future__ import annotations
 from _david.code.analysis import ParetoFrontier, ResultAnalyzer
 from _david.code.environment import (
     DEFAULT_MOLECULE,
+    PrepareMolecule,
     create_environment,
     create_rocs_scorer,
-    extract_seed_core_scaffold,
-    generate_reference_conformers,
 )
 from _david.code.models import GraphTransformerOptimizer
 from _david.code.pipeline import MoleculePipeline
@@ -29,10 +28,9 @@ from _david.code.visualization import (
 
 __all__ = [
     "DEFAULT_MOLECULE",
+    "PrepareMolecule",
     "create_environment",
     "create_rocs_scorer",
-    "generate_reference_conformers",
-    "extract_seed_core_scaffold",
     "GraphTransformerOptimizer",
     "AlignedDepicter",
     "ParetoFrontier",

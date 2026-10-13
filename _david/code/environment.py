@@ -23,256 +23,345 @@ DEFAULT_MOLECULE: str = (
 )
 ROCS_TIMEOUT: int = 30
 
+class PrepareMolecule:
+    # [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
+    def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
+        # 1. Multi-Record Conformer Extraction
+        mols = [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m]
+        if not mols:
+            raise ValueError(f"No valid molecule in SDF: {path}")
 
-# [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
-def load_sdf_ensemble(path: Path | str) -> tuple[Chem.Mol, bool]:
-    # 1. Multi-Record Conformer Extraction
-    mols = [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m]
-    if not mols:
-        raise ValueError(f"No valid molecule in SDF: {path}")
+        # 2. Conformer Stitching onto Base Frame
+        base = mols[0]
+        for extra in mols[1:]:
+            base.AddConformer(extra.GetConformer(), assignId=True)
 
-    # 2. Conformer Stitching onto Base Frame
-    base = mols[0]
-    for extra in mols[1:]:
-        base.AddConformer(extra.GetConformer(), assignId=True)
-
-    # 3. 3D Dimensionality Verification
-    return base, bool(base.GetNumConformers() and base.GetConformer().Is3D())
+        # 3. 3D Dimensionality Verification
+        return base, bool(base.GetNumConformers() and base.GetConformer().Is3D())
 
 
-def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
-    # 1. Direct RDKit Mol instance
-    if isinstance(query, Chem.Mol):
-        return query, bool(query.GetNumConformers() and query.GetConformer().Is3D())
+    def load_query_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
+        # 1. Direct RDKit Mol instance
+        if isinstance(query, Chem.Mol):
+            return query, bool(query.GetNumConformers() and query.GetConformer().Is3D())
 
-    # 2. Fast Path: SMILES string (avoids OS filesystem syscalls & filename length limits)
-    if isinstance(query, str) and not query.endswith((".sdf", ".sd", ".txt", ".smi")):
-        mol = Chem.MolFromSmiles(query)
-        if mol:
-            return mol, False
-
-    # 3. File Resolution (Path object or path string)
-    try:
-        path = Path(query)
-        if path.is_file():
-            if path.suffix.lower() in {".sdf", ".sd"}:
-                return load_sdf_ensemble(path)
-            tokens = path.read_text(encoding="utf-8").split()
-            if not tokens:
-                raise ValueError(f"Empty molecule file: {path}")
-            mol = Chem.MolFromSmiles(tokens[0])
+        # 2. Fast Path: SMILES string (avoids OS filesystem syscalls & filename length limits)
+        if isinstance(query, str) and not query.endswith((".sdf", ".sd", ".txt", ".smi")):
+            mol = Chem.MolFromSmiles(query)
             if mol:
                 return mol, False
-    except OSError:
-        pass
 
-    raise ValueError(f"Could not parse molecule query: {query!r}")
+        # 3. File Resolution (Path object or path string)
+        try:
+            path = Path(query)
+            if path.is_file():
+                if path.suffix.lower() in {".sdf", ".sd"}:
+                    return self.load_sdf_ensemble(path)
+                tokens = path.read_text(encoding="utf-8").split()
+                if not tokens:
+                    raise ValueError(f"Empty molecule file: {path}")
+                mol = Chem.MolFromSmiles(tokens[0])
+                if mol:
+                    return mol, False
+        except OSError:
+            pass
 
-
-def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
-    return 1.25
-    # # 1. Null / Heavy Atom Guard
-    # if mol is None or mol.GetNumHeavyAtoms() == 0:
-    #     return 1.00
-
-    # # 2. Rotatable Bond & Heavy Atom Topology Profiling
-    # # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
-    # n_rot = int(Lipinski.NumRotatableBonds(mol))
-    # n_heavy = int(mol.GetNumHeavyAtoms())
-
-    # # 3. Rigid & Compact Scaffolds (<= 2 rotatable bonds, <= 20 heavy atoms; e.g. benzene, aspirin)
-    # # ~ [Ebejer et al., Conformer generation benchmarking, 2012]
-    # if n_rot <= 2 and n_heavy <= 20:
-    #     return 1.00
-
-    # # 4. Standard Drug-Like Ligands (<= 7 rotatable bonds, <= 45 heavy atoms; e.g. EGCG)
-    # # ~ [Hawkins, ROCS conformational ensemble benchmark, 2017]
-    # #! HYP EGCG has N_rot=3 but N_heavy=33, so it must fall in this drug-like basin
-    # if n_rot <= 7 and n_heavy <= 45:
-    #     return 1.25
-
-    # # 5. Flexible Chain Expansion Ceiling (capped at 1.50 Å)
-    # # ~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017]
-    # return 1.50
+        raise ValueError(f"Could not parse molecule query: {query!r}")
 
 
-def generate_reference_conformers(
-    query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
-    output_path: Path | str | None = None,
-    num_conformers: int = 100,  #! HYP could be bigger, like 200
-    random_seed: int = 42,
-) -> Path:
-    target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
-    target_path.parent.mkdir(parents=True, exist_ok=True)
+    def get_adaptive_rmsd_cutoff(self, mol: Chem.Mol) -> float:
+        return 1.25
+        # # 1. Null / Heavy Atom Guard
+        # if mol is None or mol.GetNumHeavyAtoms() == 0:
+        #     return 1.00
 
-    # 1. Input Loading & 3D Passthrough
-    mol, is_3d = load_query_molecule(query)
-    if is_3d:
-        with Chem.SDWriter(str(target_path)) as writer:
-            for conf in mol.GetConformers():
-                writer.write(mol, confId=conf.GetId())
-        return target_path
+        # # 2. Rotatable Bond & Heavy Atom Topology Profiling
+        # # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
+        # n_rot = int(Lipinski.NumRotatableBonds(mol))
+        # n_heavy = int(mol.GetNumHeavyAtoms())
 
-    # 2. ETKDGv3 Conformer Embedding
-    mol_h = Chem.AddHs(mol)
-    params = AllChem.ETKDGv3()
-    params.randomSeed = random_seed
-    params.pruneRmsThresh = 0.20  # since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
+        # # 3. Rigid & Compact Scaffolds (<= 2 rotatable bonds, <= 20 heavy atoms; e.g. benzene, aspirin)
+        # # ~ [Ebejer et al., Conformer generation benchmarking, 2012]
+        # if n_rot <= 2 and n_heavy <= 20:
+        #     return 1.00
 
-    conf_ids = list(
-        AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params)
-    )  # based on crystal predictions
-    if not conf_ids:
-        params.useRandomCoords = True  # based on random initial + gradient optimization
+        # # 4. Standard Drug-Like Ligands (<= 7 rotatable bonds, <= 45 heavy atoms; e.g. EGCG)
+        # # ~ [Hawkins, ROCS conformational ensemble benchmark, 2017]
+        # #! HYP EGCG has N_rot=3 but N_heavy=33, so it must fall in this drug-like basin
+        # if n_rot <= 7 and n_heavy <= 45:
+        #     return 1.25
+
+        # # 5. Flexible Chain Expansion Ceiling (capped at 1.50 Å)
+        # # ~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017]
+        # return 1.50
+
+
+    def generate_reference_conformers(
+        self,
+        query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
+        output_path: Path | str | None = None,
+        num_conformers: int = 100,  #! HYP could be bigger, like 200
+        random_seed: int = 42,
+    ) -> Path:
+        output_path_real = Path(output_path) if output_path else Path("reference_3d.sdf")
+        output_path_real.parent.mkdir(parents=True, exist_ok=True)
+
+        # 1. Input Loading & 3D Passthrough
+        mol, is_3d = self.load_query_molecule(query)
+        if is_3d:
+            with Chem.SDWriter(str(output_path_real)) as writer:
+                for conf in mol.GetConformers():
+                    writer.write(mol, confId=conf.GetId())
+            return output_path_real
+
+        # 2. ETKDGv3 Conformer Embedding
+        mol_h = Chem.AddHs(mol)
+        params = AllChem.ETKDGv3()
+        params.randomSeed = random_seed
+        params.pruneRmsThresh = 0.20  # since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
+
         conf_ids = list(
             AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params)
-        )
-    if not conf_ids:
-        raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
+        )  # based on crystal predictions
+        if not conf_ids:
+            params.useRandomCoords = True  # based on random initial + gradient optimization
+            conf_ids = list(
+                AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params)
+            )
+        if not conf_ids:
+            raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
 
-    # 3. Force Field Minimization & Energy Profiling (MMFF94 with UFF fallback)
-    # [PACKAGE: rdkit.Chem.AllChem] WHY: Multi-threaded batch force field minimization with UFF fallback for non-MMFF elements.
-    results = []
-    if AllChem.MMFFHasAllMoleculeParams(mol_h):
-        results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
-        if any(status == -1 for status, _ in results):
-            results = []
-    if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
-        results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
-        if any(status == -1 for status, _ in results):
-            results = []
-    if not results:
-        raise RuntimeError(f"Force field optimization failed for: {query}")
+        # 3. Force Field Minimization & Energy Profiling (MMFF94 with UFF fallback)
+        # [PACKAGE: rdkit.Chem.AllChem] WHY: Multi-threaded batch force field minimization with UFF fallback for non-MMFF elements.
+        results = []
+        if AllChem.MMFFHasAllMoleculeParams(mol_h):
+            results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+            if any(status == -1 for status, _ in results):
+                results = []
+        if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
+            results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+            if any(status == -1 for status, _ in results):
+                results = []
+        if not results:
+            raise RuntimeError(f"Force field optimization failed for: {query}")
 
-    energies = {cid: float(e) for cid, (_, e) in zip(conf_ids, results)}
+        energies = {cid: float(e) for cid, (_, e) in zip(conf_ids, results)}
 
-    # 4. Energy Window Filtering
-    # ~ [Hawkins, Physiological energy window, 2017] <= 8.0 kcal/mol window retains biologically accessible conformational basins
-    min_e = min(energies.values())
-    for cid, e in list(energies.items()):
-        if (e - min_e) > 8.0:
-            mol_h.RemoveConformer(cid)
-            del energies[cid]
+        # 4. Energy Window Filtering
+        # ~ [Hawkins, Physiological energy window, 2017] <= 8.0 kcal/mol window retains biologically accessible conformational basins
+        min_e = min(energies.values())
+        for cid, e in list(energies.items()):
+            if (e - min_e) > 8.0:
+                mol_h.RemoveConformer(cid)
+                del energies[cid]
 
-    # 5. Butina RMSD Basin Curation
-    # ~ [Hawkins, Basin curation via Butina clustering, 2017] Adaptive cutoff isolates distinct conformational basins
-    remaining_cids = list(energies.keys())
-    if len(remaining_cids) > 1:
-        # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD
-        cutoff = get_adaptive_rmsd_cutoff(mol_h)
-        # [PACKAGE: rdkit.Chem.AllChem.GetConformerRMSMatrix] Heavy-atom RMSD (Z > 1) prevents rotating Hs from splitting basins
-        heavy_atom_ids = [a.GetIdx() for a in mol_h.GetAtoms() if a.GetAtomicNum() > 1]
-        rms_matrix = AllChem.GetConformerRMSMatrix(
-            mol_h, atomIds=heavy_atom_ids, prealigned=False
-        )
-        clusters = Butina.ClusterData(
-            rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True
-        )
-
-        # Select lowest-energy conformer within each conformational basin
-        curated = []
-        for cluster in clusters:
-            basin_cids = [remaining_cids[i] for i in cluster]
-            curated.append(min(basin_cids, key=energies.get))
-        curated.sort(key=energies.get)
-    else:
-        curated = remaining_cids
-
-    # 6. Export SDF with Energetic Annotations
-    with Chem.SDWriter(str(target_path)) as writer:
-        for i, cid in enumerate(curated):
-            mol_h.SetProp("_Name", f"Conformer_{i + 1}")
-            mol_h.SetDoubleProp("Energy_MMFF_kcal_mol", energies[cid])
-            mol_h.SetDoubleProp("DeltaE_kcal_mol", energies[cid] - min_e)
-            writer.write(mol_h, confId=cid)
-
-    return target_path
-
-
-# [PACKAGE: rdkit.Chem.rdmolops] WHY: Find topological diameter of acyclic carbon graph. WHAT: Longest contiguous carbon chain. HOW: GetShortestPath.
-def get_longest_carbon_chain(mol: Chem.Mol) -> list[int]:
-    # 1. Induce Carbon Atom Indices
-    carbons = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6]
-    if not carbons:
-        return [a.GetIdx() for a in mol.GetAtoms()]
-
-    # 2. Pairwise Shortest Path Scan for Longest Contiguous Carbon Chain
-    longest: list[int] = [carbons[0]]
-    for i in range(len(carbons)):
-        for j in range(i + 1, len(carbons)):
-            path = Chem.rdmolops.GetShortestPath(mol, carbons[i], carbons[j])
-            if len(path) > len(longest) and all(mol.GetAtomWithIdx(k).GetAtomicNum() == 6 for k in path):
-                longest = list(path)
-    return longest
-
-
-def extract_seed_core_scaffold(
-    query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
-    output_path: Path | str | None = None,
-    scaffold_type: str = "core_ring_system",  # active default
-    isomeric: bool = False,
-) -> str:
-    # 1. Input Loading & Hydrogen Stripping
-    mol, _ = load_query_molecule(query)
-    mol_no_h = Chem.RemoveHs(mol)
-
-    # 2. Ring System Detection & Union
-    # [PACKAGE: rdkit.Chem.MolFragmentToSmiles] Extract SMILES of largest contiguous ring system directly from atom indices
-    ring_info = mol_no_h.GetRingInfo()
-    atom_rings = [set(r) for r in ring_info.AtomRings()]
-    if atom_rings:
-        ring_systems: list[set[int]] = []
-        for ring in atom_rings:
-            overlapping = [sys for sys in ring_systems if sys & ring]
-            isolated = [sys for sys in ring_systems if not (sys & ring)]
-            ring_systems = isolated + [ring.union(*overlapping)]
-
-        # 3. Subgraph Extraction for Largest Contiguous Core
-        core_atoms = max(ring_systems, key=len)
-        scaff_smi = Chem.MolFragmentToSmiles(
-            mol_no_h, atomsToUse=list(core_atoms), isomericSmiles=isomeric
-        )
-    else:
-        # 3. Acyclic Fallback: Longest Carbon Chain (Aliphatic Backbone Scaffold)
-        chain_atoms = get_longest_carbon_chain(mol_no_h)
-        scaff_smi = Chem.MolFragmentToSmiles(
-            mol_no_h, atomsToUse=chain_atoms, isomericSmiles=isomeric
-        )
-
-    # 4. Bulletproof Sanitization Pass
-    scaff_mol = Chem.MolFromSmiles(scaff_smi)
-    if scaff_mol is not None:
-        Chem.SanitizeMol(scaff_mol)
-        scaff_smi = Chem.MolToSmiles(scaff_mol, isomericSmiles=isomeric)
-
-    # Option 2: Bemis-Murcko Framework (Ring systems + linkers; 25 heavy atoms for EGCG)
-    # [PACKAGE: rdkit.Chem.Scaffolds.MurckoScaffold]
-    # scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
-    # scaff_smi = Chem.MolToSmiles(scaff, isomericSmiles=isomeric) if (scaff and scaff.GetNumHeavyAtoms() > 0) else Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-
-    # Option 3: Minimal Elementary Ring (Single smallest ring, e.g. benzene 6 atoms)
-    # [PACKAGE: rdkit.Chem.MolFragmentToSmiles]
-    # min_ring = min(atom_rings, key=len) if atom_rings else set()
-    # scaff_smi = Chem.MolFragmentToSmiles(mol_no_h, atomsToUse=list(min_ring), isomericSmiles=isomeric) if min_ring else Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-
-    # Option 4: SequenceRNN (Unconditional Ex Nihilo / 0 atoms)
-    # SequenceRNN does not require an input scaffold seed; it samples de novo from <START> or can take leads from a previous GraphTransformer run.
-    # scaff_smi = ""
-
-    # 5. Optional Metadata & TSV Export
-    if output_path:
-        target = Path(output_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        scaff_mol = Chem.MolFromSmiles(scaff_smi)
-        n_heavy = scaff_mol.GetNumHeavyAtoms() if scaff_mol else 0
-        n_rings = scaff_mol.GetRingInfo().NumRings() if scaff_mol else 0
-        with open(target, "w", encoding="utf-8") as f:
-            f.write("Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings\n")
-            f.write(
-                f"{scaff_smi}\t{str(query)}\t{scaffold_type}\t{n_heavy}\t{n_rings}\n"
+        # 5. Butina RMSD Basin Curation
+        # ~ [Hawkins, Basin curation via Butina clustering, 2017] Adaptive cutoff isolates distinct conformational basins
+        remaining_cids = list(energies.keys())
+        if len(remaining_cids) > 1:
+            # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD
+            cutoff = self.get_adaptive_rmsd_cutoff(mol_h)
+            # [PACKAGE: rdkit.Chem.AllChem.GetConformerRMSMatrix] Heavy-atom RMSD (Z > 1) prevents rotating Hs from splitting basins
+            heavy_atom_ids = [a.GetIdx() for a in mol_h.GetAtoms() if a.GetAtomicNum() > 1]
+            rms_matrix = AllChem.GetConformerRMSMatrix(
+                mol_h, atomIds=heavy_atom_ids, prealigned=False
+            )
+            clusters = Butina.ClusterData(
+                rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True
             )
 
-    return scaff_smi
+            # Select lowest-energy conformer within each conformational basin
+            curated = []
+            for cluster in clusters:
+                basin_cids = [remaining_cids[i] for i in cluster]
+                curated.append(min(basin_cids, key=energies.get))
+            curated.sort(key=energies.get)
+        else:
+            curated = remaining_cids
+
+        # 6. Export SDF with Energetic Annotations
+        with Chem.SDWriter(str(output_path_real)) as writer:
+            for i, cid in enumerate(curated):
+                mol_h.SetProp("_Name", f"Conformer_{i + 1}")
+                mol_h.SetDoubleProp("Energy_MMFF_kcal_mol", energies[cid])
+                mol_h.SetDoubleProp("DeltaE_kcal_mol", energies[cid] - min_e)
+                writer.write(mol_h, confId=cid)
+
+        return output_path_real
+
+
+    # [PACKAGE: rdkit.Chem.rdmolops] WHY: Continuous heavy-atom backbone extraction with passable heteroatom bridges. WHAT: Longest path through carbons and bridging heteroatoms with significant unsaturated appendages. HOW: Subtree size branch filtering & diameter search.
+    def get_acyclic_backbone_scaffold(
+        self,
+        mol: Chem.Mol,
+        min_branch_size: int = 2,
+        include_unsaturated: bool = True,
+    ) -> list[int]:
+        # 1. Null Guard & Trivial Molecule Passthrough
+        if mol is None or mol.GetNumHeavyAtoms() == 0:
+            return []
+        num_atoms = mol.GetNumAtoms()
+        if num_atoms <= 2:
+            return [a.GetIdx() for a in mol.GetAtoms()]
+
+        # 2. Graph Adjacency Construction
+        adj: dict[int, list[int]] = {i: [] for i in range(num_atoms)}
+        for b in mol.GetBonds():
+            u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            adj[u].append(v)
+            adj[v].append(u)
+
+        def _get_subtree_info(start: int, parent: int) -> tuple[int, bool]:
+            visited = {parent}
+            stack = [start]
+            count = 0
+            has_carbon = False
+            while stack:
+                curr = stack.pop()
+                if curr in visited:
+                    continue
+                visited.add(curr)
+                count += 1
+                if mol.GetAtomWithIdx(curr).GetAtomicNum() == 6:
+                    has_carbon = True
+                for nbr in adj[curr]:
+                    if nbr not in visited:
+                        stack.append(nbr)
+            return count, has_carbon
+
+        # 3. Admissible Passable Bond Identification (Bridging Heteroatoms)
+        passable_edges: list[tuple[int, int]] = []
+        for b in mol.GetBonds():
+            u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            z_u = mol.GetAtomWithIdx(u).GetAtomicNum()
+            z_v = mol.GetAtomWithIdx(v).GetAtomicNum()
+
+            if z_u == 6 and z_v == 6:
+                passable_edges.append((u, v))
+                continue
+
+            size_u, c_u = _get_subtree_info(u, v)
+            size_v, c_v = _get_subtree_info(v, u)
+
+            # Bridge requires sufficient branch depth and carbon presence on both sides
+            u_valid = (z_u == 6) or (size_u >= min_branch_size and c_u)
+            v_valid = (z_v == 6) or (size_v >= min_branch_size and c_v)
+            if u_valid and v_valid:
+                passable_edges.append((u, v))
+
+        # 4. Longest Passable Path Search (Topological Backbone Diameter)
+        g_pass: dict[int, list[int]] = {i: [] for i in range(num_atoms)}
+        for u, v in passable_edges:
+            g_pass[u].append(v)
+            g_pass[v].append(u)
+
+        longest_path: list[int] = []
+        for start in range(num_atoms):
+            queue = [(start, [start])]
+            visited = {start}
+            while queue:
+                curr, path = queue.pop(0)
+                if len(path) > len(longest_path):
+                    longest_path = path
+                for nbr in g_pass[curr]:
+                    if nbr not in visited:
+                        visited.add(nbr)
+                        queue.append((nbr, path + [nbr]))
+
+        if not longest_path:
+            carbons = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6]
+            longest_path = carbons if carbons else [a.GetIdx() for a in mol.GetAtoms()]
+
+        scaffold_atoms = set(longest_path)
+
+        # 5. Significant Unsaturated Side Groups Preservation (Ketones, Anhydrides, Imines, Sulfones)
+        if include_unsaturated:
+            for idx in longest_path:
+                atom = mol.GetAtomWithIdx(idx)
+                for b in atom.GetBonds():
+                    if b.GetBondType() in (Chem.BondType.DOUBLE, Chem.BondType.TRIPLE):
+                        other = b.GetOtherAtom(atom)
+                        if other.GetAtomicNum() in (7, 8, 16):
+                            scaffold_atoms.add(other.GetIdx())
+
+        return sorted(scaffold_atoms)
+
+    def get_longest_carbon_chain(self, mol: Chem.Mol) -> list[int]:
+        """Backward compatibility: delegates to get_acyclic_backbone_scaffold without unsaturated appendages."""
+        return self.get_acyclic_backbone_scaffold(mol, min_branch_size=2, include_unsaturated=False)
+
+    def extract_seed_core_scaffold(
+        self,
+        query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
+        output_path: Path | str | None = None,
+        scaffold_type: str = "core_ring_system",  # active default
+        isomeric: bool = False,
+        min_branch_size: int = 2,
+        include_unsaturated: bool = True,
+    ) -> str:
+        # 1. Input Loading & Hydrogen Stripping
+        mol, _ = self.load_query_molecule(query)
+        mol_no_h = Chem.RemoveHs(mol)
+
+        # 2. Ring System Detection & Union
+        # [PACKAGE: rdkit.Chem.MolFragmentToSmiles] Extract SMILES of largest contiguous ring system directly from atom indices
+        ring_info = mol_no_h.GetRingInfo()
+        atom_rings = [set(r) for r in ring_info.AtomRings()]
+        if atom_rings:
+            ring_systems: list[set[int]] = []
+            for ring in atom_rings:
+                overlapping = [sys for sys in ring_systems if sys & ring]
+                isolated = [sys for sys in ring_systems if not (sys & ring)]
+                ring_systems = isolated + [ring.union(*overlapping)]
+
+            # 3. Subgraph Extraction for Largest Contiguous Core
+            core_atoms = max(ring_systems, key=len)
+            scaff_smi = Chem.MolFragmentToSmiles(
+                mol_no_h, atomsToUse=list(core_atoms), isomericSmiles=isomeric
+            )
+        else:
+            # 3. Acyclic Fallback: Continuous Heavy-Atom Backbone Scaffold with Passable Linkers
+            chain_atoms = self.get_acyclic_backbone_scaffold(
+                mol_no_h, min_branch_size=min_branch_size, include_unsaturated=include_unsaturated
+            )
+            scaff_smi = Chem.MolFragmentToSmiles(
+                mol_no_h, atomsToUse=chain_atoms, isomericSmiles=isomeric
+            )
+
+        # 4. Bulletproof Sanitization Pass
+        scaff_mol = Chem.MolFromSmiles(scaff_smi)
+        if scaff_mol is not None:
+            Chem.SanitizeMol(scaff_mol)
+            scaff_smi = Chem.MolToSmiles(scaff_mol, isomericSmiles=isomeric)
+
+        # Option 2: Bemis-Murcko Framework (Ring systems + linkers; 25 heavy atoms for EGCG)
+        # [PACKAGE: rdkit.Chem.Scaffolds.MurckoScaffold]
+        # scaff = MurckoScaffold.GetScaffoldForMol(mol_no_h)
+        # scaff_smi = Chem.MolToSmiles(scaff, isomericSmiles=isomeric) if (scaff and scaff.GetNumHeavyAtoms() > 0) else Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
+
+        # Option 3: Minimal Elementary Ring (Single smallest ring, e.g. benzene 6 atoms)
+        # [PACKAGE: rdkit.Chem.MolFragmentToSmiles]
+        # min_ring = min(atom_rings, key=len) if atom_rings else set()
+        # scaff_smi = Chem.MolFragmentToSmiles(mol_no_h, atomsToUse=list(min_ring), isomericSmiles=isomeric) if min_ring else Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
+
+        # Option 4: SequenceRNN (Unconditional Ex Nihilo / 0 atoms)
+        # SequenceRNN does not require an input scaffold seed; it samples de novo from <START> or can take leads from a previous GraphTransformer run.
+        # scaff_smi = ""
+
+        # 5. Optional Metadata & TSV Export
+        if output_path:
+            target = Path(output_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            scaff_mol = Chem.MolFromSmiles(scaff_smi)
+            n_heavy = scaff_mol.GetNumHeavyAtoms() if scaff_mol else 0
+            n_rings = scaff_mol.GetRingInfo().NumRings() if scaff_mol else 0
+            with open(target, "w", encoding="utf-8") as f:
+                f.write("Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings\n")
+                f.write(
+                    f"{scaff_smi}\t{str(query)}\t{scaffold_type}\t{n_heavy}\t{n_rings}\n"
+                )
+
+        return scaff_smi
 
 
 def create_rocs_scorer(
