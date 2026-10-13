@@ -26,12 +26,17 @@ ROCS_TIMEOUT: int = 30
 
 # [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
 def load_sdf_ensemble(path: Path | str) -> tuple[Chem.Mol, bool]:
+    # 1. Multi-Record Conformer Extraction
     mols = [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m]
     if not mols:
         raise ValueError(f"No valid molecule in SDF: {path}")
+
+    # 2. Conformer Stitching onto Base Frame
     base = mols[0]
     for extra in mols[1:]:
         base.AddConformer(extra.GetConformer(), assignId=True)
+
+    # 3. 3D Dimensionality Verification
     return base, bool(base.GetNumConformers() and base.GetConformer().Is3D())
 
 
@@ -65,23 +70,28 @@ def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
 
 
 def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
+    # 1. Null / Heavy Atom Guard
     if mol is None or mol.GetNumHeavyAtoms() == 0:
         return 1.00
 
+    # 2. Rotatable Bond & Heavy Atom Topology Profiling
     # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
     n_rot = int(Lipinski.NumRotatableBonds(mol))
     n_heavy = int(mol.GetNumHeavyAtoms())
 
-    # ~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid/compact scaffolds (benzene, aspirin)
+    # 3. Rigid & Compact Scaffolds (<= 2 rotatable bonds, <= 20 heavy atoms; e.g. benzene, aspirin)
+    # ~ [Ebejer et al., Conformer generation benchmarking, 2012]
     if n_rot <= 2 and n_heavy <= 20:
         return 1.00
 
-    # ~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
+    # 4. Standard Drug-Like Ligands (<= 7 rotatable bonds, <= 45 heavy atoms; e.g. EGCG)
+    # ~ [Hawkins, ROCS conformational ensemble benchmark, 2017]
     #! HYP EGCG has N_rot=3 but N_heavy=33, so it must fall in this drug-like basin
     if n_rot <= 7 and n_heavy <= 45:
         return 1.25
 
-    # ~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling (capped at 1.50 Å)
+    # 5. Flexible Chain Expansion Ceiling (capped at 1.50 Å)
+    # ~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017]
     return 1.50
 
 
@@ -184,39 +194,31 @@ def extract_seed_core_scaffold(
     scaffold_type: str = "core_ring_system",  # active default
     isomeric: bool = False,
 ) -> str:
+    # 1. Input Loading & Hydrogen Stripping
     mol, _ = load_query_molecule(query)
     mol_no_h = Chem.RemoveHs(mol)
 
-    # Option 1: Core Ring System (Privileged fused/spiro core; e.g. chroman 10 atoms for EGCG - ACTIVE)
+    # 2. Ring System Detection & Union
     # [PACKAGE: rdkit.Chem.MolFragmentToSmiles] Extract SMILES of largest contiguous ring system directly from atom indices
     ring_info = mol_no_h.GetRingInfo()
     atom_rings = [set(r) for r in ring_info.AtomRings()]
     if atom_rings:
-        
-        # 1. Get biggest ring system
         ring_systems: list[set[int]] = []
         for ring in atom_rings:
             overlapping = [sys for sys in ring_systems if sys & ring]
             isolated = [sys for sys in ring_systems if not (sys & ring)]
             ring_systems = isolated + [ring.union(*overlapping)]
 
+        # 3. Subgraph Extraction for Largest Contiguous Core
         core_atoms = max(ring_systems, key=len)
-        # 2. Preserve conjugated exocyclic double bonds to heteroatoms (e.g. =O, =S on lactams, uracil, quinolones)
-        for atom_idx in list(core_atoms):
-            atom = mol_no_h.GetAtomWithIdx(atom_idx)
-            for bond in atom.GetBonds():
-                if bond.GetBondType() == Chem.BondType.DOUBLE:
-                    nbr = bond.GetOtherAtom(atom)
-                    if nbr.GetIdx() not in core_atoms and nbr.GetAtomicNum() in {8, 16}:
-                        core_atoms.add(nbr.GetIdx())
-
         scaff_smi = Chem.MolFragmentToSmiles(
             mol_no_h, atomsToUse=list(core_atoms), isomericSmiles=isomeric
         )
     else:
+        # Acyclic fallback: preserve full molecular framework
         scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
 
-    # Bulletproof sanitization guard: verify extracted scaffold parses and is sanitized
+    # 4. Bulletproof Sanitization Pass
     scaff_mol = Chem.MolFromSmiles(scaff_smi)
     if scaff_mol is not None:
         Chem.SanitizeMol(scaff_mol)
@@ -236,6 +238,7 @@ def extract_seed_core_scaffold(
     # SequenceRNN does not require an input scaffold seed; it samples de novo from <START> or can take leads from a previous GraphTransformer run.
     # scaff_smi = ""
 
+    # 5. Optional Metadata & TSV Export
     if output_path:
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -254,13 +257,18 @@ def extract_seed_core_scaffold(
 def create_rocs_scorer(
     references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
 ) -> RDKitROCSScorer:
+    # 1. Reference Input Normalization
     ref_input = str(references) if isinstance(references, Path) else references
+
+    # 2. Conformer Generator Configuration
     conf_gen = RDKitConformerGenerator(
         max_conformers=30,  #! HYP could be bigger, like 50
         max_heavy_atoms=55,
         max_rotatable_bonds=25,
         timeout=ROCS_TIMEOUT,  #! HYP could be bigger, like 60
     )
+
+    # 3. Multi-Threaded ROCS Alignment Construction
     return RDKitROCSScorer(
         references=ref_input,
         conformer_generator=conf_gen,
@@ -274,16 +282,19 @@ def create_environment(
     ref_sdf: str | Path,
     epsilon: float = 0.2,
 ) -> tuple[DrugExEnvironment, float]:
+    # 1. Primary 3D ROCS Shape/Color Alignment Objective
     rocs_scorer = create_rocs_scorer(ref_sdf)
     rocs_scorer.modifier = ClippedScore(
         lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0
     )
 
+    # 2. Secondary Synthesizability Feasibility Floor (SA Score)
     sa_scorer = Property(
         prop="SA",
         modifier=ClippedScore(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0),
     )
 
+    # 3. Pareto Multi-Objective DrugEx Environment
     scorers: list[Scorer] = [rocs_scorer, sa_scorer]
     thresholds: list[float] = [0.25, 0.25]
 
