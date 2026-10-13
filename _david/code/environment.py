@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -204,114 +205,80 @@ class PrepareMolecule:
         return output_path_real
 
 
-    def _is_branch_valid(
-        self,
-        mol: Chem.Mol,
-        atom_idx: int,
-        branch_atoms: tuple[int, ...],
-        min_branch_size: int,
-    ) -> bool:
-        """A branch is valid if anchored on carbon, or if it has >= min_branch_size atoms containing carbon."""
-        if mol.GetAtomWithIdx(atom_idx).GetAtomicNum() == 6:
-            return True
-        has_carbon = any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in branch_atoms)
-        return len(branch_atoms) >= min_branch_size and has_carbon
-
-    def _is_passable_bridge(
-        self,
-        mol: Chem.Mol,
-        rw: Chem.RWMol,
-        bond: Chem.Bond,
-        min_branch_size: int,
-    ) -> bool:
-        u, v = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-
-        # 1. Carbon-carbon bonds are always passable
-        if mol.GetAtomWithIdx(u).GetAtomicNum() == 6 and mol.GetAtomWithIdx(v).GetAtomicNum() == 6:
-            return True
-
-        # 2. Temporarily snip the bond to inspect the resulting pieces
-        rw.RemoveBond(u, v)
-        frags = Chem.GetMolFrags(rw, asMols=False)
-        frag_u = next(f for f in frags if u in f)
-        frag_v = next(f for f in frags if v in f)
-
-        # 3. Check if both sides represent substantial carbon-containing branches
-        u_ok = self._is_branch_valid(mol, u, frag_u, min_branch_size)
-        v_ok = self._is_branch_valid(mol, v, frag_v, min_branch_size)
-
-        # 4. If both sides are valid, reconnect the bond; otherwise leave it severed
-        if u_ok and v_ok:
-            rw.AddBond(u, v, bond.GetBondType())
-            return True
-        return False
-
-    def _has_valid_hetero_chain(
-        self,
-        mol: Chem.Mol,
-        path: list[int],
-        max_heteroatom_chain: int,
-    ) -> bool:
-        consec = max_consec = 0
-        for idx in path:
-            if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6:
-                consec += 1
-                max_consec = max(max_consec, consec)
-            else:
-                consec = 0
-        return max_consec <= max_heteroatom_chain
-
-    def _append_unsaturated_side_groups(
-        self,
-        mol: Chem.Mol,
-        path: list[int],
-    ) -> list[int]:
-        scaffold = set(path)
-        for idx in path:
-            for b in mol.GetAtomWithIdx(idx).GetBonds():
-                nbr_idx = b.GetOtherAtomIdx(idx)
-                if b.GetBondTypeAsDouble() > 1.0 and nbr_idx not in scaffold:
-                    if mol.GetAtomWithIdx(nbr_idx).GetAtomicNum() in (7, 8, 16):
-                        scaffold.add(nbr_idx)
-        return sorted(scaffold)
-
-    # [PACKAGE: rdkit.Chem.rdmolops] WHY: Continuous heavy-atom backbone with passable heteroatom bridges and unsaturated side groups. WHAT: Topological diameter. HOW: RDKit RWMol bond pruning, distance matrix & GetShortestPath.
+    # [PACKAGE: collections.deque / rdkit.Chem.rdmolops]
+    # WHY: Continuous heavy-atom backbone scaffold following the Bemis-Murcko framework standard.
+    # WHAT: Multi-source BFS spanning tree connecting qualifying carbon components across passable heteroatom bridges.
+    # HOW: Sever non-C-C bonds, filter single-carbon caps, and grow BFS bridges across <= max_heteroatom_chain linkers.
     def get_acyclic_backbone_scaffold(
         self,
         mol: Chem.Mol,
-        min_branch_size: int = 2,
+        min_cluster_size: int = 2,
         max_heteroatom_chain: int = 2,
-        include_unsaturated: bool = False,
     ) -> list[int]:
         if not mol or mol.GetNumHeavyAtoms() == 0:
             return []
 
-        # 1. Prune Impassable Heteroatom Bonds
-        rw = Chem.RWMol(mol)
+        # 1. Pure Carbon Clusters: Sever non-C-C bonds to extract contiguous carbon components
+        c_rw = Chem.RWMol(mol)
         for b in list(mol.GetBonds()):
-            self._is_passable_bridge(mol, rw, b, min_branch_size)
+            u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            if mol.GetAtomWithIdx(u).GetAtomicNum() != 6 or mol.GetAtomWithIdx(v).GetAtomicNum() != 6:
+                c_rw.RemoveBond(u, v)
 
-        # 2. Extract Longest Passable Path Obeying Max Heteroatom Chain Length
-        D = Chem.GetDistanceMatrix(rw)
-        D[D > 1000] = 0
-        pairs = sorted(np.argwhere(D > 0), key=lambda p: D[p[0], p[1]], reverse=True)
+        frags = [set(f) for f in Chem.GetMolFrags(c_rw, asMols=False)]
+        c_clusters = [f for f in frags if any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in f)]
 
-        longest: list[int] = []
-        for i, j in pairs:
-            path = list(Chem.rdmolops.GetShortestPath(rw, int(i), int(j)))
-            if len(path) <= len(longest):
-                break
-            if self._has_valid_hetero_chain(mol, path, max_heteroatom_chain):
-                longest = path
-                break
+        # 2. Prune Single-Atom Saturated Caps (e.g. -O-CH3) if larger clusters exist
+        max_len = max((len(f) for f in c_clusters), default=0)
+        if max_len >= min_cluster_size:
+            c_clusters = [f for f in c_clusters if len(f) >= min_cluster_size]
 
-        if not longest:
-            longest = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6] or [a.GetIdx() for a in mol.GetAtoms()]
+        if not c_clusters:
+            return [a.GetIdx() for a in mol.GetAtoms()]
 
-        # 3. Optional Unsaturated Appendages Preservation (=O, =N, =S)
-        if include_unsaturated:
-            return self._append_unsaturated_side_groups(mol, longest)
-        return sorted(longest)
+        # 3. BFS Spanning Tree Across <= max_heteroatom_chain Heteroatom Bridges
+        c_clusters.sort(key=len, reverse=True)
+        scaffold = set(c_clusters[0])
+        remaining = [set(c) for c in c_clusters[1:]]
+
+        added_new = True
+        while added_new and remaining:
+            added_new = False
+            queue: deque[tuple[int, int, list[int]]] = deque()
+            visited: set[int] = set()
+            for c_idx in scaffold:
+                if mol.GetAtomWithIdx(c_idx).GetAtomicNum() == 6:
+                    queue.append((c_idx, 0, []))
+                    visited.add(c_idx)
+
+            found_target: set[int] | None = None
+            found_bridge: list[int] | None = None
+
+            while queue and not found_target:
+                curr, consec_h, bridge = queue.popleft()
+                for nbr in [b.GetOtherAtomIdx(curr) for b in mol.GetAtomWithIdx(curr).GetBonds()]:
+                    if nbr in visited:
+                        continue
+                    # Check if neighbor touches an unvisited qualifying carbon cluster
+                    for rem in remaining:
+                        if nbr in rem:
+                            found_target = rem
+                            found_bridge = bridge
+                            break
+                    if found_target:
+                        break
+                    # Traverse heteroatoms if within the chain length budget
+                    if mol.GetAtomWithIdx(nbr).GetAtomicNum() != 6 and consec_h + 1 <= max_heteroatom_chain:
+                        visited.add(nbr)
+                        queue.append((nbr, consec_h + 1, bridge + [nbr]))
+
+            if found_target and found_bridge is not None:
+                scaffold.update(found_bridge)
+                scaffold.update(found_target)
+                remaining.remove(found_target)
+                added_new = True
+
+        return sorted(scaffold)
 
     def extract_seed_core_scaffold(
         self,
@@ -319,10 +286,13 @@ class PrepareMolecule:
         output_path: Path | str | None = None,
         scaffold_type: str = "core_ring_system",  # active default
         isomeric: bool = False,
-        min_branch_size: int = 2,
+        min_cluster_size: int = 2,
         max_heteroatom_chain: int = 2,
+        min_branch_size: int | None = None,
         include_unsaturated: bool = False,
     ) -> str:
+        effective_min_size = min_branch_size if min_branch_size is not None else min_cluster_size
+
         # 1. Input Loading & Hydrogen Stripping
         mol, _ = self.load_query_molecule(query)
         mol_no_h = Chem.RemoveHs(mol)
@@ -347,9 +317,8 @@ class PrepareMolecule:
             # 3. Acyclic Fallback: Continuous Heavy-Atom Backbone Scaffold with Passable Linkers
             chain_atoms = self.get_acyclic_backbone_scaffold(
                 mol_no_h,
-                min_branch_size=min_branch_size,
+                min_cluster_size=effective_min_size,
                 max_heteroatom_chain=max_heteroatom_chain,
-                include_unsaturated=include_unsaturated,
             )
             scaff_smi = Chem.MolFragmentToSmiles(
                 mol_no_h, atomsToUse=chain_atoms, isomericSmiles=isomeric

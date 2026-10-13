@@ -172,26 +172,22 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(row[3], "10")
             self.assertEqual(row[4], "2")
 
-            # Acyclic fallback (defaults to carbon backbone when include_unsaturated=False)
+            # Acyclic fallback: Bemis-Murcko framework standard continuous heavy-atom backbone
             smi_acyclic = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O")
             self.assertEqual(smi_acyclic, "CCCCCC")
 
-            # With unsaturated side groups: retains carbonyl =O
-            smi_with_carbonyl = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O", include_unsaturated=True)
-            self.assertEqual(smi_with_carbonyl, "CCCCCC=O")
+            # Heteroatom bridging linkers (ester & amide) traversal as pure topological frameworks
+            smi_ester = self.preparer.extract_seed_core_scaffold("CCOC(=O)CC")
+            self.assertEqual(smi_ester, "CCCOCC")
 
-            # Heteroatom bridging linkers (ester & amide) traversal with unsaturated appendages
-            smi_ester = self.preparer.extract_seed_core_scaffold("CCOC(=O)CC", include_unsaturated=True)
-            self.assertEqual(smi_ester, "CCOC(=O)CC")
+            smi_peptide = self.preparer.extract_seed_core_scaffold("CC(=O)NCC(=O)O")
+            self.assertEqual(smi_peptide, "CCNCC")
 
-            smi_peptide = self.preparer.extract_seed_core_scaffold("CC(=O)NCC(=O)O", include_unsaturated=True)
-            self.assertEqual(smi_peptide, "CC(=O)NCC=O")
-
-            # Consecutive heteroatom chain limit (default 2 stops traversing across 3+ consecutive heteroatoms)
+            # Consecutive heteroatom chain limit: default 2 stops at the carbon cluster when bridge is impassable
             smi_triazane = self.preparer.extract_seed_core_scaffold("CCCCNNNCCCC")
-            self.assertEqual(smi_triazane, "CCCCNN")
+            self.assertEqual(smi_triazane, "CCCC")
 
-            # Allowing 3 consecutive heteroatoms traverses full chain
+            # Allowing 3 consecutive heteroatoms traverses full chain across the 3-nitrogen bridge
             smi_triazane_3 = self.preparer.extract_seed_core_scaffold("CCCCNNNCCCC", max_heteroatom_chain=3)
             self.assertEqual(smi_triazane_3, "CCCCNNNCCCC")
 
@@ -262,8 +258,8 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertFalse(is_3d)
         self.assertEqual(mol.GetNumHeavyAtoms(), 7)
 
-        smi = custom_preparer.extract_seed_core_scaffold("CCOC(=O)CC", include_unsaturated=True)
-        self.assertEqual(smi, "CCOC(=O)CC")
+        smi = custom_preparer.extract_seed_core_scaffold("CCOC(=O)CC")
+        self.assertEqual(smi, "CCCOCC")
 
 
 if __name__ == "__main__":
