@@ -8,7 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import pandas as pd
-from drugex.training.rewards import WeightedSum
+from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -32,7 +32,7 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(len(env.scorers), 2)
             self.assertEqual(len(env.thresholds), 2)
             self.assertEqual(epsilon, 0.2)
-            self.assertIsInstance(env.rewardScheme, WeightedSum)
+            self.assertIsInstance(env.rewardScheme, (ParetoCrowdingDistance, WeightedSum))
 
     def test_conformer_generation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

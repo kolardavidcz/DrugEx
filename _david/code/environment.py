@@ -4,8 +4,9 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from drugex.training.environment import DrugExEnvironment
-from drugex.training.rewards import WeightedSum
+from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore
@@ -40,7 +41,6 @@ def load_sdf_ensemble(path: Path | str) -> tuple[Chem.Mol, bool]:
     return base, is_3d
 
 
-# Parses SMILES string, file path (.sdf, .txt), or direct Chem.Mol instance
 def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
     # 1. Direct RDKit Mol instance
     if isinstance(query, Chem.Mol):
@@ -72,30 +72,29 @@ def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
     except OSError:
         pass
 
-    raise ValueError(f"Could not parse query molecule: {query!r}")
+    raise ValueError(f"Could not parse molecule query: {query!r}")
 
 
 def get_adaptive_rmsd_cutoff(mol: Chem.Mol) -> float:
-    if mol is None or mol.GetNumHeavyAtoms() == 0:
-        return 1.00
+    return 1.25
+    # if mol is None or mol.GetNumHeavyAtoms() == 0:
+    #     return 1.25
 
-    # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
-    n_rot = int(
-        Lipinski.NumRotatableBonds(mol)
-    )  # non-terminal single bonds between heavy atoms
-    n_heavy = int(mol.GetNumHeavyAtoms())
+    # # [PACKAGE: rdkit.Chem.Lipinski] WHY: Quantify rotatable single bonds dictating conformational volume expansion.
+    # n_rot = int(Lipinski.NumRotatableBonds(mol))
+    # n_heavy = int(mol.GetNumHeavyAtoms())
 
-    # ~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid/compact scaffolds (benzene, aspirin)
-    if n_rot <= 2 and n_heavy <= 20:
-        return 1.00
+    # # ~ [Ebejer et al., Conformer generation benchmarking, 2012] 1.00 Å for rigid/compact scaffolds (benzene, aspirin)
+    # if n_rot <= 2 and n_heavy <= 20:
+    #     return 1.00
 
-    # ~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
-    #! HYP EGCG has N_rot=3 but N_heavy=33, so it must fall in this drug-like basin
-    if n_rot <= 7 and n_heavy <= 45:
-        return 1.25
+    # # ~ [Hawkins, ROCS conformational ensemble benchmark, 2017] 1.25 Å optimal resolution for standard drug-like ligands (EGCG)
+    # #! HYP EGCG has N_rot=3 but N_heavy=33, so it must fall in this drug-like basin
+    # if n_rot <= 7 and n_heavy <= 45:
+    #     return 1.25
 
-    # ~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling (capped at 1.50 Å)
-    return 1.50
+    # # ~ [Friedrich et al., Flexible ligand conformer benchmarking, 2017] Flexible chain expansion ceiling (capped at 1.50 Å)
+    # return 1.50
 
 
 def generate_reference_conformers(
@@ -144,11 +143,10 @@ def generate_reference_conformers(
         results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
         if any(status == -1 for status, _ in results):
             results = []
-    if not results:  # fallback for unparameterized elements in periodic table
-        if AllChem.UFFHasAllMoleculeParams(mol_h):
-            results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
-            if any(status == -1 for status, _ in results):
-                results = []
+    if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
+        results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+        if any(status == -1 for status, _ in results):
+            results = []
     if not results:
         raise RuntimeError(f"Force field optimization failed for: {query}")
 
@@ -254,8 +252,9 @@ def extract_seed_core_scaffold(
     if output_path:
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        n_heavy = scaff_mol.GetNumHeavyAtoms()
-        n_rings = scaff_mol.GetRingInfo().NumRings()
+        scaff_mol = Chem.MolFromSmiles(scaff_smi)
+        n_heavy = scaff_mol.GetNumHeavyAtoms() if scaff_mol else 0
+        n_rings = scaff_mol.GetRingInfo().NumRings() if scaff_mol else 0
         with open(target, "w", encoding="utf-8") as f:
             f.write("Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings\n")
             f.write(
@@ -284,20 +283,35 @@ def create_rocs_scorer(
     )
 
 
-# Bulletproof DrugExEnvironment guarding against NaN/Inf and ensuring finite rewards in [0, 1]
+# [PACKAGE: drugex.training.environment] WHY: Multi-objective RL environment with numerical NaN/Inf sanitization.
 class SafeDrugExEnvironment(DrugExEnvironment):
-    def getScores(self, smiles: list[str], frags: list[str] | None = None, no_multifrag_smiles: bool = True):
-        scores = super().getScores(smiles, frags=frags, no_multifrag_smiles=no_multifrag_smiles)
+    """Reinforcement learning environment subclass with NaN/Inf sanitization and finite bounds verification."""
+
+    def getScores(
+        self,
+        smiles: list[str],
+        frags: list[str] | None = None,
+        no_multifrag_smiles: bool = True,
+    ) -> pd.DataFrame:
+        scores = super().getScores(
+            smiles, frags=frags, no_multifrag_smiles=no_multifrag_smiles
+        )
         keys = self.getScorerKeys()
+        # [PACKAGE: pandas] WHY: Sanitize numerical anomalies from unminimizable conformers or extreme modifiers.
         scores[keys] = scores[keys].fillna(0.0).replace([np.inf, -np.inf], 0.0)
         scores[keys] = scores[keys].clip(lower=0.0, upper=1.0)
-        undesire = (scores[keys] < self.thresholds)
+        undesire = scores[keys] < self.thresholds
         scores["Desired"] = (undesire.sum(axis=1) == 0).astype(int)
-        assert np.isfinite(scores[keys].to_numpy()).all(), "Non-finite scores detected in environment"
+        assert np.isfinite(
+            scores[keys].to_numpy()
+        ).all(), "Non-finite scores detected in environment"
         return scores
 
 
-def create_environment(ref_sdf: str | Path) -> tuple[SafeDrugExEnvironment, float]:
+def create_environment(
+    ref_sdf: str | Path,
+    epsilon: float = 0.2,
+) -> tuple[SafeDrugExEnvironment, float]:
     rocs_scorer = create_rocs_scorer(ref_sdf)
     rocs_scorer.modifier = ClippedScore(
         lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0
@@ -310,11 +324,10 @@ def create_environment(ref_sdf: str | Path) -> tuple[SafeDrugExEnvironment, floa
 
     scorers: list[Scorer] = [rocs_scorer, sa_scorer]
     thresholds: list[float] = [0.25, 0.25]
-    epsilon: float = 0.2
 
     env = SafeDrugExEnvironment(
         scorers=scorers,
         thresholds=thresholds,
-        reward_scheme=WeightedSum(),
+        reward_scheme=ParetoCrowdingDistance(),
     )
     return env, epsilon
