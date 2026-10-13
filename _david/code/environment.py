@@ -204,6 +204,61 @@ class PrepareMolecule:
         return output_path_real
 
 
+    def _is_passable_bridge(
+        self,
+        mol: Chem.Mol,
+        rw: Chem.RWMol,
+        bond: Chem.Bond,
+        min_branch_size: int,
+    ) -> bool:
+        u, v = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        zu, zv = mol.GetAtomWithIdx(u).GetAtomicNum(), mol.GetAtomWithIdx(v).GetAtomicNum()
+        if zu == 6 and zv == 6:
+            return True
+
+        # Temporarily cut bond to profile connected component sizes on each side
+        rw.RemoveBond(u, v)
+        frags = Chem.GetMolFrags(rw, asMols=False)
+        fu = next(f for f in frags if u in f)
+        fv = next(f for f in frags if v in f)
+
+        u_ok = (zu == 6) or (len(fu) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in fu))
+        v_ok = (zv == 6) or (len(fv) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in fv))
+
+        if u_ok and v_ok:
+            rw.AddBond(u, v, bond.GetBondType())
+            return True
+        return False
+
+    def _has_valid_hetero_chain(
+        self,
+        mol: Chem.Mol,
+        path: list[int],
+        max_heteroatom_chain: int,
+    ) -> bool:
+        consec = max_consec = 0
+        for idx in path:
+            if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6:
+                consec += 1
+                max_consec = max(max_consec, consec)
+            else:
+                consec = 0
+        return max_consec <= max_heteroatom_chain
+
+    def _append_unsaturated_side_groups(
+        self,
+        mol: Chem.Mol,
+        path: list[int],
+    ) -> list[int]:
+        scaffold = set(path)
+        for idx in path:
+            for b in mol.GetAtomWithIdx(idx).GetBonds():
+                nbr_idx = b.GetOtherAtomIdx(idx)
+                if b.GetBondTypeAsDouble() > 1.0 and nbr_idx not in scaffold:
+                    if mol.GetAtomWithIdx(nbr_idx).GetAtomicNum() in (7, 8, 16):
+                        scaffold.add(nbr_idx)
+        return sorted(scaffold)
+
     # [PACKAGE: rdkit.Chem.rdmolops] WHY: Continuous heavy-atom backbone with passable heteroatom bridges and unsaturated side groups. WHAT: Topological diameter. HOW: RDKit RWMol bond pruning, distance matrix & GetShortestPath.
     def get_acyclic_backbone_scaffold(
         self,
@@ -215,23 +270,10 @@ class PrepareMolecule:
         if not mol or mol.GetNumHeavyAtoms() == 0:
             return []
 
-        # 1. Prune Impassable Heteroatom Bonds via RDKit Native Fragment Slicing
+        # 1. Prune Impassable Heteroatom Bonds
         rw = Chem.RWMol(mol)
         for b in list(mol.GetBonds()):
-            u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
-            zu, zv = mol.GetAtomWithIdx(u).GetAtomicNum(), mol.GetAtomWithIdx(v).GetAtomicNum()
-            if zu == 6 and zv == 6:
-                continue
-
-            rw.RemoveBond(u, v)
-            frags = Chem.GetMolFrags(rw, asMols=False)
-            fu = next(f for f in frags if u in f)
-            fv = next(f for f in frags if v in f)
-
-            u_ok = (zu == 6) or (len(fu) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in fu))
-            v_ok = (zv == 6) or (len(fv) >= min_branch_size and any(mol.GetAtomWithIdx(i).GetAtomicNum() == 6 for i in fv))
-            if u_ok and v_ok:
-                rw.AddBond(u, v, b.GetBondType())
+            self._is_passable_bridge(mol, rw, b, min_branch_size)
 
         # 2. Extract Longest Passable Path Obeying Max Heteroatom Chain Length
         D = Chem.GetDistanceMatrix(rw)
@@ -243,33 +285,17 @@ class PrepareMolecule:
             path = list(Chem.rdmolops.GetShortestPath(rw, int(i), int(j)))
             if len(path) <= len(longest):
                 break
-
-            # Check consecutive heteroatoms constraint
-            consec = max_consec = 0
-            for idx in path:
-                if mol.GetAtomWithIdx(idx).GetAtomicNum() != 6:
-                    consec += 1
-                    max_consec = max(max_consec, consec)
-                else:
-                    consec = 0
-
-            if max_consec <= max_heteroatom_chain:
+            if self._has_valid_hetero_chain(mol, path, max_heteroatom_chain):
                 longest = path
                 break
 
         if not longest:
             longest = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6] or [a.GetIdx() for a in mol.GetAtoms()]
 
-        # 3. Retain Significant Unsaturated Appendages (=O, =N, =S)
-        scaffold = set(longest)
+        # 3. Optional Unsaturated Appendages Preservation (=O, =N, =S)
         if include_unsaturated:
-            for idx in longest:
-                for b in mol.GetAtomWithIdx(idx).GetBonds():
-                    if b.GetBondTypeAsDouble() > 1.0 and b.GetOtherAtomIdx(idx) not in scaffold:
-                        if mol.GetAtomWithIdx(b.GetOtherAtomIdx(idx)).GetAtomicNum() in (7, 8, 16):
-                            scaffold.add(b.GetOtherAtomIdx(idx))
-
-        return sorted(scaffold)
+            return self._append_unsaturated_side_groups(mol, longest)
+        return sorted(longest)
 
     def extract_seed_core_scaffold(
         self,
