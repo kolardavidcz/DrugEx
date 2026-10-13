@@ -205,10 +205,10 @@ class PrepareMolecule:
         return output_path_real
 
 
-    # [PACKAGE: collections.deque / rdkit.Chem.rdmolops]
+    # [PACKAGE: rdkit.Chem.rdmolops]
     # WHY: Continuous heavy-atom backbone scaffold following the Bemis-Murcko framework standard.
-    # WHAT: Multi-source BFS spanning tree connecting qualifying carbon components across passable heteroatom bridges.
-    # HOW: Sever non-C-C bonds, filter single-carbon caps, and grow BFS bridges across <= max_heteroatom_chain linkers.
+    # WHAT: Extract valid carbon clusters, find all heteroatoms bridging them, and return the largest component.
+    # HOW: Sever non-C-C bonds, check RDKit shortest paths between carbons for <= max_heteroatom_chain bridges.
     def get_acyclic_backbone_scaffold(
         self,
         mol: Chem.Mol,
@@ -218,80 +218,53 @@ class PrepareMolecule:
         if not mol or mol.GetNumHeavyAtoms() == 0:
             return []
 
-        # 1. Pure Carbon Clusters: sever all non-C-C bonds
-        mol_rw = Chem.RWMol(mol)
-        for bond in list(mol.GetBonds()):
-            u, v = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-            if mol.GetAtomWithIdx(u).GetAtomicNum() != 6 or mol.GetAtomWithIdx(v).GetAtomicNum() != 6:
-                mol_rw.RemoveBond(u, v)
+        def is_carbon(idx: int) -> bool:
+            return mol.GetAtomWithIdx(idx).GetAtomicNum() == 6
 
-        # Collect contiguous carbon clusters (ignoring isolated heteroatoms)
-        carbon_clusters = [
-            set(frag) for frag in Chem.GetMolFrags(mol_rw, asMols=False)
-            if mol.GetAtomWithIdx(frag[0]).GetAtomicNum() == 6
+        # 1. Pure carbon clusters: sever every bond that is not C-C
+        rw = Chem.RWMol(mol)
+        for b in mol.GetBonds():
+            u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            if not (is_carbon(u) and is_carbon(v)):
+                rw.RemoveBond(u, v)
+
+        clusters = [
+            set(frag) for frag in Chem.GetMolFrags(rw)
+            if is_carbon(frag[0])
         ]
 
-        # 2. Prune single-atom carbon caps (e.g. -O-CH3) if larger clusters exist
-        max_size = max((len(c) for c in carbon_clusters), default=0)
-        if max_size >= min_cluster_size:
-            carbon_clusters = [c for c in carbon_clusters if len(c) >= min_cluster_size]
-
-        if not carbon_clusters:
+        # 2. Prune single-atom carbon caps (e.g. -O-CH3) unless nothing larger exists
+        clusters = [c for c in clusters if len(c) >= min_cluster_size] or clusters
+        if not clusters:
             return [atom.GetIdx() for atom in mol.GetAtoms()]
 
-        # 3. BFS Spanning Tree: bridge carbon clusters across <= max_heteroatom_chain heteroatoms
-        carbon_clusters.sort(key=len, reverse=True)
-        scaffold = set(carbon_clusters[0])
-        unconnected = [set(c) for c in carbon_clusters[1:]]
+        # 3. Find all heteroatoms that bridge two carbons within max_heteroatom_chain
+        valid_carbons = [atom for c in clusters for atom in c]
+        bridge_atoms: set[int] = set()
 
-        added_cluster = True
-        while added_cluster and unconnected:
-            added_cluster = False
+        for i in range(len(valid_carbons)):
+            for j in range(i + 1, len(valid_carbons)):
+                u, v = valid_carbons[i], valid_carbons[j]
+                path = list(Chem.rdmolops.GetShortestPath(mol, u, v))
+                intermediate = path[1:-1]
 
-            # Inverted index: map each atom in unconnected clusters to its parent cluster for O(1) lookup
-            atom_to_cluster: dict[int, set[int]] = {}
-            for cluster in unconnected:
-                for atom_idx in cluster:
-                    atom_to_cluster[atom_idx] = cluster
+                # Bridge must be 1 to max_heteroatom_chain heteroatoms
+                if 0 < len(intermediate) <= max_heteroatom_chain:
+                    if all(not is_carbon(k) for k in intermediate):
+                        bridge_atoms.update(intermediate)
 
-            # Multi-source BFS starting from current scaffold carbons
-            queue: deque[tuple[int, int, list[int]]] = deque()
-            visited: set[int] = set()
-            for atom_idx in scaffold:
-                if mol.GetAtomWithIdx(atom_idx).GetAtomicNum() == 6:
-                    queue.append((atom_idx, 0, []))
-                    visited.add(atom_idx)
+        # 4. Combine carbons + bridges, and keep the largest connected component
+        scaffold_atoms = set(valid_carbons) | bridge_atoms
 
-            found_cluster: set[int] | None = None
-            found_bridge: list[int] | None = None
+        scaffold_rw = Chem.RWMol(mol)
+        for b in mol.GetBonds():
+            u, v = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            if u not in scaffold_atoms or v not in scaffold_atoms:
+                scaffold_rw.RemoveBond(u, v)
 
-            while queue and not found_cluster:
-                current_idx, hetero_count, bridge = queue.popleft()
-                current_atom = mol.GetAtomWithIdx(current_idx)
-
-                for neighbor in current_atom.GetNeighbors():
-                    nbr_idx = neighbor.GetIdx()
-                    if nbr_idx in visited:
-                        continue
-
-                    # Target reached: neighbor belongs to an unconnected carbon cluster
-                    if nbr_idx in atom_to_cluster:
-                        found_cluster = atom_to_cluster[nbr_idx]
-                        found_bridge = bridge
-                        break
-
-                    # Traverse heteroatoms within the allowed chain budget
-                    if neighbor.GetAtomicNum() != 6 and hetero_count + 1 <= max_heteroatom_chain:
-                        visited.add(nbr_idx)
-                        queue.append((nbr_idx, hetero_count + 1, bridge + [nbr_idx]))
-
-            if found_cluster and found_bridge is not None:
-                scaffold.update(found_bridge)
-                scaffold.update(found_cluster)
-                unconnected.remove(found_cluster)
-                added_cluster = True
-
-        return sorted(scaffold)
+        components = [set(f) for f in Chem.GetMolFrags(scaffold_rw) if f[0] in scaffold_atoms]
+        largest_component = max(components, key=len)
+        return sorted(largest_component)
 
     def extract_seed_core_scaffold(
         self,
