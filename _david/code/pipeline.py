@@ -21,6 +21,7 @@ from _david.code.visualization import (
     render_training_curves,
 )
 from _david.code.models import GraphTransformerOptimizer
+from _david.code.schema import DataSchema
 from _david.code.utils import HardwareManager, get_gpu_telemetry
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
@@ -92,8 +93,9 @@ class MoleculePipeline:
 
             smiles_list, frags_list = optimizer.AGENT.sample(train_loader)
             df = env.getScores(smiles_list, frags=frags_list)
-            df.insert(0, "SMILES", smiles_list)
-            df.insert(1, "FRAGS", frags_list)
+            df.insert(0, DataSchema.SMILES, smiles_list)
+            df.insert(1, DataSchema.FRAGS, frags_list)
+            df = DataSchema.standardize(df)
             df.to_csv(candidates_tsv, sep="\t", index=False)
 
         print("[Stage 2] Profiling generated leads and Pareto frontier...")

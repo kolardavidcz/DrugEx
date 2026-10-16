@@ -8,8 +8,9 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 from rdkit import Chem
-from rdkit.Chem import QED
+from rdkit.Chem import Descriptors, QED
 
+from _david.code.schema import DataSchema
 from _david.code.visualization import (
     AlignedDepicter,
     render_lead_structures_2d,
@@ -77,50 +78,56 @@ class ResultAnalyzer:
             return pd.DataFrame()
 
         df = pd.read_csv(tsv_path, sep="\t")
-        if df.empty or "SMILES" not in df.columns:
+        if df.empty or DataSchema.SMILES not in df.columns:
             return df
 
-        if "Valid" not in df.columns:
-            df["Valid"] = [Chem.MolFromSmiles(s) is not None for s in df["SMILES"]]
-        valid_df = df[df["Valid"].astype(bool)].copy()
+        df = DataSchema.standardize(df)
 
-        rocs_col = [c for c in valid_df.columns if any(k in c.upper() for k in ("ROCS", "SIMILARITY", "TANIMOTO"))]
-        sa_col = [c for c in valid_df.columns if "SA" in c.upper() and c not in ("SMILES", "DESIRED")]
+        if DataSchema.VALID not in df.columns:
+            df[DataSchema.VALID] = [Chem.MolFromSmiles(s) is not None for s in df[DataSchema.SMILES]]
+        valid_df = df[df[DataSchema.VALID].astype(bool)].copy()
 
-        rocs_name = rocs_col[0] if rocs_col else None
-        sa_name = sa_col[0] if sa_col else None
-
-        if rocs_name and sa_name:
-            max_sa = valid_df[sa_name].max()
+        if DataSchema.ROCS in valid_df.columns and DataSchema.SA in valid_df.columns:
+            max_sa = valid_df[DataSchema.SA].max()
             maximize_sa = bool(max_sa <= 1.0)
             pareto = ParetoFrontier()
-            valid_df = pareto.rank_pareto_fronts(valid_df, objectives=[rocs_name, sa_name], maximize=[True, maximize_sa])
+            valid_df = pareto.rank_pareto_fronts(
+                valid_df,
+                objectives=[DataSchema.ROCS, DataSchema.SA],
+                maximize=[True, maximize_sa],
+            )
 
-            if "QED" not in valid_df.columns:
-                valid_df["QED"] = [
+            if DataSchema.QED not in valid_df.columns:
+                valid_df[DataSchema.QED] = [
                     float(QED.qed(m)) if (m := Chem.MolFromSmiles(s)) is not None else 0.0
-                    for s in valid_df["SMILES"]
+                    for s in valid_df[DataSchema.SMILES]
+                ]
+
+            if DataSchema.MW not in valid_df.columns:
+                valid_df[DataSchema.MW] = [
+                    float(Descriptors.MolWt(m)) if (m := Chem.MolFromSmiles(s)) is not None else 0.0
+                    for s in valid_df[DataSchema.SMILES]
                 ]
 
             valid_df = valid_df.sort_values(
-                by=["Pareto_Rank", rocs_name, sa_name, "QED"],
+                by=[DataSchema.PARETO_RANK, DataSchema.ROCS, DataSchema.SA, DataSchema.QED],
                 ascending=[True, False, not maximize_sa, False],
             )
 
             render_pareto_frontier(
                 valid_df,
                 output_png=self.analysis_dir / "pareto_frontier.png",
-                rocs_col=rocs_name,
-                sa_col=sa_name,
+                rocs_col=DataSchema.ROCS,
+                sa_col=DataSchema.SA,
             )
 
         # Deduplicate candidates by canonical SMILES to extract distinct chemical leads
-        valid_df["Canonical_SMILES"] = [
+        valid_df[DataSchema.CANONICAL_SMILES] = [
             Chem.CanonSmiles(s) if (s and Chem.MolFromSmiles(s) is not None) else s
-            for s in valid_df["SMILES"]
+            for s in valid_df[DataSchema.SMILES]
         ]
-        unique_leads = valid_df.drop_duplicates(subset=["Canonical_SMILES"])
-        top_leads = unique_leads.head(top_k)
+        unique_leads = valid_df.drop_duplicates(subset=[DataSchema.CANONICAL_SMILES])
+        top_leads = unique_leads.head(top_k).copy()
         top_leads.to_csv(self.analysis_dir / "top_prioritized_leads.tsv", sep="\t", index=False)
 
         ref_mol: Chem.Mol | None = None

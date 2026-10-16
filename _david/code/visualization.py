@@ -12,6 +12,7 @@ from rdkit.Chem import Descriptors, Draw, Lipinski, QED, rdDepictor, rdMolDescri
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
 from drugex.training.scorers.sascorer import calculateScore as calculate_sa_score
+from _david.code.schema import DataSchema
 
 
 def get_universal_rigid_anchor(mol: Chem.Mol) -> list[int]:
@@ -261,20 +262,26 @@ def render_lead_structures_2d(
 
     # 2. Prioritized Elite Leads
     if isinstance(molecules, pd.DataFrame):
-        df_leads = molecules.head(max_leads)
-        for idx, row in df_leads.iterrows():
-            smi = str(row.get("SMILES", ""))
+        df_leads = DataSchema.standardize(molecules.head(max_leads))
+        for rank_num, (_, row) in enumerate(df_leads.iterrows(), start=1):
+            smi = str(row.get(DataSchema.SMILES, ""))
             m = Chem.MolFromSmiles(smi)
             if m is not None:
                 plot_mols.append(m)
-                rocs = float(row.get("ROCS", 0.0))
-                des = float(row.get("Desirability", row.get("Des", 0.0)))
-                mw = float(row.get("MW", Descriptors.MolWt(m)))
-                qed_v = float(row.get("QED", QED.qed(m)))
-                sa_v = float(row.get("SA", calculate_sa_score(m)))
-                lead_num = idx + 1 if isinstance(idx, int) else len(plot_mols) - 1
+                rocs = float(row.get(DataSchema.ROCS, 0.0))
+                des = float(row.get(DataSchema.DESIRED, 0.0))
+                mw_val = row.get(DataSchema.MW)
+                mw = (
+                    float(mw_val)
+                    if (mw_val is not None and pd.notna(mw_val) and float(mw_val) > 0.0)
+                    else float(Descriptors.MolWt(m))
+                )
+                qed_v = float(row.get(DataSchema.QED, QED.qed(m)))
+                sa_v = float(row.get(DataSchema.SA, calculate_sa_score(m)))
+                pareto_r = row.get(DataSchema.PARETO_RANK, None)
+                rank_label = f" (Pareto #{int(pareto_r)})" if pd.notna(pareto_r) else ""
                 plot_legends.append(
-                    f"Lead #{lead_num}\n"
+                    f"Lead #{rank_num}{rank_label}\n"
                     f"ROCS: {rocs:.2f} | Des: {des:.2f}\n"
                     f"MW: {mw:.1f} | QED: {qed_v:.2f} | SA: {sa_v:.2f}"
                 )
@@ -395,24 +402,25 @@ def render_epoch_pareto_evolution(
         return None
 
     df = pd.read_csv(tsv_file, sep="\t")
-    if df.empty or "Epoch" not in df.columns or "SMILES" not in df.columns:
+    if df.empty or "Epoch" not in df.columns or DataSchema.SMILES not in df.columns:
         return None
 
-    rocs_name = find_rocs_column(df.columns)
-    if not rocs_name:
+    df = DataSchema.standardize(df)
+    rocs_name = DataSchema.ROCS
+    if rocs_name not in df.columns:
         return None
 
     out_dir = Path(output_png).parent if output_png else tsv_file.parent
     target_png = Path(output_png) if output_png else out_dir / "pareto_epoch_evolution.png"
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    # Detect SA desirability ("SA" column in [0, 1]) or fallback to raw SAscore
-    if "SA" in df.columns:
-        sa_name = "SA"
+    # Detect SA desirability or fallback to raw SAscore
+    if DataSchema.SA in df.columns:
+        sa_name = DataSchema.SA
     elif "SAscore" in df.columns:
         sa_name = "SAscore"
     else:
-        sa_name = "SAscore"
+        sa_name = DataSchema.SA
         mols = [Chem.MolFromSmiles(s) if isinstance(s, str) else None for s in df["SMILES"]]
         sa_scores = []
         for m in mols:
@@ -692,9 +700,9 @@ def render_property_distributions(
     target_png = Path(output_png) if output_png else Path("property_distributions.png")
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    calc_df = df.copy()
-    if "Valid" in calc_df.columns:
-        valid_df = calc_df[calc_df["Valid"].astype(bool)].copy()
+    calc_df = DataSchema.standardize(df)
+    if DataSchema.VALID in calc_df.columns:
+        valid_df = calc_df[calc_df[DataSchema.VALID].astype(bool)].copy()
     else:
         valid_df = calc_df.copy()
 
@@ -746,7 +754,7 @@ def render_property_distributions(
         else:
             valid_df["Tanimoto_to_Seed"] = 0.0
 
-    rocs_col = find_rocs_column(valid_df.columns)
+    rocs_col = DataSchema.ROCS if DataSchema.ROCS in valid_df.columns else DataSchema.find_rocs_column(valid_df.columns)
     rocs_data = valid_df[rocs_col] if rocs_col else pd.Series([0.0] * len(valid_df))
 
     # Construct the 3x3 diagnostic & multi-objective grid
@@ -888,22 +896,23 @@ def render_pareto_frontier(
     rocs_col: str | None = None,
     sa_col: str | None = None,
 ) -> Path | None:
-    if df.empty or "Pareto_Rank" not in df.columns:
+    df_std = DataSchema.standardize(df)
+    if df_std.empty or DataSchema.PARETO_RANK not in df_std.columns:
         return None
 
     target_png = Path(output_png) if output_png else Path("pareto_frontier.png")
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    r_col = rocs_col or find_rocs_column(df.columns)
-    s_col = sa_col or find_sa_column(df.columns)
-    if not r_col or not s_col:
+    r_col = rocs_col or (DataSchema.ROCS if DataSchema.ROCS in df_std.columns else DataSchema.find_rocs_column(df_std.columns))
+    s_col = sa_col or (DataSchema.SA if DataSchema.SA in df_std.columns else DataSchema.find_sa_column(df_std.columns))
+    if not r_col or not s_col or r_col not in df_std.columns or s_col not in df_std.columns:
         return None
 
     fig, ax = plt.subplots(figsize=(8.5, 5.8), dpi=200)
 
-    front_0 = df[df["Pareto_Rank"] == 0].sort_values(by=s_col).drop_duplicates(subset=[s_col, r_col])
-    front_1 = df[df["Pareto_Rank"] == 1].sort_values(by=s_col).drop_duplicates(subset=[s_col, r_col])
-    others = df[df["Pareto_Rank"] > 1]
+    front_0 = df_std[df_std[DataSchema.PARETO_RANK] == 0].sort_values(by=s_col).drop_duplicates(subset=[s_col, r_col])
+    front_1 = df_std[df_std[DataSchema.PARETO_RANK] == 1].sort_values(by=s_col).drop_duplicates(subset=[s_col, r_col])
+    others = df_std[df_std[DataSchema.PARETO_RANK] > 1]
 
     # Dominated background points
     if not others.empty:

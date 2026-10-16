@@ -23,6 +23,7 @@ from _david.code.environment import (
     create_environment,
 )
 from _david.code.pipeline import MoleculePipeline
+from _david.code.schema import DataSchema
 
 
 class TestLBDDPipeline(unittest.TestCase):
@@ -743,6 +744,72 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(saved_leads.loc[0, "Pareto_Rank"], 0)
             self.assertEqual(saved_leads.loc[1, "Pareto_Rank"], 0)
             self.assertGreater(saved_leads.loc[0, "QED"], saved_leads.loc[1, "QED"])
+
+    def test_data_schema_standardization(self) -> None:
+        """Verify DataSchema normalizes dynamic DrugEx scorer names and historical variants into canonical constants."""
+        # 1. Raw DrugEx DataFrame with Supermol ROCS and Desired
+        raw_df = pd.DataFrame(
+            {
+                "SMILES": ["c1ccccc1"],
+                "RDKit_Supermol_TanimotoCombo_oe": [0.65],
+                "SA": [1.0],
+                "Desired": [1],
+            }
+        )
+        std_df = DataSchema.standardize(raw_df)
+        self.assertIn(DataSchema.ROCS, std_df.columns)
+        self.assertEqual(std_df.loc[0, DataSchema.ROCS], 0.65)
+        self.assertEqual(std_df.loc[0, DataSchema.DESIRED], 1)
+
+        # 2. Multi-reference DrugEx DataFrame with Aggregate 8refs ROCS
+        agg_df = pd.DataFrame(
+            {
+                "SMILES": ["c1ccccc1"],
+                "RDKit_Aggregate_8refs_TanimotoCombo_oe": [0.72],
+                "SAScore": [2.5],
+                "Desirability": [0.85],
+            }
+        )
+        std_agg = DataSchema.standardize(agg_df)
+        self.assertIn(DataSchema.ROCS, std_agg.columns)
+        self.assertEqual(std_agg.loc[0, DataSchema.ROCS], 0.72)
+        self.assertIn(DataSchema.SA, std_agg.columns)
+        self.assertEqual(std_agg.loc[0, DataSchema.SA], 2.5)
+        self.assertIn(DataSchema.DESIRED, std_agg.columns)
+        self.assertEqual(std_agg.loc[0, DataSchema.DESIRED], 0.85)
+
+        # 3. Idempotence: already standardized DataFrame is unchanged
+        re_std = DataSchema.standardize(std_agg)
+        self.assertEqual(list(std_agg.columns), list(re_std.columns))
+
+    def test_render_lead_structures_2d_schema_alignment(self) -> None:
+        """Verify render_lead_structures_2d correctly extracts ROCS, Desired, and 1-based ranks from raw DataFrames."""
+        from _david.code.visualization import render_lead_structures_2d
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_png = Path(tmp_dir) / "leads.png"
+
+            # DataFrame matching the exact DrugEx output format with row index 176
+            df_leads = pd.DataFrame(
+                {
+                    "SMILES": ["CC(=O)Oc1ccccc1C(=O)O"],
+                    "RDKit_Supermol_TanimotoCombo_oe": [0.575],
+                    "SA": [1.0],
+                    "Desired": [1.0],
+                    "Pareto_Rank": [0],
+                    "QED": [0.55],
+                    "MW": [180.15],
+                },
+                index=[176],  # Unreset index from raw pool
+            )
+
+            res = render_lead_structures_2d(
+                df_leads,
+                output_png=out_png,
+                reference="c1ccccc1",
+            )
+            self.assertIsNotNone(res)
+            self.assertTrue(out_png.exists())
 
 
 if __name__ == "__main__":
