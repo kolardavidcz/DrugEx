@@ -44,10 +44,10 @@ class ParetoFrontier:
         maximize: Sequence[bool],
     ) -> pd.DataFrame:
         df_ranked = df.copy()
-        df_ranked["Pareto_Rank"] = -1
+        df_ranked[std.PARETO_RANK] = -1
         valid_mask = (
-            df_ranked["Valid"].astype(bool)
-            if "Valid" in df_ranked.columns
+            df_ranked[std.VALID].astype(bool)
+            if std.VALID in df_ranked.columns
             else np.ones(len(df_ranked), dtype=bool)
         )
 
@@ -60,7 +60,7 @@ class ParetoFrontier:
             )
             is_front = self.identify_pareto_front(sub_scores, maximize)
             front_indices = available_indices[is_front]
-            df_ranked.loc[front_indices, "Pareto_Rank"] = current_rank
+            df_ranked.loc[front_indices, std.PARETO_RANK] = current_rank
             available_indices = available_indices[~is_front]
             current_rank += 1
 
@@ -135,7 +135,7 @@ class ResultAnalyzer:
             for s in valid_df[std.SMILES]
         ]
         unique_leads = valid_df.drop_duplicates(subset=[std.CANONICAL_SMILES])
-        top_leads = unique_leads.head(top_k).copy()
+        top_leads = unique_leads.head(top_k).reset_index(drop=True)
         top_leads.to_csv(
             self.analysis_dir / "top_prioritized_leads.tsv", sep="\t", index=False
         )
@@ -165,7 +165,7 @@ class ResultAnalyzer:
 
         summary = {
             "total_generated": len(df),
-            "valid_molecules": int(valid_df["Valid"].sum()),
+            "valid_molecules": int(valid_df[std.VALID].sum()),
             "top_k_extracted": len(top_leads),
         }
         with open(

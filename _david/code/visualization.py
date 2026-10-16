@@ -359,7 +359,7 @@ def render_training_curves(
         return None
 
     df_fit = pd.read_csv(tsv_file, sep="\t")
-    if df_fit.empty or "Epoch" not in df_fit.columns:
+    if df_fit.empty or std.EPOCH not in df_fit.columns:
         return None
 
     target_png = (
@@ -370,17 +370,17 @@ def render_training_curves(
     fig, ax = plt.subplots(figsize=(8.5, 5.2), dpi=200)
 
     metric_styles: dict[str, tuple[str, str, str]] = {
-        "loss_train": ("#e63946", "-", "Training Loss"),
-        "valid_ratio": ("#2a9d8f", "-", "Valid Ratio"),
-        "unique_ratio": ("#e9c46a", "--", "Unique Ratio"),
-        "desired_ratio": ("#8b5cf6", "-.", "Desired Ratio"),
+        std.LOSS_TRAIN: ("#e63946", "-", "Training Loss"),
+        std.VALID_RATIO: ("#2a9d8f", "-", "Valid Ratio"),
+        std.UNIQUE_RATIO: ("#e9c46a", "--", "Unique Ratio"),
+        std.DESIRED_RATIO: ("#8b5cf6", "-.", "Desired Ratio"),
     }
 
     plotted = False
     for col, (color, ls, label) in metric_styles.items():
         if col in df_fit.columns:
             ax.plot(
-                df_fit["Epoch"],
+                df_fit[std.EPOCH],
                 df_fit[col],
                 color=color,
                 linestyle=ls,
@@ -393,10 +393,10 @@ def render_training_curves(
         num_cols = [
             c
             for c in df_fit.columns
-            if c != "Epoch" and pd.api.types.is_numeric_dtype(df_fit[c])
+            if c != std.EPOCH and pd.api.types.is_numeric_dtype(df_fit[c])
         ]
         for col in num_cols[:4]:
-            ax.plot(df_fit["Epoch"], df_fit[col], linewidth=1.8, label=col)
+            ax.plot(df_fit[std.EPOCH], df_fit[col], linewidth=1.8, label=col)
 
     ax.set_title(
         "Graph-Transformer Reinforcement Learning Dynamics",
@@ -415,31 +415,6 @@ def render_training_curves(
     return target_png
 
 
-def find_sa_column(columns: Sequence[str]) -> str | None:
-    for col in columns:
-        c_up = col.upper()
-        if c_up in ("SA", "SASCORE", "SA_SCORE", "SYNTHETIC_ACCESSIBILITY"):
-            return col
-    for col in columns:
-        c_up = col.upper()
-        if c_up == "TPSA" or "TPSA" in c_up:
-            continue
-        if c_up.startswith("SA_") or c_up.endswith("_SA") or "SASCORE" in c_up:
-            return col
-    return None
-
-
-def find_rocs_column(columns: Sequence[str]) -> str | None:
-    for col in columns:
-        c_up = col.upper()
-        if any(
-            k in c_up
-            for k in ("ROCS", "TANIMOTOCOMBO", "SHAPE_SIMILARITY", "SIMILARITY_3D")
-        ):
-            return col
-    return None
-
-
 def render_epoch_pareto_evolution(
     smiles_tsv_path: Path | str,
     output_png: Path | str | None = None,
@@ -451,7 +426,7 @@ def render_epoch_pareto_evolution(
         return None
 
     df = pd.read_csv(tsv_file, sep="\t")
-    if df.empty or "Epoch" not in df.columns or std.SMILES not in df.columns:
+    if df.empty or std.EPOCH not in df.columns or std.SMILES not in df.columns:
         return None
 
     rocs_name = std.ROCS
@@ -468,7 +443,8 @@ def render_epoch_pareto_evolution(
     sa_name = std.SA
     if sa_name not in df.columns:
         mols = [
-            Chem.MolFromSmiles(s) if isinstance(s, str) else None for s in df["SMILES"]
+            Chem.MolFromSmiles(s) if isinstance(s, str) else None
+            for s in df[std.SMILES]
         ]
         sa_scores = []
         for m in mols:
@@ -482,7 +458,7 @@ def render_epoch_pareto_evolution(
     if valid_df.empty:
         return None
 
-    epochs = sorted(int(e) for e in valid_df["Epoch"].unique())
+    epochs = sorted(int(e) for e in valid_df[std.EPOCH].unique())
     if not epochs:
         return None
 
@@ -499,26 +475,18 @@ def render_epoch_pareto_evolution(
     by_epoch_dir.mkdir(parents=True, exist_ok=True)
     generated_epoch_pngs: list[Path] = []
 
-    mult = np.array([1.0 if m else -1.0 for m in maximize], dtype=np.float64)
+    from _david.code.analysis import ParetoFrontier
 
     for ep in epochs:
-        sub = valid_df[valid_df["Epoch"] == ep].copy()
+        sub = valid_df[valid_df[std.EPOCH] == ep].copy()
         if len(sub) < 2:
             continue
 
         fig_ep, ax_ep = plt.subplots(figsize=(8.5, 5.8), dpi=180)
         scores = sub[[rocs_name, sa_name]].to_numpy(dtype=float)
 
-        # Non-dominated Front 0: Maximize ROCS, Maximize SA Desirability (maximize=[True, True])
-        scaled = scores * mult
-        is_front0 = np.ones(len(scores), dtype=bool)
-        for i in range(len(scores)):
-            dominated = np.any(
-                np.all(scaled >= scaled[i], axis=1) & np.any(scaled > scaled[i], axis=1)
-            )
-            if dominated:
-                is_front0[i] = False
-
+        # Non-dominated Front 0
+        is_front0 = ParetoFrontier.identify_pareto_front(scores, maximize)
         front_0 = (
             sub[is_front0]
             .sort_values(by=sa_name, ascending=not maximize[1])
@@ -529,15 +497,7 @@ def render_epoch_pareto_evolution(
         sub_rem = sub[~is_front0]
         if len(sub_rem) >= 2:
             scores_rem = sub_rem[[rocs_name, sa_name]].to_numpy(dtype=float)
-            scaled_rem = scores_rem * mult
-            is_front1 = np.ones(len(scores_rem), dtype=bool)
-            for i in range(len(scores_rem)):
-                dom1 = np.any(
-                    np.all(scaled_rem >= scaled_rem[i], axis=1)
-                    & np.any(scaled_rem > scaled_rem[i], axis=1)
-                )
-                if dom1:
-                    is_front1[i] = False
+            is_front1 = ParetoFrontier.identify_pareto_front(scores_rem, maximize)
             front_1 = (
                 sub_rem[is_front1]
                 .sort_values(by=sa_name, ascending=not maximize[1])
@@ -769,20 +729,12 @@ def render_epoch_pareto_evolution(
 
     for idx, ep in enumerate(grid_epochs):
         ax = axes_flat[idx]
-        sub = valid_df[valid_df["Epoch"] == ep].copy()
+        sub = valid_df[valid_df[std.EPOCH] == ep].copy()
         if len(sub) < 2:
             continue
 
         scores = sub[[rocs_name, sa_name]].to_numpy(dtype=float)
-        is_front0 = np.ones(len(scores), dtype=bool)
-        for i in range(len(scores)):
-            dominated = np.any(
-                (scores[:, 0] >= scores[i, 0])
-                & (scores[:, 1] <= scores[i, 1])
-                & ((scores[:, 0] > scores[i, 0]) | (scores[:, 1] < scores[i, 1]))
-            )
-            if dominated:
-                is_front0[i] = False
+        is_front0 = ParetoFrontier.identify_pareto_front(scores, maximize)
 
         front_0 = (
             sub[is_front0]
@@ -851,17 +803,18 @@ def render_property_distributions(
     output_png: Path | str | None = None,
     ref_mol: Chem.Mol | str | None = None,
 ) -> Path | None:
-    if df.empty or "SMILES" not in df.columns:
+    if df.empty or std.SMILES not in df.columns:
         return None
 
     target_png = Path(output_png) if output_png else Path("property_distributions.png")
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
     calc_df = df
-    if std.VALID in calc_df.columns:
-        valid_df = calc_df[calc_df[std.VALID].astype(bool)].copy()
-    else:
-        valid_df = calc_df.copy()
+    valid_df = (
+        calc_df[calc_df[std.VALID].astype(bool)].copy()
+        if std.VALID in calc_df.columns
+        else calc_df.copy()
+    )
 
     if valid_df.empty:
         return None
@@ -884,28 +837,25 @@ def render_property_distributions(
     # Dynamically compute any missing property columns
     mols = [
         Chem.MolFromSmiles(s) if isinstance(s, str) else None
-        for s in valid_df["SMILES"]
+        for s in valid_df[std.SMILES]
     ]
 
-    if "MW" not in valid_df.columns:
-        valid_df["MW"] = [Descriptors.MolWt(m) if m else np.nan for m in mols]
-    if "LogP" not in valid_df.columns and "logP" not in valid_df.columns:
-        valid_df["LogP"] = [Descriptors.MolLogP(m) if m else np.nan for m in mols]
-    elif "logP" in valid_df.columns and "LogP" not in valid_df.columns:
-        valid_df["LogP"] = valid_df["logP"]
+    if std.MW not in valid_df.columns:
+        valid_df[std.MW] = [Descriptors.MolWt(m) if m else np.nan for m in mols]
+    if std.LOGP not in valid_df.columns:
+        valid_df[std.LOGP] = [Descriptors.MolLogP(m) if m else np.nan for m in mols]
+    if std.TPSA not in valid_df.columns:
+        valid_df[std.TPSA] = [rdMolDescriptors.CalcTPSA(m) if m else np.nan for m in mols]
+    if std.QED not in valid_df.columns:
+        valid_df[std.QED] = [QED.qed(m) if m else np.nan for m in mols]
+    if std.SA not in valid_df.columns or valid_df[std.SA].nunique() <= 3:
+        valid_df[std.SA] = [calculate_sa_score(m) if m else np.nan for m in mols]
+    if std.HBD not in valid_df.columns:
+        valid_df[std.HBD] = [Lipinski.NumHDonors(m) if m else 0 for m in mols]
+    if std.ROT_BONDS not in valid_df.columns:
+        valid_df[std.ROT_BONDS] = [Lipinski.NumRotatableBonds(m) if m else 0 for m in mols]
 
-    if "TPSA" not in valid_df.columns:
-        valid_df["TPSA"] = [rdMolDescriptors.CalcTPSA(m) if m else np.nan for m in mols]
-    if "QED" not in valid_df.columns:
-        valid_df["QED"] = [QED.qed(m) if m else np.nan for m in mols]
-    if "SA" not in valid_df.columns or valid_df["SA"].nunique() <= 3:
-        valid_df["SA"] = [calculate_sa_score(m) if m else np.nan for m in mols]
-    if "HBD" not in valid_df.columns:
-        valid_df["HBD"] = [Lipinski.NumHDonors(m) if m else 0 for m in mols]
-    if "RotBonds" not in valid_df.columns:
-        valid_df["RotBonds"] = [Lipinski.NumRotatableBonds(m) if m else 0 for m in mols]
-
-    if "Tanimoto_to_Seed" not in valid_df.columns:
+    if std.TANIMOTO_TO_SEED not in valid_df.columns:
         if seed_fp is not None:
             sims = []
             for m in mols:
@@ -916,16 +866,11 @@ def render_property_distributions(
                     sims.append(float(DataStructs.TanimotoSimilarity(seed_fp, fp)))
                 else:
                     sims.append(0.0)
-            valid_df["Tanimoto_to_Seed"] = sims
+            valid_df[std.TANIMOTO_TO_SEED] = sims
         else:
-            valid_df["Tanimoto_to_Seed"] = 0.0
+            valid_df[std.TANIMOTO_TO_SEED] = 0.0
 
-    rocs_col = (
-        std.ROCS
-        if std.ROCS in valid_df.columns
-        else std.find_rocs_column(valid_df.columns)
-    )
-    rocs_data = valid_df[rocs_col] if rocs_col else pd.Series([0.0] * len(valid_df))
+    rocs_data = valid_df[std.ROCS] if std.ROCS in valid_df.columns else pd.Series([0.0] * len(valid_df))
 
     # Construct the 3x3 diagnostic & multi-objective grid
     fig, axes = plt.subplots(3, 3, figsize=(16, 12.5), dpi=200)
@@ -955,7 +900,7 @@ def render_property_distributions(
     # Subplot 2: QED Drug-likeness Distribution (Row 0, Col 1 - Secondary Objective)
     ax = axes[0, 1]
     ax.hist(
-        valid_df["QED"].dropna(),
+        valid_df[std.QED].dropna(),
         bins=15,
         color="#457B9D",
         edgecolor="black",
@@ -977,7 +922,7 @@ def render_property_distributions(
     # Subplot 3: Synthetic Accessibility Floor (Row 0, Col 2 - Active Floor)
     ax = axes[0, 2]
     ax.hist(
-        valid_df["SA"].dropna(), bins=15, color="#E9C46A", edgecolor="black", alpha=0.80
+        valid_df[std.SA].dropna(), bins=15, color="#E9C46A", edgecolor="black", alpha=0.80
     )
     ax.axvspan(1.0, 5.5, color="#2A9D8F", alpha=0.15, label="Feasible (<= 5.5)")
     ax.axvline(5.5, color="#2A9D8F", linestyle="--", linewidth=1.5)
@@ -1000,7 +945,7 @@ def render_property_distributions(
     # Subplot 4: Molecular Weight & Dynamic Envelope (Row 1, Col 0 - Active Envelope)
     ax = axes[1, 0]
     ax.hist(
-        valid_df["MW"].dropna(), bins=15, color="#264653", edgecolor="black", alpha=0.80
+        valid_df[std.MW].dropna(), bins=15, color="#264653", edgecolor="black", alpha=0.80
     )
     mw_lo, mw_hi = round(0.70 * seed_mw, 1), round(1.30 * seed_mw, 1)
     ax.axvspan(
@@ -1022,7 +967,7 @@ def render_property_distributions(
     # Subplot 5: CLogP Lipophilicity & Dynamic Envelope (Row 1, Col 1 - Active Envelope)
     ax = axes[1, 1]
     ax.hist(
-        valid_df["LogP"].dropna(),
+        valid_df[std.LOGP].dropna(),
         bins=15,
         color="#1D3557",
         edgecolor="black",
@@ -1052,7 +997,7 @@ def render_property_distributions(
     # Subplot 6: Polar Surface Area & Dynamic Envelope (Row 1, Col 2 - Active Envelope)
     ax = axes[1, 2]
     ax.hist(
-        valid_df["TPSA"].dropna(),
+        valid_df[std.TPSA].dropna(),
         bins=15,
         color="#6D597A",
         edgecolor="black",
@@ -1087,10 +1032,10 @@ def render_property_distributions(
     # Subplot 7: Hydrogen Bond Donors (Row 2, Col 0 - Diagnostic Epitope Loss)
     ax = axes[2, 0]
     ax.set_facecolor(diagnostic_bg)
-    max_hbd = max(int(valid_df["HBD"].max()) if not valid_df.empty else 0, seed_hbd)
+    max_hbd = max(int(valid_df[std.HBD].max()) if not valid_df.empty else 0, seed_hbd)
     bins_hbd = np.arange(0, max_hbd + 2) - 0.5
     ax.hist(
-        valid_df["HBD"],
+        valid_df[std.HBD],
         bins=bins_hbd,
         color="#6C757D",
         edgecolor="black",
@@ -1104,7 +1049,7 @@ def render_property_distributions(
         linewidth=1.8,
         label=f"Query ({seed_hbd})",
     )
-    mean_hbd = float(valid_df["HBD"].mean())
+    mean_hbd = float(valid_df[std.HBD].mean())
     ax.axvline(
         mean_hbd,
         color="#212529",
@@ -1127,11 +1072,11 @@ def render_property_distributions(
     ax = axes[2, 1]
     ax.set_facecolor(diagnostic_bg)
     max_rot = max(
-        int(valid_df["RotBonds"].max()) if not valid_df.empty else 0, seed_rot
+        int(valid_df[std.ROT_BONDS].max()) if not valid_df.empty else 0, seed_rot
     )
     bins_rot = np.arange(0, max_rot + 2) - 0.5
     ax.hist(
-        valid_df["RotBonds"],
+        valid_df[std.ROT_BONDS],
         bins=bins_rot,
         color="#495057",
         edgecolor="black",
@@ -1145,7 +1090,7 @@ def render_property_distributions(
         linewidth=1.8,
         label=f"Query ({seed_rot})",
     )
-    mean_rot = float(valid_df["RotBonds"].mean())
+    mean_rot = float(valid_df[std.ROT_BONDS].mean())
     ax.axvline(
         mean_rot,
         color="#212529",
@@ -1167,7 +1112,7 @@ def render_property_distributions(
     # Subplot 9: 2D Morgan Tanimoto to Query (Row 2, Col 2 - Scaffold Hopping)
     ax = axes[2, 2]
     ax.set_facecolor(diagnostic_bg)
-    sim_col = valid_df["Tanimoto_to_Seed"]
+    sim_col = valid_df[std.TANIMOTO_TO_SEED]
     ax.hist(sim_col.dropna(), bins=15, color="#343A40", edgecolor="black", alpha=0.85)
     ax.axvline(
         0.35,

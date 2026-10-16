@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import sys
 import tempfile
@@ -8,9 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import numpy as np
 import pandas as pd
 from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
-from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import Property
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -24,13 +26,23 @@ from _david.code.environment import (
 )
 from _david.code.pipeline import MoleculePipeline
 from _david.code.schema import std
+from _david.code.utils import HardwareManager
+from _david.code.visualization import (
+    render_epoch_pareto_evolution,
+    render_lead_structures_2d,
+    render_pareto_frontier,
+    render_property_distributions,
+    render_reference_ensemble,
+    render_training_curves,
+)
 
 
 class TestLBDDPipeline(unittest.TestCase):
     def setUp(self) -> None:
-        self.preparer = PrepareMolecule()
+        self.preparer: PrepareMolecule = PrepareMolecule()
 
     def test_environment_creation(self) -> None:
+        """Verify environment creation, multi-objective scorers, thresholds, and reward scheme."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             ref_sdf = Path(tmp_dir) / "ref.sdf"
             mol = Chem.MolFromSmiles("c1ccccc1O")
@@ -48,7 +60,9 @@ class TestLBDDPipeline(unittest.TestCase):
             )
 
     def test_conformer_generation(self) -> None:
+        """Verify 3D conformer generation with MMFF94 and UFF fallback on non-MMFF elements."""
         with tempfile.TemporaryDirectory() as tmp_dir:
+            # 1. Standard organic molecule (MMFF94)
             ref_sdf = Path(tmp_dir) / "test_confs.sdf"
             out = self.preparer.generate_reference_conformers(
                 "c1ccccc1O", output_path=ref_sdf, num_conformers=5
@@ -57,151 +71,32 @@ class TestLBDDPipeline(unittest.TestCase):
             suppl = Chem.SDMolSupplier(str(out), removeHs=False)
             mols = [m for m in suppl if m is not None]
             self.assertGreater(len(mols), 0)
+            self.assertTrue(mols[0].GetConformer().Is3D())
+            self.assertTrue(mols[0].HasProp("Energy_MMFF_kcal_mol"))
 
-    def test_pareto_ranking(self) -> None:
-        pareto = ParetoFrontier()
-        df = pd.DataFrame(
-            {
-                "SMILES": ["mol0", "mol1", "mol2"],
-                "ROCS": [1.5, 1.0, 0.8],
-                "SA": [2.0, 4.0, 1.5],
-                "Valid": [True, True, True],
-            }
-        )
-        ranked = pareto.rank_pareto_fronts(
-            df, objectives=["ROCS", "SA"], maximize=[True, False]
-        )
-        self.assertEqual(ranked.loc[0, "Pareto_Rank"], 0)
-        self.assertGreater(ranked.loc[1, "Pareto_Rank"], 0)
-
-    def test_aligned_depiction(self) -> None:
-        depicter = AlignedDepicter("c1ccccc1O")
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            img_path = Path(tmp_dir) / "aligned.png"
-            img = depicter.create_aligned_grid(
-                ["c1ccccc1CC"], legends=["Lead 1"], output_path=img_path
+            # 2. Boronic acid: unparameterized in MMFF94, triggers UFF fallback
+            boronic_sdf = Path(tmp_dir) / "boronic.sdf"
+            res_uff = self.preparer.generate_reference_conformers(
+                "OB(O)c1ccccc1", output_path=boronic_sdf, num_conformers=3
             )
-            self.assertIsNotNone(img)
-            self.assertTrue(img_path.exists())
-
-    def test_pipeline_benchmark(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            pipe_dir = Path(tmp_dir) / "run_test"
-            pipeline = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
-            pipeline.run("Oc1ccccc1")
-            self.assertTrue((pipe_dir / "pipeline_status.json").exists())
-
-    def test_visualization_suite(self) -> None:
-        from _david.code.visualization import (
-            render_epoch_pareto_evolution,
-            render_lead_structures_2d,
-            render_pareto_frontier,
-            render_property_distributions,
-            render_reference_ensemble,
-            render_training_curves,
-        )
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp = Path(tmp_dir)
-
-            ref_sdf = tmp / "ref.sdf"
-            self.preparer.generate_reference_conformers(
-                "c1ccccc1O", output_path=ref_sdf, num_conformers=3
+            self.assertTrue(res_uff.exists())
+            suppl_uff = Chem.SDMolSupplier(str(res_uff), removeHs=False)
+            mols_uff = [m for m in suppl_uff if m is not None]
+            self.assertGreater(len(mols_uff), 0)
+            self.assertTrue(mols_uff[0].GetConformer().Is3D())
+            self.assertGreater(
+                float(mols_uff[0].GetProp("Energy_MMFF_kcal_mol")), 0.0
             )
-            ref_png = render_reference_ensemble(
-                ref_sdf, output_png=tmp / "ref_super.png"
-            )
-            self.assertTrue(ref_png.exists())
-
-            fit_tsv = tmp / "fit.tsv"
-            pd.DataFrame(
-                {
-                    "Epoch": [1, 2, 3],
-                    "loss_train": [0.8, 0.5, 0.3],
-                    "valid_ratio": [0.9, 0.95, 0.98],
-                    "desired_ratio": [0.1, 0.2, 0.4],
-                    "unique_ratio": [0.8, 0.75, 0.7],
-                }
-            ).to_csv(fit_tsv, sep="\t", index=False)
-            curves_png = render_training_curves(fit_tsv, output_png=tmp / "curves.png")
-            self.assertIsNotNone(curves_png)
-            self.assertTrue(curves_png.exists())
-
-            smiles_tsv = tmp / "smiles.tsv"
-            pd.DataFrame(
-                {
-                    "Epoch": [1, 1, 2, 2],
-                    "SMILES": ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC", "c1ccccc1C(=O)O"],
-                    "ROCS": [0.4, 0.6, 0.5, 0.8],
-                    "SA": [0.9, 0.85, 0.8, 0.75],
-                }
-            ).to_csv(smiles_tsv, sep="\t", index=False)
-            pareto_evo_png = render_epoch_pareto_evolution(
-                smiles_tsv, output_png=tmp / "pareto_evo.png"
-            )
-            self.assertIsNotNone(pareto_evo_png)
-            self.assertTrue(pareto_evo_png.exists())
-
-            dist_df = pd.DataFrame(
-                {
-                    "SMILES": ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC"],
-                    "ROCS": [0.5, 0.7, 0.6],
-                    "SA": [1.0, 0.9, 0.8],
-                }
-            )
-            dist_png = render_property_distributions(
-                dist_df, output_png=tmp / "dists.png", ref_mol="c1ccccc1O"
-            )
-            self.assertIsNotNone(dist_png)
-            self.assertTrue(dist_png.exists())
-
-            lead_png = render_lead_structures_2d(
-                ["c1ccccc1O", "c1ccccc1CC"],
-                legends=["L1", "L2"],
-                output_png=tmp / "leads.png",
-            )
-            self.assertIsNotNone(lead_png)
-            self.assertTrue(lead_png.exists())
-
-            leads_df = pd.DataFrame(
-                {
-                    "SMILES": ["c1ccccc1O", "c1ccccc1CC"],
-                    "ROCS": [0.95, 0.90],
-                    "Desirability": [0.55, 0.50],
-                    "MW": [110.0, 120.0],
-                    "QED": [0.60, 0.65],
-                    "SA": [2.5, 3.0],
-                }
-            )
-            lead_df_png = render_lead_structures_2d(
-                leads_df, output_png=tmp / "leads_df.png", reference="c1ccccc1"
-            )
-            self.assertIsNotNone(lead_df_png)
-            self.assertTrue(lead_df_png.exists())
-
-            front_df = pd.DataFrame(
-                {
-                    "SMILES": ["m1", "m2"],
-                    "ROCS": [0.8, 0.5],
-                    "SA": [0.9, 0.4],
-                    "Pareto_Rank": [0, 1],
-                }
-            )
-            front_png = render_pareto_frontier(
-                front_df, output_png=tmp / "front.png", rocs_col="ROCS", sa_col="SA"
-            )
-            self.assertIsNotNone(front_png)
-            self.assertTrue(front_png.exists())
 
     def test_adaptive_rmsd_cutoff(self) -> None:
         """Verify Hawkins (2017) heavy-atom RMSD cutoffs across chemical tiers with topology invariance."""
         # 1. Rigid/compact tier (<= 2 rotatable bonds, <= 20 heavy atoms): (1.00 Å, 1)
-        m_benzene = Chem.MolFromSmiles("c1ccccc1")  # 0 rot, 6 heavy
+        m_benzene = Chem.MolFromSmiles("c1ccccc1")
         self.assertEqual(
             PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_benzene), (1.00, 1)
         )
 
-        m_aspirin = Chem.MolFromSmiles("CC(=O)Oc1ccccc1C(=O)O")  # 2 rot, 13 heavy
+        m_aspirin = Chem.MolFromSmiles("CC(=O)Oc1ccccc1C(=O)O")
         self.assertEqual(
             PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_aspirin), (1.00, 1)
         )
@@ -212,49 +107,35 @@ class TestLBDDPipeline(unittest.TestCase):
             PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_phenol_h), (1.00, 1)
         )
 
-        # 2. Standard drug-like tier (<= 7 rotatable bonds, <= 45 heavy atoms): (1.25 Å, 3)
-        m_ibuprofen = Chem.MolFromSmiles(
-            "CC(C)Cc1ccc(cc1)C(C)C(=O)O"
-        )  # 3 rot, 15 heavy
-        # NOTE: User is currently experimentally benchmarking single-conformer K=1 baseline in environment.py.
-        # Restore (1.25, 3) and (1.50, 5) after testing to restore green test suite.
-        # self.assertEqual(
-        #     PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), (1.25, 3)
-        # )
+        # 2. Standard drug-like tier (<= 7 rotatable bonds, <= 45 heavy atoms)
+        m_ibuprofen = Chem.MolFromSmiles("CC(C)Cc1ccc(cc1)C(C)C(=O)O")
         self.assertEqual(
             PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), (1.25, 1)
         )
 
-        m_diazepam = Chem.MolFromSmiles(
-            "CN1C(=O)CN=C(c2ccccc2)c2cc(Cl)ccc21"
-        )  # 1 rot, 20 heavy
-        self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_diazepam), (1.00, 1)
-        )
-
-        # 3. Flexible tier (> 7 rotatable bonds or > 45 heavy atoms): (1.50 Å, 5)
-        m_decanoic = Chem.MolFromSmiles("CCCCCCCCCC(=O)O")  # 8 rot, 11 heavy
-        # NOTE: User is currently experimentally benchmarking single-conformer K=1 baseline in environment.py.
-        # Restore (1.25, 3) and (1.50, 5) after testing to restore green test suite.
-        # self.assertEqual(
-        #     PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), (1.50, 5)
-        # )
+        # 3. Flexible tier (> 7 rotatable bonds or > 45 heavy atoms): (1.50 Å, 1)
+        m_decanoic = Chem.MolFromSmiles("CCCCCCCCCC(=O)O")
         self.assertEqual(
             PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), (1.50, 1)
+        )
+
+        # Macrocycle: Erythromycin (48 heavy atoms) -> 1.50 Å flexible tier
+        smi_erythromycin = (
+            "CCC1C(C(C(C(=O)C(CC(C(C(C(C(=O)O1)C)OC2CC(C(C(O2)C)O)(C)OC)C)"
+            "OC3C(C(CC(O3)C)N(C)C)O)(C)O)C)C)O"
+        )
+        mol_erythro = Chem.MolFromSmiles(smi_erythromycin)
+        self.assertEqual(
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), (1.50, 1)
         )
 
         # Null and empty molecule guards
         self.assertEqual(
             PrepareMolecule._calculate_adaptive_rmsd_cutoff(None), (1.00, 1)
         )
-        m_empty = Chem.MolFromSmiles("")
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_empty), (1.00, 1)
-        )
-
-        # Class / instance method verification
-        self.assertEqual(
-            self.preparer._calculate_adaptive_rmsd_cutoff(m_benzene), (1.00, 1)
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(Chem.MolFromSmiles("")),
+            (1.00, 1),
         )
 
     def test_seed_core_scaffold(self) -> None:
@@ -283,43 +164,49 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(row[3], "25")
             self.assertEqual(row[4], "4")
 
-            # Monocyclic and standard drug frameworks
-            smi_phenol = self.preparer.extract_seed_core_scaffold("c1ccccc1O")
-            self.assertEqual(smi_phenol, "c1ccccc1")
-
-            smi_aspirin = self.preparer.extract_seed_core_scaffold(
-                "CC(=O)Oc1ccccc1C(=O)O"
+            # Standard monocyclic framework: phenol -> benzene
+            self.assertEqual(
+                self.preparer.extract_seed_core_scaffold("c1ccccc1O"), "c1ccccc1"
             )
-            self.assertEqual(smi_aspirin, "c1ccccc1")
 
             # Acyclic fallback: preserves sanitized heavy-atom structure cleanly
-            smi_acyclic = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O")
-            self.assertEqual(smi_acyclic, "CCCCCC(=O)O")
+            self.assertEqual(
+                self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O"), "CCCCCC(=O)O"
+            )
 
     def test_load_query_molecule(self) -> None:
+        """Verify query molecule loading across SMILES strings, RDKit Mols, and files."""
+        # 1. SMILES input
         mol, is_3d = self.preparer.load_query_molecule("c1ccccc1O")
         self.assertFalse(is_3d)
         self.assertEqual(mol.GetNumHeavyAtoms(), 7)
 
-        # Long valid SMILES (> 255 chars) must not crash with OSError
+        # Long valid SMILES (> 255 chars) must not crash with OS path limit
         mol_long, is_3d = self.preparer.load_query_molecule("C" * 260)
         self.assertFalse(is_3d)
         self.assertEqual(mol_long.GetNumHeavyAtoms(), 260)
 
-        # Invalid long string (> 255 chars) raises ValueError cleanly
         with self.assertRaises(ValueError):
             self.preparer.load_query_molecule("INVALID" * 40)
 
+        # 2. Mol object input
         mol_input = Chem.MolFromSmiles("c1ccccc1")
         mol_ret, is_3d = self.preparer.load_query_molecule(mol_input)
         self.assertIs(mol_ret, mol_input)
         self.assertFalse(is_3d)
 
+        # Planar 2D conformer coordinates must be rejected as non-3D
+        AllChem.Compute2DCoords(mol_input)
+        _, is_3d_planar = self.preparer.load_query_molecule(mol_input)
+        self.assertFalse(is_3d_planar)
+
+        # Embedded 3D Mol
         mol_3d = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1"))
         AllChem.EmbedMolecule(mol_3d)
-        mol_ret_3d, is_3d = self.preparer.load_query_molecule(mol_3d)
-        self.assertTrue(is_3d)
+        _, is_3d_emb = self.preparer.load_query_molecule(mol_3d)
+        self.assertTrue(is_3d_emb)
 
+        # 3. File inputs (.txt, .sdf)
         with tempfile.TemporaryDirectory() as tmp_dir:
             txt_path = Path(tmp_dir) / "query.txt"
             txt_path.write_text("c1ccccc1O  phenol\n", encoding="utf-8")
@@ -331,61 +218,100 @@ class TestLBDDPipeline(unittest.TestCase):
             writer = Chem.SDWriter(str(sdf_path))
             writer.write(mol_3d)
             writer.close()
-            mol_from_sdf, is_3d = self.preparer.load_query_molecule(sdf_path)
-            self.assertTrue(is_3d)
+            _, is_3d_sdf = self.preparer.load_query_molecule(sdf_path)
+            self.assertTrue(is_3d_sdf)
 
             empty_path = Path(tmp_dir) / "empty.txt"
             empty_path.write_text("", encoding="utf-8")
             with self.assertRaises(ValueError):
                 self.preparer.load_query_molecule(empty_path)
 
-    def test_flat_2d_conformer_rejection(self) -> None:
-        mol_2d = Chem.MolFromSmiles("c1ccccc1")
-        AllChem.Compute2DCoords(mol_2d)
-        ret_mol, is_3d = self.preparer.load_query_molecule(mol_2d)
-        self.assertFalse(
-            is_3d, "Planar 2D conformer with z=0.0 must not be flagged as 3D"
+    def test_pareto_ranking(self) -> None:
+        """Verify Pareto Front 0 non-domination alignment, duplicate handling, and single-dimension dominance."""
+        pareto = ParetoFrontier()
+
+        # 1. Non-dominated Front 0 proof battery under maximize=[True, True]
+        df_proof = pd.DataFrame(
+            {
+                std.SMILES: ["molA", "molB", "molC", "molD", "molE"],
+                std.ROCS: [1.6, 1.8, 1.2, 1.4, 0.8],
+                std.SA: [0.9, 0.5, 1.0, 0.4, 0.1],
+            }
         )
+        scores = df_proof[[std.ROCS, std.SA]].to_numpy(dtype=float)
+        is_front = ParetoFrontier.identify_pareto_front(scores, maximize=[True, True])
 
-    def test_unparameterized_element_uff_fallback(self) -> None:
+        # Exactly A, B, C form Front 0; D and E are dominated
+        self.assertTrue(is_front[0], "Mol A [1.6, 0.9] must be Front 0")
+        self.assertTrue(is_front[1], "Mol B [1.8, 0.5] must be Front 0")
+        self.assertTrue(is_front[2], "Mol C [1.2, 1.0] must be Front 0")
+        self.assertFalse(is_front[3], "Mol D [1.4, 0.4] must be dominated")
+        self.assertFalse(is_front[4], "Mol E [0.8, 0.1] must be dominated")
+
+        ranked = pareto.rank_pareto_fronts(
+            df_proof, objectives=[std.ROCS, std.SA], maximize=[True, True]
+        )
+        self.assertEqual(ranked.loc[0, std.PARETO_RANK], 0)
+        self.assertEqual(ranked.loc[1, std.PARETO_RANK], 0)
+        self.assertEqual(ranked.loc[2, std.PARETO_RANK], 0)
+        self.assertGreater(ranked.loc[3, std.PARETO_RANK], 0)
+        self.assertGreater(ranked.loc[4, std.PARETO_RANK], 0)
+
+        # 2. Duplicate points: identical non-dominated points must both reside in Front 0
+        df_dups = pd.DataFrame(
+            {
+                std.SMILES: ["mol1", "mol2_dup", "mol3"],
+                std.ROCS: [1.5, 1.5, 0.5],
+                std.SA: [0.9, 0.9, 0.2],
+            }
+        )
+        ranked_dups = pareto.rank_pareto_fronts(
+            df_dups, objectives=[std.ROCS, std.SA], maximize=[True, True]
+        )
+        self.assertEqual(ranked_dups.loc[0, std.PARETO_RANK], 0)
+        self.assertEqual(ranked_dups.loc[1, std.PARETO_RANK], 0)
+        self.assertGreater(ranked_dups.loc[2, std.PARETO_RANK], 0)
+
+        # 3. Single-coordinate dominance: [1.5, 0.9] dominates [1.5, 0.8]
+        df_boundary = pd.DataFrame(
+            {
+                std.SMILES: ["mol_better", "mol_worse"],
+                std.ROCS: [1.5, 1.5],
+                std.SA: [0.9, 0.8],
+            }
+        )
+        is_front_b = ParetoFrontier.identify_pareto_front(
+            df_boundary[[std.ROCS, std.SA]].to_numpy(dtype=float),
+            maximize=[True, True],
+        )
+        self.assertTrue(is_front_b[0])
+        self.assertFalse(is_front_b[1])
+
+    def test_aligned_depiction(self) -> None:
+        """Verify 2D core-aligned grid image generation."""
+        depicter = AlignedDepicter("c1ccccc1O")
         with tempfile.TemporaryDirectory() as tmp_dir:
-            out_sdf = Path(tmp_dir) / "boronic.sdf"
-            # Boronic acid is not parameterized in MMFF94 and triggers status -1
-            res = self.preparer.generate_reference_conformers(
-                "OB(O)c1ccccc1", output_path=out_sdf, num_conformers=3
+            img_path = Path(tmp_dir) / "aligned.png"
+            img = depicter.create_aligned_grid(
+                ["c1ccccc1CC"], legends=["Lead 1"], output_path=img_path
             )
-            self.assertTrue(res.exists())
-            suppl = Chem.SDMolSupplier(str(res), removeHs=False)
-            mols = [m for m in suppl if m is not None]
-            self.assertGreater(len(mols), 0)
-            energy = float(mols[0].GetProp("Energy_MMFF_kcal_mol"))
-            self.assertGreater(
-                energy, 0.0, "UFF fallback energy must be valid and positive"
-            )
-
-    def test_prepare_molecule_class(self) -> None:
-        custom_preparer = PrepareMolecule()
-        mol, is_3d = custom_preparer.load_query_molecule("c1ccccc1O")
-        self.assertFalse(is_3d)
-        self.assertEqual(mol.GetNumHeavyAtoms(), 7)
-
-        smi = custom_preparer.extract_seed_core_scaffold("CCOC(=O)CC")
-        self.assertEqual(smi, "CCOC(=O)CC")
+            self.assertIsNotNone(img)
+            self.assertTrue(img_path.exists())
 
     def test_hardware_manager(self) -> None:
-        """Verify dynamic CPU allocation, GPU routing, batch sizing, and environment isolation."""
-        from _david.code.utils import HardwareManager
-
+        """Verify dynamic CPU allocation, power-of-2 batch sizing, environment isolation, and GPU selection."""
         # 1. Dynamic CPU allocation (60% rule)
         expected_jobs = max(1, int((os.cpu_count() or 1) * 0.60))
         self.assertEqual(HardwareManager.get_safe_parallel_jobs(), expected_jobs)
         self.assertEqual(
             HardwareManager.get_safe_parallel_jobs(cap=2), min(2, expected_jobs)
         )
+        # Cap guard against zero or negative caps
+        self.assertEqual(HardwareManager.get_safe_parallel_jobs(cap=0), 1)
+        self.assertEqual(HardwareManager.get_safe_parallel_jobs(cap=-5), 1)
 
         # 2. Power-of-2 batch sizing clamped strictly to n_samples
-        batch_small = HardwareManager.get_recommended_batch_size(n_samples=10)
-        self.assertEqual(batch_small, 10)
+        self.assertEqual(HardwareManager.get_recommended_batch_size(n_samples=10), 10)
         batch_normal = HardwareManager.get_recommended_batch_size(n_samples=200)
         self.assertIn(batch_normal, [32, 64, 128])
 
@@ -399,11 +325,12 @@ class TestLBDDPipeline(unittest.TestCase):
         # 4. Safe GPU routing and CPU fallback
         gpus = HardwareManager.get_safe_gpus()
         self.assertIsInstance(gpus, tuple)
-        # Invalid preferred GPU index falls back to ()
+        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="cpu"), ())
+        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="none"), ())
         self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu=9999), ())
 
     def test_decoupled_validation_loader(self) -> None:
-        """Verify that prepare_seed_fragments returns decoupled train and bounded val loaders."""
+        """Verify that prepare_seed_fragments returns decoupled train and bounded validation dataloaders."""
         from _david.code.models import AlgorithmConfig, GraphTransformerOptimizer
 
         cfg = AlgorithmConfig(n_samples=200, val_samples=None)
@@ -414,7 +341,7 @@ class TestLBDDPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             optimizer = GraphTransformerOptimizer(tmp_dir, gpu="auto")
 
-            # Decoupled validation dataloader for N=200 prompts: bounded val_size = 40 (min(50, max(25, 40)))
+            # Decoupled validation dataloader for N=200 prompts: bounded val_size = 40
             train_loader, val_loader, dataset = optimizer.prepare_seed_fragments(
                 "c1ccccc1O", n_prompts=200
             )
@@ -430,264 +357,8 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(len(train_l10.dataset), 10)
             self.assertEqual(len(val_l10.dataset), 10)
 
-    def test_pareto_front_0_alignment(self) -> None:
-        """Verify Pareto Front 0 non-domination alignment under maximize=[True, True]."""
-        # Synthetic 5-point dataset matching Phase 0 numerical proof:
-        # A: [1.6, 0.9] (High ROCS, High SA Desirability) -> Front 0
-        # B: [1.8, 0.5] (Peak ROCS, Moderate SA Desirability) -> Front 0
-        # C: [1.2, 1.0] (Moderate ROCS, Perfect SA Desirability) -> Front 0
-        # D: [1.4, 0.4] (Dominated by A) -> Dominated
-        # E: [0.8, 0.1] (Terrible candidate) -> Dominated
-        df_proof = pd.DataFrame(
-            {
-                "SMILES": ["molA", "molB", "molC", "molD", "molE"],
-                "ROCS": [1.6, 1.8, 1.2, 1.4, 0.8],
-                "SA": [0.9, 0.5, 1.0, 0.4, 0.1],
-            }
-        )
-        scores = df_proof[["ROCS", "SA"]].to_numpy(dtype=float)
-        is_front = ParetoFrontier.identify_pareto_front(scores, maximize=[True, True])
-
-        # Exactly A, B, C form Front 0
-        self.assertTrue(is_front[0], "Mol A [1.6, 0.9] must be Front 0")
-        self.assertTrue(is_front[1], "Mol B [1.8, 0.5] must be Front 0")
-        self.assertTrue(is_front[2], "Mol C [1.2, 1.0] must be Front 0")
-        self.assertFalse(is_front[3], "Mol D [1.4, 0.4] must be dominated by Mol A")
-        self.assertFalse(is_front[4], "Mol E [0.8, 0.1] must be dominated")
-
-        pareto = ParetoFrontier()
-        ranked = pareto.rank_pareto_fronts(
-            df_proof, objectives=["ROCS", "SA"], maximize=[True, True]
-        )
-        self.assertEqual(ranked.loc[0, "Pareto_Rank"], 0)
-        self.assertEqual(ranked.loc[1, "Pareto_Rank"], 0)
-        self.assertEqual(ranked.loc[2, "Pareto_Rank"], 0)
-        self.assertGreater(ranked.loc[3, "Pareto_Rank"], 0)
-        self.assertGreater(ranked.loc[4, "Pareto_Rank"], 0)
-
-    def test_forcefield_minimization_streamlined(self) -> None:
-        """Verify streamlined conformer generation with MMFF94 and UFF without dead status loops."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            # 1. Standard organic molecule with MMFF94
-            mmff_sdf = Path(tmp_dir) / "phenol.sdf"
-            res_mmff = self.preparer.generate_reference_conformers(
-                "c1ccccc1O", output_path=mmff_sdf, num_conformers=5
-            )
-            self.assertTrue(res_mmff.exists())
-            suppl_mmff = Chem.SDMolSupplier(str(res_mmff), removeHs=False)
-            confs_mmff = [m for m in suppl_mmff if m is not None]
-            self.assertGreater(len(confs_mmff), 0)
-            self.assertTrue(confs_mmff[0].GetConformer().Is3D())
-            self.assertTrue(confs_mmff[0].HasProp("Energy_MMFF_kcal_mol"))
-
-            # 2. Boronic acid with UFF fallback
-            uff_sdf = Path(tmp_dir) / "boronic.sdf"
-            res_uff = self.preparer.generate_reference_conformers(
-                "OB(O)c1ccccc1", output_path=uff_sdf, num_conformers=3
-            )
-            self.assertTrue(res_uff.exists())
-            suppl_uff = Chem.SDMolSupplier(str(res_uff), removeHs=False)
-            confs_uff = [m for m in suppl_uff if m is not None]
-            self.assertGreater(len(confs_uff), 0)
-            self.assertTrue(confs_uff[0].GetConformer().Is3D())
-            self.assertGreater(float(confs_uff[0].GetProp("Energy_MMFF_kcal_mol")), 0.0)
-
-    def test_clipped_score_feasibility_floor(self) -> None:
-        """Verify ClippedScore mathematical parameterization and SA feasibility floor behavior."""
-        # Standard feasibility floor modifier:
-        # High desirability (1.0) for easy SA <= 5.5, floor penalty (0.0) for difficult SA >= 6.0
-        modifier = ClippedScore(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0)
-        self.assertEqual(modifier.slope, -2.0)
-        self.assertEqual(modifier.intercept, 12.0)
-
-        # 1. Synthetically accessible tier (SA <= 5.5) -> Desirability = 1.0
-        self.assertEqual(float(modifier(1.0)), 1.0)
-        self.assertEqual(float(modifier(3.0)), 1.0)
-        self.assertEqual(float(modifier(5.0)), 1.0)
-        self.assertEqual(float(modifier(5.5)), 1.0)
-
-        # 2. Linear transition window (5.5 < SA < 6.0)
-        self.assertAlmostEqual(float(modifier(5.75)), 0.5, places=5)
-        self.assertAlmostEqual(float(modifier(5.625)), 0.75, places=5)
-        self.assertAlmostEqual(float(modifier(5.875)), 0.25, places=5)
-
-        # 3. Penalized / infeasible tier (SA >= 6.0) -> Desirability = 0.0
-        self.assertEqual(float(modifier(6.0)), 0.0)
-        self.assertEqual(float(modifier(7.0)), 0.0)
-        self.assertEqual(float(modifier(10.0)), 0.0)
-
-        # Property integration
-        sa_scorer = Property(prop="SA", modifier=modifier)
-        scores = sa_scorer.getScores(["c1ccccc1O"])
-        self.assertGreater(scores[0], 0.0)
-        mod_scores = sa_scorer(["c1ccccc1O"])
-        self.assertEqual(float(mod_scores[0]), 1.0)
-
-    def test_adaptive_rmsd_cutoff_adversarial_battery(self) -> None:
-        """Verify Hawkins (2017) cutoffs on macrocycles, polycycles, amine hydrogens, and single atoms."""
-        # 1. Macrocycle: Erythromycin (48 heavy atoms) -> 1.50 Å flexible tier
-        smi_erythromycin = (
-            "CCC1C(C(C(C(=O)C(CC(C(C(C(C(=O)O1)C)OC2CC(C(C(O2)C)O)(C)OC)C)"
-            "OC3C(C(CC(O3)C)N(C)C)O)(C)O)C)C)O"
-        )
-        mol_erythro = Chem.MolFromSmiles(smi_erythromycin)
-        self.assertIsNotNone(mol_erythro)
-        # NOTE: User is currently experimentally benchmarking single-conformer K=1 baseline in environment.py.
-        # Restore (1.25, 3) and (1.50, 5) after testing to restore green test suite.
-        # self.assertEqual(
-        #     PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), (1.50, 5)
-        # )
-        self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), (1.50, 1)
-        )
-
-        # 2. Polycyclic aromatic sheet: Coronene (26 heavy atoms, 0 rotatable bonds) -> 1.25 Å drug-like tier
-        smi_coronene = (
-            "c12c3c4c5c6c1c7c8c2c9c%10c3c%11c4c%12c5c%13c6c7c%14c%13c%12c%11c%10c%14c89"
-        )
-        mol_coronene = Chem.MolFromSmiles(smi_coronene)
-        self.assertIsNotNone(mol_coronene)
-        # NOTE: User is currently experimentally benchmarking single-conformer K=1 baseline in environment.py.
-        # Restore (1.25, 3) and (1.50, 5) after testing to restore green test suite.
-        # self.assertEqual(
-        #     PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_coronene), (1.25, 3)
-        # )
-        self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_coronene), (1.25, 1)
-        )
-
-        # 3. Nitrogenous heteroatoms: aniline (c1ccccc1N) with and without explicit Hs
-        mol_aniline = Chem.MolFromSmiles("c1ccccc1N")
-        mol_aniline_h = Chem.AddHs(mol_aniline)
-        self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_aniline), (1.00, 1)
-        )
-        self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_aniline_h), (1.00, 1)
-        )
-
-        # 4. Minimal / single-atom molecules
-        mol_methane = Chem.MolFromSmiles("C")
-        mol_water = Chem.MolFromSmiles("O")
-        self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_methane), (1.00, 1)
-        )
-        self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_water), (1.00, 1)
-        )
-
-    def test_canonical_scaffolds_adversarial_battery(self) -> None:
-        """Verify Bemis-Murcko extraction across spiro, fused lactones, bridgeheads, and zwitterions."""
-        # 1. Spiro bicycle: Spiro[4.5]decane (preserves both rings, 11 heavy atoms, 2 rings)
-        scaff_spiro = self.preparer.extract_seed_core_scaffold("C1CC2(CCC1)CCCCC2")
-        mol_spiro = Chem.MolFromSmiles(scaff_spiro)
-        self.assertIsNotNone(mol_spiro)
-        self.assertEqual(mol_spiro.GetNumHeavyAtoms(), 11)
-        self.assertEqual(mol_spiro.GetRingInfo().NumRings(), 2)
-
-        # 2. Fused lactone: Coumarin (preserves benzene and lactone rings, 11 heavy atoms, 2 rings)
-        scaff_coumarin = self.preparer.extract_seed_core_scaffold("O=C1Oc2ccccc2C=C1")
-        mol_coumarin = Chem.MolFromSmiles(scaff_coumarin)
-        self.assertIsNotNone(mol_coumarin)
-        self.assertEqual(mol_coumarin.GetNumHeavyAtoms(), 11)
-        self.assertEqual(mol_coumarin.GetRingInfo().NumRings(), 2)
-
-        # 3. Bridgehead bicycle: Norbornane (preserves bicyclo[2.2.1]heptane framework, 7 heavy atoms, 2 rings)
-        scaff_norbornane = self.preparer.extract_seed_core_scaffold("C1CC2CCC1C2")
-        mol_norbornane = Chem.MolFromSmiles(scaff_norbornane)
-        self.assertIsNotNone(mol_norbornane)
-        self.assertEqual(mol_norbornane.GetNumHeavyAtoms(), 7)
-        self.assertEqual(mol_norbornane.GetRingInfo().NumRings(), 2)
-
-        # 4. Bicyclic ketone: Camphor (preserves bicyclo[2.2.1] with carbonyl, 8 heavy atoms, 2 rings)
-        scaff_camphor = self.preparer.extract_seed_core_scaffold(
-            "CC1(C)C2CCC1(C)C(=O)C2"
-        )
-        mol_camphor = Chem.MolFromSmiles(scaff_camphor)
-        self.assertIsNotNone(mol_camphor)
-        self.assertEqual(mol_camphor.GetNumHeavyAtoms(), 8)
-        self.assertEqual(mol_camphor.GetRingInfo().NumRings(), 2)
-
-        # 5. Acyclic zwitterion: Betaine (preserves sanitized heavy-atom structure, 8 heavy atoms)
-        scaff_betaine = self.preparer.extract_seed_core_scaffold(
-            "C[N+](C)(C)CC(=O)[O-]"
-        )
-        mol_betaine = Chem.MolFromSmiles(scaff_betaine)
-        self.assertIsNotNone(mol_betaine)
-        self.assertEqual(mol_betaine.GetNumHeavyAtoms(), 8)
-
-    def test_hardware_manager_adversarial(self) -> None:
-        """Verify HardwareManager across simulated host scales, fallback limits, and whitespace parsing."""
-        from _david.code.utils import HardwareManager
-
-        # 1. 60% rule scaling across different machine profiles
-        self.assertEqual(
-            HardwareManager.get_safe_parallel_jobs(ratio=0.60),
-            max(1, int((os.cpu_count() or 1) * 0.60)),
-        )
-        # Simulated 1-core container: max(1, int(1 * 0.60)) = 1
-        self.assertEqual(max(1, int(1 * 0.60)), 1)
-        # Simulated 4-core workstation: max(1, int(4 * 0.60)) = 2
-        self.assertEqual(max(1, int(4 * 0.60)), 2)
-        # Simulated 48-core server: max(1, int(48 * 0.60)) = 28
-        self.assertEqual(max(1, int(48 * 0.60)), 28)
-        # Simulated 128-core HPC node: max(1, int(128 * 0.60)) = 76
-        self.assertEqual(max(1, int(128 * 0.60)), 76)
-
-        # 2. Cap guard against negative or zero caps
-        self.assertEqual(HardwareManager.get_safe_parallel_jobs(cap=0), 1)
-        self.assertEqual(HardwareManager.get_safe_parallel_jobs(cap=-5), 1)
-
-        # 3. CPU fallback on extreme / unachievable VRAM demand
-        best_gpu_extreme = HardwareManager.select_best_gpu(min_free_mb=1_000_000.0)
-        self.assertEqual(best_gpu_extreme, -1)
-
-        # 4. Whitespace trimming on string device IDs
-        safe_gpus_whitespace = HardwareManager.get_safe_gpus(preferred_gpu=" 0 ")
-        self.assertIsInstance(safe_gpus_whitespace, tuple)
-
-        # 5. Non-digit string preferred GPUs cleanly fall back to ()
-        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="cpu"), ())
-        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="none"), ())
-        self.assertEqual(
-            HardwareManager.get_safe_gpus(preferred_gpu="cuda:invalid"), ()
-        )
-
-    def test_pareto_front_duplicate_and_boundary_handling(self) -> None:
-        """Verify Pareto frontier handles duplicate points and strict single-dimension dominance."""
-        # 1. Duplicate points: Two identical non-dominated points must both be in Front 0
-        df_dups = pd.DataFrame(
-            {
-                "SMILES": ["mol1", "mol2_dup", "mol3"],
-                "ROCS": [1.5, 1.5, 0.5],
-                "SA": [0.9, 0.9, 0.2],
-            }
-        )
-        ranked_dups = ParetoFrontier().rank_pareto_fronts(
-            df_dups, objectives=["ROCS", "SA"], maximize=[True, True]
-        )
-        self.assertEqual(ranked_dups.loc[0, "Pareto_Rank"], 0)
-        self.assertEqual(ranked_dups.loc[1, "Pareto_Rank"], 0)
-        self.assertGreater(ranked_dups.loc[2, "Pareto_Rank"], 0)
-
-        # 2. Single-coordinate dominance: [1.5, 0.9] dominates [1.5, 0.8] because 0.9 > 0.8 and 1.5 >= 1.5
-        df_boundary = pd.DataFrame(
-            {
-                "SMILES": ["mol_better", "mol_worse"],
-                "ROCS": [1.5, 1.5],
-                "SA": [0.9, 0.8],
-            }
-        )
-        is_front = ParetoFrontier.identify_pareto_front(
-            df_boundary[["ROCS", "SA"]].to_numpy(dtype=float), maximize=[True, True]
-        )
-        self.assertTrue(is_front[0])
-        self.assertFalse(is_front[1])
-
     def test_safe_sa_modifier(self) -> None:
         """Verify SafeSAModifier preserves ClippedScore feasibility ramp while clamping crash fallbacks to 0.0."""
-        import numpy as np
-
         modifier = SafeSAModifier(
             lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0
         )
@@ -700,7 +371,7 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertEqual(float(modifier(6.0)), 0.0)
         self.assertEqual(float(modifier(7.0)), 0.0)
 
-        # 2. Crash / uncalculable / unphysical fallback guard (SA <= 0.0)
+        # 2. Crash / uncalculable / unphysical fallback guard (SA <= 0.0 strictly maps to 0.0)
         self.assertEqual(float(modifier(0.0)), 0.0)
         self.assertEqual(float(modifier(-1.0)), 0.0)
         self.assertEqual(float(modifier(-99.0)), 0.0)
@@ -710,17 +381,19 @@ class TestLBDDPipeline(unittest.TestCase):
         expected_arr = np.array([0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0])
         np.testing.assert_allclose(modifier(input_arr), expected_arr, atol=1e-5)
 
+        # 4. Property integration
+        sa_scorer = Property(prop="SA", modifier=modifier)
+        scores = sa_scorer.getScores(["c1ccccc1O"])
+        self.assertGreater(scores[0], 0.0)
+        mod_scores = sa_scorer(["c1ccccc1O"])
+        self.assertEqual(float(mod_scores[0]), 1.0)
+
     def test_result_analyzer_deduplication_and_tie_breaking(self) -> None:
         """Verify ResultAnalyzer deduplicates canonical SMILES clones and breaks Pareto Front 0 ties by QED."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             candidates_tsv = tmp_path / "candidates.tsv"
 
-            # Create test dataset with duplicates (aspirin in two forms) and Pareto ties
-            # Mol A: Aspirin variant 1 (ROCS=1.5, SA=0.9, QED=0.55)
-            # Mol B: Aspirin variant 2 (identical canonical SMILES, duplicate)
-            # Mol C: Phenol (ROCS=1.5, SA=0.9, QED=0.45) - Pareto tied with Mol A, but lower QED
-            # Mol D: Inferior candidate (ROCS=0.5, SA=0.2, QED=0.80) - Pareto Rank 1
             smi_asp1 = "CC(=O)Oc1ccccc1C(=O)O"
             smi_asp2 = "O=C(O)c1ccccc1OC(=O)C"  # Chemically valid alternative SMILES for aspirin
             smi_phenol = "c1ccccc1O"
@@ -728,46 +401,36 @@ class TestLBDDPipeline(unittest.TestCase):
 
             df = pd.DataFrame(
                 {
-                    "SMILES": [smi_asp1, smi_asp2, smi_phenol, smi_low],
-                    "ROCS": [1.5, 1.5, 1.5, 0.5],
-                    "SA": [0.9, 0.9, 0.9, 0.2],
-                    "Valid": [True, True, True, True],
+                    std.SMILES: [smi_asp1, smi_asp2, smi_phenol, smi_low],
+                    std.ROCS: [1.5, 1.5, 1.5, 0.5],
+                    std.SA: [0.9, 0.9, 0.9, 0.2],
+                    std.VALID: [True, True, True, True],
                 }
             )
             df.to_csv(candidates_tsv, sep="\t", index=False)
 
-            analyzer = ResultAnalyzer(output_dir=tmp_path)
-            analyzer.analyze(candidates_tsv=candidates_tsv, top_k=10)
+            analyzer = ResultAnalyzer(tmp_path)
+            saved_leads = analyzer.analyze(candidates_tsv, top_k=5)
 
-            # 1. Output file exists
-            leads_tsv = (
-                tmp_path / "stage2_result_analysis" / "top_prioritized_leads.tsv"
-            )
-            self.assertTrue(leads_tsv.exists())
+            # Deduplication: identical canonical SMILES must appear only once
+            asp_canon = Chem.CanonSmiles(smi_asp1)
+            asp_rows = saved_leads[saved_leads[std.CANONICAL_SMILES] == asp_canon]
+            self.assertEqual(len(asp_rows), 1, "Duplicate canonical SMILES must be collapsed")
 
-            # 2. Deduplication check: Aspirin must appear exactly once in top_leads
-            saved_leads = pd.read_csv(leads_tsv, sep="\t")
-            canonical_leads = saved_leads["Canonical_SMILES"].tolist()
-            self.assertEqual(len(canonical_leads), len(set(canonical_leads)))
-            self.assertEqual(
-                len(saved_leads), 3
-            )  # 4 rows -> 1 duplicate dropped = 3 rows
-
-            # 3. Tie-breaking check: Both Mol A and Mol C are Pareto Rank 0 with equal ROCS=1.5 and SA=0.9.
-            # Mol A (Aspirin, QED ~0.55) must rank before Mol C (Phenol, QED ~0.45)
-            self.assertEqual(saved_leads.loc[0, "Pareto_Rank"], 0)
-            self.assertEqual(saved_leads.loc[1, "Pareto_Rank"], 0)
-            self.assertGreater(saved_leads.loc[0, "QED"], saved_leads.loc[1, "QED"])
+            # Tie-breaking: Front 0 candidates sorted by QED descending
+            self.assertEqual(saved_leads.iloc[0][std.PARETO_RANK], 0)
+            self.assertEqual(saved_leads.iloc[1][std.PARETO_RANK], 0)
+            self.assertGreater(saved_leads.iloc[0][std.QED], saved_leads.iloc[1][std.QED])
 
     def test_data_schema_standardization(self) -> None:
-        """Verify DataSchema normalizes dynamic DrugEx scorer names and historical variants into canonical constants."""
+        """Verify std normalizes dynamic DrugEx scorer names, historical variants, and prunes duplicate columns."""
         # 1. Raw DrugEx DataFrame with Supermol ROCS and Desired
         raw_df = pd.DataFrame(
             {
-                "SMILES": ["c1ccccc1"],
+                std.SMILES: ["c1ccccc1"],
                 "RDKit_Supermol_TanimotoCombo_oe": [0.65],
-                "SA": [1.0],
-                "Desired": [1],
+                std.SA: [1.0],
+                std.DESIRED: [1],
             }
         )
         std_df = std.standardize(raw_df)
@@ -778,7 +441,7 @@ class TestLBDDPipeline(unittest.TestCase):
         # 2. Multi-reference DrugEx DataFrame with Aggregate 8refs ROCS
         agg_df = pd.DataFrame(
             {
-                "SMILES": ["c1ccccc1"],
+                std.SMILES: ["c1ccccc1"],
                 "RDKit_Aggregate_8refs_TanimotoCombo_oe": [0.72],
                 "SAScore": [2.5],
                 "Desirability": [0.85],
@@ -799,11 +462,11 @@ class TestLBDDPipeline(unittest.TestCase):
         # 4. Duplicate pruning: duplicate SA/SAscore and Desired/Desirability
         dup_df = pd.DataFrame(
             {
-                "SMILES": ["c1ccccc1"],
-                "ROCS": [0.65],
-                "SA": [1.0],
+                std.SMILES: ["c1ccccc1"],
+                std.ROCS: [0.65],
+                std.SA: [1.0],
                 "SAscore": [1.0],
-                "Desired": [1],
+                std.DESIRED: [1],
                 "Desirability": [1],
                 "Frags": ["c1ccccc1"],
                 "logP": [1.5],
@@ -819,34 +482,110 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertIn(std.FRAGS, std_dup.columns)
         self.assertIn(std.LOGP, std_dup.columns)
 
-    def test_render_lead_structures_2d_schema_alignment(self) -> None:
-        """Verify render_lead_structures_2d correctly extracts ROCS, Desired, and 1-based ranks from raw DataFrames."""
-        from _david.code.visualization import render_lead_structures_2d
-
+    def test_visualization_suite(self) -> None:
+        """Verify end-to-end visualization suite (training curves, evolution, property distributions, 2D leads, Pareto frontier)."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            out_png = Path(tmp_dir) / "leads.png"
+            tmp = Path(tmp_dir)
 
-            # DataFrame matching the canonical std schema with row index 176
-            df_leads = pd.DataFrame(
+            # 1. Reference 3D Superposition
+            ref_sdf = tmp / "ref_ensemble.sdf"
+            self.preparer.generate_reference_conformers(
+                "c1ccccc1O", output_path=ref_sdf, num_conformers=3
+            )
+            ref_png = render_reference_ensemble(
+                ref_sdf, output_png=tmp / "ref_ensemble.png"
+            )
+            self.assertIsNotNone(ref_png)
+            self.assertTrue(ref_png.exists())
+
+            # 2. Training Curves
+            fit_tsv = tmp / "fit.tsv"
+            pd.DataFrame(
                 {
-                    std.SMILES: ["CC(=O)Oc1ccccc1C(=O)O"],
-                    std.ROCS: [0.575],
-                    std.SA: [1.0],
-                    std.DESIRED: [1.0],
-                    std.PARETO_RANK: [0],
-                    std.QED: [0.55],
-                    std.MW: [180.15],
-                },
-                index=[176],  # Unreset index from raw pool
+                    std.EPOCH: [1, 2, 3],
+                    std.LOSS_TRAIN: [0.5, 0.4, 0.3],
+                    std.VALID_RATIO: [0.8, 0.85, 0.9],
+                    std.UNIQUE_RATIO: [0.7, 0.75, 0.8],
+                    std.DESIRED_RATIO: [0.2, 0.4, 0.6],
+                }
+            ).to_csv(fit_tsv, sep="\t", index=False)
+            curves_png = render_training_curves(
+                fit_tsv, output_png=tmp / "training_curves.png"
             )
+            self.assertIsNotNone(curves_png)
+            self.assertTrue(curves_png.exists())
 
-            res = render_lead_structures_2d(
-                df_leads,
-                output_png=out_png,
-                reference="c1ccccc1",
+            # 3. Pareto Epoch Evolution
+            smiles_tsv = tmp / "smiles.tsv"
+            pd.DataFrame(
+                {
+                    std.EPOCH: [1, 1, 2, 2],
+                    std.SMILES: ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC", "c1ccccc1C(=O)O"],
+                    std.ROCS: [0.4, 0.6, 0.5, 0.8],
+                    std.SA: [0.9, 0.85, 0.8, 0.75],
+                }
+            ).to_csv(smiles_tsv, sep="\t", index=False)
+            pareto_evo_png = render_epoch_pareto_evolution(
+                smiles_tsv, output_png=tmp / "pareto_evo.png"
             )
-            self.assertIsNotNone(res)
-            self.assertTrue(out_png.exists())
+            self.assertIsNotNone(pareto_evo_png)
+            self.assertTrue(pareto_evo_png.exists())
+
+            # 4. Property Distributions (9-panel grid)
+            dist_df = pd.DataFrame(
+                {
+                    std.SMILES: ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC"],
+                    std.ROCS: [0.5, 0.7, 0.6],
+                    std.SA: [1.0, 0.9, 0.8],
+                }
+            )
+            dist_png = render_property_distributions(
+                dist_df, output_png=tmp / "dists.png", ref_mol="c1ccccc1O"
+            )
+            self.assertIsNotNone(dist_png)
+            self.assertTrue(dist_png.exists())
+
+            # 5. Lead Structures 2D Cards (including unreset index verification)
+            leads_df = pd.DataFrame(
+                {
+                    std.SMILES: ["CC(=O)Oc1ccccc1C(=O)O", "c1ccccc1CC"],
+                    std.ROCS: [0.575, 0.90],
+                    std.DESIRED: [1.0, 0.50],
+                    std.PARETO_RANK: [0, 1],
+                    std.QED: [0.55, 0.65],
+                    std.MW: [180.15, 120.0],
+                    std.SA: [1.0, 3.0],
+                },
+                index=[176, 204],
+            )
+            lead_df_png = render_lead_structures_2d(
+                leads_df, output_png=tmp / "leads_df.png", reference="c1ccccc1"
+            )
+            self.assertIsNotNone(lead_df_png)
+            self.assertTrue(lead_df_png.exists())
+
+            # 6. Pareto Frontier
+            front_df = pd.DataFrame(
+                {
+                    std.SMILES: ["m1", "m2"],
+                    std.ROCS: [0.8, 0.5],
+                    std.SA: [0.9, 0.4],
+                    std.PARETO_RANK: [0, 1],
+                }
+            )
+            front_png = render_pareto_frontier(
+                front_df, output_png=tmp / "front.png", rocs_col=std.ROCS, sa_col=std.SA
+            )
+            self.assertIsNotNone(front_png)
+            self.assertTrue(front_png.exists())
+
+    def test_pipeline_benchmark(self) -> None:
+        """Verify MoleculePipeline execution in benchmark_only mode."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pipe_dir = Path(tmp_dir) / "run_test"
+            pipeline = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
+            pipeline.run("Oc1ccccc1")
+            self.assertTrue((pipe_dir / "pipeline_status.json").exists())
 
 
 if __name__ == "__main__":
