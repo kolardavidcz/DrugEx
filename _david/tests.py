@@ -796,6 +796,29 @@ class TestLBDDPipeline(unittest.TestCase):
         re_std = std.standardize(std_agg)
         self.assertEqual(list(std_agg.columns), list(re_std.columns))
 
+        # 4. Duplicate pruning: duplicate SA/SAscore and Desired/Desirability
+        dup_df = pd.DataFrame(
+            {
+                "SMILES": ["c1ccccc1"],
+                "ROCS": [0.65],
+                "SA": [1.0],
+                "SAscore": [1.0],
+                "Desired": [1],
+                "Desirability": [1],
+                "Frags": ["c1ccccc1"],
+                "logP": [1.5],
+            }
+        )
+        std_dup = std.standardize(dup_df)
+        self.assertNotIn("SAscore", std_dup.columns)
+        self.assertNotIn("Desirability", std_dup.columns)
+        self.assertNotIn("Frags", std_dup.columns)
+        self.assertNotIn("logP", std_dup.columns)
+        self.assertIn(std.SA, std_dup.columns)
+        self.assertIn(std.DESIRED, std_dup.columns)
+        self.assertIn(std.FRAGS, std_dup.columns)
+        self.assertIn(std.LOGP, std_dup.columns)
+
     def test_render_lead_structures_2d_schema_alignment(self) -> None:
         """Verify render_lead_structures_2d correctly extracts ROCS, Desired, and 1-based ranks from raw DataFrames."""
         from _david.code.visualization import render_lead_structures_2d
@@ -803,16 +826,16 @@ class TestLBDDPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_png = Path(tmp_dir) / "leads.png"
 
-            # DataFrame matching the exact DrugEx output format with row index 176
+            # DataFrame matching the canonical std schema with row index 176
             df_leads = pd.DataFrame(
                 {
-                    "SMILES": ["CC(=O)Oc1ccccc1C(=O)O"],
-                    "RDKit_Supermol_TanimotoCombo_oe": [0.575],
-                    "SA": [1.0],
-                    "Desired": [1.0],
-                    "Pareto_Rank": [0],
-                    "QED": [0.55],
-                    "MW": [180.15],
+                    std.SMILES: ["CC(=O)Oc1ccccc1C(=O)O"],
+                    std.ROCS: [0.575],
+                    std.SA: [1.0],
+                    std.DESIRED: [1.0],
+                    std.PARETO_RANK: [0],
+                    std.QED: [0.55],
+                    std.MW: [180.15],
                 },
                 index=[176],  # Unreset index from raw pool
             )

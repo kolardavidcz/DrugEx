@@ -97,12 +97,17 @@ class MoleculePipeline:
             )
             monitor.restore_peak_model(optimizer.AGENT)
 
+            smiles_tsv = Path(f"{model_prefix}_smiles.tsv")
+            if smiles_tsv.exists():
+                s_df = pd.read_csv(smiles_tsv, sep="\t")
+                std.standardize(s_df).to_csv(smiles_tsv, sep="\t", index=False)
+
             render_training_curves(
                 f"{model_prefix}_fit.tsv",
                 output_png=optimizer.MODEL_DIR / "rl_training_curves.png",
             )
             render_epoch_pareto_evolution(
-                f"{model_prefix}_smiles.tsv",
+                smiles_tsv,
                 output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png",
             )
 

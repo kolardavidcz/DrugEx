@@ -1,4 +1,4 @@
-Regime	Total Sampled	Valid %	Unique %	Novelty % (Sim < 0.4)	Scaffold Diversity	Mean ROCS	Mean RAscore	Mean QED	Mean SA	Desired Ratio %
+Regime	Total Sampled	Valid %	Unique %	Novelty % (Sim < 0.4)	Scaffold Diversity	ROCS	Mean RAscore	Mean QED	Mean SA	Desired Ratio %
 Sequence-RNN (Pure RL)	200	100.0	100.0	100.0	0.915	0.286	0.886	0.681	2.89	1.0
 Graph-Transformer (BRICS Seed)	200	100.0	100.0	100.0	0.925	0.264	0.913	0.715	2.95	0.5
 Hybrid Funnel (Two-Stage)	200	100.0	100.0	100.0	0.925	0.264	0.913	0.715	2.95	0.5

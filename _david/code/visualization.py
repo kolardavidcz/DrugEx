@@ -297,7 +297,7 @@ def render_lead_structures_2d(
 
     # 2. Prioritized Elite Leads
     if isinstance(molecules, pd.DataFrame):
-        df_leads = std.standardize(molecules.head(max_leads))
+        df_leads = molecules.head(max_leads)
         for rank_num, (_, row) in enumerate(df_leads.iterrows(), start=1):
             smi = str(row.get(std.SMILES, ""))
             m = Chem.MolFromSmiles(smi)
@@ -454,7 +454,6 @@ def render_epoch_pareto_evolution(
     if df.empty or "Epoch" not in df.columns or std.SMILES not in df.columns:
         return None
 
-    df = std.standardize(df)
     rocs_name = std.ROCS
     if rocs_name not in df.columns:
         return None
@@ -465,13 +464,9 @@ def render_epoch_pareto_evolution(
     )
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    # Detect SA desirability or fallback to raw SAscore
-    if std.SA in df.columns:
-        sa_name = std.SA
-    elif "SAscore" in df.columns:
-        sa_name = "SAscore"
-    else:
-        sa_name = std.SA
+    # Use canonical SA column or calculate if absent
+    sa_name = std.SA
+    if sa_name not in df.columns:
         mols = [
             Chem.MolFromSmiles(s) if isinstance(s, str) else None for s in df["SMILES"]
         ]
@@ -862,7 +857,7 @@ def render_property_distributions(
     target_png = Path(output_png) if output_png else Path("property_distributions.png")
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    calc_df = std.standardize(df)
+    calc_df = df
     if std.VALID in calc_df.columns:
         valid_df = calc_df[calc_df[std.VALID].astype(bool)].copy()
     else:
@@ -1212,40 +1207,33 @@ def render_pareto_frontier(
     rocs_col: str | None = None,
     sa_col: str | None = None,
 ) -> Path | None:
-    df_std = std.standardize(df)
-    if df_std.empty or std.PARETO_RANK not in df_std.columns:
+    if df.empty or std.PARETO_RANK not in df.columns:
         return None
 
     target_png = Path(output_png) if output_png else Path("pareto_frontier.png")
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    r_col = rocs_col or (
-        std.ROCS if std.ROCS in df_std.columns else std.find_rocs_column(df_std.columns)
-    )
-    s_col = sa_col or (
-        std.SA if std.SA in df_std.columns else std.find_sa_column(df_std.columns)
-    )
+    r_col = rocs_col or std.ROCS
+    s_col = sa_col or std.SA
     if (
-        not r_col
-        or not s_col
-        or r_col not in df_std.columns
-        or s_col not in df_std.columns
+        r_col not in df.columns
+        or s_col not in df.columns
     ):
         return None
 
     fig, ax = plt.subplots(figsize=(8.5, 5.8), dpi=200)
 
     front_0 = (
-        df_std[df_std[std.PARETO_RANK] == 0]
+        df[df[std.PARETO_RANK] == 0]
         .sort_values(by=s_col)
         .drop_duplicates(subset=[s_col, r_col])
     )
     front_1 = (
-        df_std[df_std[std.PARETO_RANK] == 1]
+        df[df[std.PARETO_RANK] == 1]
         .sort_values(by=s_col)
         .drop_duplicates(subset=[s_col, r_col])
     )
-    others = df_std[df_std[std.PARETO_RANK] > 1]
+    others = df[df[std.PARETO_RANK] > 1]
 
     # Dominated background points
     if not others.empty:

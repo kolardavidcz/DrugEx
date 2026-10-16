@@ -87,8 +87,6 @@ class ResultAnalyzer:
         if df.empty or std.SMILES not in df.columns:
             return df
 
-        df = std.standardize(df)
-
         if std.VALID not in df.columns:
             df[std.VALID] = [Chem.MolFromSmiles(s) is not None for s in df[std.SMILES]]
         valid_df = df[df[std.VALID].astype(bool)].copy()
