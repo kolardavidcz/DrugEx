@@ -50,6 +50,9 @@ _david/output/*
 !_david/output/archive/**
 !_david/output/RUN_DIFFERENCES.md
 !_david/output/**/README.md
+!_david/output/**/*.png
+!_david/output/*.md
+!_david/output/*.html
 
 # Test directories, copies & runners
 /_test_*
