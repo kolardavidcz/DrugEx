@@ -304,6 +304,8 @@ def render_lead_structures_2d(
             if m is not None:
                 plot_mols.append(m)
                 rocs = float(row.get(std.ROCS, 0.0))
+                if 0.0 < rocs <= 1.05:
+                    rocs = rocs * 2.0
                 des = float(row.get(std.DESIRED, 0.0))
                 mw_val = row.get(std.MW)
                 mw = (
@@ -312,12 +314,17 @@ def render_lead_structures_2d(
                     else float(Descriptors.MolWt(m))
                 )
                 qed_v = float(row.get(std.QED, QED.qed(m)))
-                sa_v = float(row.get(std.SA, calculate_sa_score(m)))
+                sa_raw = row.get(std.SA)
+                sa_v = (
+                    float(sa_raw)
+                    if (sa_raw is not None and pd.notna(sa_raw) and float(sa_raw) > 1.05)
+                    else float(calculate_sa_score(m))
+                )
                 pareto_r = row.get(std.PARETO_RANK, None)
                 rank_label = f" (Pareto #{int(pareto_r)})" if pd.notna(pareto_r) else ""
                 plot_legends.append(
                     f"Lead #{rank_num}{rank_label}\n"
-                    f"ROCS: {rocs:.2f} | Des: {des:.2f}\n"
+                    f"TanimotoCombo: {rocs:.2f} | Des: {des:.2f}\n"
                     f"MW: {mw:.1f} | QED: {qed_v:.2f} | SA: {sa_v:.2f}"
                 )
     else:
@@ -419,7 +426,7 @@ def render_epoch_pareto_evolution(
     smiles_tsv_path: Path | str,
     output_png: Path | str | None = None,
     max_grid_epochs: int = 6,
-    maximize: Sequence[bool] = (True, True),
+    maximize: Sequence[bool] = (True, False),
 ) -> Path | None:
     tsv_file = Path(smiles_tsv_path)
     if not tsv_file.exists():
@@ -439,9 +446,11 @@ def render_epoch_pareto_evolution(
     )
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use canonical SA column or calculate if absent
+    # Use canonical SA column or calculate raw SAscore if absent or normalized <= 1.05
     sa_name = std.SA
-    if sa_name not in df.columns:
+    if sa_name not in df.columns or (
+        df[sa_name].dropna().max() <= 1.05 and std.SMILES in df.columns
+    ):
         mols = [
             Chem.MolFromSmiles(s) if isinstance(s, str) else None
             for s in df[std.SMILES]
@@ -453,6 +462,10 @@ def render_epoch_pareto_evolution(
             except Exception:
                 sa_scores.append(np.nan)
         df[sa_name] = sa_scores
+
+    if df[rocs_name].dropna().max() <= 1.05:
+        df[rocs_name] = df[rocs_name] * 2.0
+
 
     valid_df = df.dropna(subset=[rocs_name, sa_name]).copy()
     if valid_df.empty:
@@ -582,7 +595,7 @@ def render_epoch_pareto_evolution(
         )
         ax_ep.set_xlabel(xlabel, fontsize=10, fontweight="bold")
         ax_ep.set_ylabel(
-            "Normalized ROCS Desirability (TanimotoCombo / 2.0)",
+            "ROCS TanimotoCombo (0 to 2.0)",
             fontsize=10,
             fontweight="bold",
         )
@@ -786,7 +799,7 @@ def render_epoch_pareto_evolution(
             fontweight="bold",
         )
         ax.set_xlabel("SAscore (Lower is Easier)", fontsize=8.5)
-        ax.set_ylabel("Normalized ROCS (TanimotoCombo / 2.0)", fontsize=8.5)
+        ax.set_ylabel("ROCS TanimotoCombo (0 to 2.0)", fontsize=8.5)
         ax.grid(True, linestyle=":", alpha=0.5)
         ax.legend(loc="lower left", fontsize=7.5, framealpha=0.85)
 
@@ -886,25 +899,26 @@ def render_property_distributions(
     # Subplot 1: 3D ROCS Distribution (Row 0, Col 0 - Active RL Scorer)
     ax = axes[0, 0]
     rocs_vals = rocs_data.dropna()
-    is_normalized = bool(rocs_vals.max() <= 1.0) if not rocs_vals.empty else True
-    ref_high = 0.50 if is_normalized else 1.00
-    label_high = "High Overlap (0.50)" if is_normalized else "High Overlap (1.00)"
-    xlabel = (
-        "Normalized ROCS Desirability (TanimotoCombo / 2.0)"
-        if is_normalized
-        else "ROCS TanimotoCombo Score (0 to 2.0)"
-    )
+    if not rocs_vals.empty and rocs_vals.max() <= 1.05:
+        rocs_vals = rocs_vals * 2.0
 
     ax.hist(rocs_vals, bins=15, color="#2A9D8F", edgecolor="black", alpha=0.80)
     ax.axvline(
-        ref_high,
+        1.00,
         color="#E76F51",
         linestyle="--",
         linewidth=1.5,
-        label=label_high,
+        label="Moderate Overlap (1.00)",
     )
-    ax.set_title("3D Gaussian ROCS Desirability", fontsize=11, weight="bold")
-    ax.set_xlabel(xlabel)
+    ax.axvline(
+        1.40,
+        color="#264653",
+        linestyle=":",
+        linewidth=1.5,
+        label="Bioactive Match (1.40)",
+    )
+    ax.set_title("3D Gaussian ROCS (TanimotoCombo)", fontsize=11, weight="bold")
+    ax.set_xlabel("ROCS TanimotoCombo Score (0 to 2.0)")
     ax.set_ylabel("Molecule Count")
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.5)
@@ -933,8 +947,11 @@ def render_property_distributions(
 
     # Subplot 3: Synthetic Accessibility Floor (Row 0, Col 2 - Active Floor)
     ax = axes[0, 2]
+    sa_vals = valid_df[std.SA].dropna()
+    if not sa_vals.empty and sa_vals.max() <= 1.05:
+        sa_vals = pd.Series([calculate_sa_score(m) if m else 10.0 for m in mols])
     ax.hist(
-        valid_df[std.SA].dropna(), bins=15, color="#E9C46A", edgecolor="black", alpha=0.80
+        sa_vals, bins=15, color="#E9C46A", edgecolor="black", alpha=0.80
     )
     ax.axvspan(1.0, 5.5, color="#2A9D8F", alpha=0.15, label="Feasible (<= 5.5)")
     ax.axvline(5.5, color="#2A9D8F", linestyle="--", linewidth=1.5)
@@ -949,7 +966,7 @@ def render_property_distributions(
         label=f"Query ({seed_sa:.2f})",
     )
     ax.set_title("Synthetic Accessibility (SAscore)", fontsize=11, weight="bold")
-    ax.set_xlabel("SA Score (1 = Easy, 10 = Hard)")
+    ax.set_xlabel("SAscore (1 to 10, Lower is Easier)")
     ax.set_ylabel("Molecule Count")
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.5)
@@ -1178,19 +1195,31 @@ def render_pareto_frontier(
     ):
         return None
 
+    plot_df = df.copy()
+    if plot_df[r_col].dropna().max() <= 1.05:
+        plot_df[r_col] = plot_df[r_col] * 2.0
+    if plot_df[s_col].dropna().max() <= 1.05 and std.SMILES in plot_df.columns:
+        mols = [
+            Chem.MolFromSmiles(s) if isinstance(s, str) else None
+            for s in plot_df[std.SMILES]
+        ]
+        plot_df[s_col] = [
+            float(calculate_sa_score(m)) if m else 10.0 for m in mols
+        ]
+
     fig, ax = plt.subplots(figsize=(8.5, 5.8), dpi=200)
 
     front_0 = (
-        df[df[std.PARETO_RANK] == 0]
+        plot_df[plot_df[std.PARETO_RANK] == 0]
         .sort_values(by=s_col)
         .drop_duplicates(subset=[s_col, r_col])
     )
     front_1 = (
-        df[df[std.PARETO_RANK] == 1]
+        plot_df[plot_df[std.PARETO_RANK] == 1]
         .sort_values(by=s_col)
         .drop_duplicates(subset=[s_col, r_col])
     )
-    others = df[df[std.PARETO_RANK] > 1]
+    others = plot_df[plot_df[std.PARETO_RANK] > 1]
 
     # Dominated background points
     if not others.empty:
@@ -1247,14 +1276,8 @@ def render_pareto_frontier(
         else:
             ax.scatter([], [], color="#0284c7", label="Front 0 (Optimal Frontier)")
 
-    ax.set_xlabel(f"{s_col} (Synthesizability)", fontsize=10, fontweight="bold")
-    r_is_norm = bool(df[r_col].dropna().max() <= 1.0) if not df.empty else True
-    r_label = (
-        "Normalized ROCS Desirability (TanimotoCombo / 2.0)"
-        if r_is_norm
-        else f"{r_col} (3D Shape Overlap)"
-    )
-    ax.set_ylabel(r_label, fontsize=10, fontweight="bold")
+    ax.set_xlabel("SAscore (Synthesizability / Lower is Easier)", fontsize=10, fontweight="bold")
+    ax.set_ylabel("ROCS TanimotoCombo (0 to 2.0)", fontsize=10, fontweight="bold")
     ax.set_title(
         "Multi-Objective Pareto Trade-off Frontier",
         fontsize=11,

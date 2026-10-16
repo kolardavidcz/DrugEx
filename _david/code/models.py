@@ -39,7 +39,7 @@ class AlgorithmConfig:
 
     epochs: int = 35
     n_samples: int = 200
-    val_samples: int | None = 100
+    val_samples: int = 100
     epsilon: float = 0.2
     beta: float = 0.0
     patience: int = 25
@@ -49,14 +49,20 @@ class AlgorithmConfig:
 
 
 class GraphTransformerOptimizer:
-
     def __init__(self, output_dir: Path | str, gpu: int | str | None = "auto") -> None:
         HardwareManager.init_runtime_environment()
         self.OUTPUT_DIR = Path(output_dir)
         self.MODEL_DIR = self.OUTPUT_DIR / "reinforcement_learning"
         self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-        pretrained_dir = PROJECT_ROOT / "data" / "models" / "pretrained" / "graph-trans" / "Papyrus05.5_graph_trans_PT"
+        pretrained_dir = (
+            PROJECT_ROOT
+            / "data"
+            / "models"
+            / "pretrained"
+            / "graph-trans"
+            / "Papyrus05.5_graph_trans_PT"
+        )
         pkg_path = pretrained_dir / "Papyrus05.5_graph_trans_PT.pkg"
         vocab_path = pretrained_dir / "Papyrus05.5_graph_trans_PT.vocab"
         if not pkg_path.exists():
@@ -116,14 +122,18 @@ class GraphTransformerOptimizer:
                     scaffolds.append(parts[0])
 
         if not scaffolds:
-            scaffolds.append(PrepareMolecule().extract_seed_core_scaffold(molecule_smiles))
+            scaffolds.append(
+                PrepareMolecule().extract_seed_core_scaffold(molecule_smiles)
+            )
         n_repeats = max(1, n_prompts // len(scaffolds) + 1)
         expanded_prompts = (scaffolds * n_repeats)[:n_prompts]
         encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
 
         # Decouple validation data from training data by slicing underlying raw data array
         raw_data = seed_dataset.getData()
-        val_size = min(val_samples or min(50, max(25, int(n_prompts * 0.20))), n_prompts)
+        val_size = min(
+            val_samples or min(50, max(25, int(n_prompts * 0.20))), n_prompts
+        )
         val_data = raw_data[:val_size]
 
         batch_size = HardwareManager.get_recommended_batch_size(n_prompts)
@@ -138,7 +148,7 @@ class GraphTransformerOptimizer:
     def build_explorer(
         self,
         env: DrugExEnvironment,
-        epsilon: float = 0.0,
+        epsilon: float = 0.2,
         batch_size: int = 64,
     ) -> FragGraphExplorer:
         """Construct FragGraphExplorer reinforcement learning agent."""

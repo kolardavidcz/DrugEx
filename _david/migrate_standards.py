@@ -36,6 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import pandas as pd
+from _david.code.analysis import ResultAnalyzer
 from _david.code.environment import DEFAULT_MOLECULE
 from _david.code.schema import std
 from _david.code.visualization import (
@@ -104,53 +105,63 @@ class StandardsMigrator:
         return count
 
     def regenerate_run_visualizations(self) -> int:
-        """Re-render lead structures, Pareto frontiers, and epoch evolution for all runs."""
+        """Re-render lead structures, Pareto frontiers, and distributions for all runs using ResultAnalyzer."""
         print("\n[2/3] Re-generating visual artifacts from standardized data...")
         img_count = 0
 
-        # Find all stage2 lead tables
-        for leads_tsv in self.target_dir.rglob("top_prioritized_leads.tsv"):
-            analysis_dir = leads_tsv.parent
-            run_dir = analysis_dir.parent
-            if run_dir.name == "stage1_graph_transformer":
+        # Find all runs with candidate smiles
+        processed_runs: set[Path] = set()
+        for smiles_tsv in sorted(self.target_dir.rglob("*_smiles.tsv")):
+            run_dir = smiles_tsv.parent
+            while run_dir.parent != self.target_dir and run_dir.name in (
+                "reinforcement_learning",
+                "stage1_graph_transformer",
+                "stage1_sequence_rnn",
+                "stage2_graph_transformer",
+                "stage3_graph_transformer",
+            ):
                 run_dir = run_dir.parent
 
+            if run_dir in processed_runs:
+                continue
+            processed_runs.add(run_dir)
+
             try:
-                leads_df = pd.read_csv(leads_tsv, sep="\t")
-                if not leads_df.empty and std.SMILES in leads_df.columns:
-                    # 1. Re-render lead structures 2D
-                    out_png = analysis_dir / "lead_structures_2d.png"
-                    res = render_lead_structures_2d(
-                        leads_df,
-                        output_png=out_png,
-                        reference=DEFAULT_MOLECULE,
-                        max_leads=10,
-                    )
-                    if res and res.exists():
-                        self.regenerated_images.append(res)
-                        img_count += 1
-
-                    # 2. Re-render Pareto Frontier if enabled
-                    if self.render_pareto and std.PARETO_RANK in leads_df.columns:
-                        p_png = analysis_dir / "pareto_frontier.png"
-                        p_res = render_pareto_frontier(leads_df, output_png=p_png)
-                        if p_res and p_res.exists():
-                            self.regenerated_images.append(p_res)
-                            img_count += 1
+                ref_sdf = next(run_dir.rglob("*.sdf"), None)
+                analyzer = ResultAnalyzer(run_dir)
+                top_leads = analyzer.analyze(
+                    candidates_tsv=smiles_tsv,
+                    ref_sdf=ref_sdf,
+                    top_k=10,
+                    render_pareto=self.render_pareto,
+                )
+                if not top_leads.empty:
+                    img_count += 1
+                    lead_png = run_dir / "stage2_result_analysis" / "lead_structures_2d.png"
+                    if lead_png.exists():
+                        self.regenerated_images.append(lead_png)
             except Exception as e:
-                print(f"[WARN] Error re-rendering leads for {run_dir.name}: {e}")
+                print(f"[WARN] Error analyzing {run_dir.name}: {e}")
 
-            # 3. Re-render Pareto Epoch Evolution if enabled and smiles.tsv exists
-            if self.render_pareto:
-                for smiles_tsv in run_dir.rglob("*_smiles.tsv"):
-                    try:
-                        evo_png = smiles_tsv.parent / "pareto_epoch_evolution.png"
-                        e_res = render_epoch_pareto_evolution(smiles_tsv, output_png=evo_png)
-                        if e_res and e_res.exists():
-                            self.regenerated_images.append(e_res)
+        # Also fallback to any remaining top_prioritized_leads.tsv not covered
+        for leads_tsv in sorted(self.target_dir.rglob("top_prioritized_leads.tsv")):
+            analysis_dir = leads_tsv.parent
+            lead_png = analysis_dir / "lead_structures_2d.png"
+            if lead_png not in self.regenerated_images:
+                try:
+                    leads_df = pd.read_csv(leads_tsv, sep="\t")
+                    if not leads_df.empty and std.SMILES in leads_df.columns:
+                        res = render_lead_structures_2d(
+                            leads_df,
+                            output_png=lead_png,
+                            reference=DEFAULT_MOLECULE,
+                            max_leads=10,
+                        )
+                        if res and res.exists():
+                            self.regenerated_images.append(res)
                             img_count += 1
-                    except Exception as e:
-                        print(f"[WARN] Error re-rendering evolution for {smiles_tsv.name}: {e}")
+                except Exception as e:
+                    print(f"[WARN] Error fallback rendering {leads_tsv.name}: {e}")
 
         print(f"      Re-generated {img_count} visual artifacts.")
         return img_count

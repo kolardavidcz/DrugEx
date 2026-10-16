@@ -413,7 +413,7 @@ class TestLBDDPipeline(unittest.TestCase):
                 {
                     std.SMILES: [smi_asp1, smi_asp2, smi_phenol, smi_low],
                     std.ROCS: [1.5, 1.5, 1.5, 0.5],
-                    std.SA: [0.9, 0.9, 0.9, 0.2],
+                    std.SA: [2.5, 2.5, 2.5, 5.0],
                     std.VALID: [True, True, True, True],
                 }
             )
@@ -491,6 +491,19 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertIn(std.DESIRED, std_dup.columns)
         self.assertIn(std.FRAGS, std_dup.columns)
         self.assertIn(std.LOGP, std_dup.columns)
+
+        # 5. Physical unscaling: ROCS [0, 1] -> [0, 2] and clipped SA [0, 1] -> raw SAscore [1, 10]
+        norm_df = pd.DataFrame(
+            {
+                std.SMILES: ["c1ccccc1O"],
+                std.ROCS: [0.60],
+                std.SA: [1.0],
+            }
+        )
+        unscaled = std.unscale_to_physical_metrics(norm_df)
+        self.assertAlmostEqual(unscaled.loc[0, std.ROCS], 1.20, places=5)
+        self.assertGreater(unscaled.loc[0, std.SA], 1.05)  # Ertl raw SAscore > 1.05
+
 
     def test_visualization_suite(self) -> None:
         """Verify end-to-end visualization suite (training curves, evolution, property distributions, 2D leads, Pareto frontier)."""

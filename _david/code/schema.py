@@ -173,3 +173,49 @@ class std:
             df_out = df_out.rename(columns=rename_map)
 
         return df_out
+
+    @classmethod
+    def unscale_to_physical_metrics(cls, df: pd.DataFrame) -> pd.DataFrame:
+        """Unscale ROCS [0, 1] to [0, 2] TanimotoCombo and calculate real raw SA [1, 10] if clipped.
+
+        WHY:
+        DrugEx environment records modified desirability scores ([0, 1]) in _smiles.tsv.
+        For academic integrity, medicinal chemistry presentation, and Pareto analysis,
+        we must report physical observables: TanimotoCombo in [0, 2.0] and raw SAscore in [1.0, 10.0].
+
+        WHAT:
+        1. If ROCS column max <= 1.05 and non-empty, scales by * 2.0.
+        2. If SA column max <= 1.05 and non-empty, calculates canonical Ertl & Schuffenhauer (2009)
+           raw SAscore in [1.0, 10.0] from SMILES.
+        """
+        if df.empty:
+            return df.copy()
+
+        df_out = df.copy()
+
+        # 1. Unscale ROCS: [0, 1] desirability -> [0, 2.0] TanimotoCombo
+        if cls.ROCS in df_out.columns:
+            vals = df_out[cls.ROCS].dropna()
+            if not vals.empty and vals.max() <= 1.05:
+                df_out[cls.ROCS] = df_out[cls.ROCS] * 2.0
+
+        # 2. Unscale SA: [0, 1] desirability -> [1.0, 10.0] raw SAscore
+        if cls.SA in df_out.columns and cls.SMILES in df_out.columns:
+            vals = df_out[cls.SA].dropna()
+            if not vals.empty and vals.max() <= 1.05:
+                from drugex.training.scorers.sascorer import (
+                    calculateScore as calculate_sa_score,
+                )
+                from rdkit import Chem
+
+                mols = [
+                    Chem.MolFromSmiles(s) if isinstance(s, str) else None
+                    for s in df_out[cls.SMILES]
+                ]
+                df_out[cls.SA] = [
+                    float(calculate_sa_score(m)) if m is not None else 10.0
+                    for m in mols
+                ]
+
+        return df_out
+

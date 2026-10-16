@@ -88,13 +88,18 @@ class ResultAnalyzer:
         if df.empty or std.SMILES not in df.columns:
             return df
 
+        # Standardize schema and unscale to real physical metrics (TanimotoCombo [0, 2], SAscore [1, 10])
+        df = std.standardize(df)
+        df = std.unscale_to_physical_metrics(df)
+
         if std.VALID not in df.columns:
             df[std.VALID] = [Chem.MolFromSmiles(s) is not None for s in df[std.SMILES]]
         valid_df = df[df[std.VALID].astype(bool)].copy()
 
         if std.ROCS in valid_df.columns and std.SA in valid_df.columns:
+            # On physical scale: ROCS is maximized, raw SAscore is minimized (lower is easier)
             max_sa = valid_df[std.SA].max()
-            maximize_sa = bool(max_sa <= 1.0)
+            maximize_sa = bool(max_sa <= 1.05)
             pareto = ParetoFrontier()
             valid_df = pareto.rank_pareto_fronts(
                 valid_df,
@@ -130,6 +135,7 @@ class ResultAnalyzer:
                     rocs_col=std.ROCS,
                     sa_col=std.SA,
                 )
+
 
         # Deduplicate candidates by canonical SMILES to extract distinct chemical leads
         valid_df[std.CANONICAL_SMILES] = [
