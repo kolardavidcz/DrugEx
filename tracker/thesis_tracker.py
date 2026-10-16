@@ -27,12 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 SCRIPT_DIR = Path(__file__).resolve().parent
 DB_FILE = SCRIPT_DIR / "thesis_tracking_db.json"
 REPORT_MD = SCRIPT_DIR / "thesis_report.md"
-if (SCRIPT_DIR.parent / "index.html").exists():
-    REPORT_HTML = SCRIPT_DIR.parent / "index.html"
-elif (SCRIPT_DIR / "index.html").exists():
-    REPORT_HTML = SCRIPT_DIR / "index.html"
-else:
-    REPORT_HTML = SCRIPT_DIR / "stats.html"
+REPORT_HTML = SCRIPT_DIR / "stats.html"
 BRAIN_DIR = Path(os.environ.get("USERPROFILE", "C:/Users/kolar")) / ".gemini" / "antigravity" / "brain"
 
 # Multipliers requested by user
@@ -958,19 +953,33 @@ class ThesisTracker:
 </body>
 </html>
 """
-        REPORT_HTML.parent.mkdir(parents=True, exist_ok=True)
         with open(REPORT_HTML, "w", encoding="utf-8") as f:
             f.write(html)
+        edu_repo = Path(r"C:\Ubuntu\home\kolar\build_projects\drugex_edu")
+        head_file = edu_repo / ".git" / "HEAD"
+        if head_file.exists():
+            try:
+                head_ref = head_file.read_text(encoding="utf-8").strip()
+                if "refs/heads/thesis-stats" in head_ref:
+                    edu_index = edu_repo / "index.html"
+                    with open(edu_index, "w", encoding="utf-8") as f:
+                        f.write(html)
+            except Exception:
+                pass
         return html
 
 
 def git_commit_and_push(branch: str = "thesis-stats") -> None:
-    """Commits and pushes updated database, report, and HTML dashboard to origin."""
+    """Commits and pushes updated database, report, and HTML dashboard to origin.
+
+    Args:
+        branch: The remote Git branch to target for deployment. Defaults to 'thesis-stats'.
+    """
     try:
         repo_dir = SCRIPT_DIR.parent if SCRIPT_DIR.name == "tracker" else SCRIPT_DIR
         # Run git add
         subprocess.run(["git", "add", "index.html", "tracker/"], cwd=str(repo_dir), check=False)
-        msg = f"chore(stats): automated weekly sync [{datetime.now().strftime('%Y-%m-%d %H:%M')}]"
+        msg = f"chore(stats): automated sync [{datetime.now().strftime('%Y-%m-%d %H:%M')}]"
         res = subprocess.run(["git", "commit", "-m", msg], cwd=str(repo_dir), capture_output=True, text=True)
         if "nothing to commit" not in res.stdout and "nothing to commit" not in res.stderr:
             print(f"[Git] Committed: {msg}")
@@ -990,6 +999,7 @@ def git_commit_and_push(branch: str = "thesis-stats") -> None:
 # ==============================================================================
 
 def main() -> None:
+    """Parses command line arguments and triggers tracking or reporting routines."""
     parser = argparse.ArgumentParser(description="DrugEx Thesis Time Tracker")
     parser.add_argument("--sync-all", action="store_true", help="Run full audit across all 3 pillars")
     parser.add_argument("--ingest-notewise", type=str, help="Ingest a specific .notewise export file")
