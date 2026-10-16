@@ -32,6 +32,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-detach", action="store_false", dest="detach", help="Run interactively in foreground (default)"
     )
+    parser.add_argument(
+        "--pareto", action="store_true", dest="render_pareto", default=False, help="Enable Pareto visualizations"
+    )
+    parser.add_argument(
+        "--no-pareto", action="store_false", dest="render_pareto", help="Disable Pareto visualizations (default)"
+    )
     args, _ = parser.parse_known_args()
     return args
 
@@ -62,6 +68,7 @@ def main() -> None:
             "--molecule", args.molecule,
             "--gpu", str(args.gpu),
             "--out-dir", str(target_dir),
+            "--pareto" if args.render_pareto else "--no-pareto",
             "--no-detach",
         ]
 
@@ -90,6 +97,7 @@ def main() -> None:
         n_samples=args.n_samples,
         val_samples=args.val_samples,
         gpu=args.gpu,
+        render_pareto=args.render_pareto,
     )
     pipeline.run(args.molecule)
 

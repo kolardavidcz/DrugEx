@@ -78,6 +78,7 @@ class ResultAnalyzer:
         candidates_tsv: Path | str,
         ref_sdf: Path | str | None = None,
         top_k: int = 10,
+        render_pareto: bool = False,
     ) -> pd.DataFrame:
         tsv_path = Path(candidates_tsv)
         if not tsv_path.exists():
@@ -122,12 +123,13 @@ class ResultAnalyzer:
                 ascending=[True, False, not maximize_sa, False],
             )
 
-            render_pareto_frontier(
-                valid_df,
-                output_png=self.analysis_dir / "pareto_frontier.png",
-                rocs_col=std.ROCS,
-                sa_col=std.SA,
-            )
+            if render_pareto:
+                render_pareto_frontier(
+                    valid_df,
+                    output_png=self.analysis_dir / "pareto_frontier.png",
+                    rocs_col=std.ROCS,
+                    sa_col=std.SA,
+                )
 
         # Deduplicate candidates by canonical SMILES to extract distinct chemical leads
         valid_df[std.CANONICAL_SMILES] = [

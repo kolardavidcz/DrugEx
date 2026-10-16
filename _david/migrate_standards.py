@@ -48,8 +48,9 @@ from _david.code.visualization import (
 class StandardsMigrator:
     """Orchestrates recursive schema standardization and figure re-generation."""
 
-    def __init__(self, target_dir: Path | str) -> None:
+    def __init__(self, target_dir: Path | str, render_pareto: bool = False) -> None:
         self.target_dir = Path(target_dir).resolve()
+        self.render_pareto: bool = render_pareto
         self.migrated_files: list[Path] = []
         self.regenerated_images: list[Path] = []
 
@@ -129,8 +130,8 @@ class StandardsMigrator:
                         self.regenerated_images.append(res)
                         img_count += 1
 
-                    # 2. Re-render Pareto Frontier if Pareto_Rank exists
-                    if std.PARETO_RANK in leads_df.columns:
+                    # 2. Re-render Pareto Frontier if enabled
+                    if self.render_pareto and std.PARETO_RANK in leads_df.columns:
                         p_png = analysis_dir / "pareto_frontier.png"
                         p_res = render_pareto_frontier(leads_df, output_png=p_png)
                         if p_res and p_res.exists():
@@ -139,16 +140,17 @@ class StandardsMigrator:
             except Exception as e:
                 print(f"[WARN] Error re-rendering leads for {run_dir.name}: {e}")
 
-            # 3. Re-render Pareto Epoch Evolution if smiles.tsv exists
-            for smiles_tsv in run_dir.rglob("*_smiles.tsv"):
-                try:
-                    evo_png = smiles_tsv.parent / "pareto_epoch_evolution.png"
-                    e_res = render_epoch_pareto_evolution(smiles_tsv, output_png=evo_png)
-                    if e_res and e_res.exists():
-                        self.regenerated_images.append(e_res)
-                        img_count += 1
-                except Exception as e:
-                    print(f"[WARN] Error re-rendering evolution for {smiles_tsv.name}: {e}")
+            # 3. Re-render Pareto Epoch Evolution if enabled and smiles.tsv exists
+            if self.render_pareto:
+                for smiles_tsv in run_dir.rglob("*_smiles.tsv"):
+                    try:
+                        evo_png = smiles_tsv.parent / "pareto_epoch_evolution.png"
+                        e_res = render_epoch_pareto_evolution(smiles_tsv, output_png=evo_png)
+                        if e_res and e_res.exists():
+                            self.regenerated_images.append(e_res)
+                            img_count += 1
+                    except Exception as e:
+                        print(f"[WARN] Error re-rendering evolution for {smiles_tsv.name}: {e}")
 
         print(f"      Re-generated {img_count} visual artifacts.")
         return img_count
@@ -248,6 +250,23 @@ class StandardsMigrator:
 
 
 if __name__ == "__main__":
-    target = Path(__file__).resolve().parent / "output"
-    migrator = StandardsMigrator(target)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="DrugEx Standards Migrator & Artifact Generator")
+    parser.add_argument(
+        "--pareto",
+        action="store_true",
+        default=False,
+        help="Enable Pareto visualizations (default: False)",
+    )
+    parser.add_argument(
+        "--dir",
+        type=Path,
+        default=None,
+        help="Target directory to scan (default: _david/output)",
+    )
+    args = parser.parse_args()
+
+    target = args.dir or (Path(__file__).resolve().parent / "output")
+    migrator = StandardsMigrator(target, render_pareto=args.pareto)
     migrator.run()

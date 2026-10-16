@@ -37,9 +37,11 @@ class MoleculePipeline:
         val_samples: int | None = 100,
         gpu: int | str | None = "auto",
         patience: int = 25,
+        render_pareto: bool = False,
         config: AlgorithmConfig | None = None,
     ) -> None:
         HardwareManager.init_runtime_environment()
+        self.RENDER_PARETO: bool = render_pareto
         self.MODE: str = mode.lower()
         if config is not None:
             self.config = config
@@ -122,10 +124,11 @@ class MoleculePipeline:
                 f"{model_prefix}_fit.tsv",
                 output_png=optimizer.MODEL_DIR / "rl_training_curves.png",
             )
-            render_epoch_pareto_evolution(
-                smiles_tsv,
-                output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png",
-            )
+            if self.RENDER_PARETO:
+                render_epoch_pareto_evolution(
+                    smiles_tsv,
+                    output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png",
+                )
 
             smiles_list, frags_list = optimizer.AGENT.sample(train_loader)
             df = env.getScores(smiles_list, frags=frags_list)
@@ -136,7 +139,9 @@ class MoleculePipeline:
 
         print("[Stage 2] Profiling generated leads and Pareto frontier...")
         analyzer = ResultAnalyzer(self.BASE_OUTPUT_DIR)
-        analyzer.analyze(candidates_tsv, ref_sdf=ref_sdf)
+        analyzer.analyze(
+            candidates_tsv, ref_sdf=ref_sdf, render_pareto=self.RENDER_PARETO
+        )
 
         status = {
             "run_id": self.RUN_ID,
