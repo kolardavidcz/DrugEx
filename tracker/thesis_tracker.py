@@ -35,6 +35,24 @@ NOTEWISE_BUFFER_MULTIPLIER = 1.20  # +20% for pre/post-research and non-writing 
 LLM_BUFFER_MULTIPLIER = 1.10       # +10% for reading, prompt writing, and review
 
 
+def format_duration(seconds: float) -> str:
+    """Formats duration adaptively into seconds, minutes, or hours with high precision.
+
+    Args:
+        seconds: Duration in seconds.
+
+    Returns:
+        Human-readable duration string (e.g. '45s', '1 min', '2.5 min', '1.4h').
+    """
+    if seconds < 60:
+        return f"{max(1, round(seconds))}s"
+    if seconds < 360:  # Under 6 minutes
+        mins = round(seconds / 60.0, 1)
+        return f"{int(mins)} min" if mins.is_integer() else f"{mins} min"
+    hours = round(seconds / 3600.0, 1)
+    return f"{hours}h"
+
+
 # ==============================================================================
 # 1. PROTOBUF HELPER (FOR NOTEWISE INGESTION)
 # ==============================================================================
@@ -651,8 +669,8 @@ class ThesisTracker:
 
 ### Key Conversations Tracked:
 """
-        for c in ag.get("conversations", [])[:15]:
-            md += f"- **`{c['cid'][:8]}...`** ({round(c['raw_duration_sec']/3600.0, 1)}h, {c['steps']} steps): {c['prompt'][:80]}...\n"
+        for c in ag.get("conversations", [])[::-1][:15]:
+            md += f"- **`{c['cid'][:8]}...`** ({format_duration(c['raw_duration_sec'])}, {c['steps']} steps): {c['prompt'][:80]}...\n"
 
         with open(REPORT_MD, "w", encoding="utf-8") as f:
             f.write(md)
@@ -903,7 +921,7 @@ class ThesisTracker:
 """
         for c in ag.get("conversations", [])[::-1][:15]:
             start_str = c["start"][:19].replace("T", " ")
-            dur_str = f"{round(c['raw_duration_sec']/3600.0, 1)}h"
+            dur_str = format_duration(c['raw_duration_sec'])
             topics_html = " ".join(f"<code>{t}</code>" for t in c.get("topics", []))
             html += f"""          <tr>
             <td><code>{c['cid'][:8]}...</code></td>
@@ -964,6 +982,12 @@ class ThesisTracker:
                     edu_index = edu_repo / "index.html"
                     with open(edu_index, "w", encoding="utf-8") as f:
                         f.write(html)
+                    edu_tracker = edu_repo / "tracker"
+                    if edu_tracker.exists():
+                        import shutil
+                        shutil.copy2(DB_FILE, edu_tracker / "thesis_tracking_db.json")
+                        shutil.copy2(REPORT_MD, edu_tracker / "thesis_report.md")
+                        shutil.copy2(Path(__file__), edu_tracker / "thesis_tracker.py")
             except Exception:
                 pass
         return html

@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-10-16T15:24:20.596251",
+  "last_updated": "2026-10-16T15:01:53.678727",
   "notewise": {
     "DrugEx.notewise": {
       "source_file": "C:\\Users\\kolar\\Downloads\\Mobile Devices\\DrugEx.notewise",
@@ -394,8 +394,8 @@
   },
   "dichtator": {
     "sessions_count": 51,
-    "total_duration_sec": 365158.154802,
-    "total_duration_hours": 101.43,
+    "total_duration_sec": 363821.555213,
+    "total_duration_hours": 101.06,
     "sessions": [
       {
         "start": "2026-10-01T21:01:12.671395+02:00",
@@ -799,9 +799,9 @@
       },
       {
         "start": "2026-10-16T14:33:14.704701+02:00",
-        "end": "2026-10-16T15:21:41.937380+02:00",
-        "duration_sec": 2907.232679,
-        "duration_hours": 0.81,
+        "end": "2026-10-16T14:59:25.337791+02:00",
+        "duration_sec": 1570.63309,
+        "duration_hours": 0.44,
         "network": "vscht.cz",
         "type": "Active Session"
       }
@@ -809,12 +809,12 @@
   },
   "antigravity": {
     "conversations_count": 254,
-    "total_steps": 73011,
-    "net_wall_clock_sec": 308800.0,
-    "net_wall_clock_hours": 85.78,
+    "total_steps": 72926,
+    "net_wall_clock_sec": 307963.0,
+    "net_wall_clock_hours": 85.55,
     "buffer_multiplier": 1.1,
-    "effective_duration_sec": 339680.0,
-    "effective_duration_hours": 94.36,
+    "effective_duration_sec": 338759.30000000005,
+    "effective_duration_hours": 94.1,
     "conversations": [
       {
         "cid": "c8f45078-bde3-4bdc-8450-245fb4a7070d",
@@ -910,8 +910,8 @@
         "sessions_count": 19,
         "prompt": "/wsl-first  crate in this drugex foler readme, instructing how to get to /drugex-dichtator , and not",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -1196,8 +1196,8 @@
         "sessions_count": 2,
         "prompt": "**Task**: /boost  Make a more documnentation - as user doesnt need to write everyting from scratch a",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -1211,8 +1211,8 @@
         "sessions_count": 1,
         "prompt": "<original_task> **Task**: /boost  Make a more documnentation - as user doesnt need to write everytin",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -1250,8 +1250,8 @@
         "sessions_count": 1,
         "prompt": "<original_task> **Task**: /boost  Make a more documnentation - as user doesnt need to write everytin",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -1279,24 +1279,24 @@
         "sessions_count": 1,
         "prompt": "<original_task> Task: Make a more documnentation - as user doesnt need to write everyting from scrat",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
       {
         "cid": "b118481e-14d4-475f-9a07-3aed83d34c69",
         "start": "2026-09-24T21:49:31+00:00",
-        "end": "2026-10-16T13:19:25+00:00",
-        "raw_duration_sec": 985.0,
-        "raw_duration_hours": 0.27,
-        "steps": 154,
-        "sessions_count": 2,
+        "end": "2026-09-24T21:51:59+00:00",
+        "raw_duration_sec": 148.0,
+        "raw_duration_hours": 0.04,
+        "steps": 69,
+        "sessions_count": 1,
         "prompt": "# Role & Mission: DrugEx Thesis Telemetry & Effort Custodian\r \r You are the dedicated maintainer of ",
         "topics": [
           "curriculum/podcast",
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -1680,8 +1680,8 @@
         "sessions_count": 1,
         "prompt": "",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -1695,8 +1695,8 @@
         "sessions_count": 1,
         "prompt": "",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -1782,8 +1782,8 @@
         "sessions_count": 1,
         "prompt": "",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -1812,8 +1812,8 @@
         "sessions_count": 1,
         "prompt": "",
         "topics": [
-          "pipelines/schemas",
           "david.py",
+          "pipelines/schemas",
           "docstrings/types"
         ]
       },
@@ -4339,10 +4339,10 @@
     ]
   },
   "totals": {
-    "grand_total_hours": 211.28,
+    "grand_total_hours": 210.65,
     "notewise_reading_effective_hours": 15.49,
-    "dichtator_tunnel_hours": 101.43,
-    "antigravity_llm_effective_hours": 94.36,
-    "total_steps": 73011
+    "dichtator_tunnel_hours": 101.06,
+    "antigravity_llm_effective_hours": 94.1,
+    "total_steps": 72926
   }
 }
