@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test", action="store_const", const="test", dest="mode")
     parser.add_argument("--epochs", type=int, default=35)
     parser.add_argument("--n-samples", type=int, default=200)
+    parser.add_argument("--val-samples", type=int, default=100, help="Number of validation samples per epoch")
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE)
     parser.add_argument("--gpu", default="auto")
     parser.add_argument("--out-dir", type=Path, default=None)
@@ -57,6 +58,7 @@ def main() -> None:
             "--mode", args.mode,
             "--epochs", str(args.epochs),
             "--n-samples", str(args.n_samples),
+            "--val-samples", str(args.val_samples),
             "--molecule", args.molecule,
             "--gpu", str(args.gpu),
             "--out-dir", str(target_dir),
@@ -86,6 +88,7 @@ def main() -> None:
         mode=args.mode,
         epochs=args.epochs,
         n_samples=args.n_samples,
+        val_samples=args.val_samples,
         gpu=args.gpu,
     )
     pipeline.run(args.molecule)

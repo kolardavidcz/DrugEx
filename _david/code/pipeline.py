@@ -20,7 +20,7 @@ from _david.code.visualization import (
     render_reference_ensemble,
     render_training_curves,
 )
-from _david.code.models import GraphTransformerOptimizer
+from _david.code.models import AlgorithmConfig, GraphTransformerOptimizer
 from _david.code.schema import std
 from _david.code.utils import HardwareManager, get_gpu_telemetry
 
@@ -34,15 +34,27 @@ class MoleculePipeline:
         mode: str = "full",
         epochs: int = 35,
         n_samples: int = 200,
+        val_samples: int | None = 100,
         gpu: int | str | None = "auto",
         patience: int = 25,
+        config: AlgorithmConfig | None = None,
     ) -> None:
         HardwareManager.init_runtime_environment()
         self.MODE: str = mode.lower()
-        self.EPOCHS: int = 1 if self.MODE == "test" else epochs
-        self.N_SAMPLES: int = 10 if self.MODE == "test" else n_samples
+        if config is not None:
+            self.config = config
+        else:
+            self.config = AlgorithmConfig(
+                epochs=1 if self.MODE == "test" else epochs,
+                n_samples=10 if self.MODE == "test" else n_samples,
+                val_samples=10 if self.MODE == "test" else val_samples,
+                patience=patience,
+            )
+        self.EPOCHS: int = self.config.epochs
+        self.N_SAMPLES: int = self.config.n_samples
+        self.VAL_SAMPLES: int | None = self.config.val_samples
         self.GPU = gpu
-        self.PATIENCE = patience
+        self.PATIENCE = self.config.patience
         self.preparer: PrepareMolecule = PrepareMolecule()
 
         self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -76,7 +88,10 @@ class MoleculePipeline:
             env, epsilon = create_environment(ref_sdf)
 
             train_loader, val_loader, _ = optimizer.prepare_seed_fragments(
-                molecule, n_prompts=self.N_SAMPLES, scaffolds_path=scaffold_tsv
+                molecule,
+                n_prompts=self.N_SAMPLES,
+                scaffolds_path=scaffold_tsv,
+                val_samples=self.VAL_SAMPLES,
             )
             batch_size = HardwareManager.get_recommended_batch_size(self.N_SAMPLES)
             explorer = optimizer.build_explorer(

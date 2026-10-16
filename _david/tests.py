@@ -333,6 +333,9 @@ class TestLBDDPipeline(unittest.TestCase):
         """Verify that prepare_seed_fragments returns decoupled train and bounded validation dataloaders."""
         from _david.code.models import AlgorithmConfig, GraphTransformerOptimizer
 
+        cfg_default = AlgorithmConfig()
+        self.assertEqual(cfg_default.val_samples, 100)
+
         cfg = AlgorithmConfig(n_samples=200, val_samples=None)
         self.assertEqual(cfg.epochs, 35)
         self.assertEqual(cfg.n_samples, 200)
@@ -341,7 +344,14 @@ class TestLBDDPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             optimizer = GraphTransformerOptimizer(tmp_dir, gpu="auto")
 
-            # Decoupled validation dataloader for N=200 prompts: bounded val_size = 40
+            # Default validation dataloader with val_samples=100 from AlgorithmConfig
+            train_loader100, val_loader100, _ = optimizer.prepare_seed_fragments(
+                "c1ccccc1O", n_prompts=200, val_samples=cfg_default.val_samples
+            )
+            self.assertEqual(len(train_loader100.dataset), 200)
+            self.assertEqual(len(val_loader100.dataset), 100)
+
+            # Fallback when val_samples is None: bounded val_size = 40
             train_loader, val_loader, dataset = optimizer.prepare_seed_fragments(
                 "c1ccccc1O", n_prompts=200
             )
@@ -349,9 +359,9 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(len(train_loader.dataset), 200)
             self.assertEqual(len(val_loader.dataset), 40)
 
-            # Test mode clamping: N=10 prompts yields val_size = 10
+            # Test mode clamping: N=10 prompts yields val_size = 10 even if val_samples=100
             train_l10, val_l10, dataset10 = optimizer.prepare_seed_fragments(
-                "c1ccccc1O", n_prompts=10
+                "c1ccccc1O", n_prompts=10, val_samples=cfg_default.val_samples
             )
             self.assertEqual(len(dataset10.getData()), 10)
             self.assertEqual(len(train_l10.dataset), 10)
