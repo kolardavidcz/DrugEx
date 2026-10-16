@@ -582,7 +582,9 @@ def render_epoch_pareto_evolution(
         )
         ax_ep.set_xlabel(xlabel, fontsize=10, fontweight="bold")
         ax_ep.set_ylabel(
-            "3D Gaussian ROCS Overlap (TanimotoCombo)", fontsize=10, fontweight="bold"
+            "Normalized ROCS Desirability (TanimotoCombo / 2.0)",
+            fontsize=10,
+            fontweight="bold",
         )
         ax_ep.grid(True, linestyle=":", alpha=0.6)
         ax_ep.legend(loc="lower left", framealpha=0.9, fontsize=8.5)
@@ -784,7 +786,7 @@ def render_epoch_pareto_evolution(
             fontweight="bold",
         )
         ax.set_xlabel("SAscore (Lower is Easier)", fontsize=8.5)
-        ax.set_ylabel("ROCS (TanimotoCombo)", fontsize=8.5)
+        ax.set_ylabel("Normalized ROCS (TanimotoCombo / 2.0)", fontsize=8.5)
         ax.grid(True, linestyle=":", alpha=0.5)
         ax.legend(loc="lower left", fontsize=7.5, framealpha=0.85)
 
@@ -883,16 +885,26 @@ def render_property_distributions(
 
     # Subplot 1: 3D ROCS Distribution (Row 0, Col 0 - Active RL Scorer)
     ax = axes[0, 0]
-    ax.hist(rocs_data.dropna(), bins=15, color="#2A9D8F", edgecolor="black", alpha=0.80)
+    rocs_vals = rocs_data.dropna()
+    is_normalized = bool(rocs_vals.max() <= 1.0) if not rocs_vals.empty else True
+    ref_high = 0.50 if is_normalized else 1.00
+    label_high = "High Overlap (0.50)" if is_normalized else "High Overlap (1.00)"
+    xlabel = (
+        "Normalized ROCS Desirability (TanimotoCombo / 2.0)"
+        if is_normalized
+        else "ROCS TanimotoCombo Score (0 to 2.0)"
+    )
+
+    ax.hist(rocs_vals, bins=15, color="#2A9D8F", edgecolor="black", alpha=0.80)
     ax.axvline(
-        1.00,
+        ref_high,
         color="#E76F51",
         linestyle="--",
         linewidth=1.5,
-        label="High Overlap (1.00)",
+        label=label_high,
     )
-    ax.set_title("3D Gaussian ROCS (TanimotoCombo)", fontsize=11, weight="bold")
-    ax.set_xlabel("ROCS Score (0 to 2.0)")
+    ax.set_title("3D Gaussian ROCS Desirability", fontsize=11, weight="bold")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("Molecule Count")
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.5)
@@ -1236,7 +1248,13 @@ def render_pareto_frontier(
             ax.scatter([], [], color="#0284c7", label="Front 0 (Optimal Frontier)")
 
     ax.set_xlabel(f"{s_col} (Synthesizability)", fontsize=10, fontweight="bold")
-    ax.set_ylabel(f"{r_col} (3D Shape Overlap)", fontsize=10, fontweight="bold")
+    r_is_norm = bool(df[r_col].dropna().max() <= 1.0) if not df.empty else True
+    r_label = (
+        "Normalized ROCS Desirability (TanimotoCombo / 2.0)"
+        if r_is_norm
+        else f"{r_col} (3D Shape Overlap)"
+    )
+    ax.set_ylabel(r_label, fontsize=10, fontweight="bold")
     ax.set_title(
         "Multi-Objective Pareto Trade-off Frontier",
         fontsize=11,

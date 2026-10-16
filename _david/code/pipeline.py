@@ -37,6 +37,7 @@ class MoleculePipeline:
         gpu: int | str | None = "auto",
         patience: int = 25,
     ) -> None:
+        HardwareManager.init_runtime_environment()
         self.MODE: str = mode.lower()
         self.EPOCHS: int = 1 if self.MODE == "test" else epochs
         self.N_SAMPLES: int = 10 if self.MODE == "test" else n_samples

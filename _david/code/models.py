@@ -51,6 +51,7 @@ class AlgorithmConfig:
 class GraphTransformerOptimizer:
 
     def __init__(self, output_dir: Path | str, gpu: int | str | None = "auto") -> None:
+        HardwareManager.init_runtime_environment()
         self.OUTPUT_DIR = Path(output_dir)
         self.MODEL_DIR = self.OUTPUT_DIR / "reinforcement_learning"
         self.MODEL_DIR.mkdir(parents=True, exist_ok=True)

@@ -2,7 +2,7 @@
 
 > **Audience**: AI Agents & Pair-Programmers  
 > **Scope**: Universal 3D Ligand-Based De Novo Drug Design (LBDD) using Graph-Transformers in DrugEx  
-> **Working Branch**: `my_personal` (strictly local commits; NEVER execute `git push`)
+> **Working Branch**: `main` / `my_personal` (strictly local commits; NEVER execute `git push`)
 
 ---
 
@@ -10,105 +10,117 @@
 
 ```
 _david/
-├── run.py                          # Primary IDE entrypoint (F5 / 1-click) & detached background daemon
+├── run.py                          # Primary IDE entrypoint & detached background daemon (--detach)
+├── migrate_standards.py            # Automated meta-script migrating historical TSVs/CSVs to std schema
+├── tests.py                        # 14-point regression & integration test suite (unit tests)
+├── in_molecule.txt                 # Default reference query molecule (EGCG)
+├── AGENTS.md                       # Single source of truth for AI agents (this document)
 ├── code/
 │   ├── pipeline.py                 # MoleculePipeline: orchestrates Stage 0 -> Stage 1 -> Stage 2
-│   ├── prepare_query_conformer.py  # QueryConformerPreparer, get_safe_parallel_jobs, create_rocs_scorer
-│   ├── GraphTransformer.py        # GraphTransformerOptimizer: RL environment & fragment prompts
-│   ├── anti_cheating_rewards.py    # AntiCollapseSoftGateReward: continuous anti-collapse soft gating
-│   ├── dynamic_envelope.py         # Dynamic property scorers (HAC, CLogP, TPSA with SmoothHump)
-│   ├── result_analyzer.py          # ResultAnalyzer: 50-conf ROCS, VUN metrics, 9-panel distributions
-│   ├── fallback_monitor.py         # FallbackMonitor: centralized tracking of all fallbacks
-│   ├── monitor.py                  # Custom monitor hooks & telemetry
-│   ├── visualize_molecular_space.py# t-SNE chemical manifold visualizer
-│   └── legacy/                     # Superseded exploratory modules (SequenceRNN, usrcat, scaffold_funnel)
+│   ├── environment.py              # PrepareMolecule (3D conformers & scaffolds), create_environment, SafeSAModifier, create_rocs_scorer
+│   ├── models.py                   # GraphTransformerOptimizer, AlgorithmConfig, prepare_seed_fragments
+│   ├── schema.py                   # Canonical std schema: constants (ROCS, SA, SMILES, etc.) & duplicate pruning
+│   ├── utils.py                    # HardwareManager (CPU/GPU/VRAM solver & environment isolation), FallbackMonitor
+│   ├── analysis.py                 # ResultAnalyzer (canonical deduplication, QED tie-breaking) & ParetoFrontier
+│   ├── visualization.py            # Publication renderers (Pareto, 2D leads, 9-panel distributions, training curves)
+│   └── generate_gallery.py         # Self-contained HTML comparison gallery across all runs
 ├── output/
-│   ├── m4_empirical/               # Full 20-epoch empirical Graph-Transformer RL benchmark
-│   ├── m4_sanity/                  # Fast 2-epoch end-to-end integration verification
-│   └── archive/                    # Historical methodological issue archive & old notes
-└── tests.py                        # Unit test suite verifying all invariants, scorers, and pipelines
+│   ├── 01_reference_representation/# Benchmark runs comparing reference conformer representations
+│   ├── 02_reward_formulations_and_cheating/ # Reward scalarization ablations
+│   ├── 03_hyperparameter_ablations/# Epsilon, tau, and exploration noise sweeps
+│   ├── 04_flagship_lead_optimization/ # Native DrugEx 30-epoch production lead optimizations
+│   ├── RUN_DIFFERENCES.md          # Comprehensive historical run differences and Git era matrix
+│   └── archive/                    # Archived early prototypes and legacy test artifacts
+└── legacy/                         # Archived experimental code (anti-cheating soft-gates, consensus pharmacophores)
 ```
 
 ---
 
 ## 2. Core Execution Stages
 
-### Stage 0: 3D Query Reference & Scaffold Extraction (`prepare_query_conformer.py`)
-- **Input**: Any valid SMILES string or `.sdf` / `.smi` file (default proof molecule: Epigallocatechin gallate, EGCG).
-- **Conformer Ensemble**: Generates 50 conformers with RDKit `ETKDGv3` (`pruneRmsThresh=0.20Å`), relaxes with `MMFF94` ($\Delta E \le 8.0\text{ kcal/mol}$), and curates by Radius of Gyration ($R_g \ge R_{g,\text{median}}$) to preserve extended outward-facing pharmacophores.
-- **Murcko Framework Extraction**: Extracts the core scaffold framework (e.g. flavan-3-ol for EGCG) via RDKit `MurckoScaffold` as the generative seed prompt.
-- **Dynamic Property Envelopes**: Dynamically calibrates heavy atom count, CLogP, and TPSA bounds relative to the query molecule ($[0.70 \times X, 1.30 \times X]$) using native DrugEx `SmoothHump` modifiers. **Zero hardcoded bounds or SMARTS.**
+### Stage 0: 3D Reference Conformer Curation & Scaffold Extraction ([`environment.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/environment.py))
+- **Query Input**: Any valid SMILES string, RDKit `Mol`, or `.sdf` / `.smi` file (default proof molecule: Epigallocatechin gallate, EGCG).
+- **Conformer Generation**: Generates 100 conformers with RDKit `ETKDGv3` (`pruneRmsThresh=0.35 Å`), minimizes via `MMFF94` with automatic graceful fallback to `UFF` for non-MMFF elements (e.g. Boron).
+- **Energy Window Filtering**: Retains conformers within physiological energy window ($\Delta E \le 8.0\text{ kcal/mol}$).
+- **Hawkins (2017) Butina RMSD Clustering**: Heavy-atom sphere-exclusion clustering using `AllChem.GetBestRMS` (automorphism and topological symmetry invariant). Extracts lowest-energy cluster centroids.
+- **Scaffold Framework Extraction**: Extracts canonical Bemis & Murcko (1996) molecular framework via `MurckoScaffold.GetScaffoldForMol()`, preserving all conjugated rings and linkers without fragile bond-cutting heuristics. Pure acyclic molecules fall back cleanly to sanitized SMILES.
 
-### Stage 1: Graph-Transformer Lead Generation & RL (`GraphTransformer.py`)
-- **Model**: `FragGraphExplorer` operating on pre-trained Papyrus prior (`Papyrus05.5_graph_trans_PT`) directly without noisy 2D transfer learning.
-- **Fragment Conditioning**: Converts seed Murcko framework into graph DataLoader via `dummyMolsFromFragments()` and `FragmentCorpusEncoder(n_proc=1)`.
-- **Active Scorer**: Native DrugEx `RDKitROCSScorer` with OpenEye Mills-Dean color SMARTS (`color_ff="oe_mills_dean"`), relaxed conformer parameters (`max_conformers=22`, `max_heavy_atoms=55`, `max_rotatable_bonds=25`, `timeout=30s`), and `score_type="TanimotoCombo"` (0–2 scale). All 1D moment approximations (USRCAT, ElectroShape) are strictly excluded.
-- **Continuous Soft-Gate Reward**:
-  $$R(\mathbf{x}) = w_{\text{3D}} \cdot S_{\text{3D}}(\mathbf{x}) + w_{\text{props}} \cdot G(S_{\text{3D}}(\mathbf{x})) \cdot \sum_i \tilde{w}_i S_{\text{prop}, i}(\mathbf{x}) + S_{\text{SA\_floor}}(\mathbf{x})$$
-  $$\text{where} \quad G(S_{\text{3D}}) = \min\left(1.0, \; \frac{S_{\text{3D}}}{\tau_{\text{3D}}}\right) \quad (\tau_{\text{3D}} = 0.60), \quad w_{\text{3D}} = 0.70, \quad w_{\text{props}} = 0.30$$
-  - Eliminates Pareto cheating: candidates with $S_{\text{3D}} = 0$ receive 0 reward for secondary properties ($G(0) = 0$).
-  - Gradient remains non-zero for moderate $S_{\text{3D}}$, preventing early RL stall.
-- **Single Synthesizability Floor**: SAscore rewarding 1.0 for $\text{SA} \le 5.5$ and penalizing only $\text{SA} > 6.0$, accommodating natural product complexity without penalty. Conflicting multi-scorer penalties (RAscore, BRICS) are purged.
-- **Peak Recovery**: Custom `PeakRecoveryMonitor` tracks rolling desirability at every epoch and restores the peak historical model weights upon completion, safeguarding against late-epoch RL policy degradation.
+### Stage 1: Graph-Transformer Lead Generation & Multi-Objective RL ([`models.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/models.py), [`environment.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/environment.py))
+- **Model**: `FragGraphExplorer` operating on pre-trained Papyrus prior (`Papyrus05.5_graph_trans_PT`).
+- **Prompt Encoding**: Encodes seed Bemis-Murcko framework into graph DataLoader via `dummyMolsFromFragments()` and `FragmentCorpusEncoder(n_proc=1)`.
+- **Environment & Scorers**:
+  - **3D ROCS Scorer**: Native DrugEx `RDKitROCSScorer` with OpenEye Mills-Dean color SMARTS (`color_ff="oe_mills_dean"`), `score_type="TanimotoCombo"`, mapped to $[0, 1]$ via `ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)`.
+  - **Synthesizability Feasibility Floor**: `Property(prop="SA")` governed by `SafeSAModifier(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0)`. Clamps invalid/uncalculable fallback scores ($\le 0.0$) strictly to $0.0$ desirability.
+  - **Multi-Objective Reward Scheme**: Native DrugEx `WeightedSum()` with dynamic threshold failure-ratio weighting, prioritizing objectives with lower passing rates.
+- **Checkpointing & Peak Recovery**: `PeakRecoveryMonitor` tracks rolling desirability (`desired_ratio`), saving `_peak.pkg` on improvement and automatically restoring peak model weights onto the agent upon completion.
 
-### Stage 2: Result Analysis & Publication Profiling (`result_analyzer.py`)
-- Unbiased sampling (`drop_invalid=False`, `drop_duplicates=False`) from restored peak model.
-- High-fidelity 50-conformer RDKit ROCS evaluation.
-- Standardized VUN metrics (Validity $\ge 80\%$, internal Uniqueness $\ge 80\%$, Novelty against Papyrus).
-- Bemis-Murcko scaffold diversity ratio calculation.
-- 9-panel property distribution histograms benchmarked against query envelopes.
-- Publication artifacts: `lead_structures_2d.png`, `property_distributions.png`, `result_analysis_summary.json`.
+### Stage 2: Result Analysis & Publication Profiling ([`analysis.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/analysis.py), [`visualization.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/visualization.py))
+- **Deduplication**: Identifies distinct chemical leads by canonical SMILES (`Chem.CanonSmiles`), eliminating duplicate conformers/isomers.
+- **Pareto Ranking & Tie-Breaking**: Ranks candidates into non-dominated Pareto Fronts ($0, 1, 2, \dots$); Front 0 ties are broken deterministically by QED drug-likeness descending.
+- **Visual Artifacts**:
+  - `lead_structures_2d.png`: 2D lead grid with aligned core scaffolds and true metric captions.
+  - `pareto_frontier.png`: Scatter plot of optimal Front 0 vs dominated candidates with clear axis labels (`Normalized ROCS Desirability (TanimotoCombo / 2.0)`).
+  - `property_distributions.png`: 9-panel physicochemical profile (ROCS, QED, SA, MW, LogP, TPSA, HBD, RotBonds, 2D Tanimoto to seed).
+  - `pareto_epoch_evolution.png` / `pareto_epoch_viewer.html`: Interactive micro-Pareto scrubber tracking epoch evolution.
 
 ---
 
-## 3. Multiprocessing & Hardware Invariants
+## 3. Canonical Schema Standard ([`schema.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/schema.py))
 
-| Component / Function | Invariant | Technical Reason |
+All tabular outputs and visualizations must use canonical constants from `std` (`from _david.code.schema import std`):
+- Objectives: `std.ROCS`, `std.SA`, `std.DESIRED`
+- Identifiers: `std.SMILES`, `std.CANONICAL_SMILES`, `std.FRAGS`, `std.VALID`
+- Telemetry: `std.EPOCH`, `std.LOSS_TRAIN`, `std.VALID_RATIO`, `std.UNIQUE_RATIO`, `std.DESIRED_RATIO`
+- Physicochemical: `std.MW`, `std.LOGP`, `std.TPSA`, `std.QED`, `std.HBD`, `std.ROT_BONDS`, `std.PARETO_RANK`
+
+`std.standardize(df)` automatically normalizes historical scorer names and eliminates redundant duplicate columns (`SAscore` when `SA` exists, `Desirability` when `Desired` exists).
+
+---
+
+## 4. Hardware Management & Multiprocessing Invariants ([`utils.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/utils.py))
+
+| Component / Function | Invariant | Technical Rationale |
 |---|---|---|
-| `FragmentCorpusEncoder` | **Strictly `n_proc = 1`** | Multiprocessing fork after PyTorch CUDA tensor initialization causes allocator mutex deadlock. |
-| `Standardization` | **Strictly `n_proc = 1`** | Process-spawning overhead exceeds sequential execution; prevents nested worker hangs. |
-| `FragGraphExplorer.loaderFromFrags` | **Strictly `n_proc = 1`** | Calls `FragmentCorpusEncoder`; must remain single-process. |
-| `RDKitConformerGenerator.genConformers` | **Strictly `n_proc = 1`** (and `num_threads = 0`) | Coordinates write sequentially to a single destination SDF via `Chem.SDWriter`; parallel forks corrupt file. |
-| `RDKitROCSScorer.getScores` | **Capped at max 24 CPU cores** | Gaussian volume integrals safely parallelize across molecules via `pool_context().Pool()`. Capped at half host CPUs to avoid memory exhaustion (cell-615 hang). |
-| Multiprocessing context | **`DRUGEX_MP_CONTEXT="forkserver"`** | Forks workers from a pristine server process that never inherited PyTorch CUDA threads, eliminating deadlocks. |
-| GPU Execution | **Target GPU 0 on `dichtator`** | `dichtator` has NVIDIA RTX PRO 4000 Blackwell on GPU 0 (GPU 1 is in a driver error state). |
+| `HardwareManager.init_runtime_environment()` | **Auto-called in `MoleculePipeline.__init__`** | Sets `DRUGEX_MP_CONTEXT="forkserver"` and `DRUGEX_SCORE_NJOBS` automatically upon pipeline creation. |
+| Multiprocessing Context | **`DRUGEX_MP_CONTEXT="forkserver"`** | Forks worker pools from a clean server process that never inherits PyTorch CUDA thread states, preventing POSIX fork deadlocks. |
+| CPU Worker Allocation | **60% Rule via `get_safe_parallel_jobs()`** | Allocates `max(1, int(cores * 0.60))`, leaving headroom for OS, PyTorch background workers, and I/O. |
+| Batch Size Resolution | **Power-of-2 Tensor Core Sizing** | Dynamically scales batch size (32, 64, or 128) based on free VRAM, clamped to `n_samples`. |
+| GPU Device Selection | **VRAM-Aware Routing via `select_best_gpu()`** | Queries `mem_get_info()`, auto-routes to least-loaded GPU meeting $\ge 4000\text{ MB}$ free threshold, or falls back to CPU (`()`). |
 
 ---
 
-## 4. Development, Testing & Verification Workflows
+## 5. Development & Verification Workflows
 
 ### Running Locally (WSL):
 ```bash
-# Run unit tests verifying anti-cheating rewards and API compliance
-uv run pytest _david/tests.py -v
+# Run 14-point integration test suite
+python -m unittest -v _david/tests.py
 
-# Run 60-point LBDD requirements verification suite
-uv run pytest testing/test_lbdd_requirements.py -q
-
-# Run 14-point adversarial verification suite
-uv run pytest testing/adversarial_m4_empirical_verification.py -q
+# Lint and check style compliance
+ruff check _david/code _david/tests.py
 ```
 
 ### Running on Remote Hardware (`dichtator`):
-- Connect via WSL multiplexed SSH (`~/.ssh/config` reuses `ControlMaster` socket in ~34ms):
+- Probe connection (reuses 34ms `ControlMaster` socket via WSL):
   ```bash
   wsl ssh -o BatchMode=yes dichtator "nvidia-smi; free -h"
   ```
-- Trigger detached background run (survives closing IDE / VPN):
+- Run tests remotely:
   ```bash
-  wsl ssh -o BatchMode=yes dichtator "cd ~/DrugEx && .venv/bin/python _david/run.py --mode full --epochs 20 --n-samples 200"
+  wsl ssh -o BatchMode=yes dichtator "cd ~/DrugEx && .venv/bin/python -m unittest -v _david/tests.py"
   ```
-- Monitor live execution:
+- Trigger detached background run:
   ```bash
-  wsl ssh -o BatchMode=yes dichtator "tail -f ~/DrugEx/_david/output/<RUN_ID>/pipeline.log"
+  wsl ssh -o BatchMode=yes dichtator "cd ~/DrugEx && .venv/bin/python _david/run.py --mode full --epochs 35 --n-samples 200 --detach"
   ```
 
 ---
 
-## 5. Coding & Contribution Rules
+## 6. Coding & Contribution Rules
 
-1. **Academic Honesty**: No synthetic simulation data. All numbers must come from authentic RDKit/DrugEx calculations.
-2. **Type Annotations**: All Python functions require 100% explicit type hints on parameters and return types.
-3. **Targeted Comments**: Cheminformatics library (outside snatdart one like os, numpy, ...) functions follow `# [PACKAGE: NAME] ...` WHY: / WHAT: / HOW: . Avoid line-by-line noise.
-4. **Direct File Tools Only**: Use `write_to_file` and `replace_file_content`. Never run ad-hoc scripts to patch project code.
-5. **Git Safety**: Stage and commit locally with clear commit messages (`git add . && git commit -m "..."`). **NEVER execute `git push`**.
+1. **Brutally Honest Academic Rigor**: Challenge assumptions, verify empirical distributions, and report unpromising/counter-intuitive results honestly.
+2. **Read-Only Mode for Questions**: Treat exploratory questions as read-only research requests without modifying project source files.
+3. **Direct File Editing Tools Only**: Always use `write_to_file` and `replace_file_content`. Never execute ad-hoc scripts or one-liners to patch code.
+4. **Type Annotations & Rich Docstrings**: All Python functions require full type hints on parameters and return values.
+5. **Chemoinformatics Documentation**: External non-DrugEx library calls (RDKit, OpenEye) require `# [PACKAGE: NAME] WHY: ... WHAT: ... HOW: ...`.
+6. **Git Safety**: Stage and commit locally with clear descriptive messages (`git commit -m "..."`). **NEVER execute `git push`**.
