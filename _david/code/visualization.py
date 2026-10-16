@@ -254,7 +254,7 @@ def render_lead_structures_2d(
         qed_val = float(QED.qed(ref_clean))
         sa_val = float(calculate_sa_score(ref_clean))
         plot_legends.append(
-            f"QUERY SEED (EGCG)\n"
+            f"QUERY SEED\n"
             f"HAC: {hac} | MW: {mw:.1f}\n"
             f"QED: {qed_val:.2f} | SA: {sa_val:.2f}"
         )
@@ -388,6 +388,7 @@ def render_epoch_pareto_evolution(
     smiles_tsv_path: Path | str,
     output_png: Path | str | None = None,
     max_grid_epochs: int = 6,
+    maximize: Sequence[bool] = (True, True),
 ) -> Path | None:
     tsv_file = Path(smiles_tsv_path)
     if not tsv_file.exists():
@@ -405,9 +406,13 @@ def render_epoch_pareto_evolution(
     target_png = Path(output_png) if output_png else out_dir / "pareto_epoch_evolution.png"
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    # Ensure continuous raw SA score (1.0 = easy, 10.0 = hard) to prevent discrete collapse
-    sa_name = "SAscore"
-    if sa_name not in df.columns or df[sa_name].nunique() <= 3:
+    # Detect SA desirability ("SA" column in [0, 1]) or fallback to raw SAscore
+    if "SA" in df.columns:
+        sa_name = "SA"
+    elif "SAscore" in df.columns:
+        sa_name = "SAscore"
+    else:
+        sa_name = "SAscore"
         mols = [Chem.MolFromSmiles(s) if isinstance(s, str) else None for s in df["SMILES"]]
         sa_scores = []
         for m in mols:
@@ -430,13 +435,15 @@ def render_epoch_pareto_evolution(
     y_min, y_max = float(valid_df[rocs_name].min()), float(valid_df[rocs_name].max())
     x_pad = 0.05 * (x_max - x_min) if (x_max > x_min) else 0.5
     y_pad = 0.05 * (y_max - y_min) if (y_max > y_min) else 0.05
-    x_limits = (max(1.0, x_min - x_pad), x_max + x_pad)
+    x_limits = (max(0.0 if maximize[1] else 1.0, x_min - x_pad), x_max + x_pad)
     y_limits = (max(0.0, y_min - y_pad), min(2.0, y_max + y_pad))
 
     # 1. Generate Individual Pareto Plot for EVERY Epoch (e.g. 30 plots for 30 epochs)
     by_epoch_dir = out_dir / "pareto_by_epoch"
     by_epoch_dir.mkdir(parents=True, exist_ok=True)
     generated_epoch_pngs: list[Path] = []
+
+    mult = np.array([1.0 if m else -1.0 for m in maximize], dtype=np.float64)
 
     for ep in epochs:
         sub = valid_df[valid_df["Epoch"] == ep].copy()
@@ -446,31 +453,31 @@ def render_epoch_pareto_evolution(
         fig_ep, ax_ep = plt.subplots(figsize=(8.5, 5.8), dpi=180)
         scores = sub[[rocs_name, sa_name]].to_numpy(dtype=float)
 
-        # Non-dominated Front 0: Maximize ROCS, Minimize SAscore
+        # Non-dominated Front 0: Maximize ROCS, Maximize SA Desirability (maximize=[True, True])
+        scaled = scores * mult
         is_front0 = np.ones(len(scores), dtype=bool)
         for i in range(len(scores)):
             dominated = np.any(
-                (scores[:, 0] >= scores[i, 0]) & (scores[:, 1] <= scores[i, 1]) &
-                ((scores[:, 0] > scores[i, 0]) | (scores[:, 1] < scores[i, 1]))
+                np.all(scaled >= scaled[i], axis=1) & np.any(scaled > scaled[i], axis=1)
             )
             if dominated:
                 is_front0[i] = False
 
-        front_0 = sub[is_front0].sort_values(by=sa_name).drop_duplicates(subset=[sa_name, rocs_name])
+        front_0 = sub[is_front0].sort_values(by=sa_name, ascending=not maximize[1]).drop_duplicates(subset=[sa_name, rocs_name])
 
         # Second-tier Front 1 (Dominated Tier)
         sub_rem = sub[~is_front0]
         if len(sub_rem) >= 2:
             scores_rem = sub_rem[[rocs_name, sa_name]].to_numpy(dtype=float)
+            scaled_rem = scores_rem * mult
             is_front1 = np.ones(len(scores_rem), dtype=bool)
             for i in range(len(scores_rem)):
                 dom1 = np.any(
-                    (scores_rem[:, 0] >= scores_rem[i, 0]) & (scores_rem[:, 1] <= scores_rem[i, 1]) &
-                    ((scores_rem[:, 0] > scores_rem[i, 0]) | (scores_rem[:, 1] < scores_rem[i, 1]))
+                    np.all(scaled_rem >= scaled_rem[i], axis=1) & np.any(scaled_rem > scaled_rem[i], axis=1)
                 )
                 if dom1:
                     is_front1[i] = False
-            front_1 = sub_rem[is_front1].sort_values(by=sa_name).drop_duplicates(subset=[sa_name, rocs_name])
+            front_1 = sub_rem[is_front1].sort_values(by=sa_name, ascending=not maximize[1]).drop_duplicates(subset=[sa_name, rocs_name])
             others = sub_rem[~is_front1]
         else:
             front_1 = pd.DataFrame(columns=sub.columns)
@@ -497,15 +504,28 @@ def render_epoch_pareto_evolution(
         ax_ep.set_xlim(x_limits)
         ax_ep.set_ylim(y_limits)
         ax_ep.set_title(f"Epoch {ep} Pareto Frontier (Optimal Trade-off & Dominated Tiers)", fontsize=11, fontweight="bold", pad=12)
-        ax_ep.set_xlabel("Synthetic Accessibility (SAscore / Lower is Easier)", fontsize=10, fontweight="bold")
+        xlabel = (
+            "Synthetic Accessibility Desirability (Higher is Better)"
+            if maximize[1]
+            else "Synthetic Accessibility (SAscore / Lower is Easier)"
+        )
+        ax_ep.set_xlabel(xlabel, fontsize=10, fontweight="bold")
         ax_ep.set_ylabel("3D Gaussian ROCS Overlap (TanimotoCombo)", fontsize=10, fontweight="bold")
         ax_ep.grid(True, linestyle=":", alpha=0.6)
         ax_ep.legend(loc="lower left", framealpha=0.9, fontsize=8.5)
 
         # Metric summary callout box
         max_r = front_0[rocs_name].max() if not front_0.empty else 0.0
-        min_s = front_0[sa_name].min() if not front_0.empty else 0.0
-        stats_text = f"Epoch {ep}/{len(epochs)}\nFront 0 Size: {len(front_0)}\nPeak ROCS: {max_r:.2f}\nBest SA: {min_s:.2f}"
+        best_s = (
+            front_0[sa_name].max() if maximize[1] else front_0[sa_name].min()
+        ) if not front_0.empty else 0.0
+        sa_metric = "Peak SA Desirability" if maximize[1] else "Best SA"
+        stats_text = (
+            f"Epoch {ep}/{len(epochs)}\n"
+            f"Front 0 Size: {len(front_0)}\n"
+            f"Peak ROCS: {max_r:.2f}\n"
+            f"{sa_metric}: {best_s:.2f}"
+        )
         ax_ep.text(0.97, 0.95, stats_text, transform=ax_ep.transAxes, fontsize=8.5, verticalalignment="top", horizontalalignment="right",
                     bbox=dict(boxstyle="round,pad=0.5", facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.9))
 
@@ -764,6 +784,7 @@ def render_property_distributions(
     ax.axvspan(1.0, 5.5, color="#2A9D8F", alpha=0.15, label="Feasible (<= 5.5)")
     ax.axvline(5.5, color="#2A9D8F", linestyle="--", linewidth=1.5)
     ax.axvline(6.0, color="#E76F51", linestyle=":", linewidth=1.5, label="Penalized (> 6.0)")
+    ax.axvline(seed_sa, color="#E63946", linestyle="--", linewidth=1.5, label=f"Query ({seed_sa:.2f})")
     ax.set_title("Synthetic Accessibility (SAscore)", fontsize=11, weight="bold")
     ax.set_xlabel("SA Score (1 = Easy, 10 = Hard)")
     ax.set_ylabel("Molecule Count")

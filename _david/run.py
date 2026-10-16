@@ -13,10 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from _david.code.environment import DEFAULT_MOLECULE
 from _david.code.pipeline import MoleculePipeline
-from _david.code.utils import get_safe_parallel_jobs
-
-os.environ.setdefault("DRUGEX_SCORE_NJOBS", str(get_safe_parallel_jobs()))
-os.environ.setdefault("DRUGEX_MP_CONTEXT", "forkserver")
+from _david.code.utils import HardwareManager
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,6 +31,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    HardwareManager.init_runtime_environment()
     args = parse_args()
     is_worker = os.environ.get("DRUGEX_DETACHED_WORKER") == "1"
 

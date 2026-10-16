@@ -95,6 +95,7 @@ bad-return = "error"
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+extend-exclude = ["_david/output", "**/_david/output/**", "output"]
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "UP", "SIM", "I"]
@@ -102,4 +103,5 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "_david/**" = ["E402"]
+"_david/output/**" = ["ALL"]
 

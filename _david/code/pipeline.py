@@ -21,7 +21,7 @@ from _david.code.visualization import (
     render_training_curves,
 )
 from _david.code.models import GraphTransformerOptimizer
-from _david.code.utils import get_gpu_telemetry
+from _david.code.utils import HardwareManager, get_gpu_telemetry
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
@@ -68,19 +68,22 @@ class MoleculePipeline:
             optimizer = GraphTransformerOptimizer(stage1_dir, gpu=self.GPU)
             env, epsilon = create_environment(ref_sdf)
 
-            loader, _ = optimizer.prepare_seed_fragments(molecule, n_prompts=self.N_SAMPLES, scaffolds_path=scaffold_tsv)
-            explorer = optimizer.build_explorer(env, epsilon=epsilon, batch_size=50)
+            train_loader, val_loader, _ = optimizer.prepare_seed_fragments(
+                molecule, n_prompts=self.N_SAMPLES, scaffolds_path=scaffold_tsv
+            )
+            batch_size = HardwareManager.get_recommended_batch_size(self.N_SAMPLES)
+            explorer = optimizer.build_explorer(env, epsilon=epsilon, batch_size=batch_size)
 
             model_prefix = optimizer.MODEL_DIR / "david_agent"
             monitor = PeakRecoveryMonitor(model_prefix, save_smiles=True, reset_directory=False)
 
-            explorer.fit(loader, loader, epochs=self.EPOCHS, monitor=monitor)
+            explorer.fit(train_loader, val_loader, epochs=self.EPOCHS, monitor=monitor)
             monitor.restore_peak_model(optimizer.AGENT)
 
             render_training_curves(f"{model_prefix}_fit.tsv", output_png=optimizer.MODEL_DIR / "rl_training_curves.png")
             render_epoch_pareto_evolution(f"{model_prefix}_smiles.tsv", output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png")
 
-            smiles_list, frags_list = optimizer.AGENT.sample(loader)
+            smiles_list, frags_list = optimizer.AGENT.sample(train_loader)
             df = env.getScores(smiles_list, frags=frags_list)
             df.insert(0, "SMILES", smiles_list)
             df.insert(1, "FRAGS", frags_list)

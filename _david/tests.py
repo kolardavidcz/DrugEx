@@ -1,3 +1,4 @@
+import os
 import sys
 import tempfile
 import unittest
@@ -150,17 +151,48 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertTrue(front_png.exists())
 
     def test_adaptive_rmsd_cutoff(self) -> None:
-        m_rigid = Chem.MolFromSmiles("c1ccccc1")
-        self.assertEqual(self.preparer.get_adaptive_rmsd_cutoff(m_rigid), 1.25)
+        """Verify Hawkins (2017) heavy-atom RMSD cutoffs across chemical tiers with topology invariance."""
+        # 1. Rigid/compact tier (<= 2 rotatable bonds, <= 20 heavy atoms): 1.00 Å
+        m_benzene = Chem.MolFromSmiles("c1ccccc1")  # 0 rot, 6 heavy
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_benzene), 1.00)
+
+        m_aspirin = Chem.MolFromSmiles("CC(=O)Oc1ccccc1C(=O)O")  # 2 rot, 13 heavy
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_aspirin), 1.00)
+
+        # Explicit hydrogens invariance check: phenol with explicit Hs must remain 1.00 Å
+        m_phenol_h = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1O"))
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_phenol_h), 1.00)
+
+        # 2. Standard drug-like tier (<= 7 rotatable bonds, <= 45 heavy atoms): 1.25 Å
+        m_ibuprofen = Chem.MolFromSmiles("CC(C)Cc1ccc(cc1)C(C)C(=O)O")  # 3 rot, 15 heavy
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), 1.25)
+
+        m_diazepam = Chem.MolFromSmiles("CN1C(=O)CN=C(c2ccccc2)c2cc(Cl)ccc21")  # 1 rot, 20 heavy
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_diazepam), 1.00)
+
+        # 3. Flexible tier (> 7 rotatable bonds or > 45 heavy atoms): 1.50 Å
+        m_decanoic = Chem.MolFromSmiles("CCCCCCCCCC(=O)O")  # 8 rot, 11 heavy
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), 1.50)
+
+        # Null and empty molecule guards
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(None), 1.00)
+        m_empty = Chem.MolFromSmiles("")
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_empty), 1.00)
+
+        # Backwards-compatible instance method delegation
+        self.assertEqual(self.preparer.get_adaptive_rmsd_cutoff(m_benzene), 1.00)
 
     def test_seed_core_scaffold(self) -> None:
+        """Verify canonical Bemis-Murcko framework extraction preserving rings and linkers."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_tsv = Path(tmp_dir) / "scaffold.tsv"
 
+            # EGCG canonical Bemis-Murcko framework preserves chroman, 2 aryl rings, and ester linker (25 heavy atoms, 4 rings)
             smi_core = self.preparer.extract_seed_core_scaffold(DEFAULT_MOLECULE, output_path=out_tsv)
             mol_core = Chem.MolFromSmiles(smi_core)
-            self.assertEqual(mol_core.GetNumHeavyAtoms(), 10)
-            self.assertEqual(mol_core.GetRingInfo().NumRings(), 2)
+            self.assertIsNotNone(mol_core)
+            self.assertEqual(mol_core.GetNumHeavyAtoms(), 25)
+            self.assertEqual(mol_core.GetRingInfo().NumRings(), 4)
             self.assertTrue(out_tsv.exists())
 
             with open(out_tsv, "r", encoding="utf-8") as f:
@@ -168,28 +200,20 @@ class TestLBDDPipeline(unittest.TestCase):
                 row = f.readline().strip().split("\t")
             self.assertEqual(header, "Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings")
             self.assertEqual(row[0], smi_core)
-            self.assertEqual(row[2], "core_ring_system")
-            self.assertEqual(row[3], "10")
-            self.assertEqual(row[4], "2")
+            self.assertEqual(row[2], "BemisMurcko")
+            self.assertEqual(row[3], "25")
+            self.assertEqual(row[4], "4")
 
-            # Acyclic fallback: Bemis-Murcko framework standard continuous heavy-atom backbone
+            # Monocyclic and standard drug frameworks
+            smi_phenol = self.preparer.extract_seed_core_scaffold("c1ccccc1O")
+            self.assertEqual(smi_phenol, "c1ccccc1")
+
+            smi_aspirin = self.preparer.extract_seed_core_scaffold("CC(=O)Oc1ccccc1C(=O)O")
+            self.assertEqual(smi_aspirin, "c1ccccc1")
+
+            # Acyclic fallback: preserves sanitized heavy-atom structure cleanly
             smi_acyclic = self.preparer.extract_seed_core_scaffold("CCCCCC(=O)O")
-            self.assertEqual(smi_acyclic, "CCCCCC")
-
-            # Heteroatom bridging linkers (ester & amide) traversal as pure topological frameworks
-            smi_ester = self.preparer.extract_seed_core_scaffold("CCOC(=O)CC")
-            self.assertEqual(smi_ester, "CCCOCC")
-
-            smi_peptide = self.preparer.extract_seed_core_scaffold("CC(=O)NCC(=O)O")
-            self.assertEqual(smi_peptide, "CCNCC")
-
-            # Consecutive heteroatom chain limit: default 2 stops at the carbon cluster when bridge is impassable
-            smi_triazane = self.preparer.extract_seed_core_scaffold("CCCCNNNCCCC")
-            self.assertEqual(smi_triazane, "CCCC")
-
-            # Allowing 3 consecutive heteroatoms traverses full chain across the 3-nitrogen bridge
-            smi_triazane_3 = self.preparer.extract_seed_core_scaffold("CCCCNNNCCCC", max_heteroatom_chain=3)
-            self.assertEqual(smi_triazane_3, "CCCCNNNCCCC")
+            self.assertEqual(smi_acyclic, "CCCCCC(=O)O")
 
     def test_load_query_molecule(self) -> None:
         mol, is_3d = self.preparer.load_query_molecule("c1ccccc1O")
@@ -259,7 +283,114 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertEqual(mol.GetNumHeavyAtoms(), 7)
 
         smi = custom_preparer.extract_seed_core_scaffold("CCOC(=O)CC")
-        self.assertEqual(smi, "CCCOCC")
+        self.assertEqual(smi, "CCOC(=O)CC")
+
+    def test_hardware_manager(self) -> None:
+        """Verify dynamic CPU allocation, GPU routing, batch sizing, and environment isolation."""
+        from _david.code.utils import HardwareManager, get_safe_parallel_jobs
+
+        # 1. Dynamic CPU allocation (60% rule)
+        expected_jobs = max(1, int((os.cpu_count() or 1) * 0.60))
+        self.assertEqual(HardwareManager.get_safe_parallel_jobs(), expected_jobs)
+        self.assertEqual(get_safe_parallel_jobs(), expected_jobs)
+        self.assertEqual(get_safe_parallel_jobs(cap=2), min(2, expected_jobs))
+
+        # 2. Power-of-2 batch sizing clamped strictly to n_samples
+        batch_small = HardwareManager.get_recommended_batch_size(n_samples=10)
+        self.assertEqual(batch_small, 10)
+        batch_normal = HardwareManager.get_recommended_batch_size(n_samples=200)
+        self.assertIn(batch_normal, [32, 64, 128])
+
+        # 3. Environment isolation
+        env_vars = HardwareManager.init_runtime_environment()
+        self.assertEqual(os.environ.get("DRUGEX_SCORE_NJOBS"), str(expected_jobs))
+        self.assertEqual(os.environ.get("DRUGEX_MP_CONTEXT"), "forkserver")
+        self.assertEqual(env_vars["DRUGEX_SCORE_NJOBS"], str(expected_jobs))
+        self.assertEqual(env_vars["DRUGEX_MP_CONTEXT"], "forkserver")
+
+        # 4. Safe GPU routing and CPU fallback
+        gpus = HardwareManager.get_safe_gpus()
+        self.assertIsInstance(gpus, tuple)
+        # Invalid preferred GPU index falls back to ()
+        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu=9999), ())
+
+    def test_decoupled_validation_loader(self) -> None:
+        """Verify that prepare_seed_fragments returns decoupled train and bounded val loaders."""
+        from _david.code.models import AlgorithmConfig, GraphTransformerOptimizer
+
+        cfg = AlgorithmConfig(n_samples=200, val_samples=None)
+        self.assertEqual(cfg.epochs, 35)
+        self.assertEqual(cfg.n_samples, 200)
+        self.assertIsNone(cfg.val_samples)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            optimizer = GraphTransformerOptimizer(tmp_dir, gpu="auto")
+
+            # Decoupled validation dataloader for N=200 prompts: bounded val_size = 40 (min(50, max(25, 40)))
+            train_loader, val_loader, dataset = optimizer.prepare_seed_fragments("c1ccccc1O", n_prompts=200)
+            self.assertEqual(len(dataset.getData()), 200)
+            self.assertEqual(len(train_loader.dataset), 200)
+            self.assertEqual(len(val_loader.dataset), 40)
+
+            # Test mode clamping: N=10 prompts yields val_size = 10
+            train_l10, val_l10, dataset10 = optimizer.prepare_seed_fragments("c1ccccc1O", n_prompts=10)
+            self.assertEqual(len(dataset10.getData()), 10)
+            self.assertEqual(len(train_l10.dataset), 10)
+            self.assertEqual(len(val_l10.dataset), 10)
+
+    def test_pareto_front_0_alignment(self) -> None:
+        """Verify Pareto Front 0 non-domination alignment under maximize=[True, True]."""
+        # Synthetic 5-point dataset matching Phase 0 numerical proof:
+        # A: [1.6, 0.9] (High ROCS, High SA Desirability) -> Front 0
+        # B: [1.8, 0.5] (Peak ROCS, Moderate SA Desirability) -> Front 0
+        # C: [1.2, 1.0] (Moderate ROCS, Perfect SA Desirability) -> Front 0
+        # D: [1.4, 0.4] (Dominated by A) -> Dominated
+        # E: [0.8, 0.1] (Terrible candidate) -> Dominated
+        df_proof = pd.DataFrame({
+            "SMILES": ["molA", "molB", "molC", "molD", "molE"],
+            "ROCS": [1.6, 1.8, 1.2, 1.4, 0.8],
+            "SA": [0.9, 0.5, 1.0, 0.4, 0.1],
+        })
+        scores = df_proof[["ROCS", "SA"]].to_numpy(dtype=float)
+        is_front = ParetoFrontier.identify_pareto_front(scores, maximize=[True, True])
+
+        # Exactly A, B, C form Front 0
+        self.assertTrue(is_front[0], "Mol A [1.6, 0.9] must be Front 0")
+        self.assertTrue(is_front[1], "Mol B [1.8, 0.5] must be Front 0")
+        self.assertTrue(is_front[2], "Mol C [1.2, 1.0] must be Front 0")
+        self.assertFalse(is_front[3], "Mol D [1.4, 0.4] must be dominated by Mol A")
+        self.assertFalse(is_front[4], "Mol E [0.8, 0.1] must be dominated")
+
+        pareto = ParetoFrontier()
+        ranked = pareto.rank_pareto_fronts(df_proof, objectives=["ROCS", "SA"], maximize=[True, True])
+        self.assertEqual(ranked.loc[0, "Pareto_Rank"], 0)
+        self.assertEqual(ranked.loc[1, "Pareto_Rank"], 0)
+        self.assertEqual(ranked.loc[2, "Pareto_Rank"], 0)
+        self.assertGreater(ranked.loc[3, "Pareto_Rank"], 0)
+        self.assertGreater(ranked.loc[4, "Pareto_Rank"], 0)
+
+    def test_forcefield_minimization_streamlined(self) -> None:
+        """Verify streamlined conformer generation with MMFF94 and UFF without dead status loops."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # 1. Standard organic molecule with MMFF94
+            mmff_sdf = Path(tmp_dir) / "phenol.sdf"
+            res_mmff = self.preparer.generate_reference_conformers("c1ccccc1O", output_path=mmff_sdf, num_conformers=5)
+            self.assertTrue(res_mmff.exists())
+            suppl_mmff = Chem.SDMolSupplier(str(res_mmff), removeHs=False)
+            confs_mmff = [m for m in suppl_mmff if m is not None]
+            self.assertGreater(len(confs_mmff), 0)
+            self.assertTrue(confs_mmff[0].GetConformer().Is3D())
+            self.assertTrue(confs_mmff[0].HasProp("Energy_MMFF_kcal_mol"))
+
+            # 2. Boronic acid with UFF fallback
+            uff_sdf = Path(tmp_dir) / "boronic.sdf"
+            res_uff = self.preparer.generate_reference_conformers("OB(O)c1ccccc1", output_path=uff_sdf, num_conformers=3)
+            self.assertTrue(res_uff.exists())
+            suppl_uff = Chem.SDMolSupplier(str(res_uff), removeHs=False)
+            confs_uff = [m for m in suppl_uff if m is not None]
+            self.assertGreater(len(confs_uff), 0)
+            self.assertTrue(confs_uff[0].GetConformer().Is3D())
+            self.assertGreater(float(confs_uff[0].GetProp("Energy_MMFF_kcal_mol")), 0.0)
 
 
 if __name__ == "__main__":
