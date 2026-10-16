@@ -356,8 +356,7 @@ class SafeSAModifier(ScoreModifier):
     def __call__(self, x: float | np.ndarray) -> float | np.ndarray:
         arr = np.asarray(x, dtype=np.float64)
         out = self.clip(arr)
-        # Any chemically invalid or uncalculated fallback (SA <= 0.0) receives 0.0 desirability
-        out = np.where(arr <= 0.0, 0.0, out)
+        out = np.where(arr <= 0.0, 0.0, out) # Any chemically invalid or uncalculated fallback (SA <= 0.0) receives 0.0 desirability
         return float(out.item()) if np.ndim(x) == 0 else out
 
 
