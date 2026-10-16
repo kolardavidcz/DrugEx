@@ -5,7 +5,11 @@ from typing import Any
 
 import numpy as np
 from drugex.training.environment import DrugExEnvironment
-from drugex.training.rewards import ParetoCrowdingDistance, ParetoTanimotoDistance, WeightedSum
+from drugex.training.rewards import (
+    ParetoCrowdingDistance,
+    ParetoTanimotoDistance,
+    WeightedSum,
+)
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore
@@ -22,21 +26,16 @@ DEFAULT_MOLECULE: str = (
     "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 )
 
-class PrepareMolecule:
 
+class PrepareMolecule:
     def __init__(
         self,
         num_conformers: int = 100,
         random_seed: int = 42,
-        min_branch_size: int = 2,
-        max_heteroatom_chain: int = 2,
-        include_unsaturated: bool = False,
     ) -> None:
         self.num_conformers = num_conformers
         self.random_seed = random_seed
-        self.min_branch_size = min_branch_size
-        self.max_heteroatom_chain = max_heteroatom_chain
-        self.include_unsaturated = include_unsaturated
+        self.FLEXIBLE_PROTEIN_RB = 7
 
     # [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
     def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
@@ -53,14 +52,17 @@ class PrepareMolecule:
         # 3. 3D Dimensionality Verification
         return base, bool(base.GetNumConformers() and base.GetConformer().Is3D())
 
-
-    def load_query_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
+    def load_query_molecule(
+        self, query: str | Path | Chem.Mol
+    ) -> tuple[Chem.Mol, bool]:
         # 1. Direct RDKit Mol instance
         if isinstance(query, Chem.Mol):
             return query, bool(query.GetNumConformers() and query.GetConformer().Is3D())
 
         # 2. Fast Path: SMILES string (avoids OS filesystem syscalls & filename length limits)
-        if isinstance(query, str) and not query.endswith((".sdf", ".sd", ".txt", ".smi")):
+        if isinstance(query, str) and not query.endswith(
+            (".sdf", ".sd", ".txt", ".smi")
+        ):
             mol = Chem.MolFromSmiles(query)
             if mol:
                 return mol, False
@@ -81,7 +83,6 @@ class PrepareMolecule:
             pass
 
         raise ValueError(f"Could not parse molecule query: {query!r}")
-
 
     @staticmethod
     def _calculate_adaptive_rmsd_cutoff(mol: Chem.Mol | None) -> float:
@@ -109,20 +110,19 @@ class PrepareMolecule:
         if mol is None:
             return 1.00
         # Enforce topological invariance against explicit hydrogens
-        mol_no_h = Chem.RemoveHs(mol) if mol.GetNumAtoms() > mol.GetNumHeavyAtoms() else mol
+        mol_no_h = (
+            Chem.RemoveHs(mol) if mol.GetNumAtoms() > mol.GetNumHeavyAtoms() else mol
+        )
         n_heavy = int(mol_no_h.GetNumHeavyAtoms())
         if n_heavy == 0:
             return 1.00
         n_rot = int(Lipinski.NumRotatableBonds(mol_no_h))
+        FLEXIBLE_PROTEIN  = 7
         if n_rot <= 2 and n_heavy <= 20:
             return 1.00
         if n_rot <= 7 and n_heavy <= 45:
             return 1.25
         return 1.50
-
-    def get_adaptive_rmsd_cutoff(self, mol: Chem.Mol | None) -> float:
-        """Delegate to _calculate_adaptive_rmsd_cutoff for backwards-compatibility."""
-        return self._calculate_adaptive_rmsd_cutoff(mol)
 
     def generate_reference_conformers(
         self,
@@ -131,7 +131,9 @@ class PrepareMolecule:
         num_conformers: int = 100,  #! HYP could be bigger, like 200
         random_seed: int = 42,
     ) -> Path:
-        output_path_real = Path(output_path) if output_path else Path("reference_3d.sdf")
+        output_path_real = (
+            Path(output_path) if output_path else Path("reference_3d.sdf")
+        )
         output_path_real.parent.mkdir(parents=True, exist_ok=True)
 
         # 1. Input Loading & 3D Passthrough
@@ -148,14 +150,10 @@ class PrepareMolecule:
         params.randomSeed = random_seed
         params.pruneRmsThresh = 0.20  # since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
 
-        conf_ids = list(
-            AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params)
-        )  # based on crystal predictions
+        conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))  # based on crystal predictions
         if not conf_ids:
             params.useRandomCoords = True  # based on random initial + gradient optimization
-            conf_ids = list(
-                AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params)
-            )
+            conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
 
@@ -163,14 +161,18 @@ class PrepareMolecule:
         # [PACKAGE: rdkit.Chem.AllChem] WHY: Multi-threaded batch force field minimization with UFF fallback for non-MMFF elements.
         results = []
         if AllChem.MMFFHasAllMoleculeParams(mol_h):
-            results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+            results = AllChem.MMFFOptimizeMoleculeConfs(
+                mol_h, maxIters=500, numThreads=0
+            )
         elif AllChem.UFFHasAllMoleculeParams(mol_h):
             FallbackMonitor.record_fallback(
                 "FORCE_FIELD",
                 "MMFF94 lacks parameters for query molecule; falling back to UFF.",
                 {"query": str(query)},
             )
-            results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=500, numThreads=0)
+            results = AllChem.UFFOptimizeMoleculeConfs(
+                mol_h, maxIters=500, numThreads=0
+            )
         if not results:
             raise RuntimeError(f"Force field optimization failed for: {query}")
 
@@ -191,7 +193,9 @@ class PrepareMolecule:
             # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD
             cutoff = self._calculate_adaptive_rmsd_cutoff(mol_h)
             # [PACKAGE: rdkit.Chem.AllChem.GetConformerRMSMatrix] Heavy-atom RMSD (Z > 1) prevents rotating Hs from splitting basins
-            heavy_atom_ids = [a.GetIdx() for a in mol_h.GetAtoms() if a.GetAtomicNum() > 1]
+            heavy_atom_ids = [
+                a.GetIdx() for a in mol_h.GetAtoms() if a.GetAtomicNum() > 1
+            ]
             rms_matrix = AllChem.GetConformerRMSMatrix(
                 mol_h, atomIds=heavy_atom_ids, prealigned=False
             )
@@ -224,10 +228,6 @@ class PrepareMolecule:
         output_path: Path | str | None = None,
         scaffold_type: str = "BemisMurcko",
         isomeric: bool = False,
-        min_cluster_size: int = 2,
-        max_heteroatom_chain: int = 2,
-        min_branch_size: int | None = None,
-        include_unsaturated: bool = False,
     ) -> str:
         """Extract canonical Bemis-Murcko framework preserving all rings and linkers.
 
@@ -296,6 +296,7 @@ def create_rocs_scorer(
         color_ff="oe_mills_dean",  # standard
         n_jobs=get_safe_parallel_jobs(),
     )
+
 
 def create_environment(
     ref_sdf: str | Path,
