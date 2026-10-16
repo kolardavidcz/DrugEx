@@ -2,7 +2,7 @@
 
 Standalone interactive telemetry dashboard and audit engine tracking all engineering, research, and literature study dedicated to the DrugEx thesis.
 
-Deployed at: **`[https://thesis-tracking-david.vercel.app/](https://thesis-stats-david.vercel.app/)`** (or your custom Vercel domain)
+Deployed at: **[https://thesis-tracking-david.vercel.app/](https://thesis-stats-david.vercel.app/)** (or your custom Vercel domain)
 
 ---
 
