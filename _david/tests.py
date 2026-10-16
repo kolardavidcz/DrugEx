@@ -10,6 +10,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import pandas as pd
 from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
+from drugex.training.scorers.modifiers import ClippedScore
+from drugex.training.scorers.properties import Property
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -391,6 +393,159 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertGreater(len(confs_uff), 0)
             self.assertTrue(confs_uff[0].GetConformer().Is3D())
             self.assertGreater(float(confs_uff[0].GetProp("Energy_MMFF_kcal_mol")), 0.0)
+
+    def test_clipped_score_feasibility_floor(self) -> None:
+        """Verify ClippedScore mathematical parameterization and SA feasibility floor behavior."""
+        # Standard feasibility floor modifier:
+        # High desirability (1.0) for easy SA <= 5.5, floor penalty (0.0) for difficult SA >= 6.0
+        modifier = ClippedScore(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0)
+        self.assertEqual(modifier.slope, -2.0)
+        self.assertEqual(modifier.intercept, 12.0)
+
+        # 1. Synthetically accessible tier (SA <= 5.5) -> Desirability = 1.0
+        self.assertEqual(float(modifier(1.0)), 1.0)
+        self.assertEqual(float(modifier(3.0)), 1.0)
+        self.assertEqual(float(modifier(5.0)), 1.0)
+        self.assertEqual(float(modifier(5.5)), 1.0)
+
+        # 2. Linear transition window (5.5 < SA < 6.0)
+        self.assertAlmostEqual(float(modifier(5.75)), 0.5, places=5)
+        self.assertAlmostEqual(float(modifier(5.625)), 0.75, places=5)
+        self.assertAlmostEqual(float(modifier(5.875)), 0.25, places=5)
+
+        # 3. Penalized / infeasible tier (SA >= 6.0) -> Desirability = 0.0
+        self.assertEqual(float(modifier(6.0)), 0.0)
+        self.assertEqual(float(modifier(7.0)), 0.0)
+        self.assertEqual(float(modifier(10.0)), 0.0)
+
+        # Property integration
+        sa_scorer = Property(prop="SA", modifier=modifier)
+        scores = sa_scorer.getScores(["c1ccccc1O"])
+        self.assertGreater(scores[0], 0.0)
+        mod_scores = sa_scorer(["c1ccccc1O"])
+        self.assertEqual(float(mod_scores[0]), 1.0)
+
+    def test_adaptive_rmsd_cutoff_adversarial_battery(self) -> None:
+        """Verify Hawkins (2017) cutoffs on macrocycles, polycycles, amine hydrogens, and single atoms."""
+        # 1. Macrocycle: Erythromycin (48 heavy atoms) -> 1.50 Å flexible tier
+        smi_erythromycin = (
+            "CCC1C(C(C(C(=O)C(CC(C(C(C(C(=O)O1)C)OC2CC(C(C(O2)C)O)(C)OC)C)"
+            "OC3C(C(CC(O3)C)N(C)C)O)(C)O)C)C)O"
+        )
+        mol_erythro = Chem.MolFromSmiles(smi_erythromycin)
+        self.assertIsNotNone(mol_erythro)
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), 1.50)
+
+        # 2. Polycyclic aromatic sheet: Coronene (26 heavy atoms, 0 rotatable bonds) -> 1.25 Å drug-like tier
+        smi_coronene = "c12c3c4c5c6c1c7c8c2c9c%10c3c%11c4c%12c5c%13c6c7c%14c%13c%12c%11c%10c%14c89"
+        mol_coronene = Chem.MolFromSmiles(smi_coronene)
+        self.assertIsNotNone(mol_coronene)
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_coronene), 1.25)
+
+        # 3. Nitrogenous heteroatoms: aniline (c1ccccc1N) with and without explicit Hs
+        mol_aniline = Chem.MolFromSmiles("c1ccccc1N")
+        mol_aniline_h = Chem.AddHs(mol_aniline)
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_aniline), 1.00)
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_aniline_h), 1.00)
+
+        # 4. Minimal / single-atom molecules
+        mol_methane = Chem.MolFromSmiles("C")
+        mol_water = Chem.MolFromSmiles("O")
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_methane), 1.00)
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_water), 1.00)
+
+    def test_canonical_scaffolds_adversarial_battery(self) -> None:
+        """Verify Bemis-Murcko extraction across spiro, fused lactones, bridgeheads, and zwitterions."""
+        # 1. Spiro bicycle: Spiro[4.5]decane (preserves both rings, 11 heavy atoms, 2 rings)
+        scaff_spiro = self.preparer.extract_seed_core_scaffold("C1CC2(CCC1)CCCCC2")
+        mol_spiro = Chem.MolFromSmiles(scaff_spiro)
+        self.assertIsNotNone(mol_spiro)
+        self.assertEqual(mol_spiro.GetNumHeavyAtoms(), 11)
+        self.assertEqual(mol_spiro.GetRingInfo().NumRings(), 2)
+
+        # 2. Fused lactone: Coumarin (preserves benzene and lactone rings, 11 heavy atoms, 2 rings)
+        scaff_coumarin = self.preparer.extract_seed_core_scaffold("O=C1Oc2ccccc2C=C1")
+        mol_coumarin = Chem.MolFromSmiles(scaff_coumarin)
+        self.assertIsNotNone(mol_coumarin)
+        self.assertEqual(mol_coumarin.GetNumHeavyAtoms(), 11)
+        self.assertEqual(mol_coumarin.GetRingInfo().NumRings(), 2)
+
+        # 3. Bridgehead bicycle: Norbornane (preserves bicyclo[2.2.1]heptane framework, 7 heavy atoms, 2 rings)
+        scaff_norbornane = self.preparer.extract_seed_core_scaffold("C1CC2CCC1C2")
+        mol_norbornane = Chem.MolFromSmiles(scaff_norbornane)
+        self.assertIsNotNone(mol_norbornane)
+        self.assertEqual(mol_norbornane.GetNumHeavyAtoms(), 7)
+        self.assertEqual(mol_norbornane.GetRingInfo().NumRings(), 2)
+
+        # 4. Bicyclic ketone: Camphor (preserves bicyclo[2.2.1] with carbonyl, 8 heavy atoms, 2 rings)
+        scaff_camphor = self.preparer.extract_seed_core_scaffold("CC1(C)C2CCC1(C)C(=O)C2")
+        mol_camphor = Chem.MolFromSmiles(scaff_camphor)
+        self.assertIsNotNone(mol_camphor)
+        self.assertEqual(mol_camphor.GetNumHeavyAtoms(), 8)
+        self.assertEqual(mol_camphor.GetRingInfo().NumRings(), 2)
+
+        # 5. Acyclic zwitterion: Betaine (preserves sanitized heavy-atom structure, 8 heavy atoms)
+        scaff_betaine = self.preparer.extract_seed_core_scaffold("C[N+](C)(C)CC(=O)[O-]")
+        mol_betaine = Chem.MolFromSmiles(scaff_betaine)
+        self.assertIsNotNone(mol_betaine)
+        self.assertEqual(mol_betaine.GetNumHeavyAtoms(), 8)
+
+    def test_hardware_manager_adversarial(self) -> None:
+        """Verify HardwareManager across simulated host scales, fallback limits, and whitespace parsing."""
+        from _david.code.utils import HardwareManager, get_safe_parallel_jobs
+
+        # 1. 60% rule scaling across different machine profiles
+        self.assertEqual(HardwareManager.get_safe_parallel_jobs(ratio=0.60), max(1, int((os.cpu_count() or 1) * 0.60)))
+        # Simulated 1-core container: max(1, int(1 * 0.60)) = 1
+        self.assertEqual(max(1, int(1 * 0.60)), 1)
+        # Simulated 4-core workstation: max(1, int(4 * 0.60)) = 2
+        self.assertEqual(max(1, int(4 * 0.60)), 2)
+        # Simulated 48-core server: max(1, int(48 * 0.60)) = 28
+        self.assertEqual(max(1, int(48 * 0.60)), 28)
+        # Simulated 128-core HPC node: max(1, int(128 * 0.60)) = 76
+        self.assertEqual(max(1, int(128 * 0.60)), 76)
+
+        # 2. Cap guard against negative or zero caps
+        self.assertEqual(get_safe_parallel_jobs(cap=0), 1)
+        self.assertEqual(get_safe_parallel_jobs(cap=-5), 1)
+
+        # 3. CPU fallback on extreme / unachievable VRAM demand
+        best_gpu_extreme = HardwareManager.select_best_gpu(min_free_mb=1_000_000.0)
+        self.assertEqual(best_gpu_extreme, -1)
+
+        # 4. Whitespace trimming on string device IDs
+        safe_gpus_whitespace = HardwareManager.get_safe_gpus(preferred_gpu=" 0 ")
+        self.assertIsInstance(safe_gpus_whitespace, tuple)
+
+        # 5. Non-digit string preferred GPUs cleanly fall back to ()
+        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="cpu"), ())
+        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="none"), ())
+        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="cuda:invalid"), ())
+
+    def test_pareto_front_duplicate_and_boundary_handling(self) -> None:
+        """Verify Pareto frontier handles duplicate points and strict single-dimension dominance."""
+        # 1. Duplicate points: Two identical non-dominated points must both be in Front 0
+        df_dups = pd.DataFrame({
+            "SMILES": ["mol1", "mol2_dup", "mol3"],
+            "ROCS": [1.5, 1.5, 0.5],
+            "SA": [0.9, 0.9, 0.2],
+        })
+        ranked_dups = ParetoFrontier().rank_pareto_fronts(df_dups, objectives=["ROCS", "SA"], maximize=[True, True])
+        self.assertEqual(ranked_dups.loc[0, "Pareto_Rank"], 0)
+        self.assertEqual(ranked_dups.loc[1, "Pareto_Rank"], 0)
+        self.assertGreater(ranked_dups.loc[2, "Pareto_Rank"], 0)
+
+        # 2. Single-coordinate dominance: [1.5, 0.9] dominates [1.5, 0.8] because 0.9 > 0.8 and 1.5 >= 1.5
+        df_boundary = pd.DataFrame({
+            "SMILES": ["mol_better", "mol_worse"],
+            "ROCS": [1.5, 1.5],
+            "SA": [0.9, 0.8],
+        })
+        is_front = ParetoFrontier.identify_pareto_front(
+            df_boundary[["ROCS", "SA"]].to_numpy(dtype=float), maximize=[True, True]
+        )
+        self.assertTrue(is_front[0])
+        self.assertFalse(is_front[1])
 
 
 if __name__ == "__main__":

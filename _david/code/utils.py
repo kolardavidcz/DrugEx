@@ -8,8 +8,6 @@ from typing import Any
 
 import torch
 
-SAFE_MAX_CPU_CORES: int = 24
-
 
 @dataclass
 class FallbackEvent:
@@ -143,8 +141,8 @@ class HardwareManager:
                 if 0 <= preferred_gpu < torch.cuda.device_count()
                 else ()
             )
-        if isinstance(preferred_gpu, str) and preferred_gpu.isdigit():
-            idx = int(preferred_gpu)
+        if isinstance(preferred_gpu, str) and preferred_gpu.strip().isdigit():
+            idx = int(preferred_gpu.strip())
             return (idx,) if 0 <= idx < torch.cuda.device_count() else ()
         return ()
 
@@ -190,7 +188,9 @@ class HardwareManager:
 def get_safe_parallel_jobs(cap: int | None = None, ratio: float = 0.60) -> int:
     """Delegate to HardwareManager.get_safe_parallel_jobs with optional cap."""
     jobs = HardwareManager.get_safe_parallel_jobs(ratio=ratio)
-    return min(cap, jobs) if cap is not None else jobs
+    if cap is not None:
+        return max(1, min(cap, jobs))
+    return jobs
 
 
 get_safe_gpus = HardwareManager.get_safe_gpus

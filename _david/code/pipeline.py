@@ -77,7 +77,14 @@ class MoleculePipeline:
             model_prefix = optimizer.MODEL_DIR / "david_agent"
             monitor = PeakRecoveryMonitor(model_prefix, save_smiles=True, reset_directory=False)
 
-            explorer.fit(train_loader, val_loader, epochs=self.EPOCHS, monitor=monitor)
+            explorer.fit(
+                train_loader,
+                val_loader,
+                epochs=self.EPOCHS,
+                patience=self.PATIENCE,
+                min_epochs=min(5, self.EPOCHS),
+                monitor=monitor,
+            )
             monitor.restore_peak_model(optimizer.AGENT)
 
             render_training_curves(f"{model_prefix}_fit.tsv", output_png=optimizer.MODEL_DIR / "rl_training_curves.png")
