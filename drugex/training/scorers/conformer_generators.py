@@ -600,9 +600,7 @@ class CDPKitConformerGenerator(ConformerGenerator):
         status = conf_gen.generate(mol)
         num_confs = conf_gen.getNumConformers()
 
-        if status == CDPLConfGen.ReturnCode.SUCCESS or status == CDPLConfGen.ReturnCode.TOO_MUCH_SYMMETRY:
-            conf_gen.setConformers(mol)
-        else:
+        if status != CDPLConfGen.ReturnCode.SUCCESS and status != CDPLConfGen.ReturnCode.TOO_MUCH_SYMMETRY:
             num_confs = 0
 
         return status, num_confs
@@ -857,10 +855,12 @@ class CDPKitConformerGenerator(ConformerGenerator):
                             )
                         continue
 
-                    # Output generated ensemble if available (from CDPKit example)
+                    # Output generated ensemble if available
                     if num_confs > 0:
                         try:
-                            writer.write(iso)
+                            for c_idx in range(num_confs):
+                                CDPLChem.set3DCoordinates(iso, conf_gen.getConformer(c_idx))
+                                writer.write(iso)
                             valid_molecules += 1
                             total_conformers += num_confs
 

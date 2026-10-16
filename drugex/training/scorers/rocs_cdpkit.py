@@ -183,7 +183,7 @@ def _generate_shape_helper(cdpkit_mol, color_ff: str = "default"):
         if shape_set.getSize() == 0:
             return []
         return [shape_set.getElement(i) for i in range(shape_set.getSize())]
-    except (RuntimeError, ValueError):
+    except Exception:
         return []
 
 
