@@ -21,14 +21,13 @@ from _david.code.visualization import (
     render_training_curves,
 )
 from _david.code.models import GraphTransformerOptimizer
-from _david.code.schema import DataSchema
+from _david.code.schema import std
 from _david.code.utils import HardwareManager, get_gpu_telemetry
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 
 class MoleculePipeline:
-
     def __init__(
         self,
         output_dir: Path | str | None = None,
@@ -46,7 +45,11 @@ class MoleculePipeline:
         self.preparer: PrepareMolecule = PrepareMolecule()
 
         self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.BASE_OUTPUT_DIR: Path = Path(output_dir) if output_dir else (PROJECT_ROOT / "_david" / "output" / self.RUN_ID)
+        self.BASE_OUTPUT_DIR: Path = (
+            Path(output_dir)
+            if output_dir
+            else (PROJECT_ROOT / "_david" / "output" / self.RUN_ID)
+        )
         self.BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     def run(self, molecule: str = DEFAULT_MOLECULE) -> Path:
@@ -65,7 +68,9 @@ class MoleculePipeline:
         candidates_tsv = stage1_dir / "generated_candidates.tsv"
 
         if self.MODE != "benchmark_only":
-            print(f"[Stage 1] Executing RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES})...")
+            print(
+                f"[Stage 1] Executing RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES})..."
+            )
             optimizer = GraphTransformerOptimizer(stage1_dir, gpu=self.GPU)
             env, epsilon = create_environment(ref_sdf)
 
@@ -73,10 +78,14 @@ class MoleculePipeline:
                 molecule, n_prompts=self.N_SAMPLES, scaffolds_path=scaffold_tsv
             )
             batch_size = HardwareManager.get_recommended_batch_size(self.N_SAMPLES)
-            explorer = optimizer.build_explorer(env, epsilon=epsilon, batch_size=batch_size)
+            explorer = optimizer.build_explorer(
+                env, epsilon=epsilon, batch_size=batch_size
+            )
 
             model_prefix = optimizer.MODEL_DIR / "david_agent"
-            monitor = PeakRecoveryMonitor(model_prefix, save_smiles=True, reset_directory=False)
+            monitor = PeakRecoveryMonitor(
+                model_prefix, save_smiles=True, reset_directory=False
+            )
 
             explorer.fit(
                 train_loader,
@@ -88,14 +97,20 @@ class MoleculePipeline:
             )
             monitor.restore_peak_model(optimizer.AGENT)
 
-            render_training_curves(f"{model_prefix}_fit.tsv", output_png=optimizer.MODEL_DIR / "rl_training_curves.png")
-            render_epoch_pareto_evolution(f"{model_prefix}_smiles.tsv", output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png")
+            render_training_curves(
+                f"{model_prefix}_fit.tsv",
+                output_png=optimizer.MODEL_DIR / "rl_training_curves.png",
+            )
+            render_epoch_pareto_evolution(
+                f"{model_prefix}_smiles.tsv",
+                output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png",
+            )
 
             smiles_list, frags_list = optimizer.AGENT.sample(train_loader)
             df = env.getScores(smiles_list, frags=frags_list)
-            df.insert(0, DataSchema.SMILES, smiles_list)
-            df.insert(1, DataSchema.FRAGS, frags_list)
-            df = DataSchema.standardize(df)
+            df.insert(0, std.SMILES, smiles_list)
+            df.insert(1, std.FRAGS, frags_list)
+            df = std.standardize(df)
             df.to_csv(candidates_tsv, sep="\t", index=False)
 
         print("[Stage 2] Profiling generated leads and Pareto frontier...")
@@ -108,7 +123,9 @@ class MoleculePipeline:
             "status": "SUCCESS",
             "gpu_telemetry": get_gpu_telemetry(),
         }
-        with open(self.BASE_OUTPUT_DIR / "pipeline_status.json", "w", encoding="utf-8") as f:
+        with open(
+            self.BASE_OUTPUT_DIR / "pipeline_status.json", "w", encoding="utf-8"
+        ) as f:
             json.dump(status, f, indent=4)
 
         print(f"\n[DONE] Outputs saved to: {self.BASE_OUTPUT_DIR}")

@@ -23,7 +23,7 @@ from _david.code.environment import (
     create_environment,
 )
 from _david.code.pipeline import MoleculePipeline
-from _david.code.schema import DataSchema
+from _david.code.schema import std
 
 
 class TestLBDDPipeline(unittest.TestCase):
@@ -244,12 +244,18 @@ class TestLBDDPipeline(unittest.TestCase):
         )
 
         # Null and empty molecule guards
-        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(None), (1.00, 1))
+        self.assertEqual(
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(None), (1.00, 1)
+        )
         m_empty = Chem.MolFromSmiles("")
-        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_empty), (1.00, 1))
+        self.assertEqual(
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_empty), (1.00, 1)
+        )
 
         # Class / instance method verification
-        self.assertEqual(self.preparer._calculate_adaptive_rmsd_cutoff(m_benzene), (1.00, 1))
+        self.assertEqual(
+            self.preparer._calculate_adaptive_rmsd_cutoff(m_benzene), (1.00, 1)
+        )
 
     def test_seed_core_scaffold(self) -> None:
         """Verify canonical Bemis-Murcko framework extraction preserving rings and linkers."""
@@ -373,7 +379,9 @@ class TestLBDDPipeline(unittest.TestCase):
         # 1. Dynamic CPU allocation (60% rule)
         expected_jobs = max(1, int((os.cpu_count() or 1) * 0.60))
         self.assertEqual(HardwareManager.get_safe_parallel_jobs(), expected_jobs)
-        self.assertEqual(HardwareManager.get_safe_parallel_jobs(cap=2), min(2, expected_jobs))
+        self.assertEqual(
+            HardwareManager.get_safe_parallel_jobs(cap=2), min(2, expected_jobs)
+        )
 
         # 2. Power-of-2 batch sizing clamped strictly to n_samples
         batch_small = HardwareManager.get_recommended_batch_size(n_samples=10)
@@ -680,7 +688,9 @@ class TestLBDDPipeline(unittest.TestCase):
         """Verify SafeSAModifier preserves ClippedScore feasibility ramp while clamping crash fallbacks to 0.0."""
         import numpy as np
 
-        modifier = SafeSAModifier(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0)
+        modifier = SafeSAModifier(
+            lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0
+        )
 
         # 1. Standard valid synthesizability scores
         self.assertEqual(float(modifier(1.0)), 1.0)
@@ -730,14 +740,18 @@ class TestLBDDPipeline(unittest.TestCase):
             analyzer.analyze(candidates_tsv=candidates_tsv, top_k=10)
 
             # 1. Output file exists
-            leads_tsv = tmp_path / "stage2_result_analysis" / "top_prioritized_leads.tsv"
+            leads_tsv = (
+                tmp_path / "stage2_result_analysis" / "top_prioritized_leads.tsv"
+            )
             self.assertTrue(leads_tsv.exists())
 
             # 2. Deduplication check: Aspirin must appear exactly once in top_leads
             saved_leads = pd.read_csv(leads_tsv, sep="\t")
             canonical_leads = saved_leads["Canonical_SMILES"].tolist()
             self.assertEqual(len(canonical_leads), len(set(canonical_leads)))
-            self.assertEqual(len(saved_leads), 3)  # 4 rows -> 1 duplicate dropped = 3 rows
+            self.assertEqual(
+                len(saved_leads), 3
+            )  # 4 rows -> 1 duplicate dropped = 3 rows
 
             # 3. Tie-breaking check: Both Mol A and Mol C are Pareto Rank 0 with equal ROCS=1.5 and SA=0.9.
             # Mol A (Aspirin, QED ~0.55) must rank before Mol C (Phenol, QED ~0.45)
@@ -756,10 +770,10 @@ class TestLBDDPipeline(unittest.TestCase):
                 "Desired": [1],
             }
         )
-        std_df = DataSchema.standardize(raw_df)
-        self.assertIn(DataSchema.ROCS, std_df.columns)
-        self.assertEqual(std_df.loc[0, DataSchema.ROCS], 0.65)
-        self.assertEqual(std_df.loc[0, DataSchema.DESIRED], 1)
+        std_df = std.standardize(raw_df)
+        self.assertIn(std.ROCS, std_df.columns)
+        self.assertEqual(std_df.loc[0, std.ROCS], 0.65)
+        self.assertEqual(std_df.loc[0, std.DESIRED], 1)
 
         # 2. Multi-reference DrugEx DataFrame with Aggregate 8refs ROCS
         agg_df = pd.DataFrame(
@@ -770,16 +784,16 @@ class TestLBDDPipeline(unittest.TestCase):
                 "Desirability": [0.85],
             }
         )
-        std_agg = DataSchema.standardize(agg_df)
-        self.assertIn(DataSchema.ROCS, std_agg.columns)
-        self.assertEqual(std_agg.loc[0, DataSchema.ROCS], 0.72)
-        self.assertIn(DataSchema.SA, std_agg.columns)
-        self.assertEqual(std_agg.loc[0, DataSchema.SA], 2.5)
-        self.assertIn(DataSchema.DESIRED, std_agg.columns)
-        self.assertEqual(std_agg.loc[0, DataSchema.DESIRED], 0.85)
+        std_agg = std.standardize(agg_df)
+        self.assertIn(std.ROCS, std_agg.columns)
+        self.assertEqual(std_agg.loc[0, std.ROCS], 0.72)
+        self.assertIn(std.SA, std_agg.columns)
+        self.assertEqual(std_agg.loc[0, std.SA], 2.5)
+        self.assertIn(std.DESIRED, std_agg.columns)
+        self.assertEqual(std_agg.loc[0, std.DESIRED], 0.85)
 
         # 3. Idempotence: already standardized DataFrame is unchanged
-        re_std = DataSchema.standardize(std_agg)
+        re_std = std.standardize(std_agg)
         self.assertEqual(list(std_agg.columns), list(re_std.columns))
 
     def test_render_lead_structures_2d_schema_alignment(self) -> None:

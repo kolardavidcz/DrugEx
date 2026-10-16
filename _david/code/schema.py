@@ -4,7 +4,7 @@ from typing import Sequence
 import pandas as pd
 
 
-class DataSchema:
+class std:
     """Canonical Single Source of Truth for column naming and tabular standardization.
 
     WHY:
@@ -49,7 +49,10 @@ class DataSchema:
                 return col
         for col in columns:
             c_up = col.upper()
-            if any(k in c_up for k in ("ROCS", "TANIMOTOCOMBO", "SHAPE_SIMILARITY", "SIMILARITY_3D")):
+            if any(
+                k in c_up
+                for k in ("ROCS", "TANIMOTOCOMBO", "SHAPE_SIMILARITY", "SIMILARITY_3D")
+            ):
                 return col
         return None
 

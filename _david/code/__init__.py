@@ -9,7 +9,7 @@ from _david.code.environment import (
 )
 from _david.code.models import GraphTransformerOptimizer
 from _david.code.pipeline import MoleculePipeline
-from _david.code.schema import DataSchema
+from _david.code.schema import std
 from _david.code.utils import (
     FallbackMonitor,
     HardwareManager,
