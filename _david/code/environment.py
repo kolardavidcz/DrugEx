@@ -124,14 +124,14 @@ class PrepareMolecule:
         if n_rot <= 2 and n_heavy <= 20:
             return 1.00, 1
         if n_rot <= flexible_rotatable_bonds and n_heavy <= 45:
-            return 1.25, 1  #NOTE just testing 1, true value sould be: 3
-        return 1.50, 1  #NOTE just testing 1, true value sould be: 5
+            return 1.25, 1  # NOTE just testing 1, true value sould be: 3
+        return 1.50, 1  # NOTE just testing 1, true value sould be: 5
 
     def generate_reference_conformers(
         self,
         query: str | Path | Chem.Mol,
         output_path: Path | str | None = None,
-        num_conformers: int = 100,  #^ HYP could be bigger, like 200
+        num_conformers: int = 100,  # ^ HYP could be bigger, like 200
         random_seed: int = 42,
     ) -> Path:
         output_path_real = (
@@ -153,10 +153,18 @@ class PrepareMolecule:
         params.randomSeed = random_seed
         params.pruneRmsThresh = 0.35  # since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
 
-        conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))  # based on crystal predictions
+        conf_ids = list(
+            AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params)
+        )  # based on crystal predictions
         if not conf_ids:
-            params.useRandomCoords = True  # based on random initial + gradient optimization
-            conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
+            params.useRandomCoords = (
+                True  # based on random initial + gradient optimization
+            )
+            conf_ids = list(
+                AllChem.EmbedMultipleConfs(
+                    mol_h, numConfs=num_conformers, params=params
+                )
+            )
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 embedding failed for: {query}")
 
@@ -171,9 +179,13 @@ class PrepareMolecule:
             # If all MMFF conformers suffered setup failure (status == -1), attempt UFF fallback
             if results and all(status == -1 for status, _ in results):
                 results = []
-                fallback_reason = "MMFF94 setup failed for all conformers; falling back to UFF."
+                fallback_reason = (
+                    "MMFF94 setup failed for all conformers; falling back to UFF."
+                )
         else:
-            fallback_reason = "MMFF94 lacks parameters for query molecule; falling back to UFF."
+            fallback_reason = (
+                "MMFF94 lacks parameters for query molecule; falling back to UFF."
+            )
 
         if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
             if fallback_reason:
@@ -198,7 +210,9 @@ class PrepareMolecule:
                 energies[cid] = e_val
 
         if not energies:
-            raise RuntimeError(f"Force field optimization produced zero valid conformers for: {query}")
+            raise RuntimeError(
+                f"Force field optimization produced zero valid conformers for: {query}"
+            )
 
         # 4. Energy Window Filtering
         # ~ [Hawkins, Physiological energy window, 2017] <= 8.0 kcal/mol window retains biologically accessible conformational basins
@@ -221,7 +235,11 @@ class PrepareMolecule:
             mol_no_h = Chem.RemoveHs(mol_h)
             n_confs = len(remaining_cids)
             rms_matrix: list[float] = [
-                float(AllChem.GetBestRMS(mol_no_h, mol_no_h, remaining_cids[i], remaining_cids[j]))
+                float(
+                    AllChem.GetBestRMS(
+                        mol_no_h, mol_no_h, remaining_cids[i], remaining_cids[j]
+                    )
+                )
                 for i in range(n_confs)
                 for j in range(i)
             ]
@@ -309,10 +327,10 @@ def create_rocs_scorer(
 
     # 2. Conformer Generator Configuration
     conf_gen = RDKitConformerGenerator(
-        max_conformers=30,  #^ HYP could be bigger, like 50
+        max_conformers=30,  # ^ HYP could be bigger, like 50
         max_heavy_atoms=55,
         max_rotatable_bonds=25,
-        timeout=60,  #^ HYP could be bigger, like 60
+        timeout=60,  # ^ HYP could be bigger, like 60
     )
 
     # 3. Multi-Threaded ROCS Alignment Construction
@@ -356,7 +374,9 @@ class SafeSAModifier(ScoreModifier):
     def __call__(self, x: float | np.ndarray) -> float | np.ndarray:
         arr = np.asarray(x, dtype=np.float64)
         out = self.clip(arr)
-        out = np.where(arr <= 0.0, 0.0, out) # Any chemically invalid or uncalculated fallback (SA <= 0.0) receives 0.0 desirability
+        out = np.where(
+            arr <= 0.0, 0.0, out
+        )  # Any chemically invalid or uncalculated fallback (SA <= 0.0) receives 0.0 desirability
         return float(out.item()) if np.ndim(x) == 0 else out
 
 
@@ -373,7 +393,9 @@ def create_environment(
     # 2. Secondary Synthesizability Feasibility Floor (SA Score)
     sa_scorer = Property(
         prop="SA",
-        modifier=SafeSAModifier(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0),
+        modifier=SafeSAModifier(
+            lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0
+        ),
     )
 
     # 3. Pareto Multi-Objective DrugEx Environment
