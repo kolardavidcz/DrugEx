@@ -86,44 +86,47 @@ class PrepareMolecule:
         raise ValueError(f"Could not parse molecule query: {query!r}")
 
     @staticmethod
-    def _calculate_adaptive_rmsd_cutoff(mol: Chem.Mol | None) -> float:
-        """Calculate heavy-atom RMSD cutoff for Butina basin curation (Hawkins 2017).
+    def _calculate_adaptive_rmsd_cutoff(
+        mol: Chem.Mol | None,
+    ) -> tuple[float, int]:
+        """Calculate heavy-atom RMSD cutoff and maximum reference ensemble size (Hawkins 2017).
 
         WHY:
-        Rigid molecules have limited degrees of conformational freedom; an RMSD cutoff of
-        1.00 Å prevents clustering distinct minimum-energy conformers into a single degenerate basin.
-        Standard drug-like molecules occupy moderate conformational space; an RMSD cutoff of
-        1.25 Å groups minor vibrational fluctuations while preserving pharmacophore poses.
-        Highly flexible ligands have sprawling degrees of freedom where small dihedral variations
-        expand RMSD across the molecular diameter; an RMSD cutoff of 1.50 Å prevents fragmentation
-        into hundreds of redundant clusters.
+        Rigid molecules have minimal conformational entropy; an RMSD cutoff of 1.00 Å
+        and a single reference conformer (K = 1) avoids multi-modal gradient noise in RL.
+        Standard drug-like molecules (e.g. EGCG) have 3-7 rotatable bonds; an RMSD cutoff of
+        1.25 Å and K = 3 conformers captures the primary bioactive energy wells without
+        causing gradient conflicts during policy gradient optimization.
+        Highly flexible ligands (> 7 rotatable bonds) require an RMSD cutoff of 1.50 Å
+        and up to K = 5 conformers to span their wider conformational volume.
 
         WHAT:
-        - Rigid/compact (<= 2 rotatable bonds, <= 20 heavy atoms): 1.00 Å
-        - Drug-like (<= 7 rotatable bonds, <= 45 heavy atoms): 1.25 Å
-        - Flexible (> 7 rotatable bonds or > 45 heavy atoms): 1.50 Å
-        - Empty/null molecule: 1.00 Å
+        Returns (rmsd_cutoff: float, max_ensemble_size: int):
+        - Rigid/compact (<= 2 rotatable bonds, <= 20 heavy atoms): (1.00 Å, 1)
+        - Drug-like (<= 7 rotatable bonds, <= 45 heavy atoms): (1.25 Å, 3)
+        - Flexible (> 7 rotatable bonds or > 45 heavy atoms): (1.50 Å, 5)
+        - Empty/null molecule: (1.00 Å, 1)
 
         HOW:
         Removes explicit hydrogens before counting rotatable bonds and heavy atoms to ensure
         topological invariance regardless of whether hydrogens are implicit or explicit.
         """
         if mol is None:
-            return 1.00
+            return 1.00, 1
         # Enforce topological invariance against explicit hydrogens
         mol_no_h = (
             Chem.RemoveHs(mol) if mol.GetNumAtoms() > mol.GetNumHeavyAtoms() else mol
         )
         n_heavy = int(mol_no_h.GetNumHeavyAtoms())
         if n_heavy == 0:
-            return 1.00
+            return 1.00, 1
         n_rot = int(Lipinski.NumRotatableBonds(mol_no_h))
         flexible_rotatable_bonds = 7
         if n_rot <= 2 and n_heavy <= 20:
-            return 1.00
+            return 1.00, 1
         if n_rot <= flexible_rotatable_bonds and n_heavy <= 45:
-            return 1.25
-        return 1.50
+            return 1.25, 3
+        return 1.50, 5
 
     def generate_reference_conformers(
         self,
@@ -149,7 +152,7 @@ class PrepareMolecule:
         mol_h = Chem.AddHs(mol)
         params = AllChem.ETKDGv3()
         params.randomSeed = random_seed
-        params.pruneRmsThresh = 0.20  # since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
+        params.pruneRmsThresh = 0.35  # since is single ligand its quite detailed (RDKit papers use 0.35-0.5, 0.1-0.2 is normal thermal vibrations)
 
         conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))  # based on crystal predictions
         if not conf_ids:
@@ -166,16 +169,10 @@ class PrepareMolecule:
                 mol_h, maxIters=1000, numThreads=0
             )
             # If all MMFF conformers suffered setup failure (status == -1), attempt UFF fallback
-            if results and all(status == -1 for status, _ in results) and AllChem.UFFHasAllMoleculeParams(mol_h):
-                FallbackMonitor.record_fallback(
-                    "FORCE_FIELD",
-                    "MMFF94 setup failed for all conformers; falling back to UFF.",
-                    {"query": str(query)},
-                )
-                results = AllChem.UFFOptimizeMoleculeConfs(
-                    mol_h, maxIters=1000, numThreads=0
-                )
-        elif AllChem.UFFHasAllMoleculeParams(mol_h):
+            if results and all(status == -1 for status, _ in results):
+                results = []
+
+        if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
             FallbackMonitor.record_fallback(
                 "FORCE_FIELD",
                 "MMFF94 lacks parameters for query molecule; falling back to UFF.",
@@ -210,9 +207,9 @@ class PrepareMolecule:
         # 5. Butina RMSD Basin Curation
         # ~ [Hawkins, Basin curation via Butina clustering, 2017] Adaptive cutoff isolates distinct conformational basins
         remaining_cids = list(energies.keys())
+        cutoff, max_ensemble_size = self._calculate_adaptive_rmsd_cutoff(mol_h)
         if len(remaining_cids) > 1:
             # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD
-            cutoff = self._calculate_adaptive_rmsd_cutoff(mol_h)
             # [PACKAGE: rdkit.Chem.AllChem.GetConformerRMSMatrix] Heavy-atom RMSD (Z > 1) prevents rotating Hs from splitting basins
             heavy_atom_ids = [
                 a.GetIdx() for a in mol_h.GetAtoms() if a.GetAtomicNum() > 1
@@ -230,8 +227,9 @@ class PrepareMolecule:
                 basin_cids = [remaining_cids[i] for i in cluster]
                 curated.append(min(basin_cids, key=energies.get))
             curated.sort(key=energies.get)
+            curated = curated[:max_ensemble_size]
         else:
-            curated = remaining_cids
+            curated = remaining_cids[:max_ensemble_size]
 
         # 6. Export SDF with Energetic Annotations
         with Chem.SDWriter(str(output_path_real)) as writer:

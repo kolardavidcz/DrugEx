@@ -193,51 +193,51 @@ class TestLBDDPipeline(unittest.TestCase):
 
     def test_adaptive_rmsd_cutoff(self) -> None:
         """Verify Hawkins (2017) heavy-atom RMSD cutoffs across chemical tiers with topology invariance."""
-        # 1. Rigid/compact tier (<= 2 rotatable bonds, <= 20 heavy atoms): 1.00 Å
+        # 1. Rigid/compact tier (<= 2 rotatable bonds, <= 20 heavy atoms): (1.00 Å, 1)
         m_benzene = Chem.MolFromSmiles("c1ccccc1")  # 0 rot, 6 heavy
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_benzene), 1.00
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_benzene), (1.00, 1)
         )
 
         m_aspirin = Chem.MolFromSmiles("CC(=O)Oc1ccccc1C(=O)O")  # 2 rot, 13 heavy
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_aspirin), 1.00
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_aspirin), (1.00, 1)
         )
 
-        # Explicit hydrogens invariance check: phenol with explicit Hs must remain 1.00 Å
+        # Explicit hydrogens invariance check: phenol with explicit Hs must remain (1.00 Å, 1)
         m_phenol_h = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1O"))
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_phenol_h), 1.00
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_phenol_h), (1.00, 1)
         )
 
-        # 2. Standard drug-like tier (<= 7 rotatable bonds, <= 45 heavy atoms): 1.25 Å
+        # 2. Standard drug-like tier (<= 7 rotatable bonds, <= 45 heavy atoms): (1.25 Å, 3)
         m_ibuprofen = Chem.MolFromSmiles(
             "CC(C)Cc1ccc(cc1)C(C)C(=O)O"
         )  # 3 rot, 15 heavy
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), 1.25
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), (1.25, 3)
         )
 
         m_diazepam = Chem.MolFromSmiles(
             "CN1C(=O)CN=C(c2ccccc2)c2cc(Cl)ccc21"
         )  # 1 rot, 20 heavy
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_diazepam), 1.00
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_diazepam), (1.00, 1)
         )
 
-        # 3. Flexible tier (> 7 rotatable bonds or > 45 heavy atoms): 1.50 Å
+        # 3. Flexible tier (> 7 rotatable bonds or > 45 heavy atoms): (1.50 Å, 5)
         m_decanoic = Chem.MolFromSmiles("CCCCCCCCCC(=O)O")  # 8 rot, 11 heavy
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), 1.50
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), (1.50, 5)
         )
 
         # Null and empty molecule guards
-        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(None), 1.00)
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(None), (1.00, 1))
         m_empty = Chem.MolFromSmiles("")
-        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_empty), 1.00)
+        self.assertEqual(PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_empty), (1.00, 1))
 
-        # Backwards-compatible instance method delegation
-        self.assertEqual(self.preparer._calculate_adaptive_rmsd_cutoff(m_benzene), 1.00)
+        # Class / instance method verification
+        self.assertEqual(self.preparer._calculate_adaptive_rmsd_cutoff(m_benzene), (1.00, 1))
 
     def test_seed_core_scaffold(self) -> None:
         """Verify canonical Bemis-Murcko framework extraction preserving rings and linkers."""
@@ -513,7 +513,7 @@ class TestLBDDPipeline(unittest.TestCase):
         mol_erythro = Chem.MolFromSmiles(smi_erythromycin)
         self.assertIsNotNone(mol_erythro)
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), 1.50
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), (1.50, 5)
         )
 
         # 2. Polycyclic aromatic sheet: Coronene (26 heavy atoms, 0 rotatable bonds) -> 1.25 Å drug-like tier
@@ -523,27 +523,27 @@ class TestLBDDPipeline(unittest.TestCase):
         mol_coronene = Chem.MolFromSmiles(smi_coronene)
         self.assertIsNotNone(mol_coronene)
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_coronene), 1.25
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_coronene), (1.25, 3)
         )
 
         # 3. Nitrogenous heteroatoms: aniline (c1ccccc1N) with and without explicit Hs
         mol_aniline = Chem.MolFromSmiles("c1ccccc1N")
         mol_aniline_h = Chem.AddHs(mol_aniline)
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_aniline), 1.00
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_aniline), (1.00, 1)
         )
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_aniline_h), 1.00
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_aniline_h), (1.00, 1)
         )
 
         # 4. Minimal / single-atom molecules
         mol_methane = Chem.MolFromSmiles("C")
         mol_water = Chem.MolFromSmiles("O")
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_methane), 1.00
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_methane), (1.00, 1)
         )
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_water), 1.00
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_water), (1.00, 1)
         )
 
     def test_canonical_scaffolds_adversarial_battery(self) -> None:
