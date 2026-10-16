@@ -15,10 +15,11 @@ from drugex.training.scorers.properties import Property
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from _david.code.analysis import AlignedDepicter, ParetoFrontier
+from _david.code.analysis import AlignedDepicter, ParetoFrontier, ResultAnalyzer
 from _david.code.environment import (
     DEFAULT_MOLECULE,
     PrepareMolecule,
+    SafeSAModifier,
     create_environment,
 )
 from _david.code.pipeline import MoleculePipeline
@@ -673,6 +674,75 @@ class TestLBDDPipeline(unittest.TestCase):
         )
         self.assertTrue(is_front[0])
         self.assertFalse(is_front[1])
+
+    def test_safe_sa_modifier(self) -> None:
+        """Verify SafeSAModifier preserves ClippedScore feasibility ramp while clamping crash fallbacks to 0.0."""
+        import numpy as np
+
+        modifier = SafeSAModifier(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0)
+
+        # 1. Standard valid synthesizability scores
+        self.assertEqual(float(modifier(1.0)), 1.0)
+        self.assertEqual(float(modifier(3.0)), 1.0)
+        self.assertEqual(float(modifier(5.5)), 1.0)
+        self.assertAlmostEqual(float(modifier(5.75)), 0.5, places=5)
+        self.assertEqual(float(modifier(6.0)), 0.0)
+        self.assertEqual(float(modifier(7.0)), 0.0)
+
+        # 2. Crash / uncalculable / unphysical fallback guard (SA <= 0.0)
+        self.assertEqual(float(modifier(0.0)), 0.0)
+        self.assertEqual(float(modifier(-1.0)), 0.0)
+        self.assertEqual(float(modifier(-99.0)), 0.0)
+
+        # 3. Vector evaluation (NumPy array)
+        input_arr = np.array([0.0, 3.0, 5.5, 5.75, 6.0, 8.0, -1.0])
+        expected_arr = np.array([0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0])
+        np.testing.assert_allclose(modifier(input_arr), expected_arr, atol=1e-5)
+
+    def test_result_analyzer_deduplication_and_tie_breaking(self) -> None:
+        """Verify ResultAnalyzer deduplicates canonical SMILES clones and breaks Pareto Front 0 ties by QED."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            candidates_tsv = tmp_path / "candidates.tsv"
+
+            # Create test dataset with duplicates (aspirin in two forms) and Pareto ties
+            # Mol A: Aspirin variant 1 (ROCS=1.5, SA=0.9, QED=0.55)
+            # Mol B: Aspirin variant 2 (identical canonical SMILES, duplicate)
+            # Mol C: Phenol (ROCS=1.5, SA=0.9, QED=0.45) - Pareto tied with Mol A, but lower QED
+            # Mol D: Inferior candidate (ROCS=0.5, SA=0.2, QED=0.80) - Pareto Rank 1
+            smi_asp1 = "CC(=O)Oc1ccccc1C(=O)O"
+            smi_asp2 = "O=C(O)c1ccccc1OC(=O)C"  # Chemically valid alternative SMILES for aspirin
+            smi_phenol = "c1ccccc1O"
+            smi_low = "CCCC"
+
+            df = pd.DataFrame(
+                {
+                    "SMILES": [smi_asp1, smi_asp2, smi_phenol, smi_low],
+                    "ROCS": [1.5, 1.5, 1.5, 0.5],
+                    "SA": [0.9, 0.9, 0.9, 0.2],
+                    "Valid": [True, True, True, True],
+                }
+            )
+            df.to_csv(candidates_tsv, sep="\t", index=False)
+
+            analyzer = ResultAnalyzer(output_dir=tmp_path)
+            analyzer.analyze(candidates_tsv=candidates_tsv, top_k=10)
+
+            # 1. Output file exists
+            leads_tsv = tmp_path / "stage2_result_analysis" / "top_prioritized_leads.tsv"
+            self.assertTrue(leads_tsv.exists())
+
+            # 2. Deduplication check: Aspirin must appear exactly once in top_leads
+            saved_leads = pd.read_csv(leads_tsv, sep="\t")
+            canonical_leads = saved_leads["Canonical_SMILES"].tolist()
+            self.assertEqual(len(canonical_leads), len(set(canonical_leads)))
+            self.assertEqual(len(saved_leads), 3)  # 4 rows -> 1 duplicate dropped = 3 rows
+
+            # 3. Tie-breaking check: Both Mol A and Mol C are Pareto Rank 0 with equal ROCS=1.5 and SA=0.9.
+            # Mol A (Aspirin, QED ~0.55) must rank before Mol C (Phenol, QED ~0.45)
+            self.assertEqual(saved_leads.loc[0, "Pareto_Rank"], 0)
+            self.assertEqual(saved_leads.loc[1, "Pareto_Rank"], 0)
+            self.assertGreater(saved_leads.loc[0, "QED"], saved_leads.loc[1, "QED"])
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from drugex.training.rewards import (
     WeightedSum,
 )
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-from drugex.training.scorers.interfaces import Scorer
+from drugex.training.scorers.interfaces import ScoreModifier, Scorer
 from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import Property
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
@@ -124,14 +124,14 @@ class PrepareMolecule:
         if n_rot <= 2 and n_heavy <= 20:
             return 1.00, 1
         if n_rot <= flexible_rotatable_bonds and n_heavy <= 45:
-            return 1.25, 1  #! just testing 1, true value sould be: 3
-        return 1.50, 1  #! just testing 1, true value sould be: 5
+            return 1.25, 1  #NOTE just testing 1, true value sould be: 3
+        return 1.50, 1  #NOTE just testing 1, true value sould be: 5
 
     def generate_reference_conformers(
         self,
         query: str | Path | Chem.Mol,
         output_path: Path | str | None = None,
-        num_conformers: int = 100,  #! HYP could be bigger, like 200
+        num_conformers: int = 100,  #^ HYP could be bigger, like 200
         random_seed: int = 42,
     ) -> Path:
         output_path_real = (
@@ -309,10 +309,10 @@ def create_rocs_scorer(
 
     # 2. Conformer Generator Configuration
     conf_gen = RDKitConformerGenerator(
-        max_conformers=30,  #! HYP could be bigger, like 50
+        max_conformers=30,  #^ HYP could be bigger, like 50
         max_heavy_atoms=55,
         max_rotatable_bonds=25,
-        timeout=60,  #! HYP could be bigger, like 60
+        timeout=60,  #^ HYP could be bigger, like 60
     )
 
     # 3. Multi-Threaded ROCS Alignment Construction
@@ -323,6 +323,42 @@ def create_rocs_scorer(
         color_ff="oe_mills_dean",  # standard
         n_jobs=HardwareManager.get_safe_parallel_jobs(),
     )
+
+
+class SafeSAModifier(ScoreModifier):
+    """Piecewise-linear SA feasibility floor that explicitly guards uncalculable (<= 0.0) fallback.
+
+    WHY:
+    Raw SA score is defined on [1.0, 10.0]. When DrugEx Property.getScores encounters an
+    unhandled exception or uncalculable molecular graph, it defaults to raw score 0.0.
+    Under standard ClippedScore(lower_x=6.0, upper_x=5.5), any score <= 5.5 evaluates to
+    maximum desirability (1.0), rewarding crashed molecules with perfect synthesizability.
+
+    WHAT:
+    Maps raw SA in [5.5, 6.0] to [1.0, 0.0], but maps any raw score <= 0.0 (crash/uncalculated)
+    strictly to 0.0.
+
+    HOW:
+    Applies ClippedScore and masks out values <= 0.0 with 0.0 reward.
+    """
+
+    def __init__(
+        self,
+        lower_x: float = 6.0,
+        upper_x: float = 5.5,
+        low_score: float = 0.0,
+        high_score: float = 1.0,
+    ) -> None:
+        self.clip = ClippedScore(
+            lower_x=lower_x, upper_x=upper_x, low_score=low_score, high_score=high_score
+        )
+
+    def __call__(self, x: float | np.ndarray) -> float | np.ndarray:
+        arr = np.asarray(x, dtype=np.float64)
+        out = self.clip(arr)
+        # Any chemically invalid or uncalculated fallback (SA <= 0.0) receives 0.0 desirability
+        out = np.where(arr <= 0.0, 0.0, out)
+        return float(out.item()) if np.ndim(x) == 0 else out
 
 
 def create_environment(
@@ -338,7 +374,7 @@ def create_environment(
     # 2. Secondary Synthesizability Feasibility Floor (SA Score)
     sa_scorer = Property(
         prop="SA",
-        modifier=ClippedScore(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0),
+        modifier=SafeSAModifier(lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0),
     )
 
     # 3. Pareto Multi-Objective DrugEx Environment

@@ -8,6 +8,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 from rdkit import Chem
+from rdkit.Chem import QED
 
 from _david.code.visualization import (
     AlignedDepicter,
@@ -94,7 +95,17 @@ class ResultAnalyzer:
             maximize_sa = bool(max_sa <= 1.0)
             pareto = ParetoFrontier()
             valid_df = pareto.rank_pareto_fronts(valid_df, objectives=[rocs_name, sa_name], maximize=[True, maximize_sa])
-            valid_df = valid_df.sort_values(by=["Pareto_Rank", rocs_name], ascending=[True, False])
+
+            if "QED" not in valid_df.columns:
+                valid_df["QED"] = [
+                    float(QED.qed(m)) if (m := Chem.MolFromSmiles(s)) is not None else 0.0
+                    for s in valid_df["SMILES"]
+                ]
+
+            valid_df = valid_df.sort_values(
+                by=["Pareto_Rank", rocs_name, sa_name, "QED"],
+                ascending=[True, False, not maximize_sa, False],
+            )
 
             render_pareto_frontier(
                 valid_df,
@@ -103,7 +114,13 @@ class ResultAnalyzer:
                 sa_col=sa_name,
             )
 
-        top_leads = valid_df.head(top_k)
+        # Deduplicate candidates by canonical SMILES to extract distinct chemical leads
+        valid_df["Canonical_SMILES"] = [
+            Chem.CanonSmiles(s) if (s and Chem.MolFromSmiles(s) is not None) else s
+            for s in valid_df["SMILES"]
+        ]
+        unique_leads = valid_df.drop_duplicates(subset=["Canonical_SMILES"])
+        top_leads = unique_leads.head(top_k)
         top_leads.to_csv(self.analysis_dir / "top_prioritized_leads.tsv", sep="\t", index=False)
 
         ref_mol: Chem.Mol | None = None
