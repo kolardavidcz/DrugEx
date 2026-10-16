@@ -213,16 +213,20 @@ class PrepareMolecule:
         remaining_cids = list(energies.keys())
         cutoff, max_ensemble_size = self._calculate_adaptive_rmsd_cutoff(mol_h)
         if len(remaining_cids) > 1:
-            # [PACKAGE: rdkit.ML.Cluster.Butina] WHY: Cluster conformational basins by heavy-atom RMSD
-            # [PACKAGE: rdkit.Chem.AllChem.GetConformerRMSMatrix] Heavy-atom RMSD (Z > 1) prevents rotating Hs from splitting basins
-            heavy_atom_ids = [
-                a.GetIdx() for a in mol_h.GetAtoms() if a.GetAtomicNum() > 1
+            # [PACKAGE: rdkit.Chem.AllChem.GetBestRMS & rdkit.ML.Cluster.Butina]
+            # WHY: Fixed atom-index RMSD treats 180° rotations of symmetric moieties (phenyl, catechol, gallate)
+            #      as artificial new conformers (>1.8 Å). GetBestRMS evaluates topological automorphisms.
+            # WHAT: Lower-triangular heavy-atom distance matrix matching true geometric symmetry.
+            # HOW: Chem.RemoveHs isolates heavy atoms (Hawkins 2017) and GetBestRMS finds minimal symmetry RMSD.
+            mol_no_h = Chem.RemoveHs(mol_h)
+            n_confs = len(remaining_cids)
+            rms_matrix: list[float] = [
+                float(AllChem.GetBestRMS(mol_no_h, mol_no_h, remaining_cids[i], remaining_cids[j]))
+                for i in range(n_confs)
+                for j in range(i)
             ]
-            rms_matrix = AllChem.GetConformerRMSMatrix(
-                mol_h, atomIds=heavy_atom_ids, prealigned=False
-            )
             clusters = Butina.ClusterData(
-                rms_matrix, len(remaining_cids), distThresh=cutoff, isDistData=True
+                rms_matrix, n_confs, distThresh=cutoff, isDistData=True
             )
 
             # Select lowest-energy conformer within each conformational basin
