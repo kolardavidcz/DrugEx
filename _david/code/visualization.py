@@ -842,6 +842,7 @@ def render_property_distributions(
     seed_qed = float(QED.qed(ref_m)) if ref_m else 0.21
     seed_sa = float(calculate_sa_score(ref_m)) if ref_m else 3.74
     seed_hbd = int(Lipinski.NumHDonors(ref_m)) if ref_m else 8
+    seed_hba = int(Lipinski.NumHAcceptors(ref_m)) if ref_m else 11
     seed_rot = int(Lipinski.NumRotatableBonds(ref_m)) if ref_m else 3
     seed_fp = (
         rdMolDescriptors.GetMorganFingerprintAsBitVect(ref_m, 2, nBits=2048)
@@ -867,6 +868,8 @@ def render_property_distributions(
         valid_df[std.SA] = [calculate_sa_score(m) if m else np.nan for m in mols]
     if std.HBD not in valid_df.columns:
         valid_df[std.HBD] = [Lipinski.NumHDonors(m) if m else 0 for m in mols]
+    if std.HBA not in valid_df.columns:
+        valid_df[std.HBA] = [Lipinski.NumHAcceptors(m) if m else 0 for m in mols]
     if std.ROT_BONDS not in valid_df.columns:
         valid_df[std.ROT_BONDS] = [Lipinski.NumRotatableBonds(m) if m else 0 for m in mols]
 
@@ -887,17 +890,18 @@ def render_property_distributions(
 
     rocs_data = valid_df[std.ROCS] if std.ROCS in valid_df.columns else pd.Series([0.0] * len(valid_df))
 
-    # Construct the 3x3 diagnostic & multi-objective grid
-    fig, axes = plt.subplots(3, 3, figsize=(16, 12.5), dpi=200)
+    # Construct the 2x5 diagnostic & multi-objective grid (10 descriptors)
+    fig, axes = plt.subplots(2, 5, figsize=(22, 9), dpi=200)
     fig.suptitle(
         "Ligand-Based De Novo Drug Design: Multi-Objective & Diagnostic Profiles",
-        fontsize=15,
+        fontsize=16,
         weight="bold",
         y=0.98,
     )
+    axes_flat = axes.flatten()
 
     # Subplot 1: 3D ROCS Distribution (Row 0, Col 0 - Active RL Scorer)
-    ax = axes[0, 0]
+    ax = axes_flat[0]
     rocs_vals = rocs_data.dropna()
     if not rocs_vals.empty and rocs_vals.max() <= 1.05:
         rocs_vals = rocs_vals * 2.0
@@ -924,7 +928,7 @@ def render_property_distributions(
     ax.grid(True, linestyle=":", alpha=0.5)
 
     # Subplot 2: QED Drug-likeness Distribution (Row 0, Col 1 - Secondary Objective)
-    ax = axes[0, 1]
+    ax = axes_flat[1]
     ax.hist(
         valid_df[std.QED].dropna(),
         bins=15,
@@ -946,7 +950,7 @@ def render_property_distributions(
     ax.grid(True, linestyle=":", alpha=0.5)
 
     # Subplot 3: Synthetic Accessibility Floor (Row 0, Col 2 - Active Floor)
-    ax = axes[0, 2]
+    ax = axes_flat[2]
     sa_vals = valid_df[std.SA].dropna()
     if not sa_vals.empty and sa_vals.max() <= 1.05:
         sa_vals = pd.Series([calculate_sa_score(m) if m else 10.0 for m in mols])
@@ -971,8 +975,8 @@ def render_property_distributions(
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.5)
 
-    # Subplot 4: Molecular Weight & Dynamic Envelope (Row 1, Col 0 - Active Envelope)
-    ax = axes[1, 0]
+    # Subplot 4: Molecular Weight & Dynamic Envelope (Row 0, Col 3 - Active Envelope)
+    ax = axes_flat[3]
     ax.hist(
         valid_df[std.MW].dropna(), bins=15, color="#264653", edgecolor="black", alpha=0.80
     )
@@ -993,8 +997,8 @@ def render_property_distributions(
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.5)
 
-    # Subplot 5: CLogP Lipophilicity & Dynamic Envelope (Row 1, Col 1 - Active Envelope)
-    ax = axes[1, 1]
+    # Subplot 5: CLogP Lipophilicity & Dynamic Envelope (Row 0, Col 4 - Active Envelope)
+    ax = axes_flat[4]
     ax.hist(
         valid_df[std.LOGP].dropna(),
         bins=15,
@@ -1023,8 +1027,13 @@ def render_property_distributions(
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.5)
 
-    # Subplot 6: Polar Surface Area & Dynamic Envelope (Row 1, Col 2 - Active Envelope)
-    ax = axes[1, 2]
+    # =========================================================================
+    # ROW 1: POLAR & ORTHOGONAL DIAGNOSTIC PROPERTIES (MUTED GRAY BACKGROUND)
+    # =========================================================================
+    diagnostic_bg = "#F0F2F5"
+
+    # Subplot 6: Polar Surface Area & Dynamic Envelope (Row 1, Col 0 - Active Envelope)
+    ax = axes_flat[5]
     ax.hist(
         valid_df[std.TPSA].dropna(),
         bins=15,
@@ -1053,13 +1062,8 @@ def render_property_distributions(
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.5)
 
-    # =========================================================================
-    # ROW 2: UNOPTIMIZED / ORTHOGONAL DIAGNOSTIC PROPERTIES (MUTED GRAY BACKGROUND)
-    # =========================================================================
-    diagnostic_bg = "#F0F2F5"
-
-    # Subplot 7: Hydrogen Bond Donors (Row 2, Col 0 - Diagnostic Epitope Loss)
-    ax = axes[2, 0]
+    # Subplot 7: Hydrogen Bond Donors (Row 1, Col 1 - Diagnostic Epitope Loss)
+    ax = axes_flat[6]
     ax.set_facecolor(diagnostic_bg)
     max_hbd = max(int(valid_df[std.HBD].max()) if not valid_df.empty else 0, seed_hbd)
     bins_hbd = np.arange(0, max_hbd + 2) - 0.5
@@ -1087,18 +1091,57 @@ def render_property_distributions(
         label=f"Mean ({mean_hbd:.2f})",
     )
     ax.set_title(
-        "[UNOPTIMIZED] H-Bond Donors (Epitope Loss)",
+        "[UNOPTIMIZED] H-Bond Donors",
         fontsize=11,
         weight="bold",
         color="#212529",
     )
-    ax.set_xlabel("HBD Count (Loss vs. Bioactive Query)")
+    ax.set_xlabel("HBD Count")
     ax.set_ylabel("Molecule Count")
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.6, color="#CBD5E0")
 
-    # Subplot 8: Rotatable Bonds (Row 2, Col 1 - Conformational Flexibility)
-    ax = axes[2, 1]
+    # Subplot 8: Hydrogen Bond Acceptors (Row 1, Col 2 - Diagnostic Epitope Loss)
+    ax = axes_flat[7]
+    ax.set_facecolor(diagnostic_bg)
+    max_hba = max(int(valid_df[std.HBA].max()) if not valid_df.empty else 0, seed_hba)
+    bins_hba = np.arange(0, max_hba + 2) - 0.5
+    ax.hist(
+        valid_df[std.HBA],
+        bins=bins_hba,
+        color="#4A5568",
+        edgecolor="black",
+        alpha=0.85,
+        rwidth=0.8,
+    )
+    ax.axvline(
+        seed_hba,
+        color="#E63946",
+        linestyle="--",
+        linewidth=1.8,
+        label=f"Query ({seed_hba})",
+    )
+    mean_hba = float(valid_df[std.HBA].mean())
+    ax.axvline(
+        mean_hba,
+        color="#212529",
+        linestyle=":",
+        linewidth=1.8,
+        label=f"Mean ({mean_hba:.2f})",
+    )
+    ax.set_title(
+        "[UNOPTIMIZED] H-Bond Acceptors",
+        fontsize=11,
+        weight="bold",
+        color="#212529",
+    )
+    ax.set_xlabel("HBA Count")
+    ax.set_ylabel("Molecule Count")
+    ax.legend(loc="upper right", fontsize=8.5)
+    ax.grid(True, linestyle=":", alpha=0.6, color="#CBD5E0")
+
+    # Subplot 9: Rotatable Bonds (Row 1, Col 3 - Conformational Flexibility)
+    ax = axes_flat[8]
     ax.set_facecolor(diagnostic_bg)
     max_rot = max(
         int(valid_df[std.ROT_BONDS].max()) if not valid_df.empty else 0, seed_rot
@@ -1138,8 +1181,8 @@ def render_property_distributions(
     ax.legend(loc="upper right", fontsize=8.5)
     ax.grid(True, linestyle=":", alpha=0.6, color="#CBD5E0")
 
-    # Subplot 9: 2D Morgan Tanimoto to Query (Row 2, Col 2 - Scaffold Hopping)
-    ax = axes[2, 2]
+    # Subplot 10: 2D Morgan Tanimoto to Query (Row 1, Col 4 - Scaffold Hopping)
+    ax = axes_flat[9]
     ax.set_facecolor(diagnostic_bg)
     sim_col = valid_df[std.TANIMOTO_TO_SEED]
     ax.hist(sim_col.dropna(), bins=15, color="#343A40", edgecolor="black", alpha=0.85)
