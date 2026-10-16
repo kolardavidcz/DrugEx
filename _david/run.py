@@ -25,7 +25,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE)
     parser.add_argument("--gpu", default="auto")
     parser.add_argument("--out-dir", type=Path, default=None)
-    parser.add_argument("--no-detach", action="store_false", dest="detach", default=True)
+    parser.add_argument(
+        "--detach", action="store_true", dest="detach", default=False, help="Run as background daemon process"
+    )
+    parser.add_argument(
+        "--no-detach", action="store_false", dest="detach", help="Run interactively in foreground (default)"
+    )
     args, _ = parser.parse_known_args()
     return args
 

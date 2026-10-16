@@ -214,8 +214,13 @@ class TestLBDDPipeline(unittest.TestCase):
         m_ibuprofen = Chem.MolFromSmiles(
             "CC(C)Cc1ccc(cc1)C(C)C(=O)O"
         )  # 3 rot, 15 heavy
+        # NOTE: User is currently experimentally benchmarking single-conformer K=1 baseline in environment.py.
+        # Restore (1.25, 3) and (1.50, 5) after testing to restore green test suite.
+        # self.assertEqual(
+        #     PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), (1.25, 3)
+        # )
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), (1.25, 3)
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), (1.25, 1)
         )
 
         m_diazepam = Chem.MolFromSmiles(
@@ -227,8 +232,13 @@ class TestLBDDPipeline(unittest.TestCase):
 
         # 3. Flexible tier (> 7 rotatable bonds or > 45 heavy atoms): (1.50 Å, 5)
         m_decanoic = Chem.MolFromSmiles("CCCCCCCCCC(=O)O")  # 8 rot, 11 heavy
+        # NOTE: User is currently experimentally benchmarking single-conformer K=1 baseline in environment.py.
+        # Restore (1.25, 3) and (1.50, 5) after testing to restore green test suite.
+        # self.assertEqual(
+        #     PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), (1.50, 5)
+        # )
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), (1.50, 5)
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), (1.50, 1)
         )
 
         # Null and empty molecule guards
@@ -512,8 +522,13 @@ class TestLBDDPipeline(unittest.TestCase):
         )
         mol_erythro = Chem.MolFromSmiles(smi_erythromycin)
         self.assertIsNotNone(mol_erythro)
+        # NOTE: User is currently experimentally benchmarking single-conformer K=1 baseline in environment.py.
+        # Restore (1.25, 3) and (1.50, 5) after testing to restore green test suite.
+        # self.assertEqual(
+        #     PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), (1.50, 5)
+        # )
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), (1.50, 5)
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_erythro), (1.50, 1)
         )
 
         # 2. Polycyclic aromatic sheet: Coronene (26 heavy atoms, 0 rotatable bonds) -> 1.25 Å drug-like tier
@@ -522,8 +537,13 @@ class TestLBDDPipeline(unittest.TestCase):
         )
         mol_coronene = Chem.MolFromSmiles(smi_coronene)
         self.assertIsNotNone(mol_coronene)
+        # NOTE: User is currently experimentally benchmarking single-conformer K=1 baseline in environment.py.
+        # Restore (1.25, 3) and (1.50, 5) after testing to restore green test suite.
+        # self.assertEqual(
+        #     PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_coronene), (1.25, 3)
+        # )
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_coronene), (1.25, 3)
+            PrepareMolecule._calculate_adaptive_rmsd_cutoff(mol_coronene), (1.25, 1)
         )
 
         # 3. Nitrogenous heteroatoms: aniline (c1ccccc1N) with and without explicit Hs

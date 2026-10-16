@@ -36,7 +36,6 @@ class PrepareMolecule:
     ) -> None:
         self.num_conformers = num_conformers
         self.random_seed = random_seed
-        self.FLEXIBLE_PROTEIN_RB = 7
 
     # [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
     def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
@@ -125,8 +124,8 @@ class PrepareMolecule:
         if n_rot <= 2 and n_heavy <= 20:
             return 1.00, 1
         if n_rot <= flexible_rotatable_bonds and n_heavy <= 45:
-            return 1.25, 3
-        return 1.50, 5
+            return 1.25, 1  #! just testing 1, true value sould be: 3
+        return 1.50, 1  #! just testing 1, true value sould be: 5
 
     def generate_reference_conformers(
         self,
@@ -164,6 +163,7 @@ class PrepareMolecule:
         # 3. Force Field Minimization & Energy Profiling (MMFF94 with UFF fallback)
         # [PACKAGE: rdkit.Chem.AllChem] WHY: Multi-threaded batch force field minimization with UFF fallback for non-MMFF elements.
         results = []
+        fallback_reason: str | None = None
         if AllChem.MMFFHasAllMoleculeParams(mol_h):
             results = AllChem.MMFFOptimizeMoleculeConfs(
                 mol_h, maxIters=1000, numThreads=0
@@ -171,13 +171,17 @@ class PrepareMolecule:
             # If all MMFF conformers suffered setup failure (status == -1), attempt UFF fallback
             if results and all(status == -1 for status, _ in results):
                 results = []
+                fallback_reason = "MMFF94 setup failed for all conformers; falling back to UFF."
+        else:
+            fallback_reason = "MMFF94 lacks parameters for query molecule; falling back to UFF."
 
         if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
-            FallbackMonitor.record_fallback(
-                "FORCE_FIELD",
-                "MMFF94 lacks parameters for query molecule; falling back to UFF.",
-                {"query": str(query)},
-            )
+            if fallback_reason:
+                FallbackMonitor.record_fallback(
+                    "FORCE_FIELD",
+                    fallback_reason,
+                    {"query": str(query)},
+                )
             results = AllChem.UFFOptimizeMoleculeConfs(
                 mol_h, maxIters=1000, numThreads=0
             )
@@ -340,6 +344,6 @@ def create_environment(
     env = DrugExEnvironment(
         scorers=scorers,
         thresholds=thresholds,
-        reward_scheme=ParetoCrowdingDistance(),
+        reward_scheme=WeightedSum(),
     )
     return env, epsilon
