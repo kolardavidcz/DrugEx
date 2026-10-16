@@ -356,13 +356,12 @@ class TestLBDDPipeline(unittest.TestCase):
 
     def test_hardware_manager(self) -> None:
         """Verify dynamic CPU allocation, GPU routing, batch sizing, and environment isolation."""
-        from _david.code.utils import HardwareManager, get_safe_parallel_jobs
+        from _david.code.utils import HardwareManager
 
         # 1. Dynamic CPU allocation (60% rule)
         expected_jobs = max(1, int((os.cpu_count() or 1) * 0.60))
         self.assertEqual(HardwareManager.get_safe_parallel_jobs(), expected_jobs)
-        self.assertEqual(get_safe_parallel_jobs(), expected_jobs)
-        self.assertEqual(get_safe_parallel_jobs(cap=2), min(2, expected_jobs))
+        self.assertEqual(HardwareManager.get_safe_parallel_jobs(cap=2), min(2, expected_jobs))
 
         # 2. Power-of-2 batch sizing clamped strictly to n_samples
         batch_small = HardwareManager.get_recommended_batch_size(n_samples=10)
@@ -589,7 +588,7 @@ class TestLBDDPipeline(unittest.TestCase):
 
     def test_hardware_manager_adversarial(self) -> None:
         """Verify HardwareManager across simulated host scales, fallback limits, and whitespace parsing."""
-        from _david.code.utils import HardwareManager, get_safe_parallel_jobs
+        from _david.code.utils import HardwareManager
 
         # 1. 60% rule scaling across different machine profiles
         self.assertEqual(
@@ -606,8 +605,8 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertEqual(max(1, int(128 * 0.60)), 76)
 
         # 2. Cap guard against negative or zero caps
-        self.assertEqual(get_safe_parallel_jobs(cap=0), 1)
-        self.assertEqual(get_safe_parallel_jobs(cap=-5), 1)
+        self.assertEqual(HardwareManager.get_safe_parallel_jobs(cap=0), 1)
+        self.assertEqual(HardwareManager.get_safe_parallel_jobs(cap=-5), 1)
 
         # 3. CPU fallback on extreme / unachievable VRAM demand
         best_gpu_extreme = HardwareManager.select_best_gpu(min_free_mb=1_000_000.0)

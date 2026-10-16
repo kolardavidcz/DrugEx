@@ -10,11 +10,9 @@ from _david.code.environment import (
 from _david.code.models import GraphTransformerOptimizer
 from _david.code.pipeline import MoleculePipeline
 from _david.code.utils import (
-    ExclusiveGPUManager,
     FallbackMonitor,
+    HardwareManager,
     get_gpu_telemetry,
-    get_safe_gpus,
-    get_safe_parallel_jobs,
 )
 from _david.code.visualization import (
     AlignedDepicter,
@@ -41,10 +39,8 @@ __all__ = [
     "render_property_distributions",
     "render_lead_structures_2d",
     "render_pareto_frontier",
-    "ExclusiveGPUManager",
+    "HardwareManager",
     "FallbackMonitor",
-    "get_safe_gpus",
-    "get_safe_parallel_jobs",
     "get_gpu_telemetry",
     "MoleculePipeline",
 ]

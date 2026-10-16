@@ -10,9 +10,9 @@ if str(_REPO_ROOT) not in sys.path:
 from _david.code import (
     DEFAULT_MOLECULE,
     AlignedDepicter,
-    ExclusiveGPUManager,
     FallbackMonitor,
     GraphTransformerOptimizer,
+    HardwareManager,
     MoleculePipeline,
     ParetoFrontier,
     PrepareMolecule,
@@ -20,8 +20,6 @@ from _david.code import (
     create_environment,
     create_rocs_scorer,
     get_gpu_telemetry,
-    get_safe_gpus,
-    get_safe_parallel_jobs,
 )
 
 __all__ = [
@@ -33,10 +31,8 @@ __all__ = [
     "AlignedDepicter",
     "ParetoFrontier",
     "ResultAnalyzer",
-    "ExclusiveGPUManager",
+    "HardwareManager",
     "FallbackMonitor",
-    "get_safe_gpus",
-    "get_safe_parallel_jobs",
     "get_gpu_telemetry",
     "MoleculePipeline",
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ from rdkit.Chem import AllChem, Descriptors3D, Lipinski
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.ML.Cluster import Butina
 
-from _david.code.utils import FallbackMonitor, get_safe_parallel_jobs
+from _david.code.utils import FallbackMonitor, HardwareManager
 
 DEFAULT_MOLECULE: str = (
     "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
@@ -117,16 +118,16 @@ class PrepareMolecule:
         if n_heavy == 0:
             return 1.00
         n_rot = int(Lipinski.NumRotatableBonds(mol_no_h))
-        FLEXIBLE_PROTEIN  = 7
+        flexible_rotatable_bonds = 7
         if n_rot <= 2 and n_heavy <= 20:
             return 1.00
-        if n_rot <= 7 and n_heavy <= 45:
+        if n_rot <= flexible_rotatable_bonds and n_heavy <= 45:
             return 1.25
         return 1.50
 
     def generate_reference_conformers(
         self,
-        query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
+        query: str | Path | Chem.Mol,
         output_path: Path | str | None = None,
         num_conformers: int = 100,  #! HYP could be bigger, like 200
         random_seed: int = 42,
@@ -162,8 +163,18 @@ class PrepareMolecule:
         results = []
         if AllChem.MMFFHasAllMoleculeParams(mol_h):
             results = AllChem.MMFFOptimizeMoleculeConfs(
-                mol_h, maxIters=500, numThreads=0
+                mol_h, maxIters=1000, numThreads=0
             )
+            # If all MMFF conformers suffered setup failure (status == -1), attempt UFF fallback
+            if results and all(status == -1 for status, _ in results) and AllChem.UFFHasAllMoleculeParams(mol_h):
+                FallbackMonitor.record_fallback(
+                    "FORCE_FIELD",
+                    "MMFF94 setup failed for all conformers; falling back to UFF.",
+                    {"query": str(query)},
+                )
+                results = AllChem.UFFOptimizeMoleculeConfs(
+                    mol_h, maxIters=1000, numThreads=0
+                )
         elif AllChem.UFFHasAllMoleculeParams(mol_h):
             FallbackMonitor.record_fallback(
                 "FORCE_FIELD",
@@ -171,12 +182,22 @@ class PrepareMolecule:
                 {"query": str(query)},
             )
             results = AllChem.UFFOptimizeMoleculeConfs(
-                mol_h, maxIters=500, numThreads=0
+                mol_h, maxIters=1000, numThreads=0
             )
         if not results:
             raise RuntimeError(f"Force field optimization failed for: {query}")
 
-        energies = {cid: float(e) for cid, (_, e) in zip(conf_ids, results)}
+        # Filter out failed setup (status == -1) and non-finite energies
+        energies: dict[int, float] = {}
+        for cid, (status, e) in zip(conf_ids, results):
+            e_val = float(e)
+            if status == -1 or not math.isfinite(e_val):
+                mol_h.RemoveConformer(cid)
+            else:
+                energies[cid] = e_val
+
+        if not energies:
+            raise RuntimeError(f"Force field optimization produced zero valid conformers for: {query}")
 
         # 4. Energy Window Filtering
         # ~ [Hawkins, Physiological energy window, 2017] <= 8.0 kcal/mol window retains biologically accessible conformational basins
@@ -224,7 +245,7 @@ class PrepareMolecule:
 
     def extract_seed_core_scaffold(
         self,
-        query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
+        query: str | Path | Chem.Mol,
         output_path: Path | str | None = None,
         scaffold_type: str = "BemisMurcko",
         isomeric: bool = False,
@@ -294,7 +315,7 @@ def create_rocs_scorer(
         conformer_generator=conf_gen,
         score_type="TanimotoCombo",
         color_ff="oe_mills_dean",  # standard
-        n_jobs=get_safe_parallel_jobs(),
+        n_jobs=HardwareManager.get_safe_parallel_jobs(),
     )
 
 

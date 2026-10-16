@@ -12,7 +12,7 @@ from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
 from _david.code.environment import PrepareMolecule
-from _david.code.utils import HardwareManager, get_safe_gpus
+from _david.code.utils import HardwareManager
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
@@ -62,7 +62,7 @@ class GraphTransformerOptimizer:
             pkg_path = pretrained_dir.with_suffix(".pkg")
             vocab_path = pretrained_dir.with_suffix(".vocab")
 
-        self.GPUS = get_safe_gpus(preferred_gpu=gpu)
+        self.GPUS = HardwareManager.get_safe_gpus(preferred_gpu=gpu)
         self.VOC = VocGraph.fromFile(str(vocab_path))
 
         self.AGENT = GraphTransformer(voc_trg=self.VOC, use_gpus=self.GPUS)

@@ -74,14 +74,18 @@ class HardwareManager:
     """
 
     @classmethod
-    def get_safe_parallel_jobs(cls, ratio: float = 0.60) -> int:
+    def get_safe_parallel_jobs(cls, ratio: float = 0.60, cap: int | None = None) -> int:
         """Calculate worker allocation dynamically based on host logical core capacity.
 
         Follows the 60% host rule (max(1, int(total_cores * 0.60))), leaving sufficient
         system headroom for OS services, PyTorch background threads, and I/O tasks.
+        Optionally clamped by an upper limit cap if provided.
         """
         total = os.cpu_count() or 1
-        return max(1, int(total * ratio))
+        jobs = max(1, int(total * ratio))
+        if cap is not None:
+            return max(1, min(cap, jobs))
+        return jobs
 
     @staticmethod
     def get_device_vram(device_idx: int) -> tuple[float, float, float]:
@@ -182,19 +186,6 @@ class HardwareManager:
         os.environ["DRUGEX_SCORE_NJOBS"] = n_jobs
         os.environ["DRUGEX_MP_CONTEXT"] = "forkserver"
         return {"DRUGEX_SCORE_NJOBS": n_jobs, "DRUGEX_MP_CONTEXT": "forkserver"}
-
-
-# Backwards-compatible delegates
-def get_safe_parallel_jobs(cap: int | None = None, ratio: float = 0.60) -> int:
-    """Delegate to HardwareManager.get_safe_parallel_jobs with optional cap."""
-    jobs = HardwareManager.get_safe_parallel_jobs(ratio=ratio)
-    if cap is not None:
-        return max(1, min(cap, jobs))
-    return jobs
-
-
-get_safe_gpus = HardwareManager.get_safe_gpus
-ExclusiveGPUManager = HardwareManager
 
 
 def get_gpu_telemetry() -> dict[str, Any]:
