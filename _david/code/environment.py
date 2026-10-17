@@ -51,7 +51,9 @@ class PrepareMolecule:
         if isinstance(query, Chem.Mol):
             if query.GetNumConformers() > 0 and query.GetConformer().Is3D():
                 return query, True
-            return Chem.RemoveHs(query), False
+            if query.GetNumAtoms() > query.GetNumHeavyAtoms():
+                return Chem.RemoveHs(query), False
+            return query, False
 
         p = Path(query) if isinstance(query, (Path, str)) and (
             isinstance(query, Path) or query.endswith((".sdf", ".sd", ".txt", ".smi"))
