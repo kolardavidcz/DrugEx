@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", default="full", choices=["full", "test", "benchmark_only"])
     parser.add_argument("--test", action="store_const", const="test", dest="mode")
     parser.add_argument("--epochs", type=int, default=35)
+    parser.add_argument("--patience", type=int, default=25, help="Early stopping patience")
     parser.add_argument("--n-samples", type=int, default=200)
     parser.add_argument("--val-samples", type=int, default=100, help="Number of validation samples per epoch")
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE)
@@ -63,6 +64,7 @@ def main() -> None:
             str(Path(__file__).resolve()),
             "--mode", args.mode,
             "--epochs", str(args.epochs),
+            "--patience", str(args.patience),
             "--n-samples", str(args.n_samples),
             "--val-samples", str(args.val_samples),
             "--molecule", args.molecule,
@@ -94,6 +96,7 @@ def main() -> None:
         output_dir=target_dir,
         mode=args.mode,
         epochs=args.epochs,
+        patience=args.patience,
         n_samples=args.n_samples,
         val_samples=args.val_samples,
         gpu=args.gpu,
