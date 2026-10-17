@@ -83,7 +83,10 @@ class PrepareMolecule:
 
     # Canonical aliases for backward compatibility
     load_query_molecule = load_molecule
-    load_sdf_ensemble = lambda self, path: self.load_molecule(path)
+
+    def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
+        """Backward-compatible alias delegating to load_molecule."""
+        return self.load_molecule(path)
 
     @classmethod
     def get_adaptive_rmsd_cutoff(
