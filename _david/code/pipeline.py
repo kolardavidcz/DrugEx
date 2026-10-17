@@ -162,8 +162,12 @@ class MoleculePipeline:
             target_candidates, ref_sdf=ref_sdf, render_pareto=self.RENDER_PARETO
         )
 
-        # Restructure output folder: move status/logs to logs/ and place key showcase files in root
-        logs_dir = self.BASE_OUTPUT_DIR / "logs"
+        # Restructure to Option B (presentation straight in root, models/ and raw_data/ subfolders)
+        models_dir = self.BASE_OUTPUT_DIR / "models"
+        models_dir.mkdir(parents=True, exist_ok=True)
+        raw_data_dir = self.BASE_OUTPUT_DIR / "raw_data"
+        raw_data_dir.mkdir(parents=True, exist_ok=True)
+        logs_dir = raw_data_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
 
         status = {
@@ -172,9 +176,7 @@ class MoleculePipeline:
             "status": "SUCCESS",
             "gpu_telemetry": get_gpu_telemetry(),
         }
-        with open(
-            logs_dir / "pipeline_status.json", "w", encoding="utf-8"
-        ) as f:
+        with open(logs_dir / "pipeline_status.json", "w", encoding="utf-8") as f:
             json.dump(status, f, indent=4)
 
         for log_name in ["pipeline.log", "run.pid"]:
@@ -182,16 +184,106 @@ class MoleculePipeline:
             if src.is_file():
                 shutil.move(str(src), str(logs_dir / log_name))
 
-        # Showcase condition: only 4 files in run root (property_distributions, lead image, lead tsv, rl_curves)
+        # 1. Models: move checkpoints to models/
+        if self.MODE != "benchmark_only":
+            for pkg_file in optimizer.MODEL_DIR.glob("*.pkg"):
+                shutil.move(str(pkg_file), str(models_dir / pkg_file.name))
+
+        # 2. Raw data: move reference files and intermediate training/evaluation data
+        for p in ref_dir.iterdir():
+            if p.is_file():
+                shutil.move(str(p), str(raw_data_dir / p.name))
+
+        if self.MODE != "benchmark_only":
+            for f in optimizer.MODEL_DIR.iterdir():
+                if f.name != "rl_training_curves.png":
+                    dest = raw_data_dir / f.name
+                    if f.is_dir():
+                        if dest.exists():
+                            shutil.rmtree(dest)
+                        shutil.move(str(f), str(dest))
+                    elif f.is_file():
+                        shutil.move(str(f), str(dest))
+
+        # Move intermediate candidates TSV to raw_data/
+        for cand in [candidates_tsv, eval_tsv]:
+            if cand.is_file():
+                shutil.move(str(cand), str(raw_data_dir / cand.name))
+
+        # 3. Presentation deliverables straight in root
         for fname in ["property_distributions.png", "lead_structures_2d.png", "top_prioritized_leads.tsv"]:
             src = stage2_dir / fname
             if src.is_file():
-                shutil.copy2(src, self.BASE_OUTPUT_DIR / fname)
+                shutil.move(str(src), str(self.BASE_OUTPUT_DIR / fname))
 
         if self.MODE != "benchmark_only":
             rl_curves = optimizer.MODEL_DIR / "rl_training_curves.png"
             if rl_curves.is_file():
-                shutil.copy2(rl_curves, self.BASE_OUTPUT_DIR / "rl_training_curves.png")
+                shutil.move(str(rl_curves), str(self.BASE_OUTPUT_DIR / "rl_training_curves.png"))
+
+        # Move any remaining auxiliary files in stage2_dir to raw_data/
+        if stage2_dir.exists():
+            for p in stage2_dir.iterdir():
+                dest = raw_data_dir / p.name
+                if p.is_file():
+                    shutil.move(str(p), str(dest))
+                elif p.is_dir():
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.move(str(p), str(dest))
+
+        # Clean up empty legacy stage directories
+        for d in [ref_dir, stage1_dir, stage2_dir]:
+            shutil.rmtree(d, ignore_errors=True)
+
+        # 4. Generate summary.md report straight in root
+        summary_md = self.BASE_OUTPUT_DIR / "summary.md"
+        top_leads_tsv = self.BASE_OUTPUT_DIR / "top_prioritized_leads.tsv"
+        top_leads_df = pd.read_csv(top_leads_tsv, sep="\t") if top_leads_tsv.is_file() else pd.DataFrame()
+
+        md_lines = [
+            f"# DrugEx Run Summary: {self.RUN_ID}",
+            "",
+            f"- **Target Molecule**: `{molecule[:60]}...`",
+            f"- **Execution Mode**: `{self.MODE}`",
+            f"- **Epochs**: `{self.EPOCHS}`",
+            f"- **Candidates Evaluated**: `{getattr(self.config, 'n_eval_samples', 200)}`",
+            "",
+            "## Presentation Deliverables",
+            "- [Lead Structures 2D](lead_structures_2d.png)",
+            "- [Property Distributions (2x5 Profile)](property_distributions.png)",
+            "- [RL Training Curves](rl_training_curves.png)",
+            "- [Top Prioritized Leads (TSV)](top_prioritized_leads.tsv)",
+            "",
+            "## Top Prioritized Chemical Leads",
+            "",
+        ]
+        if not top_leads_df.empty:
+            cols = [
+                c
+                for c in [
+                    std.ROCS,
+                    std.SA,
+                    std.QED,
+                    std.MW,
+                    std.PARETO_RANK,
+                    std.CANONICAL_SMILES,
+                ]
+                if c in top_leads_df.columns
+            ]
+            md_lines.append("| " + " | ".join(cols) + " |")
+            md_lines.append("| " + " | ".join(["---"] * len(cols)) + " |")
+            for _, row in top_leads_df[cols].head(5).iterrows():
+                vals = [
+                    f"{float(row[c]):.3f}"
+                    if isinstance(row[c], (float, int)) and c != std.PARETO_RANK
+                    else str(row[c])
+                    for c in cols
+                ]
+                md_lines.append("| " + " | ".join(vals) + " |")
+        else:
+            md_lines.append("*No leads generated.*")
+        summary_md.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
 
         print(f"\n[DONE] Outputs saved to: {self.BASE_OUTPUT_DIR}")
         return self.BASE_OUTPUT_DIR

@@ -586,8 +586,14 @@ class TestLBDDPipeline(unittest.TestCase):
             pipeline = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
             pipeline.run("Oc1ccccc1")
             self.assertTrue(
-                (pipe_dir / "logs" / "pipeline_status.json").exists()
+                (pipe_dir / "raw_data" / "logs" / "pipeline_status.json").exists()
+                or (pipe_dir / "logs" / "pipeline_status.json").exists()
                 or (pipe_dir / "pipeline_status.json").exists()
+            )
+            self.assertTrue((pipe_dir / "summary.md").exists())
+            self.assertTrue(
+                (pipe_dir / "raw_data" / "query_molecule_3d.sdf").exists()
+                or (pipe_dir / "references" / "query_molecule_3d.sdf").exists()
             )
 
 

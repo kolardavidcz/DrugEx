@@ -119,6 +119,8 @@ class StandardsMigrator:
                 "stage1_sequence_rnn",
                 "stage2_graph_transformer",
                 "stage3_graph_transformer",
+                "raw_data",
+                "models",
             ):
                 run_dir = run_dir.parent
 
@@ -137,7 +139,9 @@ class StandardsMigrator:
                 )
                 if not top_leads.empty:
                     img_count += 1
-                    lead_png = run_dir / "stage2_result_analysis" / "lead_structures_2d.png"
+                    lead_png = run_dir / "lead_structures_2d.png"
+                    if not lead_png.exists():
+                        lead_png = run_dir / "stage2_result_analysis" / "lead_structures_2d.png"
                     if lead_png.exists():
                         self.regenerated_images.append(lead_png)
             except Exception as e:
