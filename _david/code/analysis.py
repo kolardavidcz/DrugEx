@@ -97,7 +97,9 @@ class ResultAnalyzer:
         valid_df = df[df[std.VALID].astype(bool)].copy()
 
         if std.ROCS in valid_df.columns and std.SA in valid_df.columns:
-            # On physical scale: ROCS is maximized, raw SAscore is minimized (lower is easier)
+            # On physical scale: ROCS is maximized, raw SAscore is minimized (lower is easier).
+            # Threshold 1.05 provides a 5% margin against float rounding noise to differentiate
+            # normalized SA desirability [0, 1] (higher better) from raw SAscore [1, 10] (lower better).
             max_sa = valid_df[std.SA].max()
             maximize_sa = bool(max_sa <= 1.05)
             pareto = ParetoFrontier()

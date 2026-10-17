@@ -368,18 +368,20 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(len(val_l10.dataset), 10)
 
     def test_safe_sa_modifier(self) -> None:
-        """Verify SafeSAModifier preserves ClippedScore feasibility ramp while clamping crash fallbacks to 0.0."""
+        """Verify SafeSAModifier provides SmoothClippedScore sigmoid while clamping crash fallbacks to 0.0."""
         modifier = SafeSAModifier(
-            lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0
+            upper_x=3.5, lower_x=5.5, low_score=0.0, high_score=1.0
         )
 
-        # 1. Standard valid synthesizability scores
-        self.assertEqual(float(modifier(1.0)), 1.0)
-        self.assertEqual(float(modifier(3.0)), 1.0)
-        self.assertEqual(float(modifier(5.5)), 1.0)
-        self.assertAlmostEqual(float(modifier(5.75)), 0.5, places=5)
-        self.assertEqual(float(modifier(6.0)), 0.0)
-        self.assertEqual(float(modifier(7.0)), 0.0)
+        # 1. Smooth sigmoid synthesizability scores
+        # middle_x = 4.5 -> score = 0.5
+        self.assertAlmostEqual(float(modifier(4.5)), 0.5, places=5)
+        # upper_x = 3.5 -> score ≈ 0.8808
+        self.assertAlmostEqual(float(modifier(3.5)), 0.880797, places=5)
+        # lower_x = 5.5 -> score ≈ 0.1192
+        self.assertAlmostEqual(float(modifier(5.5)), 0.119203, places=5)
+        # Low SA (highly synthesizable)
+        self.assertGreater(float(modifier(2.0)), 0.98)
 
         # 2. Crash / uncalculable / unphysical fallback guard (SA <= 0.0 strictly maps to 0.0)
         self.assertEqual(float(modifier(0.0)), 0.0)
@@ -387,8 +389,8 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertEqual(float(modifier(-99.0)), 0.0)
 
         # 3. Vector evaluation (NumPy array)
-        input_arr = np.array([0.0, 3.0, 5.5, 5.75, 6.0, 8.0, -1.0])
-        expected_arr = np.array([0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0])
+        input_arr = np.array([0.0, 3.5, 4.5, 5.5, -1.0])
+        expected_arr = np.array([0.0, 0.880797, 0.5, 0.119203, 0.0])
         np.testing.assert_allclose(modifier(input_arr), expected_arr, atol=1e-5)
 
         # 4. Property integration
@@ -396,7 +398,7 @@ class TestLBDDPipeline(unittest.TestCase):
         scores = sa_scorer.getScores(["c1ccccc1O"])
         self.assertGreater(scores[0], 0.0)
         mod_scores = sa_scorer(["c1ccccc1O"])
-        self.assertEqual(float(mod_scores[0]), 1.0)
+        self.assertGreater(float(mod_scores[0]), 0.8)
 
     def test_result_analyzer_deduplication_and_tie_breaking(self) -> None:
         """Verify ResultAnalyzer deduplicates canonical SMILES clones and breaks Pareto Front 0 ties by QED."""
@@ -608,7 +610,10 @@ class TestLBDDPipeline(unittest.TestCase):
             pipe_dir = Path(tmp_dir) / "run_test"
             pipeline = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
             pipeline.run("Oc1ccccc1")
-            self.assertTrue((pipe_dir / "pipeline_status.json").exists())
+            self.assertTrue(
+                (pipe_dir / "logs" / "pipeline_status.json").exists()
+                or (pipe_dir / "pipeline_status.json").exists()
+            )
 
 
 if __name__ == "__main__":

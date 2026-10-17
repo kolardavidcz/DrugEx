@@ -13,7 +13,7 @@ from drugex.training.rewards import (
 )
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import ScoreModifier, Scorer
-from drugex.training.scorers.modifiers import ClippedScore
+from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
 from drugex.training.scorers.properties import Property
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 from rdkit import Chem
@@ -344,36 +344,36 @@ def create_rocs_scorer(
 
 
 class SafeSAModifier(ScoreModifier):
-    """Piecewise-linear SA feasibility floor that explicitly guards uncalculable (<= 0.0) fallback.
+    """Smooth sigmoid SA feasibility score that explicitly guards uncalculable (<= 0.0) fallback.
 
     WHY:
     Raw SA score is defined on [1.0, 10.0]. When DrugEx Property.getScores encounters an
     unhandled exception or uncalculable molecular graph, it defaults to raw score 0.0.
-    Under standard ClippedScore(lower_x=6.0, upper_x=5.5), any score <= 5.5 evaluates to
-    maximum desirability (1.0), rewarding crashed molecules with perfect synthesizability.
+    Under inverted SmoothClippedScore(upper_x=3.5, lower_x=5.5), any raw score <= 0.0 evaluates
+    to ~0.9997 desirability, rewarding crashed molecules with perfect synthesizability.
 
     WHAT:
-    Maps raw SA in [5.5, 6.0] to [1.0, 0.0], but maps any raw score <= 0.0 (crash/uncalculated)
-    strictly to 0.0.
+    Continuous sigmoid mapping SA in [3.5, 5.5] to [0.88, 0.12] with a non-zero gradient,
+    while mapping any raw score <= 0.0 (crash/uncalculated) strictly to 0.0.
 
     HOW:
-    Applies ClippedScore and masks out values <= 0.0 with 0.0 reward.
+    Applies SmoothClippedScore and masks out values <= 0.0 with 0.0 reward.
     """
 
     def __init__(
         self,
-        lower_x: float = 6.0,
-        upper_x: float = 5.5,
+        upper_x: float = 3.5,
+        lower_x: float = 5.5,
         low_score: float = 0.0,
         high_score: float = 1.0,
     ) -> None:
-        self.clip = ClippedScore(
-            lower_x=lower_x, upper_x=upper_x, low_score=low_score, high_score=high_score
+        self.smooth = SmoothClippedScore(
+            upper_x=upper_x, lower_x=lower_x, low_score=low_score, high_score=high_score
         )
 
     def __call__(self, x: float | np.ndarray) -> float | np.ndarray:
         arr = np.asarray(x, dtype=np.float64)
-        out = self.clip(arr)
+        out = self.smooth(arr)
         out = np.where(
             arr <= 0.0, 0.0, out
         )  # Any chemically invalid or uncalculated fallback (SA <= 0.0) receives 0.0 desirability
@@ -394,7 +394,7 @@ def create_environment(
     sa_scorer = Property(
         prop="SA",
         modifier=SafeSAModifier(
-            lower_x=6.0, upper_x=5.5, low_score=0.0, high_score=1.0
+            upper_x=3.5, lower_x=5.5, low_score=0.0, high_score=1.0
         ),
     )
 

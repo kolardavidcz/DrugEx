@@ -447,6 +447,8 @@ def render_epoch_pareto_evolution(
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
     # Use canonical SA column or calculate raw SAscore if absent or normalized <= 1.05
+    # Threshold 1.05 provides a 5% margin against float rounding noise to differentiate
+    # normalized desirability [0, 1] from raw SAscore in [1.0, 10.0].
     sa_name = std.SA
     if sa_name not in df.columns or (
         df[sa_name].dropna().max() <= 1.05 and std.SMILES in df.columns
@@ -463,6 +465,7 @@ def render_epoch_pareto_evolution(
                 sa_scores.append(np.nan)
         df[sa_name] = sa_scores
 
+    # Threshold 1.05 differentiates normalized [0, 1] from physical ROCS TanimotoCombo [0, 2.0]
     if df[rocs_name].dropna().max() <= 1.05:
         df[rocs_name] = df[rocs_name] * 2.0
 
@@ -903,6 +906,8 @@ def render_property_distributions(
     # Subplot 1: 3D ROCS Distribution (Row 0, Col 0 - Active RL Scorer)
     ax = axes_flat[0]
     rocs_vals = rocs_data.dropna()
+    # Threshold 1.05 provides a 5% margin against float rounding noise to differentiate
+    # normalized ROCS desirability [0, 1] from raw physical TanimotoCombo [0, 2.0]
     if not rocs_vals.empty and rocs_vals.max() <= 1.05:
         rocs_vals = rocs_vals * 2.0
 
@@ -952,6 +957,8 @@ def render_property_distributions(
     # Subplot 3: Synthetic Accessibility Floor (Row 0, Col 2 - Active Floor)
     ax = axes_flat[2]
     sa_vals = valid_df[std.SA].dropna()
+    # Threshold 1.05 provides a 5% margin against float rounding noise to differentiate
+    # normalized SA desirability [0, 1] from raw SAscore in [1.0, 10.0]
     if not sa_vals.empty and sa_vals.max() <= 1.05:
         sa_vals = pd.Series([calculate_sa_score(m) if m else 10.0 for m in mols])
     ax.hist(
@@ -1239,8 +1246,10 @@ def render_pareto_frontier(
         return None
 
     plot_df = df.copy()
+    # Threshold 1.05 differentiates normalized [0, 1] from physical ROCS TanimotoCombo [0, 2.0]
     if plot_df[r_col].dropna().max() <= 1.05:
         plot_df[r_col] = plot_df[r_col] * 2.0
+    # Threshold 1.05 differentiates normalized SA desirability [0, 1] from raw SAscore [1.0, 10.0]
     if plot_df[s_col].dropna().max() <= 1.05 and std.SMILES in plot_df.columns:
         mols = [
             Chem.MolFromSmiles(s) if isinstance(s, str) else None

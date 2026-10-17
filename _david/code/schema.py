@@ -194,12 +194,15 @@ class std:
         df_out = df.copy()
 
         # 1. Unscale ROCS: [0, 1] desirability -> [0, 2.0] TanimotoCombo
+        # Threshold 1.05 provides a 5% margin against float serialization/rounding noise
+        # (e.g. 1.0000000002) to reliably distinguish normalized [0, 1] from physical [0, 2.0]
         if cls.ROCS in df_out.columns:
             vals = df_out[cls.ROCS].dropna()
             if not vals.empty and vals.max() <= 1.05:
                 df_out[cls.ROCS] = df_out[cls.ROCS] * 2.0
 
         # 2. Unscale SA: [0, 1] desirability -> [1.0, 10.0] raw SAscore
+        # Same 1.05 margin distinguishes [0, 1] desirability from physical SA in [1.0, 10.0]
         if cls.SA in df_out.columns and cls.SMILES in df_out.columns:
             vals = df_out[cls.SA].dropna()
             if not vals.empty and vals.max() <= 1.05:

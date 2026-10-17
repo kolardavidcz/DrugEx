@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,7 @@ class MoleculePipeline:
                 epochs=1 if self.MODE == "test" else epochs,
                 n_samples=10 if self.MODE == "test" else n_samples,
                 val_samples=10 if self.MODE == "test" else val_samples,
+                n_eval_samples=10 if self.MODE == "test" else 500,
                 patience=patience,
             )
         self.EPOCHS: int = self.config.epochs
@@ -130,18 +132,39 @@ class MoleculePipeline:
                     output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png",
                 )
 
-            smiles_list, frags_list = optimizer.AGENT.sample(train_loader)
+            eval_samples = 10 if self.MODE == "test" else getattr(self.config, "n_eval_samples", 500)
+            print(f"\n[Final Evaluation] Generating {eval_samples} candidate molecules from peak agent...")
+            eval_loader, _, _ = optimizer.prepare_seed_fragments(
+                molecule,
+                n_prompts=eval_samples,
+                scaffolds_path=scaffold_tsv,
+            )
+            smiles_list, frags_list = optimizer.AGENT.sample(eval_loader)
             df = env.getScores(smiles_list, frags=frags_list)
             df.insert(0, std.SMILES, smiles_list)
             df.insert(1, std.FRAGS, frags_list)
             df = std.standardize(df)
+
+            stage2_dir = self.BASE_OUTPUT_DIR / "stage2_result_analysis"
+            stage2_dir.mkdir(parents=True, exist_ok=True)
+            eval_tsv = stage2_dir / f"generated_{eval_samples}_molecules.tsv"
+            df.to_csv(eval_tsv, sep="\t", index=False)
             df.to_csv(candidates_tsv, sep="\t", index=False)
 
         print("[Stage 2] Profiling generated leads and Pareto frontier...")
+        stage2_dir = self.BASE_OUTPUT_DIR / "stage2_result_analysis"
+        stage2_dir.mkdir(parents=True, exist_ok=True)
+        eval_tsv = stage2_dir / f"generated_{getattr(self.config, 'n_eval_samples', 500)}_molecules.tsv"
+        target_candidates = eval_tsv if eval_tsv.exists() else candidates_tsv
+
         analyzer = ResultAnalyzer(self.BASE_OUTPUT_DIR)
         analyzer.analyze(
-            candidates_tsv, ref_sdf=ref_sdf, render_pareto=self.RENDER_PARETO
+            target_candidates, ref_sdf=ref_sdf, render_pareto=self.RENDER_PARETO
         )
+
+        # Restructure output folder: move status/logs to logs/ and place key showcase files in root
+        logs_dir = self.BASE_OUTPUT_DIR / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
         status = {
             "run_id": self.RUN_ID,
@@ -150,9 +173,25 @@ class MoleculePipeline:
             "gpu_telemetry": get_gpu_telemetry(),
         }
         with open(
-            self.BASE_OUTPUT_DIR / "pipeline_status.json", "w", encoding="utf-8"
+            logs_dir / "pipeline_status.json", "w", encoding="utf-8"
         ) as f:
             json.dump(status, f, indent=4)
+
+        for log_name in ["pipeline.log", "run.pid"]:
+            src = self.BASE_OUTPUT_DIR / log_name
+            if src.is_file():
+                shutil.move(str(src), str(logs_dir / log_name))
+
+        # Showcase condition: only 4 files in run root (property_distributions, lead image, lead tsv, rl_curves)
+        for fname in ["property_distributions.png", "lead_structures_2d.png", "top_prioritized_leads.tsv"]:
+            src = stage2_dir / fname
+            if src.is_file():
+                shutil.copy2(src, self.BASE_OUTPUT_DIR / fname)
+
+        if self.MODE != "benchmark_only":
+            rl_curves = optimizer.MODEL_DIR / "rl_training_curves.png"
+            if rl_curves.is_file():
+                shutil.copy2(rl_curves, self.BASE_OUTPUT_DIR / "rl_training_curves.png")
 
         print(f"\n[DONE] Outputs saved to: {self.BASE_OUTPUT_DIR}")
         return self.BASE_OUTPUT_DIR
