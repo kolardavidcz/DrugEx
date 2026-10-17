@@ -24,6 +24,7 @@ from _david.code.environment import (
     SafeSAModifier,
     create_environment,
 )
+from _david.code.config import PipelineConfig, RunPaths
 from _david.code.pipeline import MoleculePipeline
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
@@ -591,22 +592,33 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(front_png)
             self.assertTrue(front_png.exists())
 
-    def test_pipeline_test_mode(self) -> None:
-        """Verify MoleculePipeline execution in test mode."""
+    def test_pipeline_execution(self) -> None:
+        """Verify end-to-end MoleculePipeline execution using test-scale configuration."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             pipe_dir = Path(tmp_dir) / "run_test"
-            pipeline = MoleculePipeline(output_dir=pipe_dir, is_test=True)
+            paths = RunPaths.resolve(base_dir=pipe_dir)
+            test_config = PipelineConfig(
+                epochs=1,
+                n_samples=10,
+                val_samples=10,
+                n_eval_samples=10,
+                min_epochs=1,
+            )
+            pipeline = MoleculePipeline(config=test_config, paths=paths)
             pipeline.run("Oc1ccccc1")
             self.assertTrue(
-                (pipe_dir / "raw_data" / "logs" / "pipeline_status.json").exists()
+                (paths.logs_dir / "pipeline_status.json").exists()
             )
-            self.assertTrue((pipe_dir / "summary.md").exists())
+            self.assertTrue((paths.root / "summary.md").exists())
             self.assertTrue(
-                (pipe_dir / "raw_data" / "query_molecule_3d.sdf").exists()
+                (paths.raw_data_dir / "query_molecule_3d.sdf").exists()
             )
             self.assertTrue(
-                (pipe_dir / "lead_structures_2d.png").exists()
-                or (pipe_dir / "property_distributions.png").exists()
+                (paths.raw_data_dir / "generated_candidates.tsv").exists()
+            )
+            self.assertTrue(
+                (paths.root / "lead_structures_2d.png").exists()
+                or (paths.root / "property_distributions.png").exists()
             )
 
 

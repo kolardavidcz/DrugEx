@@ -1,20 +1,28 @@
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import shutil
-from datetime import datetime
+import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
 from drugex.training.monitors import PeakRecoveryMonitor
 
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from _david.code.analysis import ResultAnalyzer
+from _david.code.config import PipelineConfig, RunPaths
 from _david.code.environment import (
     DEFAULT_MOLECULE,
     PrepareMolecule,
     create_environment,
 )
-from _david.code.models import AlgorithmConfig, GraphTransformerOptimizer
+from _david.code.models import GraphTransformerOptimizer
 from _david.code.schema import std
 from _david.code.utils import HardwareManager, get_gpu_telemetry
 from _david.code.visualization import (
@@ -23,80 +31,50 @@ from _david.code.visualization import (
     render_training_curves,
 )
 
-PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
-
 
 class MoleculePipeline:
     """Production Ligand-Based De Novo Design (LBDD) pipeline in DrugEx.
 
     WHY:
     Orchestrates end-to-end multi-objective 3D ROCS shape/color alignment and synthetic
-    accessibility optimization with a clean direct-to-disk directory structure.
+    accessibility optimization with an authoritative single source of truth and direct-to-disk targets.
 
     WHAT:
     - Stage 0: Generates pocket reference 3D conformers and extracts seed core scaffold.
     - Stage 1: RL exploration using GraphTransformer with continuous multi-objective reward.
-    - Stage 2: Final candidate generation, lead prioritization, and 2D/3D presentation assets.
+    - Stage 2: Final candidate generation, lead prioritization, and direct-to-disk presentation deliverables.
     """
 
     def __init__(
         self,
+        config: PipelineConfig | None = None,
+        paths: RunPaths | None = None,
         output_dir: Path | str | None = None,
-        is_test: bool = False,
-        epochs: int = 35,
-        n_samples: int = 200,
-        val_samples: int | None = 100,
-        n_eval_samples: int = 200,
-        gpu: int | str | None = "auto",
-        patience: int = 25,
-        cpu_ratio: float | None = None,
-        render_pareto: bool = False,
-        config: AlgorithmConfig | None = None,
+        **kwargs,
     ) -> None:
-        HardwareManager.init_runtime_environment(ratio=cpu_ratio)
-        self.cpu_ratio: float | None = cpu_ratio
-        self.RENDER_PARETO: bool = render_pareto
-        self.IS_TEST: bool = is_test
+        self.config: PipelineConfig = config or PipelineConfig(**kwargs)
+        HardwareManager.init_runtime_environment(ratio=self.config.cpu_ratio)
 
-        if config is not None:
-            self.config = config
+        if paths is not None:
+            self.paths: RunPaths = paths
+        elif output_dir is not None:
+            self.paths = RunPaths.resolve(base_dir=output_dir)
         else:
-            self.config = AlgorithmConfig(
-                epochs=1 if is_test else epochs,
-                n_samples=10 if is_test else n_samples,
-                val_samples=10 if is_test else val_samples,
-                n_eval_samples=10 if is_test else n_eval_samples,
-                patience=patience,
-                criteria="avg_amean",
-            )
+            self.paths = RunPaths.resolve()
 
-        self.EPOCHS: int = self.config.epochs
-        self.N_SAMPLES: int = self.config.n_samples
-        self.VAL_SAMPLES: int | None = self.config.val_samples
-        self.N_EVAL_SAMPLES: int = getattr(self.config, "n_eval_samples", 200)
-        self.GPU = gpu
-        self.PATIENCE = self.config.patience
-        self.preparer: PrepareMolecule = PrepareMolecule()
-
-        self.RUN_ID: str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.BASE_OUTPUT_DIR: Path = (
-            Path(output_dir)
-            if output_dir
-            else (PROJECT_ROOT / "_david" / "output" / self.RUN_ID)
+        self.preparer: PrepareMolecule = PrepareMolecule(
+            num_conformers=100,
+            max_reference_conformers=1,
+            random_seed=self.config.random_seed,
         )
-        self.BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     def run(self, molecule: str = DEFAULT_MOLECULE) -> Path:
-        models_dir = self.BASE_OUTPUT_DIR / "models"
-        raw_data_dir = self.BASE_OUTPUT_DIR / "raw_data"
-        logs_dir = raw_data_dir / "logs"
-        models_dir.mkdir(parents=True, exist_ok=True)
-        raw_data_dir.mkdir(parents=True, exist_ok=True)
-        logs_dir.mkdir(parents=True, exist_ok=True)
+        """Execute end-to-end multi-objective LBDD RL exploration and lead prioritization."""
+        self.paths.create_directories()
 
-        ref_sdf = raw_data_dir / "query_molecule_3d.sdf"
-        ref_png = raw_data_dir / "reference_3d_superposition.png"
-        scaffold_tsv = raw_data_dir / "seed_core_scaffold.tsv"
+        ref_sdf = self.paths.raw_data_dir / "query_molecule_3d.sdf"
+        ref_png = self.paths.raw_data_dir / "reference_3d_superposition.png"
+        scaffold_tsv = self.paths.raw_data_dir / "seed_core_scaffold.tsv"
 
         # Stage 0: 3D Reference Conformers & Core Scaffold
         print(f"\n[Stage 0] Generating 3D reference conformers for: {molecule[:40]}...")
@@ -106,23 +84,37 @@ class MoleculePipeline:
 
         # Stage 1: Reinforcement Learning Exploration
         print(
-            f"[Stage 1] Executing RL exploration (epochs={self.EPOCHS}, samples={self.N_SAMPLES}, criteria={self.config.criteria})..."
+            f"[Stage 1] Executing RL exploration (epochs={self.config.epochs}, samples={self.config.n_samples}, criteria={self.config.criteria})..."
         )
-        optimizer = GraphTransformerOptimizer(raw_data_dir, gpu=self.GPU)
-        env, epsilon = create_environment(ref_sdf)
+        optimizer = GraphTransformerOptimizer(
+            models_dir=self.paths.models_dir,
+            raw_data_dir=self.paths.raw_data_dir,
+            gpu=self.config.gpu,
+        )
+        env, epsilon = create_environment(
+            ref_sdf,
+            thresholds=self.config.thresholds,
+            epsilon=self.config.epsilon,
+            max_conformers=self.config.max_conformers,
+            timeout=self.config.timeout_seconds,
+        )
 
         train_loader, val_loader, _ = optimizer.prepare_seed_fragments(
             molecule,
-            n_prompts=self.N_SAMPLES,
+            n_prompts=self.config.n_samples,
             scaffolds_path=scaffold_tsv,
-            val_samples=self.VAL_SAMPLES,
+            val_samples=self.config.val_samples,
         )
-        batch_size = HardwareManager.get_recommended_batch_size(self.N_SAMPLES)
+        batch_size = HardwareManager.get_recommended_batch_size(self.config.n_samples)
         explorer = optimizer.build_explorer(
-            env, epsilon=epsilon, batch_size=batch_size
+            env,
+            epsilon=epsilon,
+            beta=self.config.beta,
+            batch_size=batch_size,
         )
 
-        model_prefix = optimizer.MODEL_DIR / "david_agent"
+        # Model prefix in raw_data keeps intermediate monitoring TSVs in raw_data
+        model_prefix = self.paths.raw_data_dir / "david_agent"
         monitor = PeakRecoveryMonitor(
             model_prefix,
             save_smiles=True,
@@ -133,31 +125,39 @@ class MoleculePipeline:
         explorer.fit(
             train_loader,
             val_loader,
-            epochs=self.EPOCHS,
-            patience=self.PATIENCE,
-            min_epochs=min(5, self.EPOCHS),
+            epochs=self.config.epochs,
+            patience=self.config.patience,
+            min_epochs=min(self.config.min_epochs, self.config.epochs),
             criteria=self.config.criteria,
             monitor=monitor,
         )
         monitor.restore_peak_model(optimizer.AGENT)
 
+        # Move final checkpoint packages directly to models_dir
+        for pkg in self.paths.raw_data_dir.glob("*.pkg"):
+            shutil.move(str(pkg), str(self.paths.models_dir / pkg.name))
+
+        # Standardize smiles TSV if generated
         smiles_tsv = Path(f"{model_prefix}_smiles.tsv")
         if smiles_tsv.exists():
             s_df = pd.read_csv(smiles_tsv, sep="\t")
             std.standardize(s_df).to_csv(smiles_tsv, sep="\t", index=False)
 
-        render_training_curves(
-            f"{model_prefix}_fit.tsv",
-            output_png=self.BASE_OUTPUT_DIR / "rl_training_curves.png",
-        )
-        if self.RENDER_PARETO:
+        # Render training curves straight to root deliverables
+        fit_tsv = Path(f"{model_prefix}_fit.tsv")
+        if fit_tsv.exists():
+            render_training_curves(
+                fit_tsv,
+                output_png=self.paths.root / "rl_training_curves.png",
+            )
+        if self.config.render_pareto and smiles_tsv.exists():
             render_epoch_pareto_evolution(
                 smiles_tsv,
-                output_png=self.BASE_OUTPUT_DIR / "pareto_epoch_evolution.png",
+                output_png=self.paths.root / "pareto_epoch_evolution.png",
             )
 
         # Stage 2: Final Candidate Generation from Peak Agent
-        eval_samples = self.N_EVAL_SAMPLES
+        eval_samples = self.config.n_eval_samples
         print(f"\n[Final Evaluation] Generating {eval_samples} candidate molecules from peak agent...")
         eval_loader, _, _ = optimizer.prepare_seed_fragments(
             molecule,
@@ -170,58 +170,32 @@ class MoleculePipeline:
         df.insert(1, std.FRAGS, frags_list)
         df = std.standardize(df)
 
-        eval_tsv = raw_data_dir / f"generated_{eval_samples}_molecules.tsv"
-        candidates_tsv = raw_data_dir / "generated_candidates.tsv"
-        df.to_csv(eval_tsv, sep="\t", index=False)
+        candidates_tsv = self.paths.raw_data_dir / "generated_candidates.tsv"
         df.to_csv(candidates_tsv, sep="\t", index=False)
 
         # Stage 3: Lead Prioritization & Deliverables
         print("[Stage 2] Profiling generated leads and Pareto frontier...")
-        analyzer = ResultAnalyzer(self.BASE_OUTPUT_DIR)
+        analyzer = ResultAnalyzer(
+            deliverables_dir=self.paths.root,
+            raw_data_dir=self.paths.raw_data_dir,
+        )
         analyzer.analyze(
-            eval_tsv, ref_sdf=ref_sdf, render_pareto=self.RENDER_PARETO
+            candidates_tsv,
+            ref_sdf=ref_sdf,
+            render_pareto=self.config.render_pareto,
         )
 
-        # Clean auxiliary result files to raw_data/
-        result_json = self.BASE_OUTPUT_DIR / "result_analysis_summary.json"
-        if result_json.is_file():
-            shutil.move(str(result_json), str(raw_data_dir / "result_analysis_summary.json"))
-        aligned_png = self.BASE_OUTPUT_DIR / "aligned_lead_depictions.png"
-        if aligned_png.is_file():
-            shutil.move(str(aligned_png), str(raw_data_dir / "aligned_lead_depictions.png"))
-
-        # Move model checkpoints to models/
-        for pkg_file in optimizer.MODEL_DIR.glob("*.pkg"):
-            shutil.move(str(pkg_file), str(models_dir / pkg_file.name))
-
-        # Move intermediate training files from optimizer.MODEL_DIR to raw_data/
-        for f in optimizer.MODEL_DIR.iterdir():
-            dest = raw_data_dir / f.name
-            if f.is_file():
-                shutil.move(str(f), str(dest))
-            elif f.is_dir():
-                if dest.exists():
-                    shutil.rmtree(dest)
-                shutil.move(str(f), str(dest))
-        shutil.rmtree(optimizer.MODEL_DIR, ignore_errors=True)
-
-        # Move top-level log files if present to logs/
-        for log_name in ["pipeline.log", "run.pid"]:
-            src = self.BASE_OUTPUT_DIR / log_name
-            if src.is_file():
-                shutil.move(str(src), str(logs_dir / log_name))
-
         status = {
-            "run_id": self.RUN_ID,
+            "run_id": self.paths.root.name,
             "status": "SUCCESS",
             "gpu_telemetry": get_gpu_telemetry(),
         }
-        with open(logs_dir / "pipeline_status.json", "w", encoding="utf-8") as f:
+        with open(self.paths.logs_dir / "pipeline_status.json", "w", encoding="utf-8") as f:
             json.dump(status, f, indent=4)
 
-        # Generate summary.md report straight in root
-        summary_md = self.BASE_OUTPUT_DIR / "summary.md"
-        top_leads_tsv = self.BASE_OUTPUT_DIR / "top_prioritized_leads.tsv"
+        # Generate summary.md report straight in root deliverables
+        summary_md = self.paths.root / "summary.md"
+        top_leads_tsv = self.paths.root / "top_prioritized_leads.tsv"
         top_leads_df = (
             pd.read_csv(top_leads_tsv, sep="\t")
             if top_leads_tsv.is_file()
@@ -229,10 +203,10 @@ class MoleculePipeline:
         )
 
         md_lines = [
-            f"# DrugEx Run Summary: {self.RUN_ID}",
+            f"# DrugEx Run Summary: {self.paths.root.name}",
             "",
             f"- **Target Molecule**: `{molecule[:60]}...`",
-            f"- **Epochs**: `{self.EPOCHS}`",
+            f"- **Epochs**: `{self.config.epochs}`",
             f"- **Criteria**: `{self.config.criteria}`",
             f"- **Candidates Evaluated**: `{eval_samples}`",
             "",
@@ -272,5 +246,119 @@ class MoleculePipeline:
             md_lines.append("*No leads generated.*")
         summary_md.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
 
-        print(f"\n[DONE] Outputs saved to: {self.BASE_OUTPUT_DIR}")
-        return self.BASE_OUTPUT_DIR
+        print(f"\n[DONE] Deliverables saved directly to: {self.paths.root}")
+        return self.paths.root
+
+
+def parse_args() -> tuple[PipelineConfig, RunPaths, str, bool]:
+    """Parse CLI arguments deriving all defaults strictly from PipelineConfig."""
+    parser = argparse.ArgumentParser(description="DrugEx LBDD Pipeline Runner")
+    defaults = PipelineConfig()
+
+    parser.add_argument("--epochs", type=int, default=defaults.epochs, help="Number of RL epochs")
+    parser.add_argument("--patience", type=int, default=defaults.patience, help="Early stopping patience")
+    parser.add_argument("--n-samples", type=int, default=defaults.n_samples, help="RL prompt batch size")
+    parser.add_argument("--val-samples", type=int, default=defaults.val_samples, help="Validation sample size")
+    parser.add_argument(
+        "--n-eval-samples",
+        type=int,
+        default=defaults.n_eval_samples,
+        help="Number of final candidates generated from peak agent",
+    )
+    parser.add_argument("--criteria", default=defaults.criteria, help="Peak model monitoring criteria")
+    parser.add_argument("--epsilon", type=float, default=defaults.epsilon, help="Exploration noise epsilon")
+    parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES or file path")
+    parser.add_argument("--gpu", default=defaults.gpu, help="GPU device ID or 'auto'/'all'/'cpu'")
+    parser.add_argument(
+        "--cpu-ratio",
+        type=float,
+        default=defaults.cpu_ratio,
+        help="Fraction of CPU cores allocated for parallel scoring (default: None, uses safe 0.60)",
+    )
+    parser.add_argument("--out-dir", type=Path, default=None, help="Explicit custom output directory")
+    parser.add_argument(
+        "--phase",
+        type=str,
+        default=None,
+        help="Optional experimental phase folder name (e.g. '05_new_era')",
+    )
+    parser.add_argument(
+        "--detach", action="store_true", default=False, help="Run as detached background daemon process"
+    )
+    parser.add_argument(
+        "--pareto", action="store_true", default=defaults.render_pareto, help="Enable Pareto evolution visualization"
+    )
+    args, _ = parser.parse_known_args()
+
+    config = PipelineConfig(
+        epochs=args.epochs,
+        patience=args.patience,
+        n_samples=args.n_samples,
+        val_samples=args.val_samples,
+        n_eval_samples=args.n_eval_samples,
+        criteria=args.criteria,
+        epsilon=args.epsilon,
+        gpu=args.gpu,
+        cpu_ratio=args.cpu_ratio,
+        render_pareto=args.pareto,
+    )
+    paths = RunPaths.resolve(base_dir=args.out_dir, phase=args.phase)
+    return config, paths, args.molecule, args.detach
+
+
+def main() -> None:
+    config, paths, molecule, detach = parse_args()
+    is_worker = os.environ.get("DRUGEX_DETACHED_WORKER") == "1"
+
+    if detach and not is_worker:
+        paths.create_directories()
+        log_file = paths.logs_dir / "pipeline.log"
+        pid_file = paths.logs_dir / "run.pid"
+
+        env = dict(os.environ)
+        env["DRUGEX_DETACHED_WORKER"] = "1"
+        env["DRUGEX_OUTPUT_DIR"] = str(paths.root)
+
+        cmd = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--epochs", str(config.epochs),
+            "--patience", str(config.patience),
+            "--n-samples", str(config.n_samples),
+            "--val-samples", str(config.val_samples),
+            "--n-eval-samples", str(config.n_eval_samples),
+            "--criteria", str(config.criteria),
+            "--epsilon", str(config.epsilon),
+            "--molecule", molecule,
+            "--gpu", str(config.gpu),
+            "--out-dir", str(paths.root),
+        ]
+        if config.render_pareto:
+            cmd.append("--pareto")
+        if config.cpu_ratio is not None:
+            cmd.extend(["--cpu-ratio", str(config.cpu_ratio)])
+
+        with open(log_file, "a", encoding="utf-8") as f_out:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=f_out,
+                stderr=subprocess.STDOUT,
+                cwd=str(PROJECT_ROOT),
+                env=env,
+                start_new_session=(sys.platform != "win32"),
+            )
+
+        with open(pid_file, "w", encoding="utf-8") as f_pid:
+            f_pid.write(str(proc.pid))
+
+        print(f"Spawned detached background process PID: {proc.pid}")
+        print(f"Output directory: {paths.root}")
+        print(f"Live log: tail -f {log_file}")
+        return
+
+    pipeline = MoleculePipeline(config=config, paths=paths)
+    pipeline.run(molecule)
+
+
+if __name__ == "__main__":
+    main()

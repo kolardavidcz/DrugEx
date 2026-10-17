@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from torch.utils.data import DataLoader
@@ -11,50 +10,40 @@ from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
+
+from _david.code.config import PipelineConfig
 from _david.code.environment import PrepareMolecule
 from _david.code.utils import HardwareManager
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 
-@dataclass
-class AlgorithmConfig:
-    """Hyperparameters for GraphTransformer reinforcement learning exploration.
+class GraphTransformerOptimizer:
+    """Pretrained GraphTransformer agent lifecycle, fragment dataset preparation, and explorer builder.
 
     WHY:
-    Encapsulates all RL exploration hyperparameters in an immutable, validated
-    dataclass while separating algorithm parameters from dynamic runtime hardware sizing.
+    Decouples generative deep learning operations from cheminformatics and directory layout,
+    writing checkpoints directly to models_dir and intermediate seed data to raw_data_dir.
 
     WHAT:
-    - epochs: Number of RL policy gradient training epochs.
-    - n_samples: Number of molecules generated and aligned per training step.
-    - val_samples: Optional explicit size for decoupled validation set.
-    - epsilon: Exploration probability for epsilon-greedy or entropy regularization.
-    - beta: Prior loss penalization baseline weight.
-    - patience: Early stopping patience based on criteria.
-    - min_epochs: Minimum epochs before early stopping can trigger.
-    - criteria: Monitoring objective metric (e.g. 'desired_ratio').
-    - seed: Global pseudo-random number generator seed.
+    - Loads pretrained Papyrus GraphTransformer weights and target vocabulary.
+    - Encodes seed scaffolds and prepares decoupled training/validation DataLoaders.
+    - Constructs FragGraphExplorer policy gradient reinforcement learning agent.
     """
 
-    epochs: int = 35
-    n_samples: int = 200
-    val_samples: int = 100
-    n_eval_samples: int = 200
-    epsilon: float = 0.2
-    beta: float = 0.0
-    patience: int = 25
-    min_epochs: int = 5
-    criteria: str = "avg_amean" #not "desired_ratio"
-    seed: int = 42
-
-
-class GraphTransformerOptimizer:
-    def __init__(self, output_dir: Path | str, gpu: int | str | None = "auto") -> None:
+    def __init__(
+        self,
+        models_dir: Path | str,
+        raw_data_dir: Path | str | None = None,
+        gpu: int | str | None = "auto",
+    ) -> None:
         HardwareManager.init_runtime_environment()
-        self.OUTPUT_DIR = Path(output_dir)
-        self.MODEL_DIR = self.OUTPUT_DIR / "reinforcement_learning"
-        self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        self.MODELS_DIR = Path(models_dir)
+        self.RAW_DATA_DIR = (
+            Path(raw_data_dir) if raw_data_dir is not None else self.MODELS_DIR
+        )
+        self.MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        self.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         pretrained_dir = (
             PROJECT_ROOT
@@ -92,8 +81,8 @@ class GraphTransformerOptimizer:
         Passing the full training prompt dataset (e.g. N = 200) as both training and validation
         loaders forced DrugEx explorer.fit() to generate conformers and compute 3D ROCS alignments
         twice per epoch (400 alignments total), cutting throughput in half. Decoupling validation
-        with a bounded sample (val_size <= 50) preserves statistically rigorous tracking of
-        desired_ratio (SE ~ 6.8%) while cutting validation compute by 75-80%.
+        with a bounded sample preserves statistically rigorous tracking while cutting validation
+        compute by 75-80%.
 
         WHAT:
         Extracts seed fragments, encodes into GraphFragDataSet, slices the raw data array
@@ -103,7 +92,7 @@ class GraphTransformerOptimizer:
         val_size = min(val_samples or min(50, max(25, int(n_prompts * 0.20))), n_prompts).
         Batch size is determined dynamically via HardwareManager.get_recommended_batch_size.
         """
-        seed_tsv = self.MODEL_DIR / "seed_fragments.tsv"
+        seed_tsv = self.RAW_DATA_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
 
         encoder = FragmentCorpusEncoder(
@@ -150,6 +139,7 @@ class GraphTransformerOptimizer:
         self,
         env: DrugExEnvironment,
         epsilon: float = 0.2,
+        beta: float = 0.0,
         batch_size: int = 64,
     ) -> FragGraphExplorer:
         """Construct FragGraphExplorer reinforcement learning agent."""
@@ -158,7 +148,7 @@ class GraphTransformerOptimizer:
             env=env,
             mutate=self.PRIOR,
             epsilon=epsilon,
-            beta=0.0,
+            beta=beta,
             batch_size=batch_size,
             use_gpus=self.GPUS,
         )

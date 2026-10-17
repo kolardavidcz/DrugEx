@@ -69,13 +69,20 @@ class ParetoFrontier:
 
 class ResultAnalyzer:
     def __init__(
-        self, output_dir: Path | str, analysis_dir: Path | str | None = None
+        self,
+        deliverables_dir: Path | str,
+        raw_data_dir: Path | str | None = None,
+        # Allow legacy alias analysis_dir
+        analysis_dir: Path | str | None = None,
     ) -> None:
-        self.output_dir = Path(output_dir)
-        self.analysis_dir = (
-            Path(analysis_dir) if analysis_dir is not None else self.output_dir
+        self.deliverables_dir = Path(deliverables_dir)
+        self.raw_data_dir = (
+            Path(raw_data_dir)
+            if raw_data_dir is not None
+            else (Path(analysis_dir) if analysis_dir is not None else self.deliverables_dir)
         )
-        self.analysis_dir.mkdir(parents=True, exist_ok=True)
+        self.deliverables_dir.mkdir(parents=True, exist_ok=True)
+        self.raw_data_dir.mkdir(parents=True, exist_ok=True)
 
     def analyze(
         self,
@@ -137,11 +144,10 @@ class ResultAnalyzer:
             if render_pareto:
                 render_pareto_frontier(
                     valid_df,
-                    output_png=self.analysis_dir / "pareto_frontier.png",
+                    output_png=self.deliverables_dir / "pareto_frontier.png",
                     rocs_col=std.ROCS,
                     sa_col=std.SA,
                 )
-
 
         # Deduplicate candidates by canonical SMILES to extract distinct chemical leads
         valid_df[std.CANONICAL_SMILES] = [
@@ -151,7 +157,7 @@ class ResultAnalyzer:
         unique_leads = valid_df.drop_duplicates(subset=[std.CANONICAL_SMILES])
         top_leads = unique_leads.head(top_k).reset_index(drop=True)
         top_leads.to_csv(
-            self.analysis_dir / "top_prioritized_leads.tsv", sep="\t", index=False
+            self.deliverables_dir / "top_prioritized_leads.tsv", sep="\t", index=False
         )
 
         ref_mol: Chem.Mol | None = None
@@ -161,12 +167,12 @@ class ResultAnalyzer:
 
         render_property_distributions(
             valid_df,
-            output_png=self.analysis_dir / "property_distributions.png",
+            output_png=self.deliverables_dir / "property_distributions.png",
             ref_mol=ref_mol,
         )
 
         if ref_mol and not top_leads.empty:
-            lead_png = self.analysis_dir / "lead_structures_2d.png"
+            lead_png = self.deliverables_dir / "lead_structures_2d.png"
             render_lead_structures_2d(
                 top_leads,
                 output_png=lead_png,
@@ -174,7 +180,7 @@ class ResultAnalyzer:
             )
             if lead_png.exists():
                 shutil.copyfile(
-                    lead_png, self.analysis_dir / "aligned_lead_depictions.png"
+                    lead_png, self.raw_data_dir / "aligned_lead_depictions.png"
                 )
 
         summary = {
@@ -183,7 +189,7 @@ class ResultAnalyzer:
             "top_k_extracted": len(top_leads),
         }
         with open(
-            self.analysis_dir / "result_analysis_summary.json", "w", encoding="utf-8"
+            self.raw_data_dir / "result_analysis_summary.json", "w", encoding="utf-8"
         ) as f:
             json.dump(summary, f, indent=4)
 

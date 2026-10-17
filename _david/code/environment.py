@@ -32,9 +32,11 @@ class PrepareMolecule:
     def __init__(
         self,
         num_conformers: int = 100,
+        max_reference_conformers: int = 1,
         random_seed: int = 42,
     ) -> None:
         self.num_conformers = num_conformers
+        self.max_reference_conformers = max_reference_conformers
         self.random_seed = random_seed
 
     # [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
@@ -87,6 +89,7 @@ class PrepareMolecule:
     @staticmethod
     def _calculate_adaptive_rmsd_cutoff(
         mol: Chem.Mol | None,
+        max_ensemble_size: int = 1,
     ) -> tuple[float, int]:
         """Calculate heavy-atom RMSD cutoff and maximum reference ensemble size (Hawkins 2017).
 
@@ -109,6 +112,7 @@ class PrepareMolecule:
         HOW:
         Removes explicit hydrogens before counting rotatable bonds and heavy atoms to ensure
         topological invariance regardless of whether hydrogens are implicit or explicit.
+        Ensemble size is capped cleanly by max_ensemble_size (defaulting to 1 for focused RL).
         """
         if mol is None:
             return 1.00, 1
@@ -121,11 +125,12 @@ class PrepareMolecule:
             return 1.00, 1
         n_rot = int(Lipinski.NumRotatableBonds(mol_no_h))
         flexible_rotatable_bonds = 7
+
         if n_rot <= 2 and n_heavy <= 20:
-            return 1.00, 1
+            return 1.00, min(1, max_ensemble_size)
         if n_rot <= flexible_rotatable_bonds and n_heavy <= 45:
-            return 1.25, 1  # NOTE just testing 1, true value sould be: 3
-        return 1.50, 1  # NOTE just testing 1, true value sould be: 5
+            return 1.25, min(3, max_ensemble_size)
+        return 1.50, min(5, max_ensemble_size)
 
     def generate_reference_conformers(
         self,
@@ -225,7 +230,9 @@ class PrepareMolecule:
         # 5. Butina RMSD Basin Curation
         # ~ [Hawkins, Basin curation via Butina clustering, 2017] Adaptive cutoff isolates distinct conformational basins
         remaining_cids = list(energies.keys())
-        cutoff, max_ensemble_size = self._calculate_adaptive_rmsd_cutoff(mol_h)
+        cutoff, max_ensemble_size = self._calculate_adaptive_rmsd_cutoff(
+            mol_h, self.max_reference_conformers
+        )
         if len(remaining_cids) > 1:
             # [PACKAGE: rdkit.Chem.AllChem.GetBestRMS & rdkit.ML.Cluster.Butina]
             # WHY: Fixed atom-index RMSD treats 180° rotations of symmetric moieties (phenyl, catechol, gallate)
@@ -321,16 +328,18 @@ class PrepareMolecule:
 
 def create_rocs_scorer(
     references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
+    max_conformers: int = 30,
+    timeout: int = 60,
 ) -> RDKitROCSScorer:
     # 1. Reference Input Normalization
     ref_input = str(references) if isinstance(references, Path) else references
 
     # 2. Conformer Generator Configuration
     conf_gen = RDKitConformerGenerator(
-        max_conformers=30,  # ^ HYP could be bigger, like 50
+        max_conformers=max_conformers,
         max_heavy_atoms=55,
         max_rotatable_bonds=25,
-        timeout=60,  # ^ HYP could be bigger, like 60
+        timeout=timeout,
     )
 
     # 3. Multi-Threaded ROCS Alignment Construction
@@ -382,10 +391,15 @@ class SafeSAModifier(ScoreModifier):
 
 def create_environment(
     ref_sdf: str | Path,
+    thresholds: tuple[float, float] | list[float] = (0.5, 0.5),
     epsilon: float = 0.2,
+    max_conformers: int = 30,
+    timeout: int = 60,
 ) -> tuple[DrugExEnvironment, float]:
     # 1. Primary 3D ROCS Shape/Color Alignment Objective
-    rocs_scorer = create_rocs_scorer(ref_sdf)
+    rocs_scorer = create_rocs_scorer(
+        ref_sdf, max_conformers=max_conformers, timeout=timeout
+    )
     rocs_scorer.modifier = ClippedScore(
         lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0
     )
@@ -400,11 +414,10 @@ def create_environment(
 
     # 3. Pareto Multi-Objective DrugEx Environment
     scorers: list[Scorer] = [rocs_scorer, sa_scorer]
-    thresholds: list[float] = [0.5, 0.5]
 
     env = DrugExEnvironment(
         scorers=scorers,
-        thresholds=thresholds,
+        thresholds=list(thresholds),
         reward_scheme=WeightedSum(),
     )
     return env, epsilon
