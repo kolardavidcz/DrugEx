@@ -48,12 +48,16 @@ class RunPaths:
     raw_data_dir: Path
     logs_dir: Path
 
-    def __post_init__(self) -> None:
-        """Ensure all required target directories exist on disk immediately upon initialization."""
+    def create_directories(self) -> None:
+        """Ensure all required target directories exist on disk."""
         self.root.mkdir(parents=True, exist_ok=True)
         self.models_dir.mkdir(parents=True, exist_ok=True)
         self.raw_data_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+
+    def __post_init__(self) -> None:
+        """Ensure directories exist immediately upon initialization."""
+        self.create_directories()
 
     @classmethod
     def resolve(
