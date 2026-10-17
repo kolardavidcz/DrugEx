@@ -103,9 +103,9 @@ class ResultAnalyzer:
         df = std.standardize(df)
         df = std.unscale_to_physical_metrics(df)
 
-        if std.VALID not in df.columns:
-            df[std.VALID] = [Chem.MolFromSmiles(s) is not None for s in df[std.SMILES]]
-        valid_df = df[df[std.VALID].astype(bool)].copy()
+        # if std.VALID not in df.columns:
+        #     df[std.VALID] = [Chem.MolFromSmiles(s) is not None for s in df[std.SMILES]]
+        # valid_df = df[df[std.VALID].astype(bool)].copy()
 
         # if std.ROCS in valid_df.columns and std.SA in valid_df.columns:
             # On physical scale: ROCS is maximized, raw SAscore is minimized (lower is easier).
