@@ -19,6 +19,7 @@ from rdkit.ML.Cluster import Butina
 from _david.code.config import DEFAULT_MOLECULE
 from _david.code.utils import FallbackMonitor, HardwareManager
 
+#* all of this code still loks extrilmly un-elegant esspcialy 1) inical functions (that sould been methods, PrepareMolecule,...) 
 
 def load_smiles_string(smiles: str) -> Chem.Mol:
     """Parse a SMILES string into a 2D molecule with explicit hydrogens removed."""
@@ -37,7 +38,8 @@ def load_smiles_file(path: Path | str) -> Chem.Mol:
         raise ValueError(f"Empty molecule file: {file_path}")
     return load_smiles_string(tokens[0])
 
-
+#* we explicitly removeHs when loading from load_smiles_string, but keep
+#* also there is no need for havng them as a function - keep them as methods - all of this (and you can merge some of the functions info few (eg.2 to 1))
 def load_sdf_file(path: Path | str) -> tuple[Chem.Mol, bool]:
     """Load an SDF structure file and return the base molecule and 3D coordinate flag."""
     file_path = Path(path)
@@ -81,7 +83,7 @@ class PrepareMolecule:
     def __init__(
         self,
         num_conformers: int = 100,
-        max_reference_conformers: int = 1,
+        max_reference_conformers: int = 5, #temporarly 1,
         random_seed: int = 42,
     ) -> None:
         self.num_conformers = num_conformers
@@ -97,6 +99,7 @@ class PrepareMolecule:
         return load_query_molecule(query)
 
     @staticmethod
+    #* wrong naming of the function
     def _calculate_adaptive_rmsd_cutoff(
         mol: Chem.Mol | None,
         max_ensemble_size: int = 1,
@@ -135,6 +138,7 @@ class PrepareMolecule:
             return target_path
 
         # ~ [Hawkins, Conformer Generation with RDKit, J. Chem. Inf. Model. 2017] ETKDGv3 embedding
+        #* since from .sdf file we didnt striped the H and tis not 3D we now gerate another .AddHs (wouldnt there be a bung that will add them twise?)
         mol_h = Chem.AddHs(mol)
         params = AllChem.ETKDGv3()
         params.randomSeed = random_seed
@@ -226,6 +230,7 @@ class PrepareMolecule:
         scaff_mol = MurckoScaffold.GetScaffoldForMol(mol_no_h)
         if scaff_mol and scaff_mol.GetNumHeavyAtoms() > 0:
             Chem.SanitizeMol(scaff_mol)
+            #* btw we sould at some point use drugex standartization - look it up for it
             scaff_smi = Chem.MolToSmiles(scaff_mol, isomericSmiles=isomeric)
         else:
             scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)

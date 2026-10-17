@@ -77,6 +77,7 @@ class HardwareManager:
             free = max(0.0, total - reserved)
         return allocated, free, total
 
+    #* select_best_gpu and get_safe_gpus could be programed much more elegantly
     @classmethod
     def select_best_gpu(cls, min_free_mb: float = 4000.0) -> int:
         """Select healthy GPU index with highest free VRAM, or return -1 for CPU fallback."""

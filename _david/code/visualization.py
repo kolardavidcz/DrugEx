@@ -64,7 +64,7 @@ def get_universal_rigid_anchor(mol: Chem.Mol) -> list[int]:
     largest_frag = max(heavy_frags, key=len, default=[])
     return sorted(largest_frag)
 
-
+#* insted of de-nono generation, we sould use akready provided and pre-generated molecules
 def render_reference_ensemble(
     sdf_path: Path | str,
     output_png: Path | str | None = None,
@@ -216,7 +216,7 @@ def render_reference_ensemble(
     plt.close(fig)
     return target_png
 
-
+#* could we move all of the used function into this class as methods
 class AlignedDepicter:
     """Renders 2D molecular depictions aligned onto a shared Murcko core template."""
 

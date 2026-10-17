@@ -138,6 +138,7 @@ class MoleculePipeline:
         df.insert(0, std.SMILES, smiles_list)
         df.insert(1, std.FRAGS, frags_list)
 
+        #* do we really need this?
         for col in df.columns:
             if "TanimotoCombo" in col or "ROCS" in col:
                 df = df.rename(columns={col: std.ROCS})
