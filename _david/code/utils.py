@@ -61,7 +61,7 @@ class HardwareManager:
     workstations, and multi-GPU HPC nodes.
 
     WHAT:
-    - Dynamic CPU core allocation following the 60% rule (max(1, int(cores * 0.60))).
+    - Dynamic CPU core allocation following configurable ratio (default 0.60; 0.80 for dedicated runs).
     - Real-time VRAM telemetry via torch.cuda.mem_get_info() with auto-routing to the
       least-loaded GPU meeting a 4000 MB safety threshold, cleanly falling back to CPU.
     - Power-of-2 batch sizing aligned with NVIDIA Tensor Core warp execution (32 threads).
@@ -73,16 +73,20 @@ class HardwareManager:
     stale hardware state.
     """
 
+    _cpu_ratio: float = 0.60
+
     @classmethod
-    def get_safe_parallel_jobs(cls, ratio: float = 0.60, cap: int | None = None) -> int:
+    def get_safe_parallel_jobs(cls, ratio: float | None = None, cap: int | None = None) -> int:
         """Calculate worker allocation dynamically based on host logical core capacity.
 
-        Follows the 60% host rule (max(1, int(total_cores * 0.60))), leaving sufficient
+        Follows host allocation ratio (max(1, int(total_cores * ratio))), leaving sufficient
         system headroom for OS services, PyTorch background threads, and I/O tasks.
+        Defaults to configured _cpu_ratio (0.60 standard, 0.80 overnight).
         Optionally clamped by an upper limit cap if provided.
         """
+        effective_ratio = cls._cpu_ratio if ratio is None else ratio
         total = os.cpu_count() or 1
-        jobs = max(1, int(total * ratio))
+        jobs = max(1, int(total * effective_ratio))
         if cap is not None:
             return max(1, min(cap, jobs))
         return jobs
@@ -132,10 +136,12 @@ class HardwareManager:
         """Resolve GPU device tuple honoring user preference or dynamic auto-selection.
 
         Returns an empty tuple () when falling back to CPU execution, which DrugEx
-        natively interprets as CPU-only execution.
+        natively interprets as CPU-only execution. Supports 'all' for multi-GPU training.
         """
         if not torch.cuda.is_available():
             return ()
+        if preferred_gpu == "all":
+            return tuple(range(torch.cuda.device_count()))
         if preferred_gpu is None or preferred_gpu == "auto":
             best = cls.select_best_gpu()
             return (best,) if best >= 0 else ()
@@ -174,7 +180,7 @@ class HardwareManager:
         return max(1, min(batch_size, n_samples))
 
     @classmethod
-    def init_runtime_environment(cls) -> dict[str, str]:
+    def init_runtime_environment(cls, ratio: float = 0.60) -> dict[str, str]:
         """Sole authority for initializing multiprocessing and scoring environment.
 
         WHY:
@@ -182,7 +188,8 @@ class HardwareManager:
         Using 'forkserver' prevents deadlocks caused by POSIX fork() inheriting active
         CUDA contexts or OpenMP thread pools.
         """
-        n_jobs = str(cls.get_safe_parallel_jobs())
+        cls._cpu_ratio = ratio
+        n_jobs = str(cls.get_safe_parallel_jobs(ratio=ratio))
         os.environ["DRUGEX_SCORE_NJOBS"] = n_jobs
         os.environ["DRUGEX_MP_CONTEXT"] = "forkserver"
         return {"DRUGEX_SCORE_NJOBS": n_jobs, "DRUGEX_MP_CONTEXT": "forkserver"}

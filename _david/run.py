@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-samples", type=int, default=100, help="Number of validation samples per epoch")
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE)
     parser.add_argument("--gpu", default="auto")
+    parser.add_argument(
+        "--cpu-ratio",
+        type=float,
+        default=0.60,
+        help="Fraction of CPU cores allocated for parallel 3D scoring (default: 0.60; use 0.80 for dedicated runs)",
+    )
     parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument(
         "--detach", action="store_true", dest="detach", default=False, help="Run as background daemon process"
@@ -44,8 +50,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    HardwareManager.init_runtime_environment()
     args = parse_args()
+    HardwareManager.init_runtime_environment(ratio=args.cpu_ratio)
     is_worker = os.environ.get("DRUGEX_DETACHED_WORKER") == "1"
 
     target_dir = args.out_dir or (PROJECT_ROOT / "_david" / "output" / datetime.now().strftime("%Y%m%d_%H%M%S"))
@@ -69,6 +75,7 @@ def main() -> None:
             "--val-samples", str(args.val_samples),
             "--molecule", args.molecule,
             "--gpu", str(args.gpu),
+            "--cpu-ratio", str(args.cpu_ratio),
             "--out-dir", str(target_dir),
             "--pareto" if args.render_pareto else "--no-pareto",
             "--no-detach",
@@ -100,6 +107,7 @@ def main() -> None:
         n_samples=args.n_samples,
         val_samples=args.val_samples,
         gpu=args.gpu,
+        cpu_ratio=args.cpu_ratio,
         render_pareto=args.render_pareto,
     )
     pipeline.run(args.molecule)

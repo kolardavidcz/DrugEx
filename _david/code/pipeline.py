@@ -38,10 +38,12 @@ class MoleculePipeline:
         val_samples: int | None = 100,
         gpu: int | str | None = "auto",
         patience: int = 25,
+        cpu_ratio: float = 0.60,
         render_pareto: bool = False,
         config: AlgorithmConfig | None = None,
     ) -> None:
-        HardwareManager.init_runtime_environment()
+        HardwareManager.init_runtime_environment(ratio=cpu_ratio)
+        self.cpu_ratio: float = cpu_ratio
         self.RENDER_PARETO: bool = render_pareto
         self.MODE: str = mode.lower()
         if config is not None:

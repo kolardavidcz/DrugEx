@@ -315,19 +315,29 @@ class TestLBDDPipeline(unittest.TestCase):
         batch_normal = HardwareManager.get_recommended_batch_size(n_samples=200)
         self.assertIn(batch_normal, [32, 64, 128])
 
-        # 3. Environment isolation
+        # 3. Environment isolation and dynamic ratio support
         env_vars = HardwareManager.init_runtime_environment()
         self.assertEqual(os.environ.get("DRUGEX_SCORE_NJOBS"), str(expected_jobs))
         self.assertEqual(os.environ.get("DRUGEX_MP_CONTEXT"), "forkserver")
         self.assertEqual(env_vars["DRUGEX_SCORE_NJOBS"], str(expected_jobs))
         self.assertEqual(env_vars["DRUGEX_MP_CONTEXT"], "forkserver")
 
-        # 4. Safe GPU routing and CPU fallback
+        expected_jobs_80 = max(1, int((os.cpu_count() or 1) * 0.80))
+        self.assertEqual(HardwareManager.get_safe_parallel_jobs(ratio=0.80), expected_jobs_80)
+        env_vars_80 = HardwareManager.init_runtime_environment(ratio=0.80)
+        self.assertEqual(os.environ.get("DRUGEX_SCORE_NJOBS"), str(expected_jobs_80))
+        self.assertEqual(env_vars_80["DRUGEX_SCORE_NJOBS"], str(expected_jobs_80))
+        HardwareManager.init_runtime_environment(ratio=0.60)
+
+        # 4. Safe GPU routing, multi-GPU and CPU fallback
+        import torch
         gpus = HardwareManager.get_safe_gpus()
         self.assertIsInstance(gpus, tuple)
         self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="cpu"), ())
         self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="none"), ())
         self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu=9999), ())
+        expected_all = tuple(range(torch.cuda.device_count())) if torch.cuda.is_available() else ()
+        self.assertEqual(HardwareManager.get_safe_gpus(preferred_gpu="all"), expected_all)
 
     def test_decoupled_validation_loader(self) -> None:
         """Verify that prepare_seed_fragments returns decoupled train and bounded validation dataloaders."""
