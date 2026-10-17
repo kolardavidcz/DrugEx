@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from _david.code.analysis import ParetoFrontier, ResultAnalyzer
+from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.environment import (
-    DEFAULT_MOLECULE,
     PrepareMolecule,
     create_environment,
     create_rocs_scorer,
+    load_query_molecule,
+    load_sdf_file,
+    load_smiles_file,
+    load_smiles_string,
 )
 from _david.code.models import GraphTransformerOptimizer
 from _david.code.pipeline import MoleculePipeline
@@ -17,29 +20,33 @@ from _david.code.utils import (
 )
 from _david.code.visualization import (
     AlignedDepicter,
-    render_epoch_pareto_evolution,
+    ResultAnalyzer,
     render_lead_structures_2d,
-    render_pareto_frontier,
     render_property_distributions,
     render_reference_ensemble,
     render_training_curves,
+    unscale_to_physical_metrics,
 )
 
 __all__ = [
     "DEFAULT_MOLECULE",
+    "PipelineConfig",
+    "RunPaths",
     "PrepareMolecule",
     "create_environment",
     "create_rocs_scorer",
+    "load_query_molecule",
+    "load_sdf_file",
+    "load_smiles_file",
+    "load_smiles_string",
     "GraphTransformerOptimizer",
     "AlignedDepicter",
-    "ParetoFrontier",
     "ResultAnalyzer",
     "render_reference_ensemble",
     "render_training_curves",
-    "render_epoch_pareto_evolution",
     "render_property_distributions",
     "render_lead_structures_2d",
-    # "render_pareto_frontier",
+    "unscale_to_physical_metrics",
     "HardwareManager",
     "FallbackMonitor",
     "get_gpu_telemetry",

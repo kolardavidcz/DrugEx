@@ -11,7 +11,6 @@ from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
 from drugex.training.generators import GraphTransformer
 
-from _david.code.config import PipelineConfig
 from _david.code.environment import PrepareMolecule
 from _david.code.utils import HardwareManager
 
@@ -24,15 +23,12 @@ class GraphTransformerOptimizer:
     def __init__(
         self,
         models_dir: Path | str,
-        raw_data_dir: Path | str | None = None,
+        raw_data_dir: Path | str,
         gpu: int | str | None = "auto",
     ) -> None:
         HardwareManager.init_runtime_environment()
         self.MODELS_DIR = Path(models_dir)
-        #* could we remove this condition since we decided, that we want to make specific folder for models and specificfor raw_data
-        self.RAW_DATA_DIR = (
-            Path(raw_data_dir) if raw_data_dir is not None else self.MODELS_DIR
-        )
+        self.RAW_DATA_DIR = Path(raw_data_dir)
         self.MODELS_DIR.mkdir(parents=True, exist_ok=True)
         self.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -46,7 +42,7 @@ class GraphTransformerOptimizer:
         )
         pkg_path = pretrained_dir / "Papyrus05.5_graph_trans_PT.pkg"
         vocab_path = pretrained_dir / "Papyrus05.5_graph_trans_PT.vocab"
-        if not pkg_path.exists(): #just being more robust
+        if not pkg_path.exists():
             pkg_path = pretrained_dir.with_suffix(".pkg")
             vocab_path = pretrained_dir.with_suffix(".vocab")
 
@@ -67,7 +63,6 @@ class GraphTransformerOptimizer:
         val_samples: int | None = None,
     ) -> tuple[DataLoader, DataLoader, GraphFragDataSet]:
         """Generate training and decoupled validation DataLoaders for seed fragments."""
-        
         seed_tsv = self.RAW_DATA_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
 
@@ -78,7 +73,6 @@ class GraphTransformerOptimizer:
             n_proc=1,
         )
 
-        #we support external scaffold
         scaffolds: list[str] = []
         if scaffolds_path and Path(scaffolds_path).is_file():
             with open(scaffolds_path, "r", encoding="utf-8") as f:
@@ -96,14 +90,10 @@ class GraphTransformerOptimizer:
         expanded_prompts = (scaffolds * n_repeats)[:n_prompts]
         encoder.apply(expanded_prompts, encodingCollectors=[seed_dataset])
 
-        # Decouple validation data from training data by slicing underlying raw data array
+        # Decouple validation data from training data by slicing raw data array
         raw_data = seed_dataset.getData()
-        #* i think fallowing calculation is too compicated i suggest
-        #* val_size = val_samples if val_samples else max(50, int(n_prompts*0.25))
-        val_size = min(
-            val_samples or min(50, max(25, int(n_prompts * 0.20))), n_prompts
-        )
-        val_data = raw_data[:val_size] #* does this realy deep copy data
+        val_size = min(val_samples if val_samples else max(50, int(n_prompts * 0.25)), n_prompts)
+        val_data = raw_data[:val_size]
 
         batch_size = HardwareManager.get_recommended_batch_size(n_prompts)
         train_loader = seed_dataset.dataToLoader(

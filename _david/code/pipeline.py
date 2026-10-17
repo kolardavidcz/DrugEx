@@ -15,35 +15,20 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from _david.code.analysis import ResultAnalyzer
-from _david.code.config import PipelineConfig, RunPaths
-from _david.code.environment import (
-    DEFAULT_MOLECULE,
-    PrepareMolecule,
-    create_environment,
-)
+from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
+from _david.code.environment import PrepareMolecule, create_environment
 from _david.code.models import GraphTransformerOptimizer
 from _david.code.schema import std
 from _david.code.utils import HardwareManager, get_gpu_telemetry
 from _david.code.visualization import (
-    render_epoch_pareto_evolution,
+    ResultAnalyzer,
     render_reference_ensemble,
     render_training_curves,
 )
 
 
 class MoleculePipeline:
-    """Production Ligand-Based De Novo Design (LBDD) pipeline in DrugEx.
-
-    WHY:
-    Orchestrates end-to-end multi-objective 3D ROCS shape/color alignment and synthetic
-    accessibility optimization with an authoritative single source of truth and direct-to-disk targets.
-
-    WHAT:
-    - Stage 0: Generates pocket reference 3D conformers and extracts seed core scaffold.
-    - Stage 1: RL exploration using GraphTransformer with continuous multi-objective reward.
-    - Stage 2: Final candidate generation, lead prioritization, and direct-to-disk presentation deliverables.
-    """
+    """Production Ligand-Based De Novo Design (LBDD) pipeline in DrugEx."""
 
     def __init__(
         self,
@@ -53,7 +38,7 @@ class MoleculePipeline:
         **kwargs,
     ) -> None:
         self.config: PipelineConfig = config or PipelineConfig(**kwargs)
-        HardwareManager.init_runtime_environment(ratio=self.config.cpu_ratio)
+        HardwareManager.init_runtime_environment(ratio=self.config.cpu_ratio or 0.60)
 
         if paths is not None:
             self.paths: RunPaths = paths
@@ -68,7 +53,7 @@ class MoleculePipeline:
             random_seed=self.config.random_seed,
         )
 
-    def run(self, molecule: str = DEFAULT_MOLECULE) -> Path:
+    def run(self, molecule: str | Path = DEFAULT_MOLECULE) -> Path:
         """Execute end-to-end multi-objective LBDD RL exploration and lead prioritization."""
         self.paths.create_directories()
 
@@ -77,7 +62,8 @@ class MoleculePipeline:
         scaffold_tsv = self.paths.raw_data_dir / "seed_core_scaffold.tsv"
 
         # Stage 0: 3D Reference Conformers & Core Scaffold
-        print(f"\n[Stage 0] Generating 3D reference conformers for: {molecule[:40]}...")
+        query_desc = str(molecule)[:40]
+        print(f"\n[Stage 0] Generating 3D reference conformers for: {query_desc}...")
         self.preparer.generate_reference_conformers(molecule, output_path=ref_sdf)
         render_reference_ensemble(ref_sdf, output_png=ref_png)
         self.preparer.extract_seed_core_scaffold(molecule, output_path=scaffold_tsv)
@@ -113,7 +99,6 @@ class MoleculePipeline:
             batch_size=batch_size,
         )
 
-        # Model prefix in raw_data keeps intermediate monitoring TSVs in raw_data
         model_prefix = self.paths.raw_data_dir / "david_agent"
         monitor = PeakRecoveryMonitor(
             model_prefix,
@@ -133,31 +118,12 @@ class MoleculePipeline:
         )
         monitor.restore_peak_model(optimizer.AGENT)
 
-        # Move final checkpoint packages directly to models_dir
         for pkg in self.paths.raw_data_dir.glob("*.pkg"):
             shutil.move(str(pkg), str(self.paths.models_dir / pkg.name))
 
-        # Standardize smiles TSV if generated
-        #* there souldnt be need for standartization - if we use 1 standart in whole code
-        #* onther goal of this refactor sould be removel of "standardize", "find_rocs_column", "find_sa_column", "find_desired_column"
-        smiles_tsv = Path(f"{model_prefix}_smiles.tsv")
-        if smiles_tsv.exists():
-            s_df = pd.read_csv(smiles_tsv, sep="\t")
-            std.standardize(s_df).to_csv(smiles_tsv, sep="\t", index=False)
-
-        # Render training curves straight to root deliverables
         fit_tsv = Path(f"{model_prefix}_fit.tsv")
         if fit_tsv.exists():
-            render_training_curves(
-                fit_tsv,
-                output_png=self.paths.root / "rl_training_curves.png",
-            )
-        #* for now coment out all of the render_pareto code like (dont addd extra comments)
-        # if self.config.render_pareto and smiles_tsv.exists():
-        #     render_epoch_pareto_evolution(
-        #         smiles_tsv,
-        #         output_png=self.paths.root / "pareto_epoch_evolution.png",
-        #     )
+            render_training_curves(fit_tsv, output_png=self.paths.root / "rl_training_curves.png")
 
         # Stage 2: Final Candidate Generation from Peak Agent
         eval_samples = self.config.n_eval_samples
@@ -171,22 +137,22 @@ class MoleculePipeline:
         df = env.getScores(smiles_list, frags=frags_list)
         df.insert(0, std.SMILES, smiles_list)
         df.insert(1, std.FRAGS, frags_list)
-        df = std.standardize(df)
+
+        for col in df.columns:
+            if "TanimotoCombo" in col or "ROCS" in col:
+                df = df.rename(columns={col: std.ROCS})
+                break
 
         candidates_tsv = self.paths.raw_data_dir / "generated_candidates.tsv"
         df.to_csv(candidates_tsv, sep="\t", index=False)
 
         # Stage 3: Lead Prioritization & Deliverables
-        print("[Stage 2] Profiling generated leads and Pareto frontier...")
+        print("[Stage 2] Profiling generated leads and deliverables...")
         analyzer = ResultAnalyzer(
             deliverables_dir=self.paths.root,
             raw_data_dir=self.paths.raw_data_dir,
         )
-        analyzer.analyze(
-            candidates_tsv,
-            ref_sdf=ref_sdf,
-            # render_pareto=self.config.render_pareto,
-        )
+        analyzer.analyze(candidates_tsv, ref_sdf=ref_sdf)
 
         status = {
             "run_id": self.paths.root.name,
@@ -196,7 +162,6 @@ class MoleculePipeline:
         with open(self.paths.logs_dir / "pipeline_status.json", "w", encoding="utf-8") as f:
             json.dump(status, f, indent=4)
 
-        # Generate summary.md report straight in root deliverables
         summary_md = self.paths.root / "summary.md"
         top_leads_tsv = self.paths.root / "top_prioritized_leads.tsv"
         top_leads_df = (
@@ -208,7 +173,7 @@ class MoleculePipeline:
         md_lines = [
             f"# DrugEx Run Summary: {self.paths.root.name}",
             "",
-            f"- **Target Molecule**: `{molecule[:60]}...`",
+            f"- **Target Molecule**: `{query_desc}...`",
             f"- **Epochs**: `{self.config.epochs}`",
             f"- **Criteria**: `{self.config.criteria}`",
             f"- **Candidates Evaluated**: `{eval_samples}`",
@@ -230,7 +195,6 @@ class MoleculePipeline:
                     std.SA,
                     std.QED,
                     std.MW,
-                    std.PARETO_RANK,
                     std.CANONICAL_SMILES,
                 ]
                 if c in top_leads_df.columns
@@ -240,7 +204,7 @@ class MoleculePipeline:
             for _, row in top_leads_df[cols].head(5).iterrows():
                 vals = [
                     f"{float(row[c]):.3f}"
-                    if isinstance(row[c], (float, int)) and c != std.PARETO_RANK
+                    if isinstance(row[c], (float, int))
                     else str(row[c])
                     for c in cols
                 ]
@@ -253,7 +217,7 @@ class MoleculePipeline:
         return self.paths.root
 
 
-def parse_args() -> tuple[PipelineConfig, RunPaths, str, bool]:
+def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     """Parse CLI arguments deriving all defaults strictly from PipelineConfig."""
     parser = argparse.ArgumentParser(description="DrugEx LBDD Pipeline Runner")
     defaults = PipelineConfig()
@@ -263,28 +227,16 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str, bool]:
     parser.add_argument("--n-samples", type=int, default=defaults.n_samples, help="RL prompt batch size")
     parser.add_argument("--val-samples", type=int, default=defaults.val_samples, help="Validation sample size")
     parser.add_argument("--n-eval-samples", type=int, default=defaults.n_eval_samples,
-        help="Number of final candidates generated from peak agent",)
+        help="Number of final candidates generated from peak agent")
     parser.add_argument("--criteria", default=defaults.criteria, help="Peak model monitoring criteria")
     parser.add_argument("--epsilon", type=float, default=defaults.epsilon, help="Exploration noise epsilon")
-    #* split --molecule into 2 "--molecule" will surve as string imput (btw for now keep default=DEFAULT_MOLECULE)
-    #* and --input that will take care of files - this will simplify refactoring of envirument.py+associlated files and can make 2 functions for separete imputs
-    #* use same standarts as 
-    parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES or file path")
-    parser.add_argument("--gpu", default=defaults.gpu, help="GPU device ID or 'auto'/'all'/'cpu'")
+    parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES string")
+    parser.add_argument("--input", default=None, help="Target molecule structure file (.sdf, .smi, .txt)")
+    parser.add_argument("--gpu", default=defaults.gpu, help="GPU device ID or 'auto'/'cpu'")
     parser.add_argument("--cpu-ratio", type=float, default=defaults.cpu_ratio,
-        help="Fraction of CPU cores allocated for parallel scoring (default: None, uses safe 0.60)",)
+        help="Fraction of CPU cores allocated for parallel scoring (default: 0.60)")
     parser.add_argument("--out-dir", type=Path, default=None, help="Explicit custom output directory")
-    #* remove "--phase" user, will aften put it manually
-    parser.add_argument(
-        "--phase",
-        type=str,
-        default=None,
-        help="Optional experimental phase folder name (e.g. '05_new_era')",
-    )
-    parser.add_argument("--detach", action="store_true", default=False,
-                        help="Run as detached background daemon process")
-    # parser.add_argument("--pareto", action="store_true", default=defaults.render_pareto,
-    #                     help="Enable Pareto evolution visualization")
+    parser.add_argument("--detach", action="store_true", default=False, help="Run as detached background daemon")
     args, _ = parser.parse_known_args()
 
     config = PipelineConfig(
@@ -297,11 +249,10 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str, bool]:
         epsilon=args.epsilon,
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
-        # render_pareto=args.pareto,
     )
-    #* remove "--phase" user, will aften put it manually
-    paths = RunPaths.resolve(base_dir=args.out_dir, phase=args.phase)
-    return config, paths, args.molecule, args.detach
+    paths = RunPaths.resolve(base_dir=args.out_dir)
+    target_molecule = args.input if args.input is not None else args.molecule
+    return config, paths, target_molecule, args.detach
 
 
 def main() -> None:
@@ -327,12 +278,14 @@ def main() -> None:
             "--n-eval-samples", str(config.n_eval_samples),
             "--criteria", str(config.criteria),
             "--epsilon", str(config.epsilon),
-            "--molecule", molecule,
             "--gpu", str(config.gpu),
             "--out-dir", str(paths.root),
         ]
-        # if config.render_pareto:
-        #     cmd.append("--pareto")
+        if isinstance(molecule, (str, Path)) and Path(str(molecule)).exists():
+            cmd.extend(["--input", str(molecule)])
+        else:
+            cmd.extend(["--molecule", str(molecule)])
+
         if config.cpu_ratio is not None:
             cmd.extend(["--cpu-ratio", str(config.cpu_ratio)])
 
