@@ -38,10 +38,13 @@ class PrepareMolecule:
 
     def standardize(self, smiles: str) -> str:
         """Standardize, desalt, uncharge, and normalize input chemical structure using DrugEx standards."""
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            raise ValueError(f"Could not parse molecule query: {smiles!r}")
         try:
             return self.standardizer(smiles)
         except Exception:
-            return Chem.CanonSmiles(smiles)
+            return Chem.MolToSmiles(mol)
 
     def load_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
         """Load and standardize molecule across RDKit Mols, SMILES strings, and structure files."""
