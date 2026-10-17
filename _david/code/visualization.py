@@ -422,398 +422,398 @@ def render_training_curves(
     return target_png
 
 
-def render_epoch_pareto_evolution(
-    smiles_tsv_path: Path | str,
-    output_png: Path | str | None = None,
-    max_grid_epochs: int = 6,
-    maximize: Sequence[bool] = (True, False),
-) -> Path | None:
-    tsv_file = Path(smiles_tsv_path)
-    if not tsv_file.exists():
-        return None
+# def render_epoch_pareto_evolution(
+#     smiles_tsv_path: Path | str,
+#     output_png: Path | str | None = None,
+#     max_grid_epochs: int = 6,
+#     maximize: Sequence[bool] = (True, False),
+# ) -> Path | None:
+#     tsv_file = Path(smiles_tsv_path)
+#     if not tsv_file.exists():
+#         return None
 
-    df = pd.read_csv(tsv_file, sep="\t")
-    if df.empty or std.EPOCH not in df.columns or std.SMILES not in df.columns:
-        return None
+#     df = pd.read_csv(tsv_file, sep="\t")
+#     if df.empty or std.EPOCH not in df.columns or std.SMILES not in df.columns:
+#         return None
 
-    rocs_name = std.ROCS
-    if rocs_name not in df.columns:
-        return None
+#     rocs_name = std.ROCS
+#     if rocs_name not in df.columns:
+#         return None
 
-    out_dir = Path(output_png).parent if output_png else tsv_file.parent
-    target_png = (
-        Path(output_png) if output_png else out_dir / "pareto_epoch_evolution.png"
-    )
-    target_png.parent.mkdir(parents=True, exist_ok=True)
+#     out_dir = Path(output_png).parent if output_png else tsv_file.parent
+#     target_png = (
+#         Path(output_png) if output_png else out_dir / "pareto_epoch_evolution.png"
+#     )
+#     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use canonical SA column or calculate raw SAscore if absent or normalized <= 1.05
-    # Threshold 1.05 provides a 5% margin against float rounding noise to differentiate
-    # normalized desirability [0, 1] from raw SAscore in [1.0, 10.0].
-    sa_name = std.SA
-    if sa_name not in df.columns or (
-        df[sa_name].dropna().max() <= 1.05 and std.SMILES in df.columns
-    ):
-        mols = [
-            Chem.MolFromSmiles(s) if isinstance(s, str) else None
-            for s in df[std.SMILES]
-        ]
-        sa_scores = []
-        for m in mols:
-            try:
-                sa_scores.append(float(calculate_sa_score(m)) if m else np.nan)
-            except Exception:
-                sa_scores.append(np.nan)
-        df[sa_name] = sa_scores
+#     # Use canonical SA column or calculate raw SAscore if absent or normalized <= 1.05
+#     # Threshold 1.05 provides a 5% margin against float rounding noise to differentiate
+#     # normalized desirability [0, 1] from raw SAscore in [1.0, 10.0].
+#     sa_name = std.SA
+#     if sa_name not in df.columns or (
+#         df[sa_name].dropna().max() <= 1.05 and std.SMILES in df.columns
+#     ):
+#         mols = [
+#             Chem.MolFromSmiles(s) if isinstance(s, str) else None
+#             for s in df[std.SMILES]
+#         ]
+#         sa_scores = []
+#         for m in mols:
+#             try:
+#                 sa_scores.append(float(calculate_sa_score(m)) if m else np.nan)
+#             except Exception:
+#                 sa_scores.append(np.nan)
+#         df[sa_name] = sa_scores
 
-    # Threshold 1.05 differentiates normalized [0, 1] from physical ROCS TanimotoCombo [0, 2.0]
-    if df[rocs_name].dropna().max() <= 1.05:
-        df[rocs_name] = df[rocs_name] * 2.0
+#     # Threshold 1.05 differentiates normalized [0, 1] from physical ROCS TanimotoCombo [0, 2.0]
+#     if df[rocs_name].dropna().max() <= 1.05:
+#         df[rocs_name] = df[rocs_name] * 2.0
 
 
-    valid_df = df.dropna(subset=[rocs_name, sa_name]).copy()
-    if valid_df.empty:
-        return None
+#     valid_df = df.dropna(subset=[rocs_name, sa_name]).copy()
+#     if valid_df.empty:
+#         return None
 
-    epochs = sorted(int(e) for e in valid_df[std.EPOCH].unique())
-    if not epochs:
-        return None
+#     epochs = sorted(int(e) for e in valid_df[std.EPOCH].unique())
+#     if not epochs:
+#         return None
 
-    # Global coordinate boundaries for constant scale across all epoch plots
-    x_min, x_max = float(valid_df[sa_name].min()), float(valid_df[sa_name].max())
-    y_min, y_max = float(valid_df[rocs_name].min()), float(valid_df[rocs_name].max())
-    x_pad = 0.05 * (x_max - x_min) if (x_max > x_min) else 0.5
-    y_pad = 0.05 * (y_max - y_min) if (y_max > y_min) else 0.05
-    x_limits = (max(0.0 if maximize[1] else 1.0, x_min - x_pad), x_max + x_pad)
-    y_limits = (max(0.0, y_min - y_pad), min(2.0, y_max + y_pad))
+#     # Global coordinate boundaries for constant scale across all epoch plots
+#     x_min, x_max = float(valid_df[sa_name].min()), float(valid_df[sa_name].max())
+#     y_min, y_max = float(valid_df[rocs_name].min()), float(valid_df[rocs_name].max())
+#     x_pad = 0.05 * (x_max - x_min) if (x_max > x_min) else 0.5
+#     y_pad = 0.05 * (y_max - y_min) if (y_max > y_min) else 0.05
+#     x_limits = (max(0.0 if maximize[1] else 1.0, x_min - x_pad), x_max + x_pad)
+#     y_limits = (max(0.0, y_min - y_pad), min(2.0, y_max + y_pad))
 
-    # 1. Generate Individual Pareto Plot for EVERY Epoch (e.g. 30 plots for 30 epochs)
-    by_epoch_dir = out_dir / "pareto_by_epoch"
-    by_epoch_dir.mkdir(parents=True, exist_ok=True)
-    generated_epoch_pngs: list[Path] = []
+#     # 1. Generate Individual Pareto Plot for EVERY Epoch (e.g. 30 plots for 30 epochs)
+#     by_epoch_dir = out_dir / "pareto_by_epoch"
+#     by_epoch_dir.mkdir(parents=True, exist_ok=True)
+#     generated_epoch_pngs: list[Path] = []
 
-    from _david.code.analysis import ParetoFrontier
+#     from _david.code.analysis import ParetoFrontier
 
-    for ep in epochs:
-        sub = valid_df[valid_df[std.EPOCH] == ep].copy()
-        if len(sub) < 2:
-            continue
+#     for ep in epochs:
+#         sub = valid_df[valid_df[std.EPOCH] == ep].copy()
+#         if len(sub) < 2:
+#             continue
 
-        fig_ep, ax_ep = plt.subplots(figsize=(8.5, 5.8), dpi=180)
-        scores = sub[[rocs_name, sa_name]].to_numpy(dtype=float)
+#         fig_ep, ax_ep = plt.subplots(figsize=(8.5, 5.8), dpi=180)
+#         scores = sub[[rocs_name, sa_name]].to_numpy(dtype=float)
 
-        # Non-dominated Front 0
-        is_front0 = ParetoFrontier.identify_pareto_front(scores, maximize)
-        front_0 = (
-            sub[is_front0]
-            .sort_values(by=sa_name, ascending=not maximize[1])
-            .drop_duplicates(subset=[sa_name, rocs_name])
-        )
+#         # Non-dominated Front 0
+#         is_front0 = ParetoFrontier.identify_pareto_front(scores, maximize)
+#         front_0 = (
+#             sub[is_front0]
+#             .sort_values(by=sa_name, ascending=not maximize[1])
+#             .drop_duplicates(subset=[sa_name, rocs_name])
+#         )
 
-        # Second-tier Front 1 (Dominated Tier)
-        sub_rem = sub[~is_front0]
-        if len(sub_rem) >= 2:
-            scores_rem = sub_rem[[rocs_name, sa_name]].to_numpy(dtype=float)
-            is_front1 = ParetoFrontier.identify_pareto_front(scores_rem, maximize)
-            front_1 = (
-                sub_rem[is_front1]
-                .sort_values(by=sa_name, ascending=not maximize[1])
-                .drop_duplicates(subset=[sa_name, rocs_name])
-            )
-            others = sub_rem[~is_front1]
-        else:
-            front_1 = pd.DataFrame(columns=sub.columns)
-            others = sub_rem
+#         # Second-tier Front 1 (Dominated Tier)
+#         sub_rem = sub[~is_front0]
+#         if len(sub_rem) >= 2:
+#             scores_rem = sub_rem[[rocs_name, sa_name]].to_numpy(dtype=float)
+#             is_front1 = ParetoFrontier.identify_pareto_front(scores_rem, maximize)
+#             front_1 = (
+#                 sub_rem[is_front1]
+#                 .sort_values(by=sa_name, ascending=not maximize[1])
+#                 .drop_duplicates(subset=[sa_name, rocs_name])
+#             )
+#             others = sub_rem[~is_front1]
+#         else:
+#             front_1 = pd.DataFrame(columns=sub.columns)
+#             others = sub_rem
 
-        # Dominated points
-        if not others.empty:
-            ax_ep.scatter(
-                others[sa_name],
-                others[rocs_name],
-                c="#94a3b8",
-                alpha=0.35,
-                s=30,
-                label="Dominated Candidates",
-                zorder=2,
-            )
+#         # Dominated points
+#         if not others.empty:
+#             ax_ep.scatter(
+#                 others[sa_name],
+#                 others[rocs_name],
+#                 c="#94a3b8",
+#                 alpha=0.35,
+#                 s=30,
+#                 label="Dominated Candidates",
+#                 zorder=2,
+#             )
 
-        # Front 1 (Dominated Tier) - Dashed curve
-        if not front_1.empty:
-            ax_ep.scatter(
-                front_1[sa_name],
-                front_1[rocs_name],
-                color="#f43f5e",
-                s=45,
-                alpha=0.85,
-                zorder=3,
-            )
-            if len(front_1) > 1:
-                ax_ep.plot(
-                    front_1[sa_name],
-                    front_1[rocs_name],
-                    color="#f43f5e",
-                    linestyle="--",
-                    linewidth=1.8,
-                    label="Front 1 (Dominated Tier)",
-                    zorder=3,
-                )
+#         # Front 1 (Dominated Tier) - Dashed curve
+#         if not front_1.empty:
+#             ax_ep.scatter(
+#                 front_1[sa_name],
+#                 front_1[rocs_name],
+#                 color="#f43f5e",
+#                 s=45,
+#                 alpha=0.85,
+#                 zorder=3,
+#             )
+#             if len(front_1) > 1:
+#                 ax_ep.plot(
+#                     front_1[sa_name],
+#                     front_1[rocs_name],
+#                     color="#f43f5e",
+#                     linestyle="--",
+#                     linewidth=1.8,
+#                     label="Front 1 (Dominated Tier)",
+#                     zorder=3,
+#                 )
 
-        # Front 0 (Optimal Frontier) - Solid curve connecting points
-        if not front_0.empty:
-            ax_ep.scatter(
-                front_0[sa_name],
-                front_0[rocs_name],
-                color="#0284c7",
-                s=75,
-                edgecolors="#0f172a",
-                linewidth=1.1,
-                zorder=5,
-            )
-            if len(front_0) > 1:
-                ax_ep.plot(
-                    front_0[sa_name],
-                    front_0[rocs_name],
-                    color="#0284c7",
-                    linestyle="-",
-                    linewidth=2.4,
-                    label="Front 0 (Optimal Frontier)",
-                    zorder=4,
-                )
-            else:
-                ax_ep.scatter(
-                    [], [], color="#0284c7", label="Front 0 (Optimal Frontier)"
-                )
+#         # Front 0 (Optimal Frontier) - Solid curve connecting points
+#         if not front_0.empty:
+#             ax_ep.scatter(
+#                 front_0[sa_name],
+#                 front_0[rocs_name],
+#                 color="#0284c7",
+#                 s=75,
+#                 edgecolors="#0f172a",
+#                 linewidth=1.1,
+#                 zorder=5,
+#             )
+#             if len(front_0) > 1:
+#                 ax_ep.plot(
+#                     front_0[sa_name],
+#                     front_0[rocs_name],
+#                     color="#0284c7",
+#                     linestyle="-",
+#                     linewidth=2.4,
+#                     label="Front 0 (Optimal Frontier)",
+#                     zorder=4,
+#                 )
+#             else:
+#                 ax_ep.scatter(
+#                     [], [], color="#0284c7", label="Front 0 (Optimal Frontier)"
+#                 )
 
-        ax_ep.set_xlim(x_limits)
-        ax_ep.set_ylim(y_limits)
-        ax_ep.set_title(
-            f"Epoch {ep} Pareto Frontier (Optimal Trade-off & Dominated Tiers)",
-            fontsize=11,
-            fontweight="bold",
-            pad=12,
-        )
-        xlabel = (
-            "Synthetic Accessibility Desirability (Higher is Better)"
-            if maximize[1]
-            else "Synthetic Accessibility (SAscore / Lower is Easier)"
-        )
-        ax_ep.set_xlabel(xlabel, fontsize=10, fontweight="bold")
-        ax_ep.set_ylabel(
-            "ROCS TanimotoCombo (0 to 2.0)",
-            fontsize=10,
-            fontweight="bold",
-        )
-        ax_ep.grid(True, linestyle=":", alpha=0.6)
-        ax_ep.legend(loc="lower left", framealpha=0.9, fontsize=8.5)
+#         ax_ep.set_xlim(x_limits)
+#         ax_ep.set_ylim(y_limits)
+#         ax_ep.set_title(
+#             f"Epoch {ep} Pareto Frontier (Optimal Trade-off & Dominated Tiers)",
+#             fontsize=11,
+#             fontweight="bold",
+#             pad=12,
+#         )
+#         xlabel = (
+#             "Synthetic Accessibility Desirability (Higher is Better)"
+#             if maximize[1]
+#             else "Synthetic Accessibility (SAscore / Lower is Easier)"
+#         )
+#         ax_ep.set_xlabel(xlabel, fontsize=10, fontweight="bold")
+#         ax_ep.set_ylabel(
+#             "ROCS TanimotoCombo (0 to 2.0)",
+#             fontsize=10,
+#             fontweight="bold",
+#         )
+#         ax_ep.grid(True, linestyle=":", alpha=0.6)
+#         ax_ep.legend(loc="lower left", framealpha=0.9, fontsize=8.5)
 
-        # Metric summary callout box
-        max_r = front_0[rocs_name].max() if not front_0.empty else 0.0
-        best_s = (
-            (front_0[sa_name].max() if maximize[1] else front_0[sa_name].min())
-            if not front_0.empty
-            else 0.0
-        )
-        sa_metric = "Peak SA Desirability" if maximize[1] else "Best SA"
-        stats_text = (
-            f"Epoch {ep}/{len(epochs)}\n"
-            f"Front 0 Size: {len(front_0)}\n"
-            f"Peak ROCS: {max_r:.2f}\n"
-            f"{sa_metric}: {best_s:.2f}"
-        )
-        ax_ep.text(
-            0.97,
-            0.95,
-            stats_text,
-            transform=ax_ep.transAxes,
-            fontsize=8.5,
-            verticalalignment="top",
-            horizontalalignment="right",
-            bbox=dict(
-                boxstyle="round,pad=0.5",
-                facecolor="#f8fafc",
-                edgecolor="#cbd5e1",
-                alpha=0.9,
-            ),
-        )
+#         # Metric summary callout box
+#         max_r = front_0[rocs_name].max() if not front_0.empty else 0.0
+#         best_s = (
+#             (front_0[sa_name].max() if maximize[1] else front_0[sa_name].min())
+#             if not front_0.empty
+#             else 0.0
+#         )
+#         sa_metric = "Peak SA Desirability" if maximize[1] else "Best SA"
+#         stats_text = (
+#             f"Epoch {ep}/{len(epochs)}\n"
+#             f"Front 0 Size: {len(front_0)}\n"
+#             f"Peak ROCS: {max_r:.2f}\n"
+#             f"{sa_metric}: {best_s:.2f}"
+#         )
+#         ax_ep.text(
+#             0.97,
+#             0.95,
+#             stats_text,
+#             transform=ax_ep.transAxes,
+#             fontsize=8.5,
+#             verticalalignment="top",
+#             horizontalalignment="right",
+#             bbox=dict(
+#                 boxstyle="round,pad=0.5",
+#                 facecolor="#f8fafc",
+#                 edgecolor="#cbd5e1",
+#                 alpha=0.9,
+#             ),
+#         )
 
-        plt.tight_layout()
-        ep_png = by_epoch_dir / f"epoch_{ep:02d}.png"
-        plt.savefig(ep_png, dpi=180, bbox_inches="tight")
-        plt.close(fig_ep)
-        generated_epoch_pngs.append(ep_png)
+#         plt.tight_layout()
+#         ep_png = by_epoch_dir / f"epoch_{ep:02d}.png"
+#         plt.savefig(ep_png, dpi=180, bbox_inches="tight")
+#         plt.close(fig_ep)
+#         generated_epoch_pngs.append(ep_png)
 
-    # 2. Interactive HTML Epoch Scrubber Viewer
-    html_path = out_dir / "pareto_epoch_viewer.html"
-    epoch_files_js = [f"pareto_by_epoch/epoch_{ep:02d}.png" for ep in epochs]
-    html_content = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Reinforcement Learning Epoch Pareto Evolution</title>
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 24px; text-align: center; }}
-        h1 {{ font-size: 1.4rem; margin-bottom: 8px; color: #38bdf8; }}
-        .controls {{ display: flex; align-items: center; justify-content: center; gap: 16px; margin: 16px auto; max-width: 600px; }}
-        button {{ background: #0284c7; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.9rem; }}
-        button:hover {{ background: #0369a1; }}
-        input[type=range] {{ flex-grow: 1; accent-color: #38bdf8; cursor: pointer; }}
-        .counter {{ font-size: 1.1rem; font-weight: bold; min-width: 100px; color: #f59e0b; }}
-        .img-container {{ max-width: 900px; margin: 12px auto; background: white; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); overflow: hidden; }}
-        img {{ width: 100%; height: auto; display: block; }}
-        .hint {{ font-size: 0.85rem; color: #94a3b8; margin-top: 10px; }}
-    </style>
-</head>
-<body>
-    <h1>Micro-Evolution of Pareto Frontier Across RL Training Epochs</h1>
-    <div class="controls">
-        <button id="prevBtn">&larr; Prev</button>
-        <button id="playBtn">Play &#9654;</button>
-        <button id="nextBtn">Next &rarr;</button>
-        <input type="range" id="slider" min="1" max="{len(epochs)}" value="1">
-        <span class="counter" id="epochLabel">Epoch 1/{len(epochs)}</span>
-    </div>
-    <div class="img-container">
-        <img id="paretoImg" src="{epoch_files_js[0]}" alt="Epoch Pareto Frontier">
-    </div>
-    <div class="hint">Use slider or left/right arrow keys to inspect the frontier shifting over epochs.</div>
-    <script>
-        const images = {epoch_files_js};
-        let currentIdx = 0;
-        let isPlaying = false;
-        let playInterval = null;
+#     # 2. Interactive HTML Epoch Scrubber Viewer
+#     html_path = out_dir / "pareto_epoch_viewer.html"
+#     epoch_files_js = [f"pareto_by_epoch/epoch_{ep:02d}.png" for ep in epochs]
+#     html_content = f"""<!DOCTYPE html>
+# <html lang="en">
+# <head>
+#     <meta charset="UTF-8">
+#     <title>Reinforcement Learning Epoch Pareto Evolution</title>
+#     <style>
+#         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 24px; text-align: center; }}
+#         h1 {{ font-size: 1.4rem; margin-bottom: 8px; color: #38bdf8; }}
+#         .controls {{ display: flex; align-items: center; justify-content: center; gap: 16px; margin: 16px auto; max-width: 600px; }}
+#         button {{ background: #0284c7; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.9rem; }}
+#         button:hover {{ background: #0369a1; }}
+#         input[type=range] {{ flex-grow: 1; accent-color: #38bdf8; cursor: pointer; }}
+#         .counter {{ font-size: 1.1rem; font-weight: bold; min-width: 100px; color: #f59e0b; }}
+#         .img-container {{ max-width: 900px; margin: 12px auto; background: white; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); overflow: hidden; }}
+#         img {{ width: 100%; height: auto; display: block; }}
+#         .hint {{ font-size: 0.85rem; color: #94a3b8; margin-top: 10px; }}
+#     </style>
+# </head>
+# <body>
+#     <h1>Micro-Evolution of Pareto Frontier Across RL Training Epochs</h1>
+#     <div class="controls">
+#         <button id="prevBtn">&larr; Prev</button>
+#         <button id="playBtn">Play &#9654;</button>
+#         <button id="nextBtn">Next &rarr;</button>
+#         <input type="range" id="slider" min="1" max="{len(epochs)}" value="1">
+#         <span class="counter" id="epochLabel">Epoch 1/{len(epochs)}</span>
+#     </div>
+#     <div class="img-container">
+#         <img id="paretoImg" src="{epoch_files_js[0]}" alt="Epoch Pareto Frontier">
+#     </div>
+#     <div class="hint">Use slider or left/right arrow keys to inspect the frontier shifting over epochs.</div>
+#     <script>
+#         const images = {epoch_files_js};
+#         let currentIdx = 0;
+#         let isPlaying = false;
+#         let playInterval = null;
 
-        const imgEl = document.getElementById("paretoImg");
-        const sliderEl = document.getElementById("slider");
-        const labelEl = document.getElementById("epochLabel");
-        const playBtn = document.getElementById("playBtn");
+#         const imgEl = document.getElementById("paretoImg");
+#         const sliderEl = document.getElementById("slider");
+#         const labelEl = document.getElementById("epochLabel");
+#         const playBtn = document.getElementById("playBtn");
 
-        function showEpoch(idx) {{
-            currentIdx = Math.max(0, Math.min(images.length - 1, idx));
-            imgEl.src = images[currentIdx];
-            sliderEl.value = currentIdx + 1;
-            labelEl.textContent = `Epoch ${{currentIdx + 1}}/${{images.length}}`;
-        }}
+#         function showEpoch(idx) {{
+#             currentIdx = Math.max(0, Math.min(images.length - 1, idx));
+#             imgEl.src = images[currentIdx];
+#             sliderEl.value = currentIdx + 1;
+#             labelEl.textContent = `Epoch ${{currentIdx + 1}}/${{images.length}}`;
+#         }}
 
-        document.getElementById("prevBtn").addEventListener("click", () => showEpoch(currentIdx - 1));
-        document.getElementById("nextBtn").addEventListener("click", () => showEpoch(currentIdx + 1));
-        sliderEl.addEventListener("input", (e) => showEpoch(parseInt(e.target.value) - 1));
+#         document.getElementById("prevBtn").addEventListener("click", () => showEpoch(currentIdx - 1));
+#         document.getElementById("nextBtn").addEventListener("click", () => showEpoch(currentIdx + 1));
+#         sliderEl.addEventListener("input", (e) => showEpoch(parseInt(e.target.value) - 1));
 
-        function togglePlay() {{
-            if (isPlaying) {{
-                clearInterval(playInterval);
-                playBtn.innerHTML = "Play &#9654;";
-                isPlaying = false;
-            }} else {{
-                playInterval = setInterval(() => {{
-                    currentIdx = (currentIdx + 1) % images.length;
-                    showEpoch(currentIdx);
-                }}, 350);
-                playBtn.innerHTML = "Pause &#10074;&#10074;";
-                isPlaying = true;
-            }}
-        }}
+#         function togglePlay() {{
+#             if (isPlaying) {{
+#                 clearInterval(playInterval);
+#                 playBtn.innerHTML = "Play &#9654;";
+#                 isPlaying = false;
+#             }} else {{
+#                 playInterval = setInterval(() => {{
+#                     currentIdx = (currentIdx + 1) % images.length;
+#                     showEpoch(currentIdx);
+#                 }}, 350);
+#                 playBtn.innerHTML = "Pause &#10074;&#10074;";
+#                 isPlaying = true;
+#             }}
+#         }}
 
-        playBtn.addEventListener("click", togglePlay);
-        document.addEventListener("keydown", (e) => {{
-            if (e.key === "ArrowLeft") showEpoch(currentIdx - 1);
-            if (e.key === "ArrowRight") showEpoch(currentIdx + 1);
-            if (e.key === " ") {{ e.preventDefault(); togglePlay(); }}
-        }});
-    </script>
-</body>
-</html>
-"""
-    with open(html_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
+#         playBtn.addEventListener("click", togglePlay);
+#         document.addEventListener("keydown", (e) => {{
+#             if (e.key === "ArrowLeft") showEpoch(currentIdx - 1);
+#             if (e.key === "ArrowRight") showEpoch(currentIdx + 1);
+#             if (e.key === " ") {{ e.preventDefault(); togglePlay(); }}
+#         }});
+#     </script>
+# </body>
+# </html>
+# """
+#     with open(html_path, "w", encoding="utf-8") as f:
+#         f.write(html_content)
 
-    # 3. Clean Multi-Panel Progression Grid (2x3 or 2x2 side-by-side epochs)
-    if len(epochs) > max_grid_epochs:
-        grid_indices = np.linspace(0, len(epochs) - 1, max_grid_epochs, dtype=int)
-        grid_epochs = [epochs[i] for i in grid_indices]
-    else:
-        grid_epochs = epochs
+#     # 3. Clean Multi-Panel Progression Grid (2x3 or 2x2 side-by-side epochs)
+#     if len(epochs) > max_grid_epochs:
+#         grid_indices = np.linspace(0, len(epochs) - 1, max_grid_epochs, dtype=int)
+#         grid_epochs = [epochs[i] for i in grid_indices]
+#     else:
+#         grid_epochs = epochs
 
-    n_panels = len(grid_epochs)
-    ncols = 3 if n_panels >= 3 else n_panels
-    nrows = math.ceil(n_panels / ncols)
+#     n_panels = len(grid_epochs)
+#     ncols = 3 if n_panels >= 3 else n_panels
+#     nrows = math.ceil(n_panels / ncols)
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5.3 * ncols, 4.2 * nrows), dpi=200)
-    axes_flat = axes.flatten() if hasattr(axes, "flatten") else [axes]
-    fig.suptitle(
-        "Reinforcement Learning Pareto Frontier Progression Across Epochs",
-        fontsize=14,
-        fontweight="bold",
-        y=0.98,
-    )
+#     fig, axes = plt.subplots(nrows, ncols, figsize=(5.3 * ncols, 4.2 * nrows), dpi=200)
+#     axes_flat = axes.flatten() if hasattr(axes, "flatten") else [axes]
+#     fig.suptitle(
+#         "Reinforcement Learning Pareto Frontier Progression Across Epochs",
+#         fontsize=14,
+#         fontweight="bold",
+#         y=0.98,
+#     )
 
-    for idx, ep in enumerate(grid_epochs):
-        ax = axes_flat[idx]
-        sub = valid_df[valid_df[std.EPOCH] == ep].copy()
-        if len(sub) < 2:
-            continue
+#     for idx, ep in enumerate(grid_epochs):
+#         ax = axes_flat[idx]
+#         sub = valid_df[valid_df[std.EPOCH] == ep].copy()
+#         if len(sub) < 2:
+#             continue
 
-        scores = sub[[rocs_name, sa_name]].to_numpy(dtype=float)
-        is_front0 = ParetoFrontier.identify_pareto_front(scores, maximize)
+#         scores = sub[[rocs_name, sa_name]].to_numpy(dtype=float)
+#         is_front0 = ParetoFrontier.identify_pareto_front(scores, maximize)
 
-        front_0 = (
-            sub[is_front0]
-            .sort_values(by=sa_name)
-            .drop_duplicates(subset=[sa_name, rocs_name])
-        )
-        sub_rem = sub[~is_front0]
+#         front_0 = (
+#             sub[is_front0]
+#             .sort_values(by=sa_name)
+#             .drop_duplicates(subset=[sa_name, rocs_name])
+#         )
+#         sub_rem = sub[~is_front0]
 
-        # Dominated points
-        if not sub_rem.empty:
-            ax.scatter(
-                sub_rem[sa_name],
-                sub_rem[rocs_name],
-                c="#94a3b8",
-                alpha=0.35,
-                s=20,
-                label="Dominated",
-            )
+#         # Dominated points
+#         if not sub_rem.empty:
+#             ax.scatter(
+#                 sub_rem[sa_name],
+#                 sub_rem[rocs_name],
+#                 c="#94a3b8",
+#                 alpha=0.35,
+#                 s=20,
+#                 label="Dominated",
+#             )
 
-        # Front 0 (Optimal Frontier)
-        if not front_0.empty:
-            ax.scatter(
-                front_0[sa_name],
-                front_0[rocs_name],
-                color="#0284c7",
-                s=55,
-                edgecolors="#0f172a",
-                linewidth=0.9,
-                zorder=5,
-            )
-            if len(front_0) > 1:
-                ax.plot(
-                    front_0[sa_name],
-                    front_0[rocs_name],
-                    color="#0284c7",
-                    linestyle="-",
-                    linewidth=2.0,
-                    label="Front 0",
-                    zorder=4,
-                )
+#         # Front 0 (Optimal Frontier)
+#         if not front_0.empty:
+#             ax.scatter(
+#                 front_0[sa_name],
+#                 front_0[rocs_name],
+#                 color="#0284c7",
+#                 s=55,
+#                 edgecolors="#0f172a",
+#                 linewidth=0.9,
+#                 zorder=5,
+#             )
+#             if len(front_0) > 1:
+#                 ax.plot(
+#                     front_0[sa_name],
+#                     front_0[rocs_name],
+#                     color="#0284c7",
+#                     linestyle="-",
+#                     linewidth=2.0,
+#                     label="Front 0",
+#                     zorder=4,
+#                 )
 
-        ax.set_xlim(x_limits)
-        ax.set_ylim(y_limits)
-        ax.set_title(
-            f"Epoch {ep} Frontier (Size: {len(front_0)})",
-            fontsize=10,
-            fontweight="bold",
-        )
-        ax.set_xlabel("SAscore (Lower is Easier)", fontsize=8.5)
-        ax.set_ylabel("ROCS TanimotoCombo (0 to 2.0)", fontsize=8.5)
-        ax.grid(True, linestyle=":", alpha=0.5)
-        ax.legend(loc="lower left", fontsize=7.5, framealpha=0.85)
+#         ax.set_xlim(x_limits)
+#         ax.set_ylim(y_limits)
+#         ax.set_title(
+#             f"Epoch {ep} Frontier (Size: {len(front_0)})",
+#             fontsize=10,
+#             fontweight="bold",
+#         )
+#         ax.set_xlabel("SAscore (Lower is Easier)", fontsize=8.5)
+#         ax.set_ylabel("ROCS TanimotoCombo (0 to 2.0)", fontsize=8.5)
+#         ax.grid(True, linestyle=":", alpha=0.5)
+#         ax.legend(loc="lower left", fontsize=7.5, framealpha=0.85)
 
-    for j in range(n_panels, len(axes_flat)):
-        axes_flat[j].set_visible(False)
+#     for j in range(n_panels, len(axes_flat)):
+#         axes_flat[j].set_visible(False)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.savefig(target_png, dpi=200, bbox_inches="tight")
-    plt.close(fig)
+#     plt.tight_layout(rect=[0, 0, 1, 0.96])
+#     plt.savefig(target_png, dpi=200, bbox_inches="tight")
+#     plt.close(fig)
 
-    return target_png
+#     return target_png
 
 
 def render_property_distributions(
@@ -1225,121 +1225,121 @@ def render_property_distributions(
     return target_png
 
 
-def render_pareto_frontier(
-    df: pd.DataFrame,
-    output_png: Path | str | None = None,
-    rocs_col: str | None = None,
-    sa_col: str | None = None,
-) -> Path | None:
-    if df.empty or std.PARETO_RANK not in df.columns:
-        return None
+# def render_pareto_frontier(
+#     df: pd.DataFrame,
+#     output_png: Path | str | None = None,
+#     rocs_col: str | None = None,
+#     sa_col: str | None = None,
+# ) -> Path | None:
+#     if df.empty or std.PARETO_RANK not in df.columns:
+#         return None
 
-    target_png = Path(output_png) if output_png else Path("pareto_frontier.png")
-    target_png.parent.mkdir(parents=True, exist_ok=True)
+#     target_png = Path(output_png) if output_png else Path("pareto_frontier.png")
+#     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    r_col = rocs_col or std.ROCS
-    s_col = sa_col or std.SA
-    if (
-        r_col not in df.columns
-        or s_col not in df.columns
-    ):
-        return None
+#     r_col = rocs_col or std.ROCS
+#     s_col = sa_col or std.SA
+#     if (
+#         r_col not in df.columns
+#         or s_col not in df.columns
+#     ):
+#         return None
 
-    plot_df = df.copy()
-    # Threshold 1.05 differentiates normalized [0, 1] from physical ROCS TanimotoCombo [0, 2.0]
-    if plot_df[r_col].dropna().max() <= 1.05:
-        plot_df[r_col] = plot_df[r_col] * 2.0
-    # Threshold 1.05 differentiates normalized SA desirability [0, 1] from raw SAscore [1.0, 10.0]
-    if plot_df[s_col].dropna().max() <= 1.05 and std.SMILES in plot_df.columns:
-        mols = [
-            Chem.MolFromSmiles(s) if isinstance(s, str) else None
-            for s in plot_df[std.SMILES]
-        ]
-        plot_df[s_col] = [
-            float(calculate_sa_score(m)) if m else 10.0 for m in mols
-        ]
+#     plot_df = df.copy()
+#     # Threshold 1.05 differentiates normalized [0, 1] from physical ROCS TanimotoCombo [0, 2.0]
+#     if plot_df[r_col].dropna().max() <= 1.05:
+#         plot_df[r_col] = plot_df[r_col] * 2.0
+#     # Threshold 1.05 differentiates normalized SA desirability [0, 1] from raw SAscore [1.0, 10.0]
+#     if plot_df[s_col].dropna().max() <= 1.05 and std.SMILES in plot_df.columns:
+#         mols = [
+#             Chem.MolFromSmiles(s) if isinstance(s, str) else None
+#             for s in plot_df[std.SMILES]
+#         ]
+#         plot_df[s_col] = [
+#             float(calculate_sa_score(m)) if m else 10.0 for m in mols
+#         ]
 
-    fig, ax = plt.subplots(figsize=(8.5, 5.8), dpi=200)
+#     fig, ax = plt.subplots(figsize=(8.5, 5.8), dpi=200)
 
-    front_0 = (
-        plot_df[plot_df[std.PARETO_RANK] == 0]
-        .sort_values(by=s_col)
-        .drop_duplicates(subset=[s_col, r_col])
-    )
-    front_1 = (
-        plot_df[plot_df[std.PARETO_RANK] == 1]
-        .sort_values(by=s_col)
-        .drop_duplicates(subset=[s_col, r_col])
-    )
-    others = plot_df[plot_df[std.PARETO_RANK] > 1]
+#     front_0 = (
+#         plot_df[plot_df[std.PARETO_RANK] == 0]
+#         .sort_values(by=s_col)
+#         .drop_duplicates(subset=[s_col, r_col])
+#     )
+#     front_1 = (
+#         plot_df[plot_df[std.PARETO_RANK] == 1]
+#         .sort_values(by=s_col)
+#         .drop_duplicates(subset=[s_col, r_col])
+#     )
+#     others = plot_df[plot_df[std.PARETO_RANK] > 1]
 
-    # Dominated background points
-    if not others.empty:
-        ax.scatter(
-            others[s_col],
-            others[r_col],
-            c="#94a3b8",
-            alpha=0.40,
-            s=25,
-            label="Dominated Candidates",
-        )
+#     # Dominated background points
+#     if not others.empty:
+#         ax.scatter(
+#             others[s_col],
+#             others[r_col],
+#             c="#94a3b8",
+#             alpha=0.40,
+#             s=25,
+#             label="Dominated Candidates",
+#         )
 
-    # Front 1 (Dominated Tier) - dashed line
-    if not front_1.empty:
-        ax.scatter(
-            front_1[s_col],
-            front_1[r_col],
-            c="#f43f5e",
-            alpha=0.85,
-            s=45,
-            label="Front 1 (Dominated Tier)",
-        )
-        if len(front_1) > 1:
-            ax.plot(
-                front_1[s_col],
-                front_1[r_col],
-                color="#f43f5e",
-                linestyle="--",
-                linewidth=1.8,
-            )
+#     # Front 1 (Dominated Tier) - dashed line
+#     if not front_1.empty:
+#         ax.scatter(
+#             front_1[s_col],
+#             front_1[r_col],
+#             c="#f43f5e",
+#             alpha=0.85,
+#             s=45,
+#             label="Front 1 (Dominated Tier)",
+#         )
+#         if len(front_1) > 1:
+#             ax.plot(
+#                 front_1[s_col],
+#                 front_1[r_col],
+#                 color="#f43f5e",
+#                 linestyle="--",
+#                 linewidth=1.8,
+#             )
 
-    # Front 0 (Optimal Frontier) - solid line connecting non-dominated frontier
-    if not front_0.empty:
-        ax.scatter(
-            front_0[s_col],
-            front_0[r_col],
-            c="#0284c7",
-            alpha=0.95,
-            s=70,
-            edgecolors="#0f172a",
-            linewidth=1.0,
-            zorder=5,
-        )
-        if len(front_0) > 1:
-            ax.plot(
-                front_0[s_col],
-                front_0[r_col],
-                color="#0284c7",
-                linestyle="-",
-                linewidth=2.4,
-                label="Front 0 (Optimal Frontier)",
-                zorder=4,
-            )
-        else:
-            ax.scatter([], [], color="#0284c7", label="Front 0 (Optimal Frontier)")
+#     # Front 0 (Optimal Frontier) - solid line connecting non-dominated frontier
+#     if not front_0.empty:
+#         ax.scatter(
+#             front_0[s_col],
+#             front_0[r_col],
+#             c="#0284c7",
+#             alpha=0.95,
+#             s=70,
+#             edgecolors="#0f172a",
+#             linewidth=1.0,
+#             zorder=5,
+#         )
+#         if len(front_0) > 1:
+#             ax.plot(
+#                 front_0[s_col],
+#                 front_0[r_col],
+#                 color="#0284c7",
+#                 linestyle="-",
+#                 linewidth=2.4,
+#                 label="Front 0 (Optimal Frontier)",
+#                 zorder=4,
+#             )
+#         else:
+#             ax.scatter([], [], color="#0284c7", label="Front 0 (Optimal Frontier)")
 
-    ax.set_xlabel("SAscore (Synthesizability / Lower is Easier)", fontsize=10, fontweight="bold")
-    ax.set_ylabel("ROCS TanimotoCombo (0 to 2.0)", fontsize=10, fontweight="bold")
-    ax.set_title(
-        "Multi-Objective Pareto Trade-off Frontier",
-        fontsize=11,
-        fontweight="bold",
-        pad=12,
-    )
-    ax.grid(True, linestyle="--", alpha=0.4)
-    ax.legend(loc="lower left", framealpha=0.9, fontsize=9)
+#     ax.set_xlabel("SAscore (Synthesizability / Lower is Easier)", fontsize=10, fontweight="bold")
+#     ax.set_ylabel("ROCS TanimotoCombo (0 to 2.0)", fontsize=10, fontweight="bold")
+#     ax.set_title(
+#         "Multi-Objective Pareto Trade-off Frontier",
+#         fontsize=11,
+#         fontweight="bold",
+#         pad=12,
+#     )
+#     ax.grid(True, linestyle="--", alpha=0.4)
+#     ax.legend(loc="lower left", framealpha=0.9, fontsize=9)
 
-    plt.tight_layout()
-    plt.savefig(target_png, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    return target_png
+#     plt.tight_layout()
+#     plt.savefig(target_png, dpi=200, bbox_inches="tight")
+#     plt.close(fig)
+#     return target_png

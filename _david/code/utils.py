@@ -21,7 +21,7 @@ class FallbackEvent:
 
 class FallbackMonitor:
     """Thread-safe diagnostic monitor tracking graceful architectural fallbacks."""
-
+    
     _events: list[FallbackEvent] = []
 
     @classmethod
@@ -43,36 +43,13 @@ class FallbackMonitor:
 
     @classmethod
     def get_events(cls) -> list[FallbackEvent]:
-        """Return shallow copy of recorded fallback events."""
         return list(cls._events)
-
-    @classmethod
-    def clear(cls) -> None:
-        """Clear all recorded fallback events."""
-        cls._events.clear()
 
 
 class HardwareManager:
-    """Central dynamic hardware solver for machine-agnostic compute resource allocation.
+    """Central dynamic hardware solver for machine-agnostic compute resource allocation."""
 
-    WHY:
-    Eliminates fragile hardcoded host configurations (e.g. fixed core limits or hardcoded
-    device indices) to deliver machine-agnostic scalability across laptops, multi-core
-    workstations, and multi-GPU HPC nodes.
-
-    WHAT:
-    - Dynamic CPU core allocation following configurable ratio (default 0.60; 0.80 for dedicated runs).
-    - Real-time VRAM telemetry via torch.cuda.mem_get_info() with auto-routing to the
-      least-loaded GPU meeting a 4000 MB safety threshold, cleanly falling back to CPU.
-    - Power-of-2 batch sizing aligned with NVIDIA Tensor Core warp execution (32 threads).
-    - Runtime environment isolation: sole authority for DRUGEX_SCORE_NJOBS and
-      DRUGEX_MP_CONTEXT="forkserver" preventing multiprocessing deadlocks.
-
-    HOW:
-    Inspects host os.cpu_count() and PyTorch CUDA runtime state on demand without caching
-    stale hardware state.
-    """
-
+    #* _cpu_ratio sould be implicit paramether not 
     _cpu_ratio: float = 0.60
 
     @classmethod
@@ -105,7 +82,7 @@ class HardwareManager:
             free = free_bytes / (1024 ** 2)
             total = total_bytes / (1024 ** 2)
             allocated = torch.cuda.memory_allocated(device_idx) / (1024 ** 2)
-        except Exception:
+        except Exception: #* use more specific exeption
             allocated = torch.cuda.memory_allocated(device_idx) / (1024 ** 2)
             reserved = torch.cuda.memory_reserved(device_idx) / (1024 ** 2)
             total = torch.cuda.get_device_properties(device_idx).total_memory / (1024 ** 2)
@@ -122,6 +99,7 @@ class HardwareManager:
         if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
             return -1
         best_idx, max_free = -1, -1.0
+        #* thee sould be 1) check witch one is more free, ad 2) then look with would fit better
         for i in range(torch.cuda.device_count()):
             _, free, _ = cls.get_device_vram(i)
             if free > max_free:
@@ -140,6 +118,9 @@ class HardwareManager:
         """
         if not torch.cuda.is_available():
             return ()
+        #* in drugex nor our codebase isnt reason for using both gpus
+        #* whit this in mind simplify the coude in this and all realted files (full featured refactor)
+        #* ps this code is very ugly
         if preferred_gpu == "all":
             return tuple(range(torch.cuda.device_count()))
         if preferred_gpu is None or preferred_gpu == "auto":
@@ -167,7 +148,8 @@ class HardwareManager:
         Clamped strictly to max(1, min(batch_size, n_samples)) to prevent out-of-bounds padding.
         """
         best_gpu = cls.select_best_gpu()
-        if best_gpu < 0:
+        #* i replaced best_gpu to explicit -1 for better readability
+        if best_gpu == -1:
             batch_size = 32
         else:
             _, free_mb, _ = cls.get_device_vram(best_gpu)
@@ -179,18 +161,12 @@ class HardwareManager:
                 batch_size = 64
             else:
                 batch_size = 32
+        #* not sure if we need max (1,..) if user sould put n_samples=0 then it wouldnt work (but in case of variable change, this could be critical bug\)
         return max(1, min(batch_size, n_samples))
 
     @classmethod
     def init_runtime_environment(cls, ratio: float | None = None) -> dict[str, str]:
-        """Sole authority for initializing multiprocessing and scoring environment.
-
-        WHY:
-        DrugEx parallel scorers inherit multiprocessing settings from environment variables.
-        Using 'forkserver' prevents deadlocks caused by POSIX fork() inheriting active
-        CUDA contexts or OpenMP thread pools. Defaults cleanly to the safe 60% host rule,
-        allowing explicit CLI override when prompted.
-        """
+        """Sole authority for initializing multiprocessing and scoring environment."""
         if ratio is not None:
             cls._cpu_ratio = ratio
         n_jobs = str(cls.get_safe_parallel_jobs())

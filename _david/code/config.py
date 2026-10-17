@@ -9,26 +9,16 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 @dataclass(frozen=True)
 class PipelineConfig:
-    """Canonical Single Source of Truth for all LBDD hyperparameters and execution settings.
-
-    WHY:
-    Eliminates duplicated and conflicting default parameters previously scattered across
-    run.py, pipeline.py, models.py, and environment.py.
-
-    WHAT:
-    - Reinforcement Learning hyperparameters (epochs, patience, samples, criteria, epsilon, thresholds).
-    - 3D conformer and scoring environment settings (max conformers, energy window, timeout).
-    - Dynamic hardware preferences (GPU device, CPU core ratio).
-    """
+    """Canonical Single Source of Truth for all LBDD hyperparameters and execution settings."""
 
     # Reinforcement Learning Exploration
     epochs: int = 35
-    patience: int = 25
-    min_epochs: int = 5
+    patience: int = 10
+    min_epochs: int = 25
     n_samples: int = 200
     val_samples: int = 100
     n_eval_samples: int = 200
-    criteria: str = "avg_amean"
+    criteria: str = "avg_amean" #
     epsilon: float = 0.2
     beta: float = 0.0
     thresholds: tuple[float, float] = (0.5, 0.5)
@@ -36,35 +26,25 @@ class PipelineConfig:
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30
     energy_window_kcal: float = 8.0
-    timeout_seconds: int = 60
+    timeout_seconds: int = 60           #^ test how much time is needed
     random_seed: int = 42
 
     # Hardware & Multiprocessing
     gpu: int | str = "auto"
-    cpu_ratio: float | None = None
-    render_pareto: bool = False
+    cpu_ratio: float | None = None #ususaly 60% of CPU cores, gets dynamicly alocated based on analability
+    # render_pareto: bool = False
 
 
 @dataclass(frozen=True)
 class RunPaths:
-    """Canonical directory layout and target paths for a pipeline run.
-
-    WHY:
-    Direct-to-disk architecture eliminates 25+ lines of fragile post-hoc shutil.move
-    cleanups by ensuring all components know their exact destination upfront.
-
-    WHAT:
-    - root: Presentation deliverables (PNGs, summary.md, top_prioritized_leads.tsv).
-    - models_dir: Checkpoint weights (david_agent_peak.pkg, david_agent.pkg).
-    - raw_data_dir: Conformer SDFs, seed fragments, intermediate TSVs (fit, smiles, candidates).
-    - logs_dir: Process PID, daemon logs, and pipeline_status.json.
-    """
+    """Canonical directory layout and target paths for a pipeline run."""
 
     root: Path
     models_dir: Path
     raw_data_dir: Path
     logs_dir: Path
 
+    #* could we make constructor out of class (since we iniciated once and then dont change it and create the folders right away, so we woudlnt need extrafunction call)
     @classmethod
     def resolve(
         cls,
@@ -74,6 +54,8 @@ class RunPaths:
     ) -> RunPaths:
         """Resolve authoritative output targets in a phase-agnostic manner."""
         rid = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        #* sould be determined ether on pupile or config side (not both)
         if base_dir:
             root = Path(base_dir)
         elif phase:

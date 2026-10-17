@@ -19,17 +19,7 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 
 class GraphTransformerOptimizer:
-    """Pretrained GraphTransformer agent lifecycle, fragment dataset preparation, and explorer builder.
-
-    WHY:
-    Decouples generative deep learning operations from cheminformatics and directory layout,
-    writing checkpoints directly to models_dir and intermediate seed data to raw_data_dir.
-
-    WHAT:
-    - Loads pretrained Papyrus GraphTransformer weights and target vocabulary.
-    - Encodes seed scaffolds and prepares decoupled training/validation DataLoaders.
-    - Constructs FragGraphExplorer policy gradient reinforcement learning agent.
-    """
+    """Pretrained GraphTransformer agent lifecycle, fragment dataset preparation, and explorer builder."""
 
     def __init__(
         self,
@@ -39,6 +29,7 @@ class GraphTransformerOptimizer:
     ) -> None:
         HardwareManager.init_runtime_environment()
         self.MODELS_DIR = Path(models_dir)
+        #* could we remove this condition since we decided, that we want to make specific folder for models and specificfor raw_data
         self.RAW_DATA_DIR = (
             Path(raw_data_dir) if raw_data_dir is not None else self.MODELS_DIR
         )
@@ -55,7 +46,7 @@ class GraphTransformerOptimizer:
         )
         pkg_path = pretrained_dir / "Papyrus05.5_graph_trans_PT.pkg"
         vocab_path = pretrained_dir / "Papyrus05.5_graph_trans_PT.vocab"
-        if not pkg_path.exists():
+        if not pkg_path.exists(): #just being more robust
             pkg_path = pretrained_dir.with_suffix(".pkg")
             vocab_path = pretrained_dir.with_suffix(".vocab")
 
@@ -75,23 +66,8 @@ class GraphTransformerOptimizer:
         scaffolds_path: Path | str | None = None,
         val_samples: int | None = None,
     ) -> tuple[DataLoader, DataLoader, GraphFragDataSet]:
-        """Generate training and decoupled validation DataLoaders for seed fragments.
-
-        WHY:
-        Passing the full training prompt dataset (e.g. N = 200) as both training and validation
-        loaders forced DrugEx explorer.fit() to generate conformers and compute 3D ROCS alignments
-        twice per epoch (400 alignments total), cutting throughput in half. Decoupling validation
-        with a bounded sample preserves statistically rigorous tracking while cutting validation
-        compute by 75-80%.
-
-        WHAT:
-        Extracts seed fragments, encodes into GraphFragDataSet, slices the raw data array
-        raw_data[:val_size], and constructs separate train_loader and val_loader via dataToLoader.
-
-        HOW:
-        val_size = min(val_samples or min(50, max(25, int(n_prompts * 0.20))), n_prompts).
-        Batch size is determined dynamically via HardwareManager.get_recommended_batch_size.
-        """
+        """Generate training and decoupled validation DataLoaders for seed fragments."""
+        
         seed_tsv = self.RAW_DATA_DIR / "seed_fragments.tsv"
         seed_dataset = GraphFragDataSet(str(seed_tsv), rewrite=True)
 
@@ -102,6 +78,7 @@ class GraphTransformerOptimizer:
             n_proc=1,
         )
 
+        #we support external scaffold
         scaffolds: list[str] = []
         if scaffolds_path and Path(scaffolds_path).is_file():
             with open(scaffolds_path, "r", encoding="utf-8") as f:
@@ -121,10 +98,12 @@ class GraphTransformerOptimizer:
 
         # Decouple validation data from training data by slicing underlying raw data array
         raw_data = seed_dataset.getData()
+        #* i think fallowing calculation is too compicated i suggest
+        #* val_size = val_samples if val_samples else max(50, int(n_prompts*0.25))
         val_size = min(
             val_samples or min(50, max(25, int(n_prompts * 0.20))), n_prompts
         )
-        val_data = raw_data[:val_size]
+        val_data = raw_data[:val_size] #* does this realy deep copy data
 
         batch_size = HardwareManager.get_recommended_batch_size(n_prompts)
         train_loader = seed_dataset.dataToLoader(

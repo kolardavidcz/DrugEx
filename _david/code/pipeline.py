@@ -138,6 +138,8 @@ class MoleculePipeline:
             shutil.move(str(pkg), str(self.paths.models_dir / pkg.name))
 
         # Standardize smiles TSV if generated
+        #* there souldnt be need for standartization - if we use 1 standart in whole code
+        #* onther goal of this refactor sould be removel of "standardize", "find_rocs_column", "find_sa_column", "find_desired_column"
         smiles_tsv = Path(f"{model_prefix}_smiles.tsv")
         if smiles_tsv.exists():
             s_df = pd.read_csv(smiles_tsv, sep="\t")
@@ -150,11 +152,12 @@ class MoleculePipeline:
                 fit_tsv,
                 output_png=self.paths.root / "rl_training_curves.png",
             )
-        if self.config.render_pareto and smiles_tsv.exists():
-            render_epoch_pareto_evolution(
-                smiles_tsv,
-                output_png=self.paths.root / "pareto_epoch_evolution.png",
-            )
+        #* for now coment out all of the render_pareto code like (dont addd extra comments)
+        # if self.config.render_pareto and smiles_tsv.exists():
+        #     render_epoch_pareto_evolution(
+        #         smiles_tsv,
+        #         output_png=self.paths.root / "pareto_epoch_evolution.png",
+        #     )
 
         # Stage 2: Final Candidate Generation from Peak Agent
         eval_samples = self.config.n_eval_samples
@@ -182,7 +185,7 @@ class MoleculePipeline:
         analyzer.analyze(
             candidates_tsv,
             ref_sdf=ref_sdf,
-            render_pareto=self.config.render_pareto,
+            # render_pareto=self.config.render_pareto,
         )
 
         status = {
@@ -259,35 +262,29 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str, bool]:
     parser.add_argument("--patience", type=int, default=defaults.patience, help="Early stopping patience")
     parser.add_argument("--n-samples", type=int, default=defaults.n_samples, help="RL prompt batch size")
     parser.add_argument("--val-samples", type=int, default=defaults.val_samples, help="Validation sample size")
-    parser.add_argument(
-        "--n-eval-samples",
-        type=int,
-        default=defaults.n_eval_samples,
-        help="Number of final candidates generated from peak agent",
-    )
+    parser.add_argument("--n-eval-samples", type=int, default=defaults.n_eval_samples,
+        help="Number of final candidates generated from peak agent",)
     parser.add_argument("--criteria", default=defaults.criteria, help="Peak model monitoring criteria")
     parser.add_argument("--epsilon", type=float, default=defaults.epsilon, help="Exploration noise epsilon")
+    #* split --molecule into 2 "--molecule" will surve as string imput (btw for now keep default=DEFAULT_MOLECULE)
+    #* and --input that will take care of files - this will simplify refactoring of envirument.py+associlated files and can make 2 functions for separete imputs
+    #* use same standarts as 
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES or file path")
     parser.add_argument("--gpu", default=defaults.gpu, help="GPU device ID or 'auto'/'all'/'cpu'")
-    parser.add_argument(
-        "--cpu-ratio",
-        type=float,
-        default=defaults.cpu_ratio,
-        help="Fraction of CPU cores allocated for parallel scoring (default: None, uses safe 0.60)",
-    )
+    parser.add_argument("--cpu-ratio", type=float, default=defaults.cpu_ratio,
+        help="Fraction of CPU cores allocated for parallel scoring (default: None, uses safe 0.60)",)
     parser.add_argument("--out-dir", type=Path, default=None, help="Explicit custom output directory")
+    #* remove "--phase" user, will aften put it manually
     parser.add_argument(
         "--phase",
         type=str,
         default=None,
         help="Optional experimental phase folder name (e.g. '05_new_era')",
     )
-    parser.add_argument(
-        "--detach", action="store_true", default=False, help="Run as detached background daemon process"
-    )
-    parser.add_argument(
-        "--pareto", action="store_true", default=defaults.render_pareto, help="Enable Pareto evolution visualization"
-    )
+    parser.add_argument("--detach", action="store_true", default=False,
+                        help="Run as detached background daemon process")
+    # parser.add_argument("--pareto", action="store_true", default=defaults.render_pareto,
+    #                     help="Enable Pareto evolution visualization")
     args, _ = parser.parse_known_args()
 
     config = PipelineConfig(
@@ -300,8 +297,9 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str, bool]:
         epsilon=args.epsilon,
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
-        render_pareto=args.pareto,
+        # render_pareto=args.pareto,
     )
+    #* remove "--phase" user, will aften put it manually
     paths = RunPaths.resolve(base_dir=args.out_dir, phase=args.phase)
     return config, paths, args.molecule, args.detach
 
@@ -333,8 +331,8 @@ def main() -> None:
             "--gpu", str(config.gpu),
             "--out-dir", str(paths.root),
         ]
-        if config.render_pareto:
-            cmd.append("--pareto")
+        # if config.render_pareto:
+        #     cmd.append("--pareto")
         if config.cpu_ratio is not None:
             cmd.extend(["--cpu-ratio", str(config.cpu_ratio)])
 

@@ -528,21 +528,21 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(curves_png)
             self.assertTrue(curves_png.exists())
 
-            # 3. Pareto Epoch Evolution
-            smiles_tsv = tmp / "smiles.tsv"
-            pd.DataFrame(
-                {
-                    std.EPOCH: [1, 1, 2, 2],
-                    std.SMILES: ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC", "c1ccccc1C(=O)O"],
-                    std.ROCS: [0.4, 0.6, 0.5, 0.8],
-                    std.SA: [0.9, 0.85, 0.8, 0.75],
-                }
-            ).to_csv(smiles_tsv, sep="\t", index=False)
-            pareto_evo_png = render_epoch_pareto_evolution(
-                smiles_tsv, output_png=tmp / "pareto_evo.png"
-            )
-            self.assertIsNotNone(pareto_evo_png)
-            self.assertTrue(pareto_evo_png.exists())
+            # # 3. Pareto Epoch Evolution
+            # smiles_tsv = tmp / "smiles.tsv"
+            # pd.DataFrame(
+            #     {
+            #         std.EPOCH: [1, 1, 2, 2],
+            #         std.SMILES: ["c1ccccc1", "c1ccccc1O", "c1ccccc1CC", "c1ccccc1C(=O)O"],
+            #         std.ROCS: [0.4, 0.6, 0.5, 0.8],
+            #         std.SA: [0.9, 0.85, 0.8, 0.75],
+            #     }
+            # ).to_csv(smiles_tsv, sep="\t", index=False)
+            # pareto_evo_png = render_epoch_pareto_evolution(
+            #     smiles_tsv, output_png=tmp / "pareto_evo.png"
+            # )
+            # self.assertIsNotNone(pareto_evo_png)
+            # self.assertTrue(pareto_evo_png.exists())
 
             # 4. Property Distributions (9-panel grid)
             dist_df = pd.DataFrame(
@@ -577,20 +577,20 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(lead_df_png)
             self.assertTrue(lead_df_png.exists())
 
-            # 6. Pareto Frontier
-            front_df = pd.DataFrame(
-                {
-                    std.SMILES: ["m1", "m2"],
-                    std.ROCS: [0.8, 0.5],
-                    std.SA: [0.9, 0.4],
-                    std.PARETO_RANK: [0, 1],
-                }
-            )
-            front_png = render_pareto_frontier(
-                front_df, output_png=tmp / "front.png", rocs_col=std.ROCS, sa_col=std.SA
-            )
-            self.assertIsNotNone(front_png)
-            self.assertTrue(front_png.exists())
+            # # 6. Pareto Frontier
+            # front_df = pd.DataFrame(
+            #     {
+            #         std.SMILES: ["m1", "m2"],
+            #         std.ROCS: [0.8, 0.5],
+            #         std.SA: [0.9, 0.4],
+            #         std.PARETO_RANK: [0, 1],
+            #     }
+            # )
+            # front_png = render_pareto_frontier(
+            #     front_df, output_png=tmp / "front.png", rocs_col=std.ROCS, sa_col=std.SA
+            # )
+            # self.assertIsNotNone(front_png)
+            # self.assertTrue(front_png.exists())
 
     def test_pipeline_execution(self) -> None:
         """Verify end-to-end MoleculePipeline execution using test-scale configuration."""

@@ -39,7 +39,7 @@ __all__ = [
     "render_epoch_pareto_evolution",
     "render_property_distributions",
     "render_lead_structures_2d",
-    "render_pareto_frontier",
+    # "render_pareto_frontier",
     "HardwareManager",
     "FallbackMonitor",
     "get_gpu_telemetry",

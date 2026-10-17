@@ -23,6 +23,7 @@ from rdkit.ML.Cluster import Butina
 
 from _david.code.utils import FallbackMonitor, HardwareManager
 
+#* since we have config.py this sould be in that
 DEFAULT_MOLECULE: str = (
     "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
 )
@@ -39,37 +40,38 @@ class PrepareMolecule:
         self.max_reference_conformers = max_reference_conformers
         self.random_seed = random_seed
 
-    # [PACKAGE: rdkit.Chem] WHY: Multi-record MDL SD format parsing. WHAT: Conformer assembly. HOW: SDMolSupplier.
+    #* in pipilne we requst refactor of input molecule handeling
+    #* refactor for text file with SMILED, SMILES and specific .sdf/other strcure
+    #* i imagine it functions for file hendeling, another for 3D generation
+    #* make sure ifw e standartize that we have or doent have H in molecule
+    #* remove all (all of them are unmeanigful (just keep "# if you have other molecules in sdf, that this will be very sad :(")) of the code comes 
+    #* overall this file need a huge cleaning refactor as this code is very ugly
     def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
-        # 1. Multi-Record Conformer Extraction
+
+        
         mols = [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m]
         if not mols:
             raise ValueError(f"No valid molecule in SDF: {path}")
 
-        # 2. Conformer Stitching onto Base Frame
+        # if you have other molecules in sdf, that this will be very sad :(
         base = mols[0]
         for extra in mols[1:]:
             base.AddConformer(extra.GetConformer(), assignId=True)
 
-        # 3. 3D Dimensionality Verification
         return base, bool(base.GetNumConformers() and base.GetConformer().Is3D())
 
     def load_query_molecule(
         self, query: str | Path | Chem.Mol
     ) -> tuple[Chem.Mol, bool]:
-        # 1. Direct RDKit Mol instance
+
         if isinstance(query, Chem.Mol):
             return query, bool(query.GetNumConformers() and query.GetConformer().Is3D())
 
-        # 2. Fast Path: SMILES string (avoids OS filesystem syscalls & filename length limits)
-        if isinstance(query, str) and not query.endswith(
-            (".sdf", ".sd", ".txt", ".smi")
-        ):
+        if isinstance(query, str) and not query.endswith( (".sdf", ".sd", ".txt", ".smi") ):
             mol = Chem.MolFromSmiles(query)
             if mol:
                 return mol, False
 
-        # 3. File Resolution (Path object or path string)
         try:
             path = Path(query)
             if path.is_file():
@@ -91,29 +93,7 @@ class PrepareMolecule:
         mol: Chem.Mol | None,
         max_ensemble_size: int = 1,
     ) -> tuple[float, int]:
-        """Calculate heavy-atom RMSD cutoff and maximum reference ensemble size (Hawkins 2017).
-
-        WHY:
-        Rigid molecules have minimal conformational entropy; an RMSD cutoff of 1.00 Å
-        and a single reference conformer (K = 1) avoids multi-modal gradient noise in RL.
-        Standard drug-like molecules (e.g. EGCG) have 3-7 rotatable bonds; an RMSD cutoff of
-        1.25 Å and K = 3 conformers captures the primary bioactive energy wells without
-        causing gradient conflicts during policy gradient optimization.
-        Highly flexible ligands (> 7 rotatable bonds) require an RMSD cutoff of 1.50 Å
-        and up to K = 5 conformers to span their wider conformational volume.
-
-        WHAT:
-        Returns (rmsd_cutoff: float, max_ensemble_size: int):
-        - Rigid/compact (<= 2 rotatable bonds, <= 20 heavy atoms): (1.00 Å, 1)
-        - Drug-like (<= 7 rotatable bonds, <= 45 heavy atoms): (1.25 Å, 3)
-        - Flexible (> 7 rotatable bonds or > 45 heavy atoms): (1.50 Å, 5)
-        - Empty/null molecule: (1.00 Å, 1)
-
-        HOW:
-        Removes explicit hydrogens before counting rotatable bonds and heavy atoms to ensure
-        topological invariance regardless of whether hydrogens are implicit or explicit.
-        Ensemble size is capped cleanly by max_ensemble_size (defaulting to 1 for focused RL).
-        """
+        """Calculate heavy-atom RMSD cutoff and maximum reference ensemble size (Hawkins 2017)"""
         if mol is None:
             return 1.00, 1
         # Enforce topological invariance against explicit hydrogens
@@ -139,12 +119,12 @@ class PrepareMolecule:
         num_conformers: int = 100,  # ^ HYP could be bigger, like 200
         random_seed: int = 42,
     ) -> Path:
+        #* we sould solve this
         output_path_real = (
             Path(output_path) if output_path else Path("reference_3d.sdf")
         )
         output_path_real.parent.mkdir(parents=True, exist_ok=True)
 
-        # 1. Input Loading & 3D Passthrough
         mol, is_3d = self.load_query_molecule(query)
         if is_3d:
             with Chem.SDWriter(str(output_path_real)) as writer:
@@ -234,11 +214,6 @@ class PrepareMolecule:
             mol_h, self.max_reference_conformers
         )
         if len(remaining_cids) > 1:
-            # [PACKAGE: rdkit.Chem.AllChem.GetBestRMS & rdkit.ML.Cluster.Butina]
-            # WHY: Fixed atom-index RMSD treats 180° rotations of symmetric moieties (phenyl, catechol, gallate)
-            #      as artificial new conformers (>1.8 Å). GetBestRMS evaluates topological automorphisms.
-            # WHAT: Lower-triangular heavy-atom distance matrix matching true geometric symmetry.
-            # HOW: Chem.RemoveHs isolates heavy atoms (Hawkins 2017) and GetBestRMS finds minimal symmetry RMSD.
             mol_no_h = Chem.RemoveHs(mol_h)
             n_confs = len(remaining_cids)
             rms_matrix: list[float] = [
@@ -281,22 +256,8 @@ class PrepareMolecule:
         scaffold_type: str = "BemisMurcko",
         isomeric: bool = False,
     ) -> str:
-        """Extract canonical Bemis-Murcko framework preserving all rings and linkers.
-
-        WHY:
-        Standardizing on the Bemis & Murcko (1996) molecular framework preserves the core
-        pharmacophore architecture (conjugated ring systems, lactones, esters, and linkers)
-        without fragile ad-hoc bond-breaking heuristics or aromaticity-stripping kekulization.
-
-        WHAT:
-        Extracts MurckoScaffold.GetScaffoldForMol(mol_no_h). For molecules with rings,
-        this extracts all rings and connecting linkers (yielding 25 heavy atoms for EGCG).
-        For purely acyclic molecules (where MurckoScaffold yields 0 heavy atoms),
-        it falls back cleanly to the sanitized molecular SMILES.
-
-        HOW:
-        Uses RDKit MurckoScaffold and Chem.SanitizeMol, writing optional TSV metadata.
-        """
+        """Extract canonical Bemis-Murcko framework preserving all rings and linkers."""
+        
         # 1. Input Loading & Hydrogen Stripping
         mol, _ = self.load_query_molecule(query)
         mol_no_h = Chem.RemoveHs(mol)
@@ -351,30 +312,16 @@ def create_rocs_scorer(
         n_jobs=HardwareManager.get_safe_parallel_jobs(),
     )
 
-
+#* refactor more cleanly
 class SafeSAModifier(ScoreModifier):
-    """Smooth sigmoid SA feasibility score that explicitly guards uncalculable (<= 0.0) fallback.
-
-    WHY:
-    Raw SA score is defined on [1.0, 10.0]. When DrugEx Property.getScores encounters an
-    unhandled exception or uncalculable molecular graph, it defaults to raw score 0.0.
-    Under inverted SmoothClippedScore(upper_x=3.5, lower_x=5.5), any raw score <= 0.0 evaluates
-    to ~0.9997 desirability, rewarding crashed molecules with perfect synthesizability.
-
-    WHAT:
-    Continuous sigmoid mapping SA in [3.5, 5.5] to [0.88, 0.12] with a non-zero gradient,
-    while mapping any raw score <= 0.0 (crash/uncalculated) strictly to 0.0.
-
-    HOW:
-    Applies SmoothClippedScore and masks out values <= 0.0 with 0.0 reward.
-    """
+    """Smooth sigmoid SA feasibility score that explicitly guards uncalculable (<= 0.0) fallback."""
 
     def __init__(
         self,
-        upper_x: float = 3.5,
-        lower_x: float = 5.5,
-        low_score: float = 0.0,
-        high_score: float = 1.0,
+        upper_x: float,
+        lower_x: float,
+        high_score: float,
+        low_score: float
     ) -> None:
         self.smooth = SmoothClippedScore(
             upper_x=upper_x, lower_x=lower_x, low_score=low_score, high_score=high_score
@@ -388,7 +335,7 @@ class SafeSAModifier(ScoreModifier):
         )  # Any chemically invalid or uncalculated fallback (SA <= 0.0) receives 0.0 desirability
         return float(out.item()) if np.ndim(x) == 0 else out
 
-
+#* could we have no implicit vlaues
 def create_environment(
     ref_sdf: str | Path,
     thresholds: tuple[float, float] | list[float] = (0.5, 0.5),
