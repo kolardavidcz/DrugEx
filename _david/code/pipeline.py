@@ -51,7 +51,7 @@ class MoleculePipeline:
                 epochs=1 if self.MODE == "test" else epochs,
                 n_samples=10 if self.MODE == "test" else n_samples,
                 val_samples=10 if self.MODE == "test" else val_samples,
-                n_eval_samples=10 if self.MODE == "test" else 500,
+                n_eval_samples=10 if self.MODE == "test" else 200,
                 patience=patience,
             )
         self.EPOCHS: int = self.config.epochs
@@ -132,7 +132,7 @@ class MoleculePipeline:
                     output_png=optimizer.MODEL_DIR / "pareto_epoch_evolution.png",
                 )
 
-            eval_samples = 10 if self.MODE == "test" else getattr(self.config, "n_eval_samples", 500)
+            eval_samples = 10 if self.MODE == "test" else getattr(self.config, "n_eval_samples", 200)
             print(f"\n[Final Evaluation] Generating {eval_samples} candidate molecules from peak agent...")
             eval_loader, _, _ = optimizer.prepare_seed_fragments(
                 molecule,
@@ -154,7 +154,7 @@ class MoleculePipeline:
         print("[Stage 2] Profiling generated leads and Pareto frontier...")
         stage2_dir = self.BASE_OUTPUT_DIR / "stage2_result_analysis"
         stage2_dir.mkdir(parents=True, exist_ok=True)
-        eval_tsv = stage2_dir / f"generated_{getattr(self.config, 'n_eval_samples', 500)}_molecules.tsv"
+        eval_tsv = stage2_dir / f"generated_{getattr(self.config, 'n_eval_samples', 200)}_molecules.tsv"
         target_candidates = eval_tsv if eval_tsv.exists() else candidates_tsv
 
         analyzer = ResultAnalyzer(self.BASE_OUTPUT_DIR)

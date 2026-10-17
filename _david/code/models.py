@@ -40,7 +40,7 @@ class AlgorithmConfig:
     epochs: int = 35
     n_samples: int = 200
     val_samples: int = 100
-    n_eval_samples: int = 500
+    n_eval_samples: int = 200
     epsilon: float = 0.2
     beta: float = 0.0
     patience: int = 25
