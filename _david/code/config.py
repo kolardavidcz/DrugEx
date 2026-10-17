@@ -20,12 +20,12 @@ class PipelineConfig:
     epochs: int = 35
     patience: int = 10
     min_epochs: int = 25
-    n_samples: int = 200
-    val_samples: int = 100
+    n_samples: int = 100
+    val_samples: int = 50
     n_eval_samples: int = 200
     criteria: str = "avg_amean"
     epsilon: float = 0.2
-    beta: float = 0.0
+    beta: float = 0.05
     thresholds: tuple[float, float] = (0.5, 0.5)
 
     # 3D Conformer & Chemistry Settings
@@ -71,4 +71,9 @@ class RunPaths:
         models_dir = root / "models"
         raw_data_dir = root / "raw_data"
         logs_dir = raw_data_dir / "logs"
-        return cls(root=root, models_dir=models_dir, raw_data_dir=raw_data_dir, logs_dir=logs_dir)
+        return cls(
+            root=root,
+            models_dir=models_dir,
+            raw_data_dir=raw_data_dir,
+            logs_dir=logs_dir,
+        )
