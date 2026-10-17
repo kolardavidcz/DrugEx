@@ -77,35 +77,28 @@ class HardwareManager:
             free = max(0.0, total - reserved)
         return allocated, free, total
 
-    #* select_best_gpu and get_safe_gpus could be programed much more elegantly
     @classmethod
     def select_best_gpu(cls, min_free_mb: float = 4000.0) -> int:
         """Select healthy GPU index with highest free VRAM, or return -1 for CPU fallback."""
         if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
             return -1
-        best_idx, max_free = -1, -1.0
-        for i in range(torch.cuda.device_count()):
-            _, free, _ = cls.get_device_vram(i)
-            if free > max_free:
-                max_free = free
-                best_idx = i
-        return best_idx if max_free >= min_free_mb else -1
+        free_vrams = [cls.get_device_vram(i)[1] for i in range(torch.cuda.device_count())]
+        best_idx = int(max(range(len(free_vrams)), key=lambda i: free_vrams[i]))
+        return best_idx if free_vrams[best_idx] >= min_free_mb else -1
 
     @classmethod
-    def get_safe_gpus(
-        cls, preferred_gpu: int | str | None = "auto"
-    ) -> tuple[int, ...] | tuple[()]:
+    def get_safe_gpus(cls, preferred_gpu: int | str | None = "auto") -> tuple[int, ...]:
         """Resolve single GPU device tuple or empty tuple for CPU execution."""
         if not torch.cuda.is_available() or preferred_gpu in ("cpu", "none", None, -1):
             return ()
-        if preferred_gpu == "auto":
-            best = cls.select_best_gpu()
-            return (best,) if best >= 0 else ()
         if isinstance(preferred_gpu, int) and 0 <= preferred_gpu < torch.cuda.device_count():
             return (preferred_gpu,)
         if isinstance(preferred_gpu, str) and preferred_gpu.strip().isdigit():
             idx = int(preferred_gpu.strip())
             return (idx,) if 0 <= idx < torch.cuda.device_count() else ()
+        if preferred_gpu == "auto":
+            best = cls.select_best_gpu()
+            return (best,) if best >= 0 else ()
         return ()
 
     @classmethod

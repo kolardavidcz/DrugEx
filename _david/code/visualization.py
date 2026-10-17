@@ -64,12 +64,12 @@ def get_universal_rigid_anchor(mol: Chem.Mol) -> list[int]:
     largest_frag = max(heavy_frags, key=len, default=[])
     return sorted(largest_frag)
 
-#* insted of de-nono generation, we sould use akready provided and pre-generated molecules
+
 def render_reference_ensemble(
     sdf_path: Path | str,
     output_png: Path | str | None = None,
 ) -> Path:
-    """Render 3D reference conformer ensemble superposition figure."""
+    """Render 3D reference conformer ensemble superposition figure using pre-computed conformer properties."""
     from rdkit.Chem import AllChem
 
     sdf_file = Path(sdf_path)
@@ -90,20 +90,35 @@ def render_reference_ensemble(
     for m in mols:
         mol_combined.AddConformer(m.GetConformer(), assignId=True)
 
-    props = AllChem.MMFFGetMoleculeProperties(mol_combined)
-    energies: list[float] = []
-    for i in range(mol_combined.GetNumConformers()):
-        ff = (
-            AllChem.MMFFGetMoleculeForceField(mol_combined, props, confId=i)
-            if props
-            else None
-        )
-        if not ff:
-            ff = AllChem.UFFGetMoleculeForceField(mol_combined, confId=i)
-        energies.append(float(ff.CalcEnergy()) if ff else 0.0)
+    # Use pre-calculated energetic properties from SDF directly
+    has_props = any(m.HasProp("DeltaE_kcal_mol") or m.HasProp("Energy_MMFF_kcal_mol") for m in mols)
+    if has_props:
+        de_vals: list[float] = []
+        for m in mols:
+            if m.HasProp("DeltaE_kcal_mol"):
+                de_vals.append(m.GetDoubleProp("DeltaE_kcal_mol"))
+            elif m.HasProp("Energy_MMFF_kcal_mol"):
+                de_vals.append(m.GetDoubleProp("Energy_MMFF_kcal_mol"))
+            else:
+                de_vals.append(0.0)
+        if not any(m.HasProp("DeltaE_kcal_mol") for m in mols):
+            min_e = min(de_vals)
+            de_vals = [e - min_e for e in de_vals]
+    else:
+        props = AllChem.MMFFGetMoleculeProperties(mol_combined)
+        energies: list[float] = []
+        for i in range(mol_combined.GetNumConformers()):
+            ff = (
+                AllChem.MMFFGetMoleculeForceField(mol_combined, props, confId=i)
+                if props
+                else None
+            )
+            if not ff:
+                ff = AllChem.UFFGetMoleculeForceField(mol_combined, confId=i)
+            energies.append(float(ff.CalcEnergy()) if ff else 0.0)
+        min_e = min(energies)
+        de_vals = [e - min_e for e in energies]
 
-    min_e = min(energies)
-    de_vals = [e - min_e for e in energies]
     min_idx = int(np.argmin(de_vals))
     max_idx = int(np.argmax(de_vals))
 
@@ -216,11 +231,11 @@ def render_reference_ensemble(
     plt.close(fig)
     return target_png
 
-#* could we move all of the used function into this class as methods
-class AlignedDepicter:
-    """Renders 2D molecular depictions aligned onto a shared Murcko core template."""
 
-    def __init__(self, reference: str | Chem.Mol) -> None:
+class AlignedDepicter:
+    """Renders 2D molecular depictions and prioritized lead cards aligned onto a shared Murcko core template."""
+
+    def __init__(self, reference: str | Chem.Mol | None) -> None:
         self.ref_mol = (
             Chem.MolFromSmiles(reference) if isinstance(reference, str) else reference
         )
@@ -271,6 +286,90 @@ class AlignedDepicter:
             img.save(str(output_path))
         return img
 
+    def render_leads(
+        self,
+        molecules: Sequence[str | Chem.Mol] | pd.DataFrame,
+        legends: Sequence[str] | None = None,
+        output_png: Path | str | None = None,
+        max_leads: int = 5,
+    ) -> Path | None:
+        """Render aligned 2D chemical structure cards with true physical metrics."""
+        target_png = Path(output_png) if output_png else Path("lead_structures_2d.png")
+        target_png.parent.mkdir(parents=True, exist_ok=True)
+
+        plot_mols: list[Chem.Mol] = []
+        plot_legends: list[str] = []
+
+        if self.ref_mol is not None:
+            ref_clean = Chem.RemoveHs(Chem.Mol(self.ref_mol))
+            plot_mols.append(ref_clean)
+            hac = int(ref_clean.GetNumHeavyAtoms())
+            mw = float(Descriptors.MolWt(ref_clean))
+            qed_val = float(QED.qed(ref_clean))
+            sa_val = float(calculate_sa_score(ref_clean))
+            plot_legends.append(
+                f"QUERY SEED\n"
+                f"HAC: {hac} | MW: {mw:.1f}\n"
+                f"QED: {qed_val:.2f} | SA: {sa_val:.2f}"
+            )
+
+        if isinstance(molecules, pd.DataFrame):
+            df_leads = molecules.head(max_leads)
+            for rank_num, (_, row) in enumerate(df_leads.iterrows(), start=1):
+                smi = str(row.get(std.SMILES, ""))
+                m = Chem.MolFromSmiles(smi)
+                if m is not None:
+                    plot_mols.append(m)
+                    rocs = float(row.get(std.ROCS, 0.0))
+                    if 0.0 < rocs <= 1.0001:
+                        rocs = rocs * 2.0
+                    des = float(row.get(std.DESIRED, 0.0))
+                    mw_val = row.get(std.MW)
+                    mw = (
+                        float(mw_val)
+                        if (mw_val is not None and pd.notna(mw_val) and float(mw_val) > 0.0)
+                        else float(Descriptors.MolWt(m))
+                    )
+                    qed_v = float(row.get(std.QED, QED.qed(m)))
+                    sa_raw = row.get(std.SA)
+                    sa_v = (
+                        float(sa_raw)
+                        if (sa_raw is not None and pd.notna(sa_raw) and float(sa_raw) > 1.0001)
+                        else float(calculate_sa_score(m))
+                    )
+                    plot_legends.append(
+                        f"Lead #{rank_num}\n"
+                        f"TanimotoCombo: {rocs:.2f} | Des: {des:.2f}\n"
+                        f"MW: {mw:.1f} | QED: {qed_v:.2f} | SA: {sa_v:.2f}"
+                    )
+        else:
+            for idx, item in enumerate(molecules[:max_leads]):
+                m = Chem.MolFromSmiles(item) if isinstance(item, str) else item
+                if m is not None:
+                    plot_mols.append(m)
+                    if legends and idx < len(legends):
+                        plot_legends.append(legends[idx])
+                    else:
+                        mw = float(Descriptors.MolWt(m))
+                        qed_v = float(QED.qed(m))
+                        sa_v = float(calculate_sa_score(m))
+                        plot_legends.append(
+                            f"Lead #{idx + 1}\n"
+                            f"MW: {mw:.1f} | QED: {qed_v:.2f} | SA: {sa_v:.2f}"
+                        )
+
+        if not plot_mols:
+            return None
+
+        self.create_aligned_grid(
+            plot_mols,
+            legends=plot_legends,
+            output_path=target_png,
+            mols_per_row=min(3, len(plot_mols)),
+            sub_img_size=(340, 260),
+        )
+        return target_png
+
 
 def render_lead_structures_2d(
     molecules: Sequence[str | Chem.Mol] | pd.DataFrame,
@@ -279,84 +378,14 @@ def render_lead_structures_2d(
     reference: str | Chem.Mol | None = None,
     max_leads: int = 5,
 ) -> Path | None:
-    """Render aligned 2D chemical structure cards for prioritized leads and query reference."""
-    target_png = Path(output_png) if output_png else Path("lead_structures_2d.png")
-    target_png.parent.mkdir(parents=True, exist_ok=True)
-
-    plot_mols: list[Chem.Mol] = []
-    plot_legends: list[str] = []
-
-    ref_m = Chem.MolFromSmiles(reference) if isinstance(reference, str) else reference
-    if ref_m is not None:
-        ref_clean = Chem.RemoveHs(Chem.Mol(ref_m))
-        plot_mols.append(ref_clean)
-        hac = int(ref_clean.GetNumHeavyAtoms())
-        mw = float(Descriptors.MolWt(ref_clean))
-        qed_val = float(QED.qed(ref_clean))
-        sa_val = float(calculate_sa_score(ref_clean))
-        plot_legends.append(
-            f"QUERY SEED\n"
-            f"HAC: {hac} | MW: {mw:.1f}\n"
-            f"QED: {qed_val:.2f} | SA: {sa_val:.2f}"
-        )
-
-    if isinstance(molecules, pd.DataFrame):
-        df_leads = molecules.head(max_leads)
-        for rank_num, (_, row) in enumerate(df_leads.iterrows(), start=1):
-            smi = str(row.get(std.SMILES, ""))
-            m = Chem.MolFromSmiles(smi)
-            if m is not None:
-                plot_mols.append(m)
-                rocs = float(row.get(std.ROCS, 0.0))
-                if 0.0 < rocs <= 1.0001:
-                    rocs = rocs * 2.0
-                des = float(row.get(std.DESIRED, 0.0))
-                mw_val = row.get(std.MW)
-                mw = (
-                    float(mw_val)
-                    if (mw_val is not None and pd.notna(mw_val) and float(mw_val) > 0.0)
-                    else float(Descriptors.MolWt(m))
-                )
-                qed_v = float(row.get(std.QED, QED.qed(m)))
-                sa_raw = row.get(std.SA)
-                sa_v = (
-                    float(sa_raw)
-                    if (sa_raw is not None and pd.notna(sa_raw) and float(sa_raw) > 1.0001)
-                    else float(calculate_sa_score(m))
-                )
-                plot_legends.append(
-                    f"Lead #{rank_num}\n"
-                    f"TanimotoCombo: {rocs:.2f} | Des: {des:.2f}\n"
-                    f"MW: {mw:.1f} | QED: {qed_v:.2f} | SA: {sa_v:.2f}"
-                )
-    else:
-        for idx, item in enumerate(molecules[:max_leads]):
-            m = Chem.MolFromSmiles(item) if isinstance(item, str) else item
-            if m is not None:
-                plot_mols.append(m)
-                if legends and idx < len(legends):
-                    plot_legends.append(legends[idx])
-                else:
-                    mw = float(Descriptors.MolWt(m))
-                    qed_v = float(QED.qed(m))
-                    sa_v = float(calculate_sa_score(m))
-                    plot_legends.append(
-                        f"Lead #{idx + 1}\n"
-                        f"MW: {mw:.1f} | QED: {qed_v:.2f} | SA: {sa_v:.2f}"
-                    )
-
-    if not plot_mols:
-        return None
-
-    depicter = AlignedDepicter(reference=ref_m or plot_mols[0])
-    depicter.create_aligned_grid(
-        plot_mols,
-        legends=plot_legends,
-        output_path=target_png,
-        mols_per_row=min(3, len(plot_mols)),
-        sub_img_size=(340, 260),
+    """Convenience functional wrapper delegating lead depiction to AlignedDepicter."""
+    depicter = AlignedDepicter(reference=reference)
+    return depicter.render_leads(
+        molecules=molecules,
+        legends=legends,
+        output_png=output_png,
+        max_leads=max_leads,
     )
-    return target_png
 
 
 def render_training_curves(
@@ -582,11 +611,8 @@ class ResultAnalyzer:
 
         if not top_leads.empty:
             lead_png = self.deliverables_dir / "lead_structures_2d.png"
-            render_lead_structures_2d(
-                top_leads,
-                output_png=lead_png,
-                reference=ref_mol,
-            )
+            depicter = AlignedDepicter(reference=ref_mol)
+            depicter.render_leads(top_leads, output_png=lead_png)
             if lead_png.exists():
                 shutil.copyfile(lead_png, self.raw_data_dir / "aligned_lead_depictions.png")
 

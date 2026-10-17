@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 
 import numpy as np
+from drugex.molecules.converters.standardizers import DefaultStandardizer
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.rewards import WeightedSum
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
@@ -17,90 +18,76 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.ML.Cluster import Butina
 
 from _david.code.config import DEFAULT_MOLECULE
+from _david.code.schema import std
 from _david.code.utils import FallbackMonitor, HardwareManager
-
-#* all of this code still loks extrilmly un-elegant esspcialy 1) inical functions (that sould been methods, PrepareMolecule,...) 
-
-def load_smiles_string(smiles: str) -> Chem.Mol:
-    """Parse a SMILES string into a 2D molecule with explicit hydrogens removed."""
-    mol = Chem.MolFromSmiles(smiles.strip())
-    if mol is None:
-        raise ValueError(f"Failed to parse SMILES string: {smiles!r}")
-    return Chem.RemoveHs(mol)
-
-
-def load_smiles_file(path: Path | str) -> Chem.Mol:
-    """Read a text or .smi file, parse first token as SMILES, and return 2D molecule."""
-    file_path = Path(path)
-    text = file_path.read_text(encoding="utf-8").strip()
-    tokens = text.split()
-    if not tokens:
-        raise ValueError(f"Empty molecule file: {file_path}")
-    return load_smiles_string(tokens[0])
-
-#* we explicitly removeHs when loading from load_smiles_string, but keep
-#* also there is no need for havng them as a function - keep them as methods - all of this (and you can merge some of the functions info few (eg.2 to 1))
-def load_sdf_file(path: Path | str) -> tuple[Chem.Mol, bool]:
-    """Load an SDF structure file and return the base molecule and 3D coordinate flag."""
-    file_path = Path(path)
-    mols = [m for m in Chem.SDMolSupplier(str(file_path), removeHs=False) if m is not None]
-    if not mols:
-        raise ValueError(f"No valid molecule found in SDF file: {file_path}")
-
-    # if you have other molecules in sdf, that this will be very sad :(
-    base = mols[0]
-    for extra in mols[1:]:
-        base.AddConformer(extra.GetConformer(), assignId=True)
-
-    is_3d = bool(base.GetNumConformers() > 0 and base.GetConformer().Is3D())
-    return base, is_3d
-
-
-def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
-    """Dispatch molecule loading across RDKit Mol objects, raw SMILES strings, and file paths."""
-    if isinstance(query, Chem.Mol):
-        is_3d = bool(query.GetNumConformers() > 0 and query.GetConformer().Is3D())
-        return query, is_3d
-
-    if isinstance(query, Path) or (
-        isinstance(query, str) and query.endswith((".sdf", ".sd", ".txt", ".smi"))
-    ):
-        p = Path(query)
-        if p.is_file():
-            if p.suffix.lower() in {".sdf", ".sd"}:
-                return load_sdf_file(p)
-            return load_smiles_file(p), False
-
-    if isinstance(query, str):
-        return load_smiles_string(query), False
-
-    raise ValueError(f"Could not parse molecule query: {query!r}")
 
 
 class PrepareMolecule:
-    """Prepares 3D reference conformers and extracts seed core scaffolds for RL."""
+    """Standardizes inputs, prepares 3D reference conformers, and extracts seed core scaffolds."""
 
     def __init__(
         self,
         num_conformers: int = 100,
-        max_reference_conformers: int = 5, #temporarly 1,
+        max_reference_conformers: int = 5,
         random_seed: int = 42,
     ) -> None:
         self.num_conformers = num_conformers
         self.max_reference_conformers = max_reference_conformers
         self.random_seed = random_seed
+        self.standardizer = DefaultStandardizer()
 
-    def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
-        """Delegate SDF loading to unified load_sdf_file helper."""
-        return load_sdf_file(path)
+    def standardize(self, smiles: str) -> str:
+        """Standardize, desalt, uncharge, and normalize input chemical structure using DrugEx standards."""
+        try:
+            return self.standardizer(smiles)
+        except Exception:
+            return Chem.CanonSmiles(smiles)
 
-    def load_query_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
-        """Delegate molecule query resolution to unified load_query_molecule dispatcher."""
-        return load_query_molecule(query)
+    def load_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
+        """Load and standardize molecule across RDKit Mols, SMILES strings, and structure files."""
+        if isinstance(query, Chem.Mol):
+            if query.GetNumConformers() > 0 and query.GetConformer().Is3D():
+                return query, True
+            return Chem.RemoveHs(query), False
 
-    @staticmethod
-    #* wrong naming of the function
-    def _calculate_adaptive_rmsd_cutoff(
+        p = Path(query) if isinstance(query, (Path, str)) and (
+            isinstance(query, Path) or query.endswith((".sdf", ".sd", ".txt", ".smi"))
+        ) else None
+
+        if p and p.is_file():
+            if p.suffix.lower() in {".sdf", ".sd"}:
+                mols = [m for m in Chem.SDMolSupplier(str(p), removeHs=False) if m is not None]
+                if not mols:
+                    raise ValueError(f"No valid molecule in SDF: {p}")
+                base = mols[0]
+                for extra in mols[1:]:
+                    base.AddConformer(extra.GetConformer(), assignId=True)
+                if base.GetNumConformers() > 0 and base.GetConformer().Is3D():
+                    return base, True
+                return Chem.RemoveHs(base), False
+
+            text = p.read_text(encoding="utf-8").strip()
+            tokens = text.split()
+            if not tokens:
+                raise ValueError(f"Empty molecule file: {p}")
+            query = tokens[0]
+
+        if isinstance(query, str):
+            std_smi = self.standardize(query)
+            mol = Chem.MolFromSmiles(std_smi)
+            if mol is None:
+                raise ValueError(f"Could not parse molecule query: {query!r}")
+            return Chem.RemoveHs(mol), False
+
+        raise ValueError(f"Could not parse molecule query: {query!r}")
+
+    # Canonical aliases for backward compatibility
+    load_query_molecule = load_molecule
+    load_sdf_ensemble = lambda self, path: self.load_molecule(path)
+
+    @classmethod
+    def get_adaptive_rmsd_cutoff(
+        cls,
         mol: Chem.Mol | None,
         max_ensemble_size: int = 1,
     ) -> tuple[float, int]:
@@ -119,6 +106,8 @@ class PrepareMolecule:
             return 1.25, min(3, max_ensemble_size)
         return 1.50, min(5, max_ensemble_size)
 
+    _calculate_adaptive_rmsd_cutoff = get_adaptive_rmsd_cutoff
+
     def generate_reference_conformers(
         self,
         query: str | Path | Chem.Mol,
@@ -130,7 +119,7 @@ class PrepareMolecule:
         target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        mol, is_3d = load_query_molecule(query)
+        mol, is_3d = self.load_molecule(query)
         if is_3d:
             with Chem.SDWriter(str(target_path)) as writer:
                 for conf in mol.GetConformers():
@@ -138,7 +127,6 @@ class PrepareMolecule:
             return target_path
 
         # ~ [Hawkins, Conformer Generation with RDKit, J. Chem. Inf. Model. 2017] ETKDGv3 embedding
-        #* since from .sdf file we didnt striped the H and tis not 3D we now gerate another .AddHs (wouldnt there be a bung that will add them twise?)
         mol_h = Chem.AddHs(mol)
         params = AllChem.ETKDGv3()
         params.randomSeed = random_seed
@@ -189,9 +177,7 @@ class PrepareMolecule:
 
         # ~ [Hawkins, Basin curation via Butina clustering, 2017] Sphere-exclusion RMSD clustering
         remaining_cids = list(energies.keys())
-        cutoff, max_ensemble_size = self._calculate_adaptive_rmsd_cutoff(
-            mol_h, self.max_reference_conformers
-        )
+        cutoff, max_ensemble_size = self.get_adaptive_rmsd_cutoff(mol_h, self.max_reference_conformers)
         if len(remaining_cids) > 1:
             mol_no_h = Chem.RemoveHs(mol_h)
             n_confs = len(remaining_cids)
@@ -224,13 +210,12 @@ class PrepareMolecule:
         isomeric: bool = False,
     ) -> str:
         # ~ [Bemis & Murcko, The Properties of Known Drugs. 1. Molecular Frameworks, J. Med. Chem. 1996]
-        mol, _ = load_query_molecule(query)
+        mol, _ = self.load_molecule(query)
         mol_no_h = Chem.RemoveHs(mol)
 
         scaff_mol = MurckoScaffold.GetScaffoldForMol(mol_no_h)
         if scaff_mol and scaff_mol.GetNumHeavyAtoms() > 0:
             Chem.SanitizeMol(scaff_mol)
-            #* btw we sould at some point use drugex standartization - look it up for it
             scaff_smi = Chem.MolToSmiles(scaff_mol, isomericSmiles=isomeric)
         else:
             scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
@@ -248,12 +233,18 @@ class PrepareMolecule:
         return scaff_smi
 
 
+# Top-level module convenience dispatchers
+def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
+    """Top-level convenience helper loading molecule via default PrepareMolecule."""
+    return PrepareMolecule().load_molecule(query)
+
+
 def create_rocs_scorer(
     references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
     max_conformers: int = 30,
     timeout: int = 60,
 ) -> RDKitROCSScorer:
-    """Build multi-threaded RDKitROCSScorer using Open3DAlign and TanimotoCombo color force field."""
+    """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
     ref_input = str(references) if isinstance(references, Path) else references
     conf_gen = RDKitConformerGenerator(
         max_conformers=max_conformers,
@@ -261,13 +252,15 @@ def create_rocs_scorer(
         max_rotatable_bonds=25,
         timeout=timeout,
     )
-    return RDKitROCSScorer(
+    scorer = RDKitROCSScorer(
         references=ref_input,
         conformer_generator=conf_gen,
         score_type="TanimotoCombo",
         color_ff="oe_mills_dean",
         n_jobs=HardwareManager.get_safe_parallel_jobs(),
     )
+    scorer.getKey = lambda: [std.ROCS]
+    return scorer
 
 
 class SafeSAModifier(ScoreModifier):

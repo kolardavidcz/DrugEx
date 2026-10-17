@@ -6,9 +6,6 @@ from _david.code.environment import (
     create_environment,
     create_rocs_scorer,
     load_query_molecule,
-    load_sdf_file,
-    load_smiles_file,
-    load_smiles_string,
 )
 from _david.code.models import GraphTransformerOptimizer
 from _david.code.pipeline import MoleculePipeline
@@ -36,9 +33,6 @@ __all__ = [
     "create_environment",
     "create_rocs_scorer",
     "load_query_molecule",
-    "load_sdf_file",
-    "load_smiles_file",
-    "load_smiles_string",
     "GraphTransformerOptimizer",
     "AlignedDepicter",
     "ResultAnalyzer",

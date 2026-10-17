@@ -22,9 +22,6 @@ from _david.code.environment import (
     SafeSAModifier,
     create_environment,
     load_query_molecule,
-    load_sdf_file,
-    load_smiles_file,
-    load_smiles_string,
 )
 from _david.code.pipeline import MoleculePipeline
 from _david.code.schema import std
@@ -154,7 +151,8 @@ class TestLBDDPipeline(unittest.TestCase):
     def test_load_query_molecule(self) -> None:
         """Verify query molecule loading across SMILES strings, RDKit Mols, and files."""
         # 1. SMILES string loading
-        mol_smi = load_smiles_string("c1ccccc1O")
+        mol_smi, is_3d_smi = self.preparer.load_molecule("c1ccccc1O")
+        self.assertFalse(is_3d_smi)
         self.assertEqual(mol_smi.GetNumHeavyAtoms(), 7)
 
         mol, is_3d = load_query_molecule("c1ccccc1O")
