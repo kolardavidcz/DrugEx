@@ -313,7 +313,9 @@ class TestLBDDPipeline(unittest.TestCase):
         # 2. Power-of-2 batch sizing clamped strictly to n_samples
         self.assertEqual(HardwareManager.get_recommended_batch_size(n_samples=10), 10)
         batch_normal = HardwareManager.get_recommended_batch_size(n_samples=200)
-        self.assertIn(batch_normal, [32, 64, 128])
+        self.assertIn(batch_normal, [32, 64, 128, 200])
+        batch_large = HardwareManager.get_recommended_batch_size(n_samples=500)
+        self.assertIn(batch_large, [32, 64, 128, 256])
 
         # 3. Environment isolation and dynamic ratio support
         env_vars = HardwareManager.init_runtime_environment()

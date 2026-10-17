@@ -171,7 +171,9 @@ class HardwareManager:
             batch_size = 32
         else:
             _, free_mb, _ = cls.get_device_vram(best_gpu)
-            if free_mb >= 12000.0:
+            if free_mb >= 16000.0:
+                batch_size = 256    
+            elif free_mb >= 10000.0:
                 batch_size = 128
             elif free_mb >= 4000.0:
                 batch_size = 64
