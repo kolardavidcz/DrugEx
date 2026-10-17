@@ -18,6 +18,7 @@ from rdkit.Chem import AllChem
 
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.environment import (
+    BatchUniqueEnvironment,
     PrepareMolecule,
     SafeSAModifier,
     create_environment,
@@ -57,6 +58,38 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertGreater(epsilon, 0.0)
             self.assertIsInstance(env.rewardScheme, WeightedSum)
 
+    def test_batch_unique_reward_masking(self) -> None:
+        """Verify BatchUniqueEnvironment zeroes rewards for intra-batch duplicate SMILES."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ref_sdf = Path(tmp_dir) / "ref.sdf"
+            mol = Chem.MolFromSmiles("c1ccccc1O")
+            AllChem.EmbedMolecule(mol)
+            writer = Chem.SDWriter(str(ref_sdf))
+            writer.write(mol)
+            writer.close()
+
+            env, _ = create_environment(ref_sdf, batch_unique=True)
+            self.assertIsInstance(env, BatchUniqueEnvironment)
+            self.assertTrue(env.batch_unique)
+
+            smiles_batch = [
+                "c1ccccc1O",
+                "c1ccccc1",
+                "c1ccccc1O",
+                "c1ccncc1",
+                "c1ccccc1",
+            ]
+            rewards = env.getRewards(smiles_batch)
+            self.assertEqual(len(rewards), len(smiles_batch))
+            self.assertGreater(rewards[0], 0.0)
+            self.assertEqual(rewards[2], 0.0)
+            self.assertEqual(rewards[4], 0.0)
+
+            env_unmasked, _ = create_environment(ref_sdf, batch_unique=False)
+            rewards_unmasked = env_unmasked.getRewards(smiles_batch)
+            self.assertEqual(rewards_unmasked[0], rewards_unmasked[2])
+            self.assertEqual(rewards_unmasked[1], rewards_unmasked[4])
+
     def test_conformer_generation(self) -> None:
         """Verify 3D conformer generation with MMFF94 and UFF fallback on non-MMFF elements."""
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -84,38 +117,38 @@ class TestLBDDPipeline(unittest.TestCase):
                 float(mols_uff[0].GetProp("Energy_MMFF_kcal_mol")), 0.0
             )
 
-    def test_adaptive_rmsd_cutoff(self) -> None:
+    def test_determine_ensemble_parameters(self) -> None:
         """Verify Hawkins (2017) heavy-atom RMSD cutoffs across chemical tiers with topology invariance."""
         m_benzene = Chem.MolFromSmiles("c1ccccc1")
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_benzene), (1.00, 1)
+            PrepareMolecule.determine_ensemble_parameters(m_benzene), (1.00, 1)
         )
 
         m_aspirin = Chem.MolFromSmiles("CC(=O)Oc1ccccc1C(=O)O")
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_aspirin), (1.00, 1)
+            PrepareMolecule.determine_ensemble_parameters(m_aspirin), (1.00, 1)
         )
 
         m_phenol_h = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1O"))
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_phenol_h), (1.00, 1)
+            PrepareMolecule.determine_ensemble_parameters(m_phenol_h), (1.00, 1)
         )
 
         m_ibuprofen = Chem.MolFromSmiles("CC(C)Cc1ccc(cc1)C(C)C(=O)O")
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_ibuprofen), (1.25, 1)
+            PrepareMolecule.determine_ensemble_parameters(m_ibuprofen), (1.25, 1)
         )
 
         m_decanoic = Chem.MolFromSmiles("CCCCCCCCCC(=O)O")
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(m_decanoic), (1.50, 1)
+            PrepareMolecule.determine_ensemble_parameters(m_decanoic), (1.50, 1)
         )
 
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(None), (1.00, 1)
+            PrepareMolecule.determine_ensemble_parameters(None), (1.00, 1)
         )
         self.assertEqual(
-            PrepareMolecule._calculate_adaptive_rmsd_cutoff(Chem.MolFromSmiles("")),
+            PrepareMolecule.determine_ensemble_parameters(Chem.MolFromSmiles("")),
             (1.00, 1),
         )
 

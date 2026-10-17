@@ -37,7 +37,8 @@ class PrepareMolecule:
         self.standardizer = DefaultStandardizer()
 
     def standardize(self, smiles: str) -> str:
-        """Standardize, desalt, uncharge, and normalize input chemical structure using DrugEx standards."""
+        # ~ [DrugEx DefaultStandardizer; ChEMBL/Papyrus chemical curation protocol]
+        """Standardize input chemical structure into the representation expected by the GraphTransformer prior."""
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             raise ValueError(f"Could not parse molecule query: {smiles!r}")
@@ -86,7 +87,7 @@ class PrepareMolecule:
 
         raise ValueError(f"Could not parse molecule query: {query!r}")
 
-    # Canonical aliases for backward compatibility
+    # Canonical alias for backward compatibility
     load_query_molecule = load_molecule
 
     def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
@@ -94,12 +95,13 @@ class PrepareMolecule:
         return self.load_molecule(path)
 
     @classmethod
-    def get_adaptive_rmsd_cutoff(
+    def determine_ensemble_parameters(
         cls,
         mol: Chem.Mol | None,
         max_ensemble_size: int = 1,
     ) -> tuple[float, int]:
         # ~ [Hawkins, Conformer Generation with RDKit, J. Chem. Inf. Model. 2017]
+        """Calculate Butina RMSD clustering cutoff and maximum reference ensemble size based on molecular flexibility."""
         if mol is None:
             return 1.00, 1
         mol_no_h = Chem.RemoveHs(mol) if mol.GetNumAtoms() > mol.GetNumHeavyAtoms() else mol
@@ -114,7 +116,42 @@ class PrepareMolecule:
             return 1.25, min(3, max_ensemble_size)
         return 1.50, min(5, max_ensemble_size)
 
-    _calculate_adaptive_rmsd_cutoff = get_adaptive_rmsd_cutoff
+    @classmethod
+    def calculate_conformer_energies(
+        cls,
+        mol_h: Chem.Mol,
+        query_desc: str = "",
+    ) -> dict[int, float]:
+        """Minimize conformers using MMFF94 with UFF fallback and return valid conformer energies in kcal/mol."""
+        results = []
+        fallback_reason: str | None = None
+        if AllChem.MMFFHasAllMoleculeParams(mol_h):
+            results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=1000, numThreads=0)
+            if results and all(status == -1 for status, _ in results):
+                results = []
+                fallback_reason = "MMFF94 setup failed for all conformers; falling back to UFF."
+        else:
+            fallback_reason = "MMFF94 lacks parameters for query molecule; falling back to UFF."
+
+        if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
+            if fallback_reason:
+                FallbackMonitor.record_fallback("FORCE_FIELD", fallback_reason, {"query": query_desc})
+            results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=1000, numThreads=0)
+        if not results:
+            raise RuntimeError(f"Force field optimization failed for: {query_desc}")
+
+        energies: dict[int, float] = {}
+        for conf, (status, e) in zip(mol_h.GetConformers(), results):
+            cid = conf.GetId()
+            e_val = float(e)
+            if status != -1 and math.isfinite(e_val):
+                energies[cid] = e_val
+            else:
+                mol_h.RemoveConformer(cid)
+
+        if not energies:
+            raise RuntimeError(f"Force field optimization produced zero valid conformers for: {query_desc}")
+        return energies
 
     def generate_reference_conformers(
         self,
@@ -147,34 +184,7 @@ class PrepareMolecule:
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 conformer embedding failed for: {query}")
 
-        # Force field minimization with MMFF94 and UFF fallback
-        results = []
-        fallback_reason: str | None = None
-        if AllChem.MMFFHasAllMoleculeParams(mol_h):
-            results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=1000, numThreads=0)
-            if results and all(status == -1 for status, _ in results):
-                results = []
-                fallback_reason = "MMFF94 setup failed for all conformers; falling back to UFF."
-        else:
-            fallback_reason = "MMFF94 lacks parameters for query molecule; falling back to UFF."
-
-        if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
-            if fallback_reason:
-                FallbackMonitor.record_fallback("FORCE_FIELD", fallback_reason, {"query": str(query)})
-            results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=1000, numThreads=0)
-        if not results:
-            raise RuntimeError(f"Force field optimization failed for: {query}")
-
-        energies: dict[int, float] = {}
-        for cid, (status, e) in zip(conf_ids, results):
-            e_val = float(e)
-            if status == -1 or not math.isfinite(e_val):
-                mol_h.RemoveConformer(cid)
-            else:
-                energies[cid] = e_val
-
-        if not energies:
-            raise RuntimeError(f"Force field optimization produced zero valid conformers for: {query}")
+        energies = self.calculate_conformer_energies(mol_h, query_desc=str(query))
 
         # ~ [Hawkins, Physiological energy window, 2017] Delta E <= 8.0 kcal/mol window
         min_e = min(energies.values())
@@ -185,7 +195,7 @@ class PrepareMolecule:
 
         # ~ [Hawkins, Basin curation via Butina clustering, 2017] Sphere-exclusion RMSD clustering
         remaining_cids = list(energies.keys())
-        cutoff, max_ensemble_size = self.get_adaptive_rmsd_cutoff(mol_h, self.max_reference_conformers)
+        cutoff, max_ensemble_size = self.determine_ensemble_parameters(mol_h, self.max_reference_conformers)
         if len(remaining_cids) > 1:
             mol_no_h = Chem.RemoveHs(mol_h)
             n_confs = len(remaining_cids)
@@ -292,14 +302,54 @@ class SafeSAModifier(ScoreModifier):
         return float(out.item()) if np.ndim(x) == 0 else out
 
 
+class BatchUniqueEnvironment(DrugExEnvironment):
+    """Multi-objective RL environment with Batch-Unique Zero Masking preventing reward gaming on duplicates."""
+
+    def __init__(
+        self,
+        scorers: list[Scorer],
+        thresholds: list[float],
+        reward_scheme: WeightedSum | None = None,
+        batch_unique: bool = True,
+    ) -> None:
+        super().__init__(
+            scorers=scorers,
+            thresholds=thresholds,
+            reward_scheme=reward_scheme or WeightedSum(),
+        )
+        self.batch_unique = batch_unique
+
+    def getRewards(self, smiles: list[str], frags: list[str] | None = None) -> np.ndarray:
+        # ~ [Reinforcement Learning Batch Entropy & Mode Collapse Mitigation]
+        """Calculate multi-objective rewards, zeroing rewards for duplicate molecules within the batch."""
+        rewards = super().getRewards(smiles, frags=frags)
+        if not self.batch_unique or len(smiles) <= 1:
+            return rewards
+
+        seen_smiles: set[str] = set()
+        for idx, smi in enumerate(smiles):
+            if not smi or smi.count(".") > 0:
+                continue
+            try:
+                canon = Chem.CanonSmiles(smi)
+            except Exception:
+                canon = smi
+            if canon in seen_smiles:
+                rewards[idx] = 0.0
+            else:
+                seen_smiles.add(canon)
+        return rewards
+
+
 def create_environment(
     ref_sdf: str | Path,
     thresholds: tuple[float, float] = (0.5, 0.5),
     epsilon: float = 0.2,
     max_conformers: int = 30,
     timeout: int = 60,
+    batch_unique: bool = True,
 ) -> tuple[DrugExEnvironment, float]:
-    """Construct multi-objective DrugEx reinforcement learning environment."""
+    """Construct multi-objective DrugEx reinforcement learning environment with Batch-Unique Zero Masking."""
     rocs_scorer = create_rocs_scorer(ref_sdf, max_conformers=max_conformers, timeout=timeout)
     rocs_scorer.modifier = ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)
 
@@ -309,9 +359,10 @@ def create_environment(
     )
     scorers: list[Scorer] = [rocs_scorer, sa_scorer]
 
-    env = DrugExEnvironment(
+    env = BatchUniqueEnvironment(
         scorers=scorers,
         thresholds=list(thresholds),
         reward_scheme=WeightedSum(),
+        batch_unique=batch_unique,
     )
     return env, epsilon

@@ -78,18 +78,13 @@ class HardwareManager:
         return allocated, free, total
 
     @classmethod
-    def select_best_gpu(cls, min_free_mb: float = 4000.0) -> int:
-        """Select healthy GPU index with highest free VRAM, or return -1 for CPU fallback."""
-        if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
-            return -1
-        free_vrams = [cls.get_device_vram(i)[1] for i in range(torch.cuda.device_count())]
-        best_idx = int(max(range(len(free_vrams)), key=lambda i: free_vrams[i]))
-        return best_idx if free_vrams[best_idx] >= min_free_mb else -1
-
-    @classmethod
-    def get_safe_gpus(cls, preferred_gpu: int | str | None = "auto") -> tuple[int, ...]:
-        """Resolve single GPU device tuple or empty tuple for CPU execution."""
-        if not torch.cuda.is_available() or preferred_gpu in ("cpu", "none", None, -1):
+    def get_safe_gpus(
+        cls,
+        preferred_gpu: int | str | None = "auto",
+        min_free_mb: float = 4000.0,
+    ) -> tuple[int, ...]:
+        """Resolve single GPU device tuple or empty tuple for CPU execution based on VRAM availability."""
+        if not torch.cuda.is_available() or torch.cuda.device_count() == 0 or preferred_gpu in ("cpu", "none", None, -1):
             return ()
         if isinstance(preferred_gpu, int) and 0 <= preferred_gpu < torch.cuda.device_count():
             return (preferred_gpu,)
@@ -97,18 +92,19 @@ class HardwareManager:
             idx = int(preferred_gpu.strip())
             return (idx,) if 0 <= idx < torch.cuda.device_count() else ()
         if preferred_gpu == "auto":
-            best = cls.select_best_gpu()
-            return (best,) if best >= 0 else ()
+            free_vrams = [cls.get_device_vram(i)[1] for i in range(torch.cuda.device_count())]
+            best_idx = int(max(range(len(free_vrams)), key=lambda i: free_vrams[i]))
+            return (best_idx,) if free_vrams[best_idx] >= min_free_mb else ()
         return ()
 
     @classmethod
     def get_recommended_batch_size(cls, n_samples: int = 100) -> int:
         """Determine power-of-2 batch size aligned with VRAM and clamped to sample pool size."""
-        best_gpu = cls.select_best_gpu()
-        if best_gpu == -1:
+        safe_gpus = cls.get_safe_gpus(preferred_gpu="auto")
+        if not safe_gpus:
             batch_size = 32
         else:
-            _, free_mb, _ = cls.get_device_vram(best_gpu)
+            _, free_mb, _ = cls.get_device_vram(safe_gpus[0])
             if free_mb >= 16000.0:
                 batch_size = 256
             elif free_mb >= 10000.0:

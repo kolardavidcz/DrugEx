@@ -105,19 +105,16 @@ def render_reference_ensemble(
             min_e = min(de_vals)
             de_vals = [e - min_e for e in de_vals]
     else:
-        props = AllChem.MMFFGetMoleculeProperties(mol_combined)
-        energies: list[float] = []
-        for i in range(mol_combined.GetNumConformers()):
-            ff = (
-                AllChem.MMFFGetMoleculeForceField(mol_combined, props, confId=i)
-                if props
-                else None
-            )
-            if not ff:
-                ff = AllChem.UFFGetMoleculeForceField(mol_combined, confId=i)
-            energies.append(float(ff.CalcEnergy()) if ff else 0.0)
-        min_e = min(energies)
-        de_vals = [e - min_e for e in energies]
+        from _david.code.environment import PrepareMolecule
+
+        energies_dict = PrepareMolecule.calculate_conformer_energies(
+            mol_combined, query_desc=str(sdf_file.name)
+        )
+        min_e = min(energies_dict.values())
+        de_vals = [
+            energies_dict.get(conf.GetId(), 0.0) - min_e
+            for conf in mol_combined.GetConformers()
+        ]
 
     min_idx = int(np.argmin(de_vals))
     max_idx = int(np.argmax(de_vals))
