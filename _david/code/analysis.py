@@ -68,9 +68,13 @@ class ParetoFrontier:
 
 
 class ResultAnalyzer:
-    def __init__(self, output_dir: Path | str) -> None:
+    def __init__(
+        self, output_dir: Path | str, analysis_dir: Path | str | None = None
+    ) -> None:
         self.output_dir = Path(output_dir)
-        self.analysis_dir = self.output_dir / "stage2_result_analysis"
+        self.analysis_dir = (
+            Path(analysis_dir) if analysis_dir is not None else self.output_dir
+        )
         self.analysis_dir.mkdir(parents=True, exist_ok=True)
 
     def analyze(

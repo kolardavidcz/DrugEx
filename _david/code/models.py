@@ -45,7 +45,7 @@ class AlgorithmConfig:
     beta: float = 0.0
     patience: int = 25
     min_epochs: int = 5
-    criteria: str = "desired_ratio"
+    criteria: str = "avg_amean" #not "desired_ratio"
     seed: int = 42
 
 

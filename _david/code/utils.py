@@ -180,16 +180,18 @@ class HardwareManager:
         return max(1, min(batch_size, n_samples))
 
     @classmethod
-    def init_runtime_environment(cls, ratio: float = 0.60) -> dict[str, str]:
+    def init_runtime_environment(cls, ratio: float | None = None) -> dict[str, str]:
         """Sole authority for initializing multiprocessing and scoring environment.
 
         WHY:
         DrugEx parallel scorers inherit multiprocessing settings from environment variables.
         Using 'forkserver' prevents deadlocks caused by POSIX fork() inheriting active
-        CUDA contexts or OpenMP thread pools.
+        CUDA contexts or OpenMP thread pools. Defaults cleanly to the safe 60% host rule,
+        allowing explicit CLI override when prompted.
         """
-        cls._cpu_ratio = ratio
-        n_jobs = str(cls.get_safe_parallel_jobs(ratio=ratio))
+        if ratio is not None:
+            cls._cpu_ratio = ratio
+        n_jobs = str(cls.get_safe_parallel_jobs())
         os.environ["DRUGEX_SCORE_NJOBS"] = n_jobs
         os.environ["DRUGEX_MP_CONTEXT"] = "forkserver"
         return {"DRUGEX_SCORE_NJOBS": n_jobs, "DRUGEX_MP_CONTEXT": "forkserver"}

@@ -18,32 +18,36 @@ from _david.code.utils import HardwareManager
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DrugEx LBDD Runner")
-    parser.add_argument("--mode", default="full", choices=["full", "test", "benchmark_only"])
-    parser.add_argument("--test", action="store_const", const="test", dest="mode")
-    parser.add_argument("--epochs", type=int, default=35)
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        default=False,
+        help="Run fast verification test mode (1 epoch, 10 samples)",
+    )
+    parser.add_argument("--epochs", type=int, default=35, help="Number of RL epochs")
     parser.add_argument("--patience", type=int, default=25, help="Early stopping patience")
-    parser.add_argument("--n-samples", type=int, default=200)
-    parser.add_argument("--val-samples", type=int, default=100, help="Number of validation samples per epoch")
-    parser.add_argument("--molecule", default=DEFAULT_MOLECULE)
-    parser.add_argument("--gpu", default="auto")
+    parser.add_argument("--n-samples", type=int, default=200, help="RL prompt batch size")
+    parser.add_argument("--val-samples", type=int, default=100, help="Validation sample size")
+    parser.add_argument(
+        "--n-eval-samples",
+        type=int,
+        default=200,
+        help="Number of final candidates generated from peak agent",
+    )
+    parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES")
+    parser.add_argument("--gpu", default="auto", help="GPU device ID or 'auto'/'all'/'cpu'")
     parser.add_argument(
         "--cpu-ratio",
         type=float,
-        default=0.60,
-        help="Fraction of CPU cores allocated for parallel 3D scoring (default: 0.60; use 0.80 for dedicated runs)",
+        default=None,
+        help="Fraction of CPU cores allocated for parallel 3D scoring (default: None, uses safe 0.60; use 0.80 or 0.90 for dedicated runs)",
     )
-    parser.add_argument("--out-dir", type=Path, default=None)
+    parser.add_argument("--out-dir", type=Path, default=None, help="Custom output directory")
     parser.add_argument(
-        "--detach", action="store_true", dest="detach", default=False, help="Run as background daemon process"
-    )
-    parser.add_argument(
-        "--no-detach", action="store_false", dest="detach", help="Run interactively in foreground (default)"
+        "--detach", action="store_true", default=False, help="Run as background daemon process"
     )
     parser.add_argument(
-        "--pareto", action="store_true", dest="render_pareto", default=False, help="Enable Pareto visualizations"
-    )
-    parser.add_argument(
-        "--no-pareto", action="store_false", dest="render_pareto", help="Disable Pareto visualizations (default)"
+        "--pareto", action="store_true", default=False, help="Enable Pareto evolution visualization"
     )
     args, _ = parser.parse_known_args()
     return args
@@ -54,7 +58,9 @@ def main() -> None:
     HardwareManager.init_runtime_environment(ratio=args.cpu_ratio)
     is_worker = os.environ.get("DRUGEX_DETACHED_WORKER") == "1"
 
-    target_dir = args.out_dir or (PROJECT_ROOT / "_david" / "output" / datetime.now().strftime("%Y%m%d_%H%M%S"))
+    target_dir = args.out_dir or (
+        PROJECT_ROOT / "_david" / "output" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    )
     target_dir.mkdir(parents=True, exist_ok=True)
 
     if args.detach and not is_worker:
@@ -68,18 +74,21 @@ def main() -> None:
         cmd = [
             sys.executable,
             str(Path(__file__).resolve()),
-            "--mode", args.mode,
             "--epochs", str(args.epochs),
             "--patience", str(args.patience),
             "--n-samples", str(args.n_samples),
             "--val-samples", str(args.val_samples),
+            "--n-eval-samples", str(args.n_eval_samples),
             "--molecule", args.molecule,
             "--gpu", str(args.gpu),
-            "--cpu-ratio", str(args.cpu_ratio),
             "--out-dir", str(target_dir),
-            "--pareto" if args.render_pareto else "--no-pareto",
-            "--no-detach",
         ]
+        if args.test:
+            cmd.append("--test")
+        if args.pareto:
+            cmd.append("--pareto")
+        if args.cpu_ratio is not None:
+            cmd.extend(["--cpu-ratio", str(args.cpu_ratio)])
 
         with open(log_file, "a", encoding="utf-8") as f_out:
             proc = subprocess.Popen(
@@ -101,14 +110,15 @@ def main() -> None:
 
     pipeline = MoleculePipeline(
         output_dir=target_dir,
-        mode=args.mode,
+        is_test=args.test,
         epochs=args.epochs,
         patience=args.patience,
         n_samples=args.n_samples,
         val_samples=args.val_samples,
+        n_eval_samples=args.n_eval_samples,
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
-        render_pareto=args.render_pareto,
+        render_pareto=args.pareto,
     )
     pipeline.run(args.molecule)
 

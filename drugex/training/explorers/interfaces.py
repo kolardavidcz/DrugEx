@@ -145,7 +145,7 @@ class FragExplorer(Explorer):
         """Decode batch fragments and SMILES, and compute agent training loss."""
         pass
 
-    def policy_gradient(self, loader):
+    def policy_gradient(self, loader, epoch=None, epochs=None):
         """Optimize agent via REINFORCE policy gradients computed over sampled fragment pairs."""
         net = nn.DataParallel(self.agent, device_ids=self.gpus)
         total_steps = len(loader)
@@ -169,7 +169,7 @@ class FragExplorer(Explorer):
             loss.backward()
             self.optim.step()
 
-            self.monitor.saveProgress(self, step_idx, None, total_steps, None, loss=loss.item())
+            self.monitor.saveProgress(self, step_idx, epoch, total_steps, epochs, loss=loss.item())
 
         return loss.item()
 
@@ -222,7 +222,7 @@ class FragExplorer(Explorer):
                 loader = self.sampleEncodedPairsToLoader(net, train_loader)
 
                 # Train the agent with policy gradient
-                train_loss = self.policy_gradient(loader)
+                train_loss = self.policy_gradient(loader, epoch=epoch, epochs=epochs)
 
                 # Evaluate model on validation set
                 smiles, frags = self.agent.sample(valid_loader)

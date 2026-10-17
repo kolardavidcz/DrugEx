@@ -400,7 +400,7 @@ def create_environment(
 
     # 3. Pareto Multi-Objective DrugEx Environment
     scorers: list[Scorer] = [rocs_scorer, sa_scorer]
-    thresholds: list[float] = [0.25, 0.25]
+    thresholds: list[float] = [0.5, 0.5]
 
     env = DrugExEnvironment(
         scorers=scorers,

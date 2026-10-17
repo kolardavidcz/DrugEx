@@ -589,21 +589,22 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertIsNotNone(front_png)
             self.assertTrue(front_png.exists())
 
-    def test_pipeline_benchmark(self) -> None:
-        """Verify MoleculePipeline execution in benchmark_only mode."""
+    def test_pipeline_test_mode(self) -> None:
+        """Verify MoleculePipeline execution in test mode."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             pipe_dir = Path(tmp_dir) / "run_test"
-            pipeline = MoleculePipeline(output_dir=pipe_dir, mode="benchmark_only")
+            pipeline = MoleculePipeline(output_dir=pipe_dir, is_test=True)
             pipeline.run("Oc1ccccc1")
             self.assertTrue(
                 (pipe_dir / "raw_data" / "logs" / "pipeline_status.json").exists()
-                or (pipe_dir / "logs" / "pipeline_status.json").exists()
-                or (pipe_dir / "pipeline_status.json").exists()
             )
             self.assertTrue((pipe_dir / "summary.md").exists())
             self.assertTrue(
                 (pipe_dir / "raw_data" / "query_molecule_3d.sdf").exists()
-                or (pipe_dir / "references" / "query_molecule_3d.sdf").exists()
+            )
+            self.assertTrue(
+                (pipe_dir / "lead_structures_2d.png").exists()
+                or (pipe_dir / "property_distributions.png").exists()
             )
 
 
