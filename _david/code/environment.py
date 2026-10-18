@@ -110,11 +110,13 @@ class PrepareMolecule:
             return 1.00, 1
         n_rot = int(Lipinski.NumRotatableBonds(mol_no_h))
 
-        if n_rot <= 2 and n_heavy <= 20:
+        if n_rot <= 2 and n_heavy <= 18:
             return 1.00, min(1, max_ensemble_size)
-        if n_rot <= 7 and n_heavy <= 45:
+        if n_rot <= 7 and n_heavy <= 28:
             return 1.25, min(3, max_ensemble_size)
-        return 1.50, min(5, max_ensemble_size)
+        if n_rot <= 7:
+            return 1.25, min(10, max_ensemble_size)
+        return 1.50, min(10, max_ensemble_size)
 
     @classmethod
     def calculate_conformer_energies(

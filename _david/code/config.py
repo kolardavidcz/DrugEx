@@ -30,7 +30,7 @@ class PipelineConfig:
 
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30
-    max_reference_conformers: int = 5
+    max_reference_conformers: int = 10
     energy_window_kcal: float = 8.0
     timeout_seconds: int = 60
     random_seed: int = 42
