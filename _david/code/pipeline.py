@@ -49,7 +49,7 @@ class MoleculePipeline:
 
         self.preparer: PrepareMolecule = PrepareMolecule(
             num_conformers=100,
-            max_reference_conformers=1,
+            max_reference_conformers=self.config.max_reference_conformers,
             random_seed=self.config.random_seed,
         )
 
@@ -225,6 +225,13 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         help="Number of final candidates generated from peak agent")
     parser.add_argument("--criteria", default=defaults.criteria, help="Peak model monitoring criteria")
     parser.add_argument("--epsilon", type=float, default=defaults.epsilon, help="Exploration noise epsilon")
+    parser.add_argument("--beta", type=float, default=defaults.beta, help="Baseline reward penalty")
+    parser.add_argument(
+        "--max-reference-conformers",
+        type=int,
+        default=defaults.max_reference_conformers,
+        help="Max Butina cluster centroids in reference 3D ensemble",
+    )
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES string")
     parser.add_argument("--input", default=None, help="Target molecule structure file (.sdf, .smi, .txt)")
     parser.add_argument("--gpu", default=defaults.gpu, help="GPU device ID or 'auto'/'cpu'")
@@ -242,6 +249,8 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         n_eval_samples=args.n_eval_samples,
         criteria=args.criteria,
         epsilon=args.epsilon,
+        beta=args.beta,
+        max_reference_conformers=args.max_reference_conformers,
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
     )
@@ -273,6 +282,8 @@ def main() -> None:
             "--n-eval-samples", str(config.n_eval_samples),
             "--criteria", str(config.criteria),
             "--epsilon", str(config.epsilon),
+            "--beta", str(config.beta),
+            "--max-reference-conformers", str(config.max_reference_conformers),
             "--gpu", str(config.gpu),
             "--out-dir", str(paths.root),
         ]

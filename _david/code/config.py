@@ -17,7 +17,7 @@ class PipelineConfig:
     """Canonical single source of truth for all LBDD hyperparameters and execution settings."""
 
     # Reinforcement Learning Exploration
-    epochs: int = 35
+    epochs: int = 40
     patience: int = 10
     min_epochs: int = 25
     n_samples: int = 100
@@ -30,6 +30,7 @@ class PipelineConfig:
 
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30
+    max_reference_conformers: int = 5
     energy_window_kcal: float = 8.0
     timeout_seconds: int = 60
     random_seed: int = 42
@@ -71,9 +72,4 @@ class RunPaths:
         models_dir = root / "models"
         raw_data_dir = root / "raw_data"
         logs_dir = raw_data_dir / "logs"
-        return cls(
-            root=root,
-            models_dir=models_dir,
-            raw_data_dir=raw_data_dir,
-            logs_dir=logs_dir,
-        )
+        return cls(root=root, models_dir=models_dir, raw_data_dir=raw_data_dir, logs_dir=logs_dir)
