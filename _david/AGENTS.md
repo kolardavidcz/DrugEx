@@ -10,12 +10,13 @@
 
 ```
 _david/
-├── tests.py                        # 14-point regression & integration test suite (unit tests)
+├── tests.py                        # 15-point regression & integration test suite (unit tests)
 ├── in_molecule.txt                 # Default reference query molecule (EGCG)
 ├── AGENTS.md                       # Single source of truth for AI agents (this document)
 ├── code/
 │   ├── config.py                   # Canonical PipelineConfig, RunPaths, and DEFAULT_MOLECULE
 │   ├── pipeline.py                 # MoleculePipeline: orchestrates Stage 0 -> Stage 1 -> Stage 2 & CLI runner
+│   ├── curriculum_runner.py        # CurriculumOrchestrator: multi-run adaptive overnight optimization
 │   ├── environment.py              # Modular loader, PrepareMolecule, create_environment, SafeSAModifier, create_rocs_scorer
 │   ├── models.py                   # GraphTransformerOptimizer, prepare_seed_fragments
 │   ├── schema.py                   # Canonical std schema constants (ROCS, SA, SMILES, etc.)
