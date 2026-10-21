@@ -31,6 +31,7 @@ class PipelineConfig:
     beta: float = 0.05
     thresholds: tuple[float, float, float] = (0.75, 0.50, 0.50)
     score_variant: str = "tversky_subshape"
+    reward_scheme: str = "chebyshev"
 
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30

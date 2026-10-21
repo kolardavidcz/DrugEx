@@ -421,6 +421,31 @@ class BatchUniqueEnvironment(DrugExEnvironment):
         return rewards
 
 
+def resolve_reward_scheme(
+    scheme: str | RewardScheme | None = None,
+    weights: tuple[float, ...] = (0.50, 0.25, 0.25),
+) -> RewardScheme:
+    """Resolve RewardScheme instance from canonical name or pass through existing instance."""
+    if isinstance(scheme, RewardScheme):
+        return scheme
+    name = (scheme or "pareto").lower().strip()
+    if name in ("pareto", "pareto_tanimoto"):
+        return ParetoTanimotoDistance(distance_metric="min")
+    elif name in ("chebyshev", "augmented_chebyshev"):
+        from _david.legacy.morl_scalarizations.scalarizations import AugmentedChebyshevReward
+        return AugmentedChebyshevReward(weights=list(weights), rho=0.02)
+    elif name in ("gmean", "geometric_mean"):
+        from _david.legacy.morl_scalarizations.scalarizations import GeometricMeanReward
+        return GeometricMeanReward(weights=list(weights), eps=1e-4)
+    elif name in ("weighted_sum", "ws"):
+        from drugex.training.rewards import WeightedSum
+        return WeightedSum()
+    else:
+        raise ValueError(
+            f"Unknown reward scheme: '{scheme}'. Valid options: ['pareto', 'chebyshev', 'gmean', 'weighted_sum']"
+        )
+
+
 def create_environment(
     ref_sdf: str | Path,
     thresholds: tuple[float, ...] = (0.75, 0.50, 0.50),
@@ -428,7 +453,7 @@ def create_environment(
     max_conformers: int = 30,
     timeout: int = 60,
     batch_unique: bool = True,
-    reward_scheme: RewardScheme | None = None,
+    reward_scheme: str | RewardScheme | None = None,
     score_variant: str = "tversky_subshape",
 ) -> tuple[DrugExEnvironment, float]:
     """Construct multi-objective DrugEx reinforcement learning environment with Batch-Unique Zero Masking."""
@@ -447,10 +472,11 @@ def create_environment(
     qed_scorer = Property(prop="QED")
     scorers: list[Scorer] = [rocs_scorer, sa_scorer, qed_scorer]
 
+    active_reward_scheme = resolve_reward_scheme(reward_scheme)
     env = BatchUniqueEnvironment(
         scorers=scorers,
         thresholds=list(thresholds),
-        reward_scheme=reward_scheme or ParetoTanimotoDistance(distance_metric="min"),
+        reward_scheme=active_reward_scheme,
         batch_unique=batch_unique,
     )
     return env, epsilon

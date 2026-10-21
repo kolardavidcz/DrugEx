@@ -24,6 +24,7 @@ from _david.code.environment import (
     SafeSAModifier,
     create_environment,
     load_query_molecule,
+    resolve_reward_scheme,
 )
 from _david.code.pipeline import MoleculePipeline
 from _david.code.schema import std
@@ -483,6 +484,35 @@ class TestLBDDPipeline(unittest.TestCase):
                 (paths.root / "lead_structures_2d.png").exists()
                 or (paths.root / "property_distributions.png").exists()
             )
+
+    def test_resolve_reward_scheme(self) -> None:
+        """Verify resolution of MORL scalarization schemes and continuous Chebyshev ranking."""
+        p_scheme = resolve_reward_scheme("pareto")
+        self.assertIsInstance(p_scheme, ParetoTanimotoDistance)
+
+        ws_scheme = resolve_reward_scheme("weighted_sum")
+        self.assertIsInstance(ws_scheme, WeightedSum)
+
+        cheb_scheme = resolve_reward_scheme("chebyshev", weights=(0.50, 0.25, 0.25))
+        self.assertIsNotNone(cheb_scheme)
+
+        # Test continuous monotonic reward response under Chebyshev
+        scores = np.array([
+            [0.0, 1.0, 1.0],  # Benzene/cheater: zero 3D overlap -> heavily penalized
+            [0.75, 1.0, 0.65],  # Good lead
+            [0.85, 1.0, 0.65],  # Superior lead with higher 3D overlap
+        ])
+        smiles = ["c1ccccc1", "Cc1ccccc1", "CCc1ccccc1"]
+        rewards = cheb_scheme(smiles, scores=scores)
+        self.assertEqual(rewards.shape, (3, 1))
+        # Zero 3D overlap must be severely penalized
+        self.assertLess(rewards[0, 0], 0.10)
+        # Higher 3D overlap must strictly yield higher reward
+        self.assertGreater(rewards[2, 0], rewards[1, 0])
+        self.assertGreater(rewards[1, 0], rewards[0, 0])
+
+        with self.assertRaises(ValueError):
+            resolve_reward_scheme("invalid_scheme_xyz")
 
     def test_curriculum_orchestrator_initialization(self) -> None:
         """Verify CurriculumOrchestrator configuration, directory resolution, and warm-starting interface."""

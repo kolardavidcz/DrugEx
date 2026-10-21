@@ -85,6 +85,7 @@ class MoleculePipeline:
             epsilon=self.config.epsilon,
             max_conformers=self.config.max_conformers,
             timeout=self.config.timeout_seconds,
+            reward_scheme=self.config.reward_scheme,
             score_variant=self.config.score_variant,
         )
 
@@ -263,6 +264,12 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         choices=["tanimoto", "tversky_ref", "tversky_fit", "tversky_subshape"],
         help="3D shape/color scoring variant",
     )
+    parser.add_argument(
+        "--reward-scheme",
+        default=defaults.reward_scheme,
+        choices=["pareto", "chebyshev", "gmean", "weighted_sum"],
+        help="Multi-objective RL reward scalarization scheme",
+    )
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES string")
     parser.add_argument("--input", default=None, help="Target molecule structure file (.sdf, .smi, .txt)")
     parser.add_argument("--gpu", default=defaults.gpu, help="GPU device ID or 'auto'/'cpu'")
@@ -287,6 +294,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         epsilon=args.epsilon,
         beta=args.beta,
         score_variant=args.score_variant,
+        reward_scheme=args.reward_scheme,
         max_reference_conformers=args.max_reference_conformers,
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
@@ -324,6 +332,7 @@ def main() -> None:
             "--epsilon", str(config.epsilon),
             "--beta", str(config.beta),
             "--score-variant", str(config.score_variant),
+            "--reward-scheme", str(config.reward_scheme),
             "--max-reference-conformers", str(config.max_reference_conformers),
             "--gpu", str(config.gpu),
             "--out-dir", str(paths.root),
