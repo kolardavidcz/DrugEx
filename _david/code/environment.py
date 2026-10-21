@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -356,20 +357,24 @@ class BatchUniqueEnvironment(DrugExEnvironment):
         self.batch_unique = batch_unique
 
     @staticmethod
-    def _is_unmodified_fragment(smi: str | None, frag: str | None) -> bool:
+    def _is_unmodified_fragment(smi: Any, frag: Any) -> bool:
         """Return True if candidate SMILES failed to grow any heavy atoms beyond input fragment."""
-        if not smi or not frag:
+        if not isinstance(smi, str) or not isinstance(frag, str):
+            return False
+        smi_clean = smi.strip()
+        frag_clean = frag.strip()
+        if not smi_clean or not frag_clean:
             return False
         try:
-            mol = Chem.MolFromSmiles(smi)
-            frag_mol = Chem.MolFromSmiles(frag)
+            mol = Chem.MolFromSmiles(smi_clean)
+            frag_mol = Chem.MolFromSmiles(frag_clean)
             if mol is None or frag_mol is None:
                 return False
             if mol.GetNumHeavyAtoms() <= frag_mol.GetNumHeavyAtoms():
                 return True
-            return Chem.CanonSmiles(smi) == Chem.CanonSmiles(frag)
+            return Chem.CanonSmiles(smi_clean) == Chem.CanonSmiles(frag_clean)
         except Exception:
-            return smi.strip() == frag.strip()
+            return smi_clean == frag_clean
 
     def getScores(
         self,

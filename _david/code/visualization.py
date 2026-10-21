@@ -600,18 +600,18 @@ class ResultAnalyzer:
 
         if std.QED not in valid_df.columns or valid_df[std.QED].isna().any():
             valid_df[std.QED] = [
-                float(QED.qed(m)) if (m := Chem.MolFromSmiles(s)) is not None else 0.0
+                float(QED.qed(m)) if (isinstance(s, str) and (m := Chem.MolFromSmiles(s)) is not None) else 0.0
                 for s in valid_df[std.SMILES]
             ]
         if std.MW not in valid_df.columns or valid_df[std.MW].isna().any():
             valid_df[std.MW] = [
-                float(Descriptors.MolWt(m)) if (m := Chem.MolFromSmiles(s)) is not None else 0.0
+                float(Descriptors.MolWt(m)) if (isinstance(s, str) and (m := Chem.MolFromSmiles(s)) is not None) else 0.0
                 for s in valid_df[std.SMILES]
             ]
 
         # Deduplicate candidates by canonical SMILES to extract distinct chemical leads
         valid_df[std.CANONICAL_SMILES] = [
-            Chem.CanonSmiles(s) if (s and Chem.MolFromSmiles(s) is not None) else s
+            Chem.CanonSmiles(s) if (isinstance(s, str) and Chem.MolFromSmiles(s) is not None) else str(s)
             for s in valid_df[std.SMILES]
         ]
         unique_leads = valid_df.drop_duplicates(subset=[std.CANONICAL_SMILES]).copy()
