@@ -10,7 +10,7 @@
 
 ```
 _david/
-├── tests.py                        # 13-point regression & integration test suite (unit tests)
+├── tests.py                        # 14-point regression & integration test suite (unit tests)
 ├── in_molecule.txt                 # Default reference query molecule (EGCG)
 ├── AGENTS.md                       # Single source of truth for AI agents (this document)
 ├── code/
@@ -35,29 +35,32 @@ _david/
 
 ## 2. Core Execution Stages
 
-### Stage 0: 3D Reference Conformer Curation & Scaffold Extraction ([`environment.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/environment.py))
+### Stage 0: 3D Reference Conformer Curation & Multi-Scale Scaffold Extraction ([`environment.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/environment.py))
 - **Query Input**: Any valid SMILES string via `--molecule`, or structure file (`.sdf`, `.smi`, `.txt`) via `--input` (default proof molecule: Epigallocatechin gallate, EGCG).
 - **Conformer Generation**: Generates 100 conformers with RDKit `ETKDGv3` (`pruneRmsThresh=0.35 Å`), minimizes via `MMFF94` with automatic graceful fallback to `UFF` for non-MMFF elements (e.g. Boron).
 - **Energy Window Filtering**: Retains conformers within physiological energy window ($\Delta E \le 8.0\text{ kcal/mol}$).
 - **Hawkins (2017) Butina RMSD Clustering**: Heavy-atom sphere-exclusion clustering using `AllChem.GetBestRMS` (automorphism and topological symmetry invariant). Extracts lowest-energy cluster centroids.
-- **Scaffold Framework Extraction**: Extracts canonical Bemis & Murcko (1996) molecular framework via `MurckoScaffold.GetScaffoldForMol()`, preserving all conjugated rings and linkers. Pure acyclic molecules fall back cleanly to sanitized SMILES.
+- **Multi-Scale Scaffold Portfolio**: Extracts canonical Bemis & Murcko (1996) molecular framework plus native DrugEx `Fragmenter(method="recap" | "brics")` sub-scaffolds (retaining $\ge 6$ heavy atoms). Provides diverse starting tiers (e.g. 25-atom Bemis-Murcko, 17-atom Flavan-3-ol, 10-atom Chromane) physically obligating the generative prior to perform atom addition.
 
 ### Stage 1: Graph-Transformer Lead Generation & Multi-Objective RL ([`models.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/models.py), [`environment.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/environment.py))
 - **Model**: `FragGraphExplorer` operating on pre-trained Papyrus prior (`Papyrus05.5_graph_trans_PT`).
-- **Prompt Encoding**: Encodes seed Bemis-Murcko framework into graph DataLoader via `dummyMolsFromFragments()` and `FragmentCorpusEncoder(n_proc=1)`.
+- **Prompt Encoding**: Encodes multi-scale seed frameworks into graph DataLoader via `dummyMolsFromFragments()` and `FragmentCorpusEncoder(n_proc=1)`.
 - **Environment & Scorers**:
-  - **3D ROCS Scorer**: Native DrugEx `RDKitROCSScorer` with OpenEye Mills-Dean color SMARTS (`color_ff="oe_mills_dean"`), `score_type="TanimotoCombo"`, mapped to $[0, 1]$ via `ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)`.
-  - **Synthesizability Feasibility Floor**: `Property(prop="SA")` governed by `SafeSAModifier(upper_x=3.5, lower_x=5.5, low_score=0.0, high_score=1.0)`. Clamps invalid/uncalculable fallback scores ($\le 0.0$) strictly to $0.0$ desirability.
-  - **Multi-Objective Reward Scheme**: Native DrugEx `WeightedSum()` with dynamic threshold failure-ratio weighting.
-- **Checkpointing & Peak Recovery**: `PeakRecoveryMonitor` tracks rolling desirability (`avg_amean`), saving `_peak.pkg` on improvement and automatically restoring peak model weights onto the agent upon completion.
+  - **3D ROCS Scorer**: Native DrugEx `RDKitROCSScorer` with OpenEye Mills-Dean color SMARTS (`color_ff="oe_mills_dean"`), `score_type="TanimotoCombo"`, mapped to $[0, 1]$ via `ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)`. Threshold: `0.55`.
+  - **Synthesizability Feasibility Floor**: `Property(prop="SA")` governed by `SafeSAModifier(upper_x=3.5, lower_x=5.5, low_score=0.0, high_score=1.0)`. Clamps invalid/uncalculable fallback scores ($\le 0.0$) strictly to $0.0$ desirability. Threshold: `0.50`.
+  - **Drug-likeness (QED)**: `Property(prop="QED")` ensuring molecular drug-likeness. Threshold: `0.50`.
+  - **Multi-Objective Reward Scheme**: Native DrugEx `ParetoTanimotoDistance(distance_metric="min")` providing non-dominated Pareto ranking and intra-front crowding distance based on Morgan fingerprint dissimilarity.
+  - **Batch-Unique & No-Op Zero Masking (`BatchUniqueEnvironment`)**: Disqualifies unmodified fragment prompts (`SMILES == FRAGS` or non-grown molecules) from `Accurate` and `Desired`, and zeroes rewards for both no-ops and intra-batch duplicates.
+- **Checkpointing & Peak Recovery**: `PeakRecoveryMonitor` tracks `desired_ratio`, saving `_peak.pkg` on improvement and automatically restoring peak model weights onto the agent upon completion.
 
 ### Stage 2: Result Analysis & Presentation Profiling ([`visualization.py`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/visualization.py))
-- **Deduplication**: Identifies distinct chemical leads by canonical SMILES (`Chem.CanonSmiles`), eliminating duplicate conformers/isomers.
-- **Prioritization**: Sorts candidates deterministically by ROCS (descending), SAscore (ascending / lower is easier), and QED (descending).
+- **Trajectory Pooling**: Pools all exploration steps from `{model_prefix}_smiles.tsv` with the final evaluation sample from the peak agent.
+- **No-Op & Duplicate Filtering**: Filters un-grown fragments and collapses duplicate SMILES by canonical SMILES (`Chem.CanonSmiles`), extracting unique, genuinely grown leads.
+- **Prioritization**: Sorts candidate leads deterministically across Pareto objectives: ROCS (descending), SAscore (ascending / lower is easier), and QED (descending).
 - **Physical Unscaling**: Maps normalized ROCS $[0, 1]$ to $[0, 2.0]$ TanimotoCombo and recalculates raw Ertl & Schuffenhauer (2009) SAscore in $[1.0, 10.0]$.
 - **Visual Artifacts**:
   - `lead_structures_2d.png`: 2D lead grid with aligned core scaffolds and true physical metric captions.
-  - `property_distributions.png`: 2x5 physicochemical profile (ROCS, SA, QED, MW, LogP, TPSA, HBD, HBA, RotBonds, 2D Tanimoto to seed).
+  - `property_distributions.png`: 2x5 physicochemical profile plotted on unique leads to prevent histogram distortion from mode-collapsed duplicates.
   - `rl_training_curves.png`: Evolution of training loss, valid ratio, unique ratio, and desired ratio across epochs.
   - `top_prioritized_leads.tsv` & `summary.md`: Tabular reports saved directly into deliverables root.
 
