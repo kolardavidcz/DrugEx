@@ -267,7 +267,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     parser.add_argument(
         "--reward-scheme",
         default=defaults.reward_scheme,
-        choices=["pareto", "chebyshev", "gmean", "weighted_sum"],
+        choices=["pareto", "chebyshev", "harrington", "gmean", "weighted_sum"],
         help="Multi-objective RL reward scalarization scheme",
     )
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES string")

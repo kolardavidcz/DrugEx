@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -421,6 +421,105 @@ class BatchUniqueEnvironment(DrugExEnvironment):
         return rewards
 
 
+class HarringtonDesirabilityReward(RewardScheme):
+    """Continuous Multi-Attribute Desirability (Harrington 1965) for Molecular RL.
+
+    Maps each objective score s_j through a two-parameter Gompertz desirability function:
+        d_j(s_j) = exp(-exp(-(b_{0,j} + b_{1,j} * s_j)))
+    where (b_{0,j}, b_{1,j}) are calibrated from an unacceptable baseline (y0 -> d0 = 0.05)
+    and an aspirational target (y1 -> d1 = 0.70 or 0.90).
+
+    The composite desirability D(x) is the weighted geometric mean across all M objectives:
+        D(x) = exp(sum_j w_j * ln(d_j(s_j) + eps) / sum_j w_j)
+
+    Properties:
+    1. Strict Non-Compensability: If any objective collapses (d_j -> 0), D(x) -> 0.
+       Cheaters with zero 3D shape overlap receive virtually zero reward regardless of QED.
+    2. Continuous Gradient: Provides a smooth, non-zero gradient everywhere across the
+       optimization landscape, eliminating the zero-gradient plateau of hard step filters.
+    3. Diminishing Marginal Returns: High scores above target show asymptotic saturation,
+       encouraging balanced multi-objective improvement.
+    """
+
+    def __init__(
+        self,
+        weights: Sequence[float] = (0.50, 0.25, 0.25),
+        rocs_anchors: tuple[float, float, float, float] = (0.50, 0.05, 0.70, 0.70),
+        sa_anchors: tuple[float, float, float, float] = (0.20, 0.05, 0.80, 0.90),
+        qed_anchors: tuple[float, float, float, float] = (0.30, 0.05, 0.70, 0.90),
+        eps: float = 1e-6,
+    ) -> None:
+        super().__init__()
+        self.weights = np.array(weights, dtype=np.float64)
+        self.eps = float(eps)
+        self.params: list[tuple[float, float]] = [
+            self._fit_anchors(*rocs_anchors),
+            self._fit_anchors(*sa_anchors),
+            self._fit_anchors(*qed_anchors),
+        ]
+
+    @staticmethod
+    def _fit_anchors(y0: float, d0: float, y1: float, d1: float) -> tuple[float, float]:
+        """Fit Gompertz parameters (b0, b1) from two anchor points (y0, d0) and (y1, d1)."""
+        y0_prime = -np.log(-np.log(d0))
+        y1_prime = -np.log(-np.log(d1))
+        b1 = (y1_prime - y0_prime) / (y1 - y0)
+        b0 = y0_prime - b1 * y0
+        return float(b0), float(b1)
+
+    @staticmethod
+    def _eval_desirability(s: np.ndarray, b0: float, b1: float) -> np.ndarray:
+        """Evaluate Gompertz desirability function on score array s."""
+        z = b0 + b1 * s
+        z_clipped = np.clip(z, -30.0, 30.0)
+        return np.exp(-np.exp(-z_clipped))
+
+    def __call__(
+        self,
+        smiles: Sequence[str] | np.ndarray,
+        scores: np.ndarray | None = None,
+        thresholds: Sequence[float] | np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Calculate continuous composite Harrington desirability rewards."""
+        if isinstance(smiles, np.ndarray) or (
+            not isinstance(smiles, (list, tuple))
+            or (len(smiles) > 0 and not isinstance(smiles[0], str))
+        ):
+            scores_arr = np.asarray(smiles, dtype=np.float64)
+        else:
+            scores_arr = (
+                np.asarray(scores, dtype=np.float64)
+                if scores is not None
+                else np.zeros((len(smiles), 0), dtype=np.float64)
+            )
+
+        if scores_arr.ndim == 1:
+            scores_arr = (
+                scores_arr.reshape(1, -1) if len(scores_arr) > 0 else scores_arr.reshape(0, 1)
+            )
+
+        n_samples = scores_arr.shape[0]
+        if n_samples == 0:
+            return np.zeros((0, 1), dtype=np.float64)
+
+        scores_clean = np.nan_to_num(scores_arr, nan=0.0, posinf=1.0, neginf=0.0)
+        scores_clean = np.clip(scores_clean, 0.0, 1.0)
+        n_objs = scores_clean.shape[1]
+
+        w = self.weights[:n_objs] if len(self.weights) >= n_objs else np.ones(n_objs, dtype=np.float64)
+        w_norm = w / np.sum(w)
+
+        log_d_sum = np.zeros(n_samples, dtype=np.float64)
+        for j in range(n_objs):
+            b0, b1 = self.params[j] if j < len(self.params) else (0.0, 5.0)
+            d_j = self._eval_desirability(scores_clean[:, j], b0, b1)
+            log_d_sum += w_norm[j] * np.log(d_j + self.eps)
+
+        rewards = np.exp(log_d_sum)
+        rewards = np.clip(rewards, 0.0, 1.0)
+        return rewards.reshape(-1, 1)
+
+
 def resolve_reward_scheme(
     scheme: str | RewardScheme | None = None,
     weights: tuple[float, ...] = (0.50, 0.25, 0.25),
@@ -434,6 +533,8 @@ def resolve_reward_scheme(
     elif name in ("chebyshev", "augmented_chebyshev"):
         from _david.legacy.morl_scalarizations.scalarizations import AugmentedChebyshevReward
         return AugmentedChebyshevReward(weights=list(weights), rho=0.02)
+    elif name in ("harrington", "harrington_desirability", "desirability"):
+        return HarringtonDesirabilityReward(weights=weights)
     elif name in ("gmean", "geometric_mean"):
         from _david.legacy.morl_scalarizations.scalarizations import GeometricMeanReward
         return GeometricMeanReward(weights=list(weights), eps=1e-4)
@@ -442,7 +543,7 @@ def resolve_reward_scheme(
         return WeightedSum()
     else:
         raise ValueError(
-            f"Unknown reward scheme: '{scheme}'. Valid options: ['pareto', 'chebyshev', 'gmean', 'weighted_sum']"
+            f"Unknown reward scheme: '{scheme}'. Valid options: ['pareto', 'chebyshev', 'harrington', 'gmean', 'weighted_sum']"
         )
 
 

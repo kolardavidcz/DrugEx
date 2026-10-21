@@ -511,6 +511,17 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertGreater(rewards[2, 0], rewards[1, 0])
         self.assertGreater(rewards[1, 0], rewards[0, 0])
 
+        # Test Harrington Desirability
+        h_scheme = resolve_reward_scheme("harrington", weights=(0.50, 0.25, 0.25))
+        self.assertIsNotNone(h_scheme)
+        h_rewards = h_scheme(smiles, scores=scores)
+        self.assertEqual(h_rewards.shape, (3, 1))
+        # Zero 3D overlap must collapse composite desirability to near zero
+        self.assertLess(h_rewards[0, 0], 0.01)
+        # Higher 3D overlap must yield strictly higher composite desirability
+        self.assertGreater(h_rewards[2, 0], h_rewards[1, 0])
+        self.assertGreater(h_rewards[1, 0], h_rewards[0, 0])
+
         with self.assertRaises(ValueError):
             resolve_reward_scheme("invalid_scheme_xyz")
 
