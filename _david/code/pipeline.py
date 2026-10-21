@@ -105,6 +105,9 @@ class MoleculePipeline:
             epsilon=epsilon,
             beta=self.config.beta,
             batch_size=batch_size,
+            epsilon_end=self.config.epsilon_end,
+            decay_epochs=self.config.decay_epochs,
+            decay_type=self.config.decay_type,
         )
 
         model_prefix = self.paths.raw_data_dir / "david_agent"
@@ -250,7 +253,25 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     parser.add_argument("--n-eval-samples", type=int, default=defaults.n_eval_samples,
         help="Number of final candidates generated from peak agent")
     parser.add_argument("--criteria", default=defaults.criteria, help="Peak model monitoring criteria")
-    parser.add_argument("--epsilon", type=float, default=defaults.epsilon, help="Exploration noise epsilon")
+    parser.add_argument("--epsilon", type=float, default=defaults.epsilon, help="Exploration noise epsilon (start)")
+    parser.add_argument(
+        "--epsilon-end",
+        type=float,
+        default=defaults.epsilon_end,
+        help="Scheduled exploration noise epsilon floor (or None to disable decay)",
+    )
+    parser.add_argument(
+        "--decay-epochs",
+        type=int,
+        default=defaults.decay_epochs,
+        help="Number of epochs over which epsilon decays from start to end",
+    )
+    parser.add_argument(
+        "--decay-type",
+        default=defaults.decay_type,
+        choices=["cosine", "linear"],
+        help="Decay schedule profile ('cosine' or 'linear')",
+    )
     parser.add_argument("--beta", type=float, default=defaults.beta, help="Baseline reward penalty")
     parser.add_argument(
         "--max-reference-conformers",
@@ -292,6 +313,9 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         n_eval_samples=args.n_eval_samples,
         criteria=args.criteria,
         epsilon=args.epsilon,
+        epsilon_end=args.epsilon_end,
+        decay_epochs=args.decay_epochs,
+        decay_type=args.decay_type,
         beta=args.beta,
         score_variant=args.score_variant,
         reward_scheme=args.reward_scheme,
@@ -337,6 +361,13 @@ def main() -> None:
             "--gpu", str(config.gpu),
             "--out-dir", str(paths.root),
         ]
+        if config.epsilon_end is not None:
+            cmd.extend([
+                "--epsilon-end", str(config.epsilon_end),
+                "--decay-epochs", str(config.decay_epochs),
+                "--decay-type", str(config.decay_type),
+            ])
+
         if isinstance(molecule, (str, Path)) and Path(str(molecule)).exists():
             cmd.extend(["--input", str(molecule)])
         else:

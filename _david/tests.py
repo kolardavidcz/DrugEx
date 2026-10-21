@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -18,6 +19,7 @@ from rdkit.Chem import AllChem
 
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.curriculum_runner import CurriculumOrchestrator
+from _david.code.models import DecayingFragGraphExplorer
 from _david.code.environment import (
     BatchUniqueEnvironment,
     PrepareMolecule,
@@ -543,6 +545,76 @@ class TestLBDDPipeline(unittest.TestCase):
             # Verify PipelineConfig supports agent_path
             cfg = PipelineConfig(agent_path=Path("dummy_peak.pkg"))
             self.assertEqual(cfg.agent_path, Path("dummy_peak.pkg"))
+
+    def test_decaying_frag_graph_explorer_schedule(self) -> None:
+        """Verify DecayingFragGraphExplorer scheduled exploration noise calculation and module updates."""
+        # Test default configuration values in PipelineConfig
+        cfg = PipelineConfig()
+        self.assertEqual(cfg.epochs, 100)
+        self.assertEqual(cfg.min_epochs, 50)
+        self.assertEqual(cfg.patience, 25)
+        self.assertEqual(cfg.epsilon, 0.25)
+        self.assertEqual(cfg.epsilon_end, 0.05)
+        self.assertEqual(cfg.decay_epochs, 50)
+        self.assertEqual(cfg.decay_type, "cosine")
+        self.assertEqual(cfg.reward_scheme, "harrington")
+
+        # Mock dummy explorer without heavyweight neural network instantiation
+        class DummyExplorer(DecayingFragGraphExplorer):
+            def __init__(self, **kwargs) -> None:
+                self.epsilon_start = float(kwargs.get("epsilon", 0.25))
+                self.epsilon_end = float(kwargs.get("epsilon_end", 0.05))
+                self.decay_epochs = int(kwargs.get("decay_epochs", 50))
+                self.decay_type = str(kwargs.get("decay_type", "cosine")).lower()
+                self.current_epoch = 0
+                self.epsilon = self.epsilon_start
+
+        # 1. Cosine decay schedule verification
+        cos_exp = DummyExplorer(epsilon=0.25, epsilon_end=0.05, decay_epochs=50, decay_type="cosine")
+        self.assertAlmostEqual(cos_exp.get_decayed_epsilon(1), 0.25, places=5)
+        self.assertAlmostEqual(cos_exp.get_decayed_epsilon(50), 0.05, places=5)
+        # Monotonically non-increasing
+        eps_values = [cos_exp.get_decayed_epsilon(e) for e in range(1, 51)]
+        for i in range(len(eps_values) - 1):
+            self.assertGreaterEqual(eps_values[i], eps_values[i + 1])
+        # Midpoint should be approximately halfway (0.15)
+        mid_eps = cos_exp.get_decayed_epsilon(25)
+        self.assertAlmostEqual(mid_eps, 0.15, delta=0.02)
+        # Clamped beyond decay_epochs
+        self.assertAlmostEqual(cos_exp.get_decayed_epsilon(75), 0.05, places=5)
+        self.assertAlmostEqual(cos_exp.get_decayed_epsilon(100), 0.05, places=5)
+
+        # 2. Linear decay schedule verification
+        lin_exp = DummyExplorer(epsilon=0.25, epsilon_end=0.05, decay_epochs=50, decay_type="linear")
+        self.assertAlmostEqual(lin_exp.get_decayed_epsilon(1), 0.25, places=5)
+        self.assertAlmostEqual(lin_exp.get_decayed_epsilon(50), 0.05, places=5)
+        self.assertAlmostEqual(lin_exp.get_decayed_epsilon(100), 0.05, places=5)
+        # Linear slope check
+        step_diff = lin_exp.get_decayed_epsilon(1) - lin_exp.get_decayed_epsilon(2)
+        expected_step = (0.25 - 0.05) / 49.0
+        self.assertAlmostEqual(step_diff, expected_step, places=5)
+
+        # 3. Invalid decay type error check
+        bad_exp = DummyExplorer(decay_type="invalid_schedule")
+        with self.assertRaises(ValueError):
+            bad_exp.get_decayed_epsilon(10)
+
+        # 4. Metric logging enrichment check
+        metrics_dict: dict[str, Any] = {"Epoch": 1, "avg_amean": 0.65}
+        # Call DecayingFragGraphExplorer.logPerformanceAndCompounds logic
+        cos_exp.epsilon = 0.18
+        # Mock monitor
+        class MockMonitor:
+            def savePerformanceInfo(self, m, df_smiles=None):
+                self.saved_metrics = m
+            def endStep(self, step, epoch):
+                pass
+        cos_exp.monitor = MockMonitor()
+        cos_exp.last_save = 1
+        df_scores = pd.DataFrame({"Epoch": [1], "SMILES": ["c1ccccc1"], "Valid": [True], "Desired": [True]})
+        DecayingFragGraphExplorer.logPerformanceAndCompounds(cos_exp, 1, metrics_dict, df_scores)
+        self.assertIn("epsilon", metrics_dict)
+        self.assertAlmostEqual(metrics_dict["epsilon"], 0.18, places=4)
 
 
 if __name__ == "__main__":

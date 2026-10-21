@@ -409,6 +409,7 @@ def render_training_curves(
         std.VALID_RATIO: ("#2a9d8f", "-", "Valid Ratio"),
         std.UNIQUE_RATIO: ("#e9c46a", "--", "Unique Ratio"),
         std.DESIRED_RATIO: ("#8b5cf6", "-.", "Desired Ratio"),
+        "epsilon": ("#64748b", ":", "Exploration Noise (ε)"),
     }
 
     plotted = False

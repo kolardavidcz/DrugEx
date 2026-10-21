@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
+from typing import Any
 
+import pandas as pd
+import torch
 from torch.utils.data import DataLoader
+from drugex import DEFAULT_DEVICE, DEFAULT_GPUS
 from drugex.data.corpus.vocabulary import VocGraph
 from drugex.data.datasets import GraphFragDataSet
 from drugex.data.fragments import FragmentCorpusEncoder, GraphFragmentEncoder
+from drugex.logs import logger
 from drugex.molecules.converters.dummy_molecules import dummyMolsFromFragments
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.explorers import FragGraphExplorer
@@ -15,6 +21,87 @@ from _david.code.environment import PrepareMolecule
 from _david.code.utils import HardwareManager
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+
+
+class DecayingFragGraphExplorer(FragGraphExplorer):
+    """FragGraphExplorer with scheduled exploration noise (epsilon) decay."""
+
+    def __init__(
+        self,
+        agent: Any,
+        env: DrugExEnvironment,
+        mutate: Any = None,
+        crover: Any = None,
+        batch_size: int = 128,
+        epsilon: float = 0.25,
+        epsilon_end: float = 0.05,
+        decay_epochs: int = 50,
+        decay_type: str = "cosine",
+        beta: float = 0.0,
+        n_samples: int = -1,
+        optim: Any = None,
+        device: Any = DEFAULT_DEVICE,
+        use_gpus: Any = DEFAULT_GPUS,
+        no_multifrag_smiles: bool = True,
+    ) -> None:
+        super().__init__(
+            agent=agent,
+            env=env,
+            mutate=mutate,
+            crover=crover,
+            batch_size=batch_size,
+            epsilon=epsilon,
+            beta=beta,
+            n_samples=n_samples,
+            optim=optim,
+            device=device,
+            use_gpus=use_gpus,
+            no_multifrag_smiles=no_multifrag_smiles,
+        )
+        self.epsilon_start: float = float(epsilon)
+        self.epsilon_end: float = float(epsilon_end)
+        self.decay_epochs: int = int(decay_epochs)
+        self.decay_type: str = str(decay_type).lower()
+        self.current_epoch: int = 0
+
+    def get_decayed_epsilon(self, epoch: int) -> float:
+        """Compute scheduled exploration noise epsilon for the given 1-based epoch.
+
+        Supports 'cosine' (Loshchilov & Hutter) and 'linear' schedules.
+        Beyond decay_epochs, epsilon remains clamped at epsilon_end.
+        """
+        if self.decay_epochs <= 1 or epoch >= self.decay_epochs:
+            return self.epsilon_end
+        if epoch <= 1:
+            return self.epsilon_start
+
+        progress = (epoch - 1) / (self.decay_epochs - 1)
+        if self.decay_type == "linear":
+            return self.epsilon_start + progress * (self.epsilon_end - self.epsilon_start)
+        elif self.decay_type == "cosine":
+            cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return self.epsilon_end + (self.epsilon_start - self.epsilon_end) * cosine_factor
+        else:
+            raise ValueError(f"Unsupported decay_type: '{self.decay_type}'. Choose 'cosine' or 'linear'.")
+
+    def sampleEncodedPairsToLoader(self, net: torch.nn.Module, loader: DataLoader) -> DataLoader:
+        """Update epsilon exploration noise for current epoch before sampling training batch."""
+        self.current_epoch += 1
+        new_eps = self.get_decayed_epsilon(self.current_epoch)
+        self.epsilon = new_eps
+        if hasattr(net, "module"):
+            net.module.epsilon = new_eps
+        logger.info(
+            f"[Exploration Schedule] Epoch {self.current_epoch}: epsilon = {self.epsilon:.4f} "
+            f"(start={self.epsilon_start:.2f}, end={self.epsilon_end:.2f}, "
+            f"decay_epochs={self.decay_epochs}, type={self.decay_type})"
+        )
+        return super().sampleEncodedPairsToLoader(net, loader)
+
+    def logPerformanceAndCompounds(self, epoch: int, metrics: dict[str, Any], scores: pd.DataFrame) -> None:
+        """Enrich epoch summary metrics with exact current exploration noise (epsilon)."""
+        metrics["epsilon"] = float(self.epsilon)
+        super().logPerformanceAndCompounds(epoch, metrics, scores)
 
 
 class GraphTransformerOptimizer:
@@ -110,11 +197,27 @@ class GraphTransformerOptimizer:
     def build_explorer(
         self,
         env: DrugExEnvironment,
-        epsilon: float = 0.2,
+        epsilon: float = 0.25,
         beta: float = 0.0,
         batch_size: int = 64,
+        epsilon_end: float | None = None,
+        decay_epochs: int = 50,
+        decay_type: str = "cosine",
     ) -> FragGraphExplorer:
-        """Construct FragGraphExplorer reinforcement learning agent."""
+        """Construct FragGraphExplorer or DecayingFragGraphExplorer reinforcement learning agent."""
+        if epsilon_end is not None:
+            return DecayingFragGraphExplorer(
+                agent=self.AGENT,
+                env=env,
+                mutate=self.PRIOR,
+                epsilon=epsilon,
+                epsilon_end=epsilon_end,
+                decay_epochs=decay_epochs,
+                decay_type=decay_type,
+                beta=beta,
+                batch_size=batch_size,
+                use_gpus=self.GPUS,
+            )
         return FragGraphExplorer(
             agent=self.AGENT,
             env=env,
