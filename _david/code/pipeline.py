@@ -257,7 +257,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         help="Fraction of CPU cores allocated for parallel scoring (default: 0.60)")
     parser.add_argument("--agent-path", type=Path, default=None, help="Warm-start model checkpoint (.pkg)")
     parser.add_argument("--thresholds", nargs="+", type=float, default=None, help="Thresholds for objectives (ROCS, SA, QED)")
-    parser.add_argument("--out-dir", type=Path, default=None, help="Explicit custom output directory")
+    parser.add_argument("--out-dir", "--output-dir", type=Path, default=None, help="Explicit custom output directory")
     parser.add_argument("--detach", action="store_true", default=False, help="Run as detached background daemon")
     args, _ = parser.parse_known_args()
 
