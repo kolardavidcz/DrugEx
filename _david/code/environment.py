@@ -420,7 +420,7 @@ class BatchUniqueEnvironment(DrugExEnvironment):
 
 def create_environment(
     ref_sdf: str | Path,
-    thresholds: tuple[float, ...] = (0.55, 0.50, 0.50),
+    thresholds: tuple[float, ...] = (0.60, 0.50, 0.35),
     epsilon: float = 0.2,
     max_conformers: int = 30,
     timeout: int = 60,

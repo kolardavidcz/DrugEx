@@ -25,10 +25,10 @@ class PipelineConfig:
     n_samples: int = 100
     val_samples: int = 50
     n_eval_samples: int = 200
-    criteria: str = std.DESIRED_RATIO
+    criteria: str = std.AVG_AMEAN
     epsilon: float = 0.2
     beta: float = 0.05
-    thresholds: tuple[float, float, float] = (0.55, 0.50, 0.50)
+    thresholds: tuple[float, float, float] = (0.60, 0.50, 0.35)
 
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import torch
 from drugex.training.monitors import PeakRecoveryMonitor
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
@@ -117,6 +118,17 @@ class MoleculePipeline:
             criteria=self.config.criteria,
             monitor=monitor,
         )
+
+        # Persist final epoch model checkpoint explicitly before peak restoration
+        final_pkg = self.paths.raw_data_dir / "david_agent_final.pkg"
+        agent_model = (
+            optimizer.AGENT.getModel()
+            if hasattr(optimizer.AGENT, "getModel")
+            else (optimizer.AGENT.state_dict() if hasattr(optimizer.AGENT, "state_dict") else None)
+        )
+        if agent_model is not None:
+            torch.save(agent_model, final_pkg)
+
         monitor.restore_peak_model(optimizer.AGENT)
 
         for pkg in self.paths.raw_data_dir.glob("*.pkg"):

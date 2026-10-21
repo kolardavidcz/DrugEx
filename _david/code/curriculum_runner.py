@@ -48,7 +48,7 @@ class CurriculumOrchestrator:
         history: list[dict[str, Any]] = []
         all_leads_frames: list[pd.DataFrame] = []
 
-        current_thresholds = (0.55, 0.50, 0.50)
+        current_thresholds = (0.60, 0.50, 0.35)
         current_epsilon = self.initial_epsilon
         current_agent_path: Path | None = None
 
@@ -71,7 +71,7 @@ class CurriculumOrchestrator:
                 n_samples=self.n_samples,
                 val_samples=self.val_samples,
                 n_eval_samples=self.n_eval_samples,
-                criteria=std.DESIRED_RATIO,
+                criteria=std.AVG_AMEAN,
                 epsilon=current_epsilon,
                 beta=0.05,
                 thresholds=current_thresholds,
@@ -147,11 +147,11 @@ class CurriculumOrchestrator:
 
             # Adaptive threshold progression
             if top10_rocs >= 1.50 or max_rocs >= 1.55:
-                current_thresholds = (0.75, 0.50, 0.50)
+                current_thresholds = (0.75, 0.50, 0.35)
             elif top10_rocs >= 1.35 or max_rocs >= 1.45:
-                current_thresholds = (0.70, 0.50, 0.50)
+                current_thresholds = (0.70, 0.50, 0.35)
             elif top10_rocs >= 1.20 or max_rocs >= 1.35:
-                current_thresholds = (0.65, 0.50, 0.50)
+                current_thresholds = (0.65, 0.50, 0.35)
 
         # Consolidate deliverables
         self._generate_deliverables(history, all_leads_frames)
