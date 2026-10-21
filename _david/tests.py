@@ -17,6 +17,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
+from _david.code.curriculum_runner import CurriculumOrchestrator
 from _david.code.environment import (
     BatchUniqueEnvironment,
     PrepareMolecule,
@@ -481,6 +482,25 @@ class TestLBDDPipeline(unittest.TestCase):
                 (paths.root / "lead_structures_2d.png").exists()
                 or (paths.root / "property_distributions.png").exists()
             )
+
+    def test_curriculum_orchestrator_initialization(self) -> None:
+        """Verify CurriculumOrchestrator configuration, directory resolution, and warm-starting interface."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base_dir = Path(tmp_dir) / "curriculum_test"
+            orchestrator = CurriculumOrchestrator(
+                base_dir=base_dir,
+                molecule="Oc1ccccc1",
+                max_iterations=3,
+                target_rocs=1.60,
+                epochs_per_iter=1,
+            )
+            self.assertEqual(orchestrator.max_iterations, 3)
+            self.assertEqual(orchestrator.target_rocs, 1.60)
+            self.assertTrue(base_dir.exists())
+
+            # Verify PipelineConfig supports agent_path
+            cfg = PipelineConfig(agent_path=Path("dummy_peak.pkg"))
+            self.assertEqual(cfg.agent_path, Path("dummy_peak.pkg"))
 
 
 if __name__ == "__main__":

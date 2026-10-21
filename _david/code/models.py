@@ -25,6 +25,7 @@ class GraphTransformerOptimizer:
         models_dir: Path | str,
         raw_data_dir: Path | str,
         gpu: int | str | None = "auto",
+        agent_path: Path | str | None = None,
     ) -> None:
         HardwareManager.init_runtime_environment()
         self.MODELS_DIR = Path(models_dir)
@@ -49,8 +50,9 @@ class GraphTransformerOptimizer:
         self.GPUS = HardwareManager.get_safe_gpus(preferred_gpu=gpu)
         self.VOC = VocGraph.fromFile(str(vocab_path))
 
+        agent_pkg = Path(agent_path) if agent_path else pkg_path
         self.AGENT = GraphTransformer(voc_trg=self.VOC, use_gpus=self.GPUS)
-        self.AGENT.loadStatesFromFile(str(pkg_path))
+        self.AGENT.loadStatesFromFile(str(agent_pkg))
 
         self.PRIOR = GraphTransformer(voc_trg=self.VOC, use_gpus=self.GPUS)
         self.PRIOR.loadStatesFromFile(str(pkg_path))

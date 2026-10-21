@@ -76,6 +76,7 @@ class MoleculePipeline:
             models_dir=self.paths.models_dir,
             raw_data_dir=self.paths.raw_data_dir,
             gpu=self.config.gpu,
+            agent_path=self.config.agent_path,
         )
         env, epsilon = create_environment(
             ref_sdf,

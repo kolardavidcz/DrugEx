@@ -41,6 +41,9 @@ class PipelineConfig:
     gpu: int | str = "auto"
     cpu_ratio: float | None = None
 
+    # Checkpoint Warm-Starting
+    agent_path: Path | str | None = None
+
 
 @dataclass(frozen=True)
 class RunPaths:
