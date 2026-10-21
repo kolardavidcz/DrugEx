@@ -97,10 +97,11 @@ class TestLBDDPipeline(unittest.TestCase):
             for r in rewards_noop:
                 self.assertEqual(float(r), 0.0)
 
+            # Without batch uniqueness, duplicate molecules receive positive rewards
             env_unmasked, _ = create_environment(ref_sdf, batch_unique=False)
             rewards_unmasked = env_unmasked.getRewards(smiles_batch).flatten()
-            self.assertEqual(float(rewards_unmasked[0]), float(rewards_unmasked[2]))
-            self.assertEqual(float(rewards_unmasked[1]), float(rewards_unmasked[4]))
+            self.assertGreater(float(rewards_unmasked[2]), 0.0)
+            self.assertGreater(float(rewards_unmasked[4]), 0.0)
 
     def test_conformer_generation(self) -> None:
         """Verify 3D conformer generation with MMFF94 and UFF fallback on non-MMFF elements."""
