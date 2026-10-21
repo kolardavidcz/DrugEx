@@ -147,7 +147,12 @@ class MoleculePipeline:
             deliverables_dir=self.paths.root,
             raw_data_dir=self.paths.raw_data_dir,
         )
-        analyzer.analyze(candidates_tsv, ref_sdf=ref_sdf)
+        history_tsv = Path(f"{model_prefix}_smiles.tsv")
+        analyzer.analyze(
+            candidates_tsv,
+            ref_sdf=ref_sdf,
+            history_tsv=history_tsv if history_tsv.is_file() else None,
+        )
 
         status = {
             "run_id": self.paths.root.name,

@@ -550,13 +550,26 @@ class ResultAnalyzer:
         candidates_tsv: Path | str,
         ref_sdf: Path | str | None = None,
         top_k: int = 10,
+        history_tsv: Path | str | None = None,
     ) -> pd.DataFrame:
-        """Process candidate TSV, calculate properties, prioritize leads, and emit presentation figures."""
+        """Process candidate TSV, pool trajectory history, calculate properties, prioritize leads, and emit presentation figures."""
         tsv_path = Path(candidates_tsv)
-        if not tsv_path.exists():
+        df_list: list[pd.DataFrame] = []
+
+        if tsv_path.is_file():
+            df_cand = pd.read_csv(tsv_path, sep="\t")
+            if not df_cand.empty:
+                df_list.append(df_cand)
+
+        if history_tsv and Path(history_tsv).is_file():
+            df_hist = pd.read_csv(Path(history_tsv), sep="\t")
+            if not df_hist.empty:
+                df_list.append(df_hist)
+
+        if not df_list:
             return pd.DataFrame()
 
-        df = pd.read_csv(tsv_path, sep="\t")
+        df = pd.concat(df_list, ignore_index=True)
         if df.empty or std.SMILES not in df.columns:
             return df
 
@@ -564,34 +577,51 @@ class ResultAnalyzer:
 
         if std.VALID not in df.columns:
             df[std.VALID] = [Chem.MolFromSmiles(s) is not None for s in df[std.SMILES]]
-        valid_df = df[df[std.VALID].astype(bool)].copy()
+        valid_df = df[df[std.VALID].fillna(False).astype(bool)].copy()
 
         if valid_df.empty:
             return pd.DataFrame()
 
-        if std.QED not in valid_df.columns:
+        # Multi-objective filtering: Disqualify unmodified input fragments (no-ops)
+        if std.FRAGS in valid_df.columns:
+            from _david.code.environment import BatchUniqueEnvironment
+
+            is_noop = [
+                BatchUniqueEnvironment._is_unmodified_fragment(s, f)
+                for s, f in zip(valid_df[std.SMILES], valid_df[std.FRAGS])
+            ]
+            valid_df = valid_df[~np.array(is_noop)].copy()
+
+        if "Accurate" in valid_df.columns:
+            valid_df = valid_df[valid_df["Accurate"].astype(float) > 0.5].copy()
+
+        if valid_df.empty:
+            return pd.DataFrame()
+
+        if std.QED not in valid_df.columns or valid_df[std.QED].isna().any():
             valid_df[std.QED] = [
                 float(QED.qed(m)) if (m := Chem.MolFromSmiles(s)) is not None else 0.0
                 for s in valid_df[std.SMILES]
             ]
-        if std.MW not in valid_df.columns:
+        if std.MW not in valid_df.columns or valid_df[std.MW].isna().any():
             valid_df[std.MW] = [
                 float(Descriptors.MolWt(m)) if (m := Chem.MolFromSmiles(s)) is not None else 0.0
                 for s in valid_df[std.SMILES]
             ]
-
-        # Prioritize leads: ROCS descending, SA ascending (lower is easier), QED descending
-        sort_cols = [c for c in [std.ROCS, std.SA, std.QED] if c in valid_df.columns]
-        ascending = [False, True, False][:len(sort_cols)]
-        if sort_cols:
-            valid_df = valid_df.sort_values(by=sort_cols, ascending=ascending)
 
         # Deduplicate candidates by canonical SMILES to extract distinct chemical leads
         valid_df[std.CANONICAL_SMILES] = [
             Chem.CanonSmiles(s) if (s and Chem.MolFromSmiles(s) is not None) else s
             for s in valid_df[std.SMILES]
         ]
-        unique_leads = valid_df.drop_duplicates(subset=[std.CANONICAL_SMILES])
+        unique_leads = valid_df.drop_duplicates(subset=[std.CANONICAL_SMILES]).copy()
+
+        # Prioritize leads: ROCS descending, SA ascending (lower is easier), QED descending
+        sort_cols = [c for c in [std.ROCS, std.SA, std.QED] if c in unique_leads.columns]
+        ascending = [False, True, False][:len(sort_cols)]
+        if sort_cols:
+            unique_leads = unique_leads.sort_values(by=sort_cols, ascending=ascending)
+
         top_leads = unique_leads.head(top_k).reset_index(drop=True)
         top_leads.to_csv(self.deliverables_dir / "top_prioritized_leads.tsv", sep="\t", index=False)
 
@@ -601,7 +631,7 @@ class ResultAnalyzer:
             ref_mol = next((m for m in suppl if m is not None), None)
 
         render_property_distributions(
-            valid_df,
+            unique_leads,
             output_png=self.deliverables_dir / "property_distributions.png",
             ref_mol=ref_mol,
         )
@@ -615,7 +645,8 @@ class ResultAnalyzer:
 
         summary = {
             "total_generated": len(df),
-            "valid_molecules": int(valid_df[std.VALID].sum()),
+            "valid_molecules": int(len(valid_df)),
+            "unique_molecules": int(len(unique_leads)),
             "top_k_extracted": len(top_leads),
         }
         with open(self.raw_data_dir / "result_analysis_summary.json", "w", encoding="utf-8") as f:

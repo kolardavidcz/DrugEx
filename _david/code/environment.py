@@ -4,9 +4,10 @@ import math
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from drugex.molecules.converters.standardizers import DefaultStandardizer
 from drugex.training.environment import DrugExEnvironment
-from drugex.training.rewards import WeightedSum
+from drugex.training.rewards import ParetoTanimotoDistance, RewardScheme, WeightedSum
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import ScoreModifier, Scorer
 from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
@@ -246,9 +247,42 @@ class PrepareMolecule:
             res_mol = Chem.MolFromSmiles(scaff_smi)
             n_heavy = res_mol.GetNumHeavyAtoms() if res_mol else 0
             n_rings = res_mol.GetRingInfo().NumRings() if res_mol else 0
+
+            # Multi-scale sub-scaffold portfolio decomposition via native DrugEx Fragmenter
+            sub_scaffolds: list[tuple[str, str, int, int]] = [
+                (scaff_smi, scaffold_type, n_heavy, n_rings)
+            ]
+            if res_mol and n_rings >= 2:
+                from drugex.molecules.converters.fragmenters import Fragmenter
+
+                for method in ("recap", "brics"):
+                    try:
+                        frag = Fragmenter(n_frags=4, n_combs=2, method=method, allow_single=True)
+                        pairs = frag(scaff_smi)
+                        if pairs:
+                            for f_smi, _ in pairs:
+                                f_m = Chem.MolFromSmiles(f_smi)
+                                if f_m and all(
+                                    p.GetNumHeavyAtoms() >= 6
+                                    for p in Chem.GetMolFrags(f_m, asMols=True)
+                                ):
+                                    clean_f = Chem.MolToSmiles(f_m, isomericSmiles=isomeric)
+                                    if clean_f not in [s[0] for s in sub_scaffolds]:
+                                        sub_scaffolds.append(
+                                            (
+                                                clean_f,
+                                                f"MultiScale_{method.upper()}",
+                                                f_m.GetNumHeavyAtoms(),
+                                                f_m.GetRingInfo().NumRings(),
+                                            )
+                                        )
+                    except Exception:
+                        pass
+
             with open(target, "w", encoding="utf-8") as f:
                 f.write("Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings\n")
-                f.write(f"{scaff_smi}\t{str(query)}\t{scaffold_type}\t{n_heavy}\t{n_rings}\n")
+                for s_smi, s_type, s_heavy, s_rings in sub_scaffolds:
+                    f.write(f"{s_smi}\t{str(query)}\t{s_type}\t{s_heavy}\t{s_rings}\n")
 
         return scaff_smi
 
@@ -305,51 +339,88 @@ class SafeSAModifier(ScoreModifier):
 
 
 class BatchUniqueEnvironment(DrugExEnvironment):
-    """Multi-objective RL environment with Batch-Unique Zero Masking preventing reward gaming on duplicates."""
+    """Multi-objective RL environment with Batch-Unique and No-Op Zero Masking."""
 
     def __init__(
         self,
         scorers: list[Scorer],
         thresholds: list[float],
-        reward_scheme: WeightedSum | None = None,
+        reward_scheme: RewardScheme | None = None,
         batch_unique: bool = True,
     ) -> None:
         super().__init__(
             scorers=scorers,
             thresholds=thresholds,
-            reward_scheme=reward_scheme or WeightedSum(),
+            reward_scheme=reward_scheme or ParetoTanimotoDistance(),
         )
         self.batch_unique = batch_unique
 
+    @staticmethod
+    def _is_unmodified_fragment(smi: str | None, frag: str | None) -> bool:
+        """Return True if candidate SMILES failed to grow any heavy atoms beyond input fragment."""
+        if not smi or not frag:
+            return False
+        try:
+            mol = Chem.MolFromSmiles(smi)
+            frag_mol = Chem.MolFromSmiles(frag)
+            if mol is None or frag_mol is None:
+                return False
+            if mol.GetNumHeavyAtoms() <= frag_mol.GetNumHeavyAtoms():
+                return True
+            return Chem.CanonSmiles(smi) == Chem.CanonSmiles(frag)
+        except Exception:
+            return smi.strip() == frag.strip()
+
+    def getScores(
+        self,
+        smiles: list[str],
+        frags: list[str] | None = None,
+        no_multifrag_smiles: bool = True,
+    ) -> pd.DataFrame:
+        """Evaluate multi-objective scores, disqualifying unmodified input fragments from accuracy/desirability."""
+        scores = super().getScores(smiles, frags=frags, no_multifrag_smiles=no_multifrag_smiles)
+        if frags is not None and len(frags) == len(smiles):
+            for idx, (smi, frag) in enumerate(zip(smiles, frags)):
+                if self._is_unmodified_fragment(smi, frag):
+                    if "Accurate" in scores.columns:
+                        scores.loc[idx, "Accurate"] = 0
+                    scores.loc[idx, "Desired"] = 0
+        if "Accurate" in scores.columns:
+            scores.loc[scores["Accurate"] == 0, "Desired"] = 0
+        return scores
+
     def getRewards(self, smiles: list[str], frags: list[str] | None = None) -> np.ndarray:
         # ~ [Reinforcement Learning Batch Entropy & Mode Collapse Mitigation]
-        """Calculate multi-objective rewards, zeroing rewards for duplicate molecules within the batch."""
+        """Calculate multi-objective rewards, zeroing rewards for duplicate molecules and unmodified starting prompts."""
         rewards = super().getRewards(smiles, frags=frags)
-        if not self.batch_unique or len(smiles) <= 1:
-            return rewards
-
         seen_smiles: set[str] = set()
         for idx, smi in enumerate(smiles):
             if not smi or smi.count(".") > 0:
+                continue
+            frag = frags[idx] if (frags is not None and idx < len(frags)) else None
+            if self._is_unmodified_fragment(smi, frag):
+                rewards[idx] = 0.0
                 continue
             try:
                 canon = Chem.CanonSmiles(smi)
             except Exception:
                 canon = smi
-            if canon in seen_smiles:
-                rewards[idx] = 0.0
-            else:
-                seen_smiles.add(canon)
+            if self.batch_unique:
+                if canon in seen_smiles:
+                    rewards[idx] = 0.0
+                else:
+                    seen_smiles.add(canon)
         return rewards
 
 
 def create_environment(
     ref_sdf: str | Path,
-    thresholds: tuple[float, float] = (0.5, 0.5),
+    thresholds: tuple[float, ...] = (0.55, 0.50, 0.50),
     epsilon: float = 0.2,
     max_conformers: int = 30,
     timeout: int = 60,
     batch_unique: bool = True,
+    reward_scheme: RewardScheme | None = None,
 ) -> tuple[DrugExEnvironment, float]:
     """Construct multi-objective DrugEx reinforcement learning environment with Batch-Unique Zero Masking."""
     rocs_scorer = create_rocs_scorer(ref_sdf, max_conformers=max_conformers, timeout=timeout)
@@ -359,12 +430,13 @@ def create_environment(
         prop="SA",
         modifier=SafeSAModifier(upper_x=3.5, lower_x=5.5, low_score=0.0, high_score=1.0),
     )
-    scorers: list[Scorer] = [rocs_scorer, sa_scorer]
+    qed_scorer = Property(prop="QED")
+    scorers: list[Scorer] = [rocs_scorer, sa_scorer, qed_scorer]
 
     env = BatchUniqueEnvironment(
         scorers=scorers,
         thresholds=list(thresholds),
-        reward_scheme=WeightedSum(),
+        reward_scheme=reward_scheme or ParetoTanimotoDistance(distance_metric="min"),
         batch_unique=batch_unique,
     )
     return env, epsilon

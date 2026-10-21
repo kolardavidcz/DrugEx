@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from _david.code.schema import std
+
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 # Canonical default target query molecule (Epigallocatechin gallate - EGCG)
@@ -23,10 +25,10 @@ class PipelineConfig:
     n_samples: int = 100
     val_samples: int = 50
     n_eval_samples: int = 200
-    criteria: str = "avg_amean"
+    criteria: str = std.DESIRED_RATIO
     epsilon: float = 0.2
     beta: float = 0.05
-    thresholds: tuple[float, float] = (0.5, 0.5)
+    thresholds: tuple[float, float, float] = (0.55, 0.50, 0.50)
 
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30

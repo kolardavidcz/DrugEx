@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import numpy as np
 import pandas as pd
-from drugex.training.rewards import WeightedSum
+from drugex.training.rewards import ParetoTanimotoDistance, WeightedSum
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -53,13 +53,14 @@ class TestLBDDPipeline(unittest.TestCase):
             writer.close()
 
             env, epsilon = create_environment(ref_sdf)
-            self.assertGreater(len(env.scorers), 0)
-            self.assertEqual(len(env.thresholds), len(env.scorers))
+            self.assertEqual(len(env.scorers), 3)
+            self.assertEqual(len(env.thresholds), 3)
+            self.assertEqual(env.thresholds, [0.55, 0.50, 0.50])
             self.assertGreater(epsilon, 0.0)
-            self.assertIsInstance(env.rewardScheme, WeightedSum)
+            self.assertIsInstance(env.rewardScheme, ParetoTanimotoDistance)
 
     def test_batch_unique_reward_masking(self) -> None:
-        """Verify BatchUniqueEnvironment zeroes rewards for intra-batch duplicate SMILES."""
+        """Verify BatchUniqueEnvironment zeroes rewards for intra-batch duplicate SMILES and no-ops."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             ref_sdf = Path(tmp_dir) / "ref.sdf"
             mol = Chem.MolFromSmiles("c1ccccc1O")
@@ -79,16 +80,27 @@ class TestLBDDPipeline(unittest.TestCase):
                 "c1ccncc1",
                 "c1ccccc1",
             ]
-            rewards = env.getRewards(smiles_batch)
+            rewards = env.getRewards(smiles_batch).flatten()
             self.assertEqual(len(rewards), len(smiles_batch))
-            self.assertGreater(rewards[0], 0.0)
-            self.assertEqual(rewards[2], 0.0)
-            self.assertEqual(rewards[4], 0.0)
+            self.assertGreater(float(rewards[0]), 0.0)
+            self.assertEqual(float(rewards[2]), 0.0)
+            self.assertEqual(float(rewards[4]), 0.0)
+
+            # Test no-op zero-masking when input fragment prompt is unchanged or shrunk
+            frags = ["c1ccccc1O"] * len(smiles_batch)
+            scores = env.getScores(smiles_batch, frags=frags)
+            self.assertEqual(int(scores.loc[0, "Accurate"]), 0)
+            self.assertEqual(int(scores.loc[0, "Desired"]), 0)
+            self.assertEqual(int(scores.loc[1, "Accurate"]), 0)
+
+            rewards_noop = env.getRewards(smiles_batch, frags=frags).flatten()
+            for r in rewards_noop:
+                self.assertEqual(float(r), 0.0)
 
             env_unmasked, _ = create_environment(ref_sdf, batch_unique=False)
-            rewards_unmasked = env_unmasked.getRewards(smiles_batch)
-            self.assertEqual(rewards_unmasked[0], rewards_unmasked[2])
-            self.assertEqual(rewards_unmasked[1], rewards_unmasked[4])
+            rewards_unmasked = env_unmasked.getRewards(smiles_batch).flatten()
+            self.assertEqual(float(rewards_unmasked[0]), float(rewards_unmasked[2]))
+            self.assertEqual(float(rewards_unmasked[1]), float(rewards_unmasked[4]))
 
     def test_conformer_generation(self) -> None:
         """Verify 3D conformer generation with MMFF94 and UFF fallback on non-MMFF elements."""
@@ -153,7 +165,7 @@ class TestLBDDPipeline(unittest.TestCase):
         )
 
     def test_seed_core_scaffold(self) -> None:
-        """Verify canonical Bemis-Murcko framework extraction preserving rings and linkers."""
+        """Verify canonical Bemis-Murcko and multi-scale sub-scaffold portfolio decomposition."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_tsv = Path(tmp_dir) / "scaffold.tsv"
             smi_core = self.preparer.extract_seed_core_scaffold(
@@ -165,14 +177,15 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertEqual(mol_core.GetRingInfo().NumRings(), 4)
             self.assertTrue(out_tsv.exists())
 
-            with open(out_tsv, "r", encoding="utf-8") as f:
-                header = f.readline().strip()
-                row = f.readline().strip().split("\t")
-            self.assertEqual(
-                header, "Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings"
-            )
-            self.assertEqual(row[0], smi_core)
-            self.assertEqual(row[2], "BemisMurcko")
+            df_scaffolds = pd.read_csv(out_tsv, sep="\t")
+            self.assertIn("Scaffold", df_scaffolds.columns)
+            self.assertIn("Scaffold_Type", df_scaffolds.columns)
+            self.assertEqual(df_scaffolds.iloc[0]["Scaffold_Type"], "BemisMurcko")
+            self.assertEqual(df_scaffolds.iloc[0]["Scaffold"], smi_core)
+
+            scaffold_types = df_scaffolds["Scaffold_Type"].tolist()
+            self.assertTrue(any(t.startswith("MultiScale_") for t in scaffold_types))
+            self.assertGreater(len(df_scaffolds), 1)
 
             self.assertEqual(
                 self.preparer.extract_seed_core_scaffold("c1ccccc1O"), "c1ccccc1"
@@ -299,33 +312,61 @@ class TestLBDDPipeline(unittest.TestCase):
             self.assertAlmostEqual(res_arr[i], float(modifier(x)), places=5)
 
     def test_result_analyzer_deduplication_and_lead_prioritization(self) -> None:
-        """Verify ResultAnalyzer deduplicates canonical SMILES clones and prioritizes leads."""
+        """Verify ResultAnalyzer pools trajectory history, filters no-ops, deduplicates SMILES, and prioritizes leads."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             candidates_tsv = tmp_path / "candidates.tsv"
+            history_tsv = tmp_path / "history.tsv"
 
             smi_asp1 = "CC(=O)Oc1ccccc1C(=O)O"
             smi_asp2 = "O=C(O)c1ccccc1OC(=O)C"
             smi_phenol = "c1ccccc1O"
             smi_low = "CCCC"
 
-            df = pd.DataFrame(
+            df_cand = pd.DataFrame(
                 {
                     std.SMILES: [smi_asp1, smi_asp2, smi_phenol, smi_low],
+                    std.FRAGS: ["c1ccccc1", "c1ccccc1", "c1ccccc1", "CCCC"],
                     std.ROCS: [1.5, 1.5, 1.5, 0.5],
                     std.SA: [2.5, 2.5, 2.5, 5.0],
                     std.VALID: [True, True, True, True],
                 }
             )
-            df.to_csv(candidates_tsv, sep="\t", index=False)
+            df_cand.to_csv(candidates_tsv, sep="\t", index=False)
+
+            # History TSV with a high-value lead and an unmodified no-op fragment
+            smi_high_lead = "c1ccccc1CCc2ccccc2"
+            smi_noop = "c1ccccc1"
+            df_hist = pd.DataFrame(
+                {
+                    std.SMILES: [smi_high_lead, smi_noop],
+                    std.FRAGS: ["c1ccccc1", "c1ccccc1"],
+                    std.ROCS: [1.8, 1.9],
+                    std.SA: [2.0, 1.0],
+                    std.VALID: [True, True],
+                }
+            )
+            df_hist.to_csv(history_tsv, sep="\t", index=False)
 
             analyzer = ResultAnalyzer(tmp_path)
-            saved_leads = analyzer.analyze(candidates_tsv, top_k=5)
+            saved_leads = analyzer.analyze(candidates_tsv, top_k=5, history_tsv=history_tsv)
 
+            # 1. No-op must be filtered out despite high ROCS
+            self.assertNotIn(smi_noop, saved_leads[std.SMILES].tolist())
+
+            # 2. Duplicate canonical SMILES must be collapsed
             asp_canon = Chem.CanonSmiles(smi_asp1)
             asp_rows = saved_leads[saved_leads[std.CANONICAL_SMILES] == asp_canon]
             self.assertEqual(len(asp_rows), 1, "Duplicate canonical SMILES must be collapsed")
+
+            # 3. Trajectory pooled lead must be retained and prioritized highest (ROCS 1.8)
+            self.assertEqual(saved_leads.iloc[0][std.SMILES], smi_high_lead)
             self.assertGreater(saved_leads.iloc[0][std.ROCS], saved_leads.iloc[-1][std.ROCS])
+
+            # 4. Deliverables verified
+            self.assertTrue((tmp_path / "top_prioritized_leads.tsv").exists())
+            self.assertTrue((tmp_path / "property_distributions.png").exists())
+            self.assertTrue((tmp_path / "result_analysis_summary.json").exists())
 
     def test_data_schema_and_unscaling(self) -> None:
         """Verify std constants and physical metric unscaling."""
