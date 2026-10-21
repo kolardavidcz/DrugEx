@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -611,6 +612,9 @@ class TestLBDDPipeline(unittest.TestCase):
                 pass
         cos_exp.monitor = MockMonitor()
         cos_exp.last_save = 1
+        mock_env = MagicMock()
+        mock_env.getScorerKeys.return_value = []
+        cos_exp.env = mock_env
         df_scores = pd.DataFrame({"Epoch": [1], "SMILES": ["c1ccccc1"], "Valid": [True], "Desired": [True]})
         DecayingFragGraphExplorer.logPerformanceAndCompounds(cos_exp, 1, metrics_dict, df_scores)
         self.assertIn("epsilon", metrics_dict)
