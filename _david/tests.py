@@ -463,6 +463,7 @@ class TestLBDDPipeline(unittest.TestCase):
                 val_samples=10,
                 n_eval_samples=10,
                 min_epochs=1,
+                cpu_ratio=0.05,
             )
             pipeline = MoleculePipeline(config=test_config, paths=paths)
             pipeline.run("Oc1ccccc1")
