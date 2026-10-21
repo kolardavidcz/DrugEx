@@ -253,13 +253,14 @@ class PrepareMolecule:
             sub_scaffolds: list[tuple[str, str, int, int]] = [
                 (scaff_smi, scaffold_type, n_heavy, n_rings)
             ]
-            if res_mol and n_rings >= 2:
+            query_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
+            if mol_no_h and mol_no_h.GetRingInfo().NumRings() >= 1:
                 from drugex.molecules.converters.fragmenters import Fragmenter
 
                 for method in ("recap", "brics"):
                     try:
                         frag = Fragmenter(n_frags=4, n_combs=2, method=method, allow_single=True)
-                        pairs = frag(scaff_smi)
+                        pairs = frag(query_smi)
                         if pairs:
                             for f_smi, _ in pairs:
                                 f_m = Chem.MolFromSmiles(f_smi)
