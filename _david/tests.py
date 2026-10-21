@@ -56,7 +56,8 @@ class TestLBDDPipeline(unittest.TestCase):
             env, epsilon = create_environment(ref_sdf)
             self.assertEqual(len(env.scorers), 3)
             self.assertEqual(len(env.thresholds), 3)
-            self.assertEqual(env.thresholds, [0.60, 0.50, 0.35])
+            self.assertEqual(env.thresholds, [0.75, 0.50, 0.50])
+            self.assertEqual(env.scorers[0].score_variant, "tversky_subshape")
             self.assertGreater(epsilon, 0.0)
             self.assertIsInstance(env.rewardScheme, ParetoTanimotoDistance)
 

@@ -253,20 +253,20 @@ class PrepareMolecule:
             sub_scaffolds: list[tuple[str, str, int, int]] = [
                 (scaff_smi, scaffold_type, n_heavy, n_rings)
             ]
-            query_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-            if mol_no_h and mol_no_h.GetRingInfo().NumRings() >= 1:
+            if res_mol and res_mol.GetRingInfo().NumRings() >= 1:
                 from drugex.molecules.converters.fragmenters import Fragmenter
 
                 for method in ("recap", "brics"):
                     try:
                         frag = Fragmenter(n_frags=4, n_combs=2, method=method, allow_single=True)
-                        pairs = frag(query_smi)
+                        pairs = frag(scaff_smi)
                         if pairs:
                             for f_smi, _ in pairs:
                                 f_m = Chem.MolFromSmiles(f_smi)
-                                if f_m and all(
-                                    p.GetNumHeavyAtoms() >= 6
-                                    for p in Chem.GetMolFrags(f_m, asMols=True)
+                                if (
+                                    f_m
+                                    and len(Chem.GetMolFrags(f_m)) == 1
+                                    and f_m.GetNumHeavyAtoms() >= 6
                                 ):
                                     clean_f = Chem.MolToSmiles(f_m, isomericSmiles=isomeric)
                                     if clean_f not in [s[0] for s in sub_scaffolds]:
@@ -299,6 +299,7 @@ def create_rocs_scorer(
     references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
     max_conformers: int = 30,
     timeout: int = 60,
+    score_variant: str = "tversky_subshape",
 ) -> RDKitROCSScorer:
     """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
     ref_input = str(references) if isinstance(references, Path) else references
@@ -312,6 +313,7 @@ def create_rocs_scorer(
         references=ref_input,
         conformer_generator=conf_gen,
         score_type="TanimotoCombo",
+        score_variant=score_variant,
         color_ff="oe_mills_dean",
         n_jobs=HardwareManager.get_safe_parallel_jobs(),
     )
@@ -421,15 +423,21 @@ class BatchUniqueEnvironment(DrugExEnvironment):
 
 def create_environment(
     ref_sdf: str | Path,
-    thresholds: tuple[float, ...] = (0.60, 0.50, 0.35),
+    thresholds: tuple[float, ...] = (0.75, 0.50, 0.50),
     epsilon: float = 0.2,
     max_conformers: int = 30,
     timeout: int = 60,
     batch_unique: bool = True,
     reward_scheme: RewardScheme | None = None,
+    score_variant: str = "tversky_subshape",
 ) -> tuple[DrugExEnvironment, float]:
     """Construct multi-objective DrugEx reinforcement learning environment with Batch-Unique Zero Masking."""
-    rocs_scorer = create_rocs_scorer(ref_sdf, max_conformers=max_conformers, timeout=timeout)
+    rocs_scorer = create_rocs_scorer(
+        ref_sdf,
+        max_conformers=max_conformers,
+        timeout=timeout,
+        score_variant=score_variant,
+    )
     rocs_scorer.modifier = ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)
 
     sa_scorer = Property(

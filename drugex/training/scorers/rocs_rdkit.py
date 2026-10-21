@@ -26,7 +26,7 @@ from drugex.training.scorers.parallel import (
 _RDKIT_WORKER_SETTINGS: Dict[str, object] = {}
 _DEFAULT_RDKIT_GROUP_NAME = "_default_group"
 _VALID_SCORE_TYPES = frozenset({"shape", "color", "TanimotoCombo"})
-_VALID_SCORE_VARIANTS = frozenset({"tanimoto", "tversky_ref", "tversky_fit"})
+_VALID_SCORE_VARIANTS = frozenset({"tanimoto", "tversky_ref", "tversky_fit", "tversky_subshape"})
 # color_ff selects which pharmacophore typing feeds rdShapeAlign's color channel via the
 # PUBCHEM_PHARMACOPHORE_FEATURES property written by _annotate_color_features:
 #   "default"       -> RDKit BaseFeatures.fdef typing (the existing inject_color path).
@@ -36,7 +36,11 @@ _VALID_SCORE_VARIANTS = frozenset({"tanimoto", "tversky_ref", "tversky_fit"})
 # (the annotation only runs at all when inject_color=True, exactly as before).
 _VALID_COLOR_FFS = frozenset({"default", "fdef", "oe_mills_dean"})
 # (alpha, beta) for the Tversky index; tversky_ref weights the REFERENCE (self_a).
-_TVERSKY_AB = {"tversky_ref": (0.95, 0.05), "tversky_fit": (0.05, 0.95)}
+_TVERSKY_AB = {
+    "tversky_ref": (0.95, 0.05),
+    "tversky_fit": (0.05, 0.95),
+    "tversky_subshape": (0.30, 0.70),
+}
 
 # --- Color-feature annotation: the 6-type rdShapeAlign color path (incl. hydrophobe) ---
 # Without an explicit PUBCHEM_PHARMACOPHORE_FEATURES property, rdShapeAlign perceives color

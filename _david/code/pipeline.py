@@ -85,6 +85,7 @@ class MoleculePipeline:
             epsilon=self.config.epsilon,
             max_conformers=self.config.max_conformers,
             timeout=self.config.timeout_seconds,
+            score_variant=self.config.score_variant,
         )
 
         train_loader, val_loader, _ = optimizer.prepare_seed_fragments(
@@ -236,6 +237,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     defaults = PipelineConfig()
 
     parser.add_argument("--epochs", type=int, default=defaults.epochs, help="Number of RL epochs")
+    parser.add_argument("--min-epochs", type=int, default=defaults.min_epochs, help="Minimum RL epochs before early exit")
     parser.add_argument("--patience", type=int, default=defaults.patience, help="Early stopping patience")
     parser.add_argument("--n-samples", type=int, default=defaults.n_samples, help="RL prompt batch size")
     parser.add_argument("--val-samples", type=int, default=defaults.val_samples, help="Validation sample size")
@@ -249,6 +251,12 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         type=int,
         default=defaults.max_reference_conformers,
         help="Max Butina cluster centroids in reference 3D ensemble",
+    )
+    parser.add_argument(
+        "--score-variant",
+        default=defaults.score_variant,
+        choices=["tanimoto", "tversky_ref", "tversky_fit", "tversky_subshape"],
+        help="3D shape/color scoring variant",
     )
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES string")
     parser.add_argument("--input", default=None, help="Target molecule structure file (.sdf, .smi, .txt)")
@@ -264,6 +272,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     thresholds = tuple(args.thresholds) if args.thresholds is not None else defaults.thresholds
     config = PipelineConfig(
         epochs=args.epochs,
+        min_epochs=args.min_epochs,
         patience=args.patience,
         n_samples=args.n_samples,
         val_samples=args.val_samples,
@@ -271,6 +280,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         criteria=args.criteria,
         epsilon=args.epsilon,
         beta=args.beta,
+        score_variant=args.score_variant,
         max_reference_conformers=args.max_reference_conformers,
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
@@ -299,6 +309,7 @@ def main() -> None:
             sys.executable,
             str(Path(__file__).resolve()),
             "--epochs", str(config.epochs),
+            "--min-epochs", str(config.min_epochs),
             "--patience", str(config.patience),
             "--n-samples", str(config.n_samples),
             "--val-samples", str(config.val_samples),
@@ -306,6 +317,7 @@ def main() -> None:
             "--criteria", str(config.criteria),
             "--epsilon", str(config.epsilon),
             "--beta", str(config.beta),
+            "--score-variant", str(config.score_variant),
             "--max-reference-conformers", str(config.max_reference_conformers),
             "--gpu", str(config.gpu),
             "--out-dir", str(paths.root),
