@@ -136,7 +136,7 @@ __all__: list[str] = [
 
 # [LEGACY ARCHIVE] AntiCollapseSoftGateReward is archived under _david/legacy/
 # Re-exported here for full backward compatibility across test suites and previous scripts.
-from _david.legacy.anti_cheating_rewards import AntiCollapseSoftGateReward
+from _david.legacy.anti_cheating.anti_cheating_rewards import AntiCollapseSoftGateReward
 
 
 class AugmentedChebyshevReward(RewardScheme):
