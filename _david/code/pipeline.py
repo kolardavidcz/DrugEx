@@ -244,10 +244,12 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     parser.add_argument("--cpu-ratio", type=float, default=defaults.cpu_ratio,
         help="Fraction of CPU cores allocated for parallel scoring (default: 0.60)")
     parser.add_argument("--agent-path", type=Path, default=None, help="Warm-start model checkpoint (.pkg)")
+    parser.add_argument("--thresholds", nargs="+", type=float, default=None, help="Thresholds for objectives (ROCS, SA, QED)")
     parser.add_argument("--out-dir", type=Path, default=None, help="Explicit custom output directory")
     parser.add_argument("--detach", action="store_true", default=False, help="Run as detached background daemon")
     args, _ = parser.parse_known_args()
 
+    thresholds = tuple(args.thresholds) if args.thresholds is not None else defaults.thresholds
     config = PipelineConfig(
         epochs=args.epochs,
         patience=args.patience,
@@ -261,6 +263,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
         agent_path=args.agent_path,
+        thresholds=thresholds,
     )
     paths = RunPaths.resolve(base_dir=args.out_dir)
     target_molecule = args.input if args.input is not None else args.molecule
@@ -305,6 +308,9 @@ def main() -> None:
 
         if config.agent_path is not None:
             cmd.extend(["--agent-path", str(config.agent_path)])
+
+        if config.thresholds is not None:
+            cmd.extend(["--thresholds"] + [str(t) for t in config.thresholds])
 
         with open(log_file, "a", encoding="utf-8") as f_out:
             proc = subprocess.Popen(
