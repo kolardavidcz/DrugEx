@@ -29,7 +29,7 @@ class PipelineConfig:
     criteria: str = std.AVG_AMEAN
     epsilon: float = 0.2
     beta: float = 0.05
-    thresholds: tuple[float, float, float] = (0.75, 0.50, 0.50)
+    thresholds: tuple[float, float, float] = (0.70, 0.50, 0.50)
     score_variant: str = "tversky_subshape"
     reward_scheme: str = "chebyshev"
 

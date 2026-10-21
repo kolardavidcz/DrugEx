@@ -47,10 +47,10 @@ _david/
 - **Model**: `FragGraphExplorer` operating on pre-trained Papyrus prior (`Papyrus05.5_graph_trans_PT`).
 - **Prompt Encoding**: Encodes multi-scale seed frameworks into graph DataLoader via `dummyMolsFromFragments()` and `FragmentCorpusEncoder(n_proc=1)`.
 - **Environment & Scorers**:
-  - **3D ROCS Scorer**: Native DrugEx `RDKitROCSScorer` with OpenEye Mills-Dean color SMARTS (`color_ff="oe_mills_dean"`), `score_type="TanimotoCombo"`, mapped to $[0, 1]$ via `ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)`. Threshold: `0.55`.
+  - **3D ROCS Scorer**: Native DrugEx `RDKitROCSScorer` with OpenEye Mills-Dean color SMARTS (`color_ff="oe_mills_dean"`), `score_type="TanimotoCombo"`, mapped to $[0, 1]$ via `ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)`. Threshold: `0.70` (physical ROCS $\ge 1.40$).
   - **Synthesizability Feasibility Floor**: `Property(prop="SA")` governed by `SafeSAModifier(upper_x=3.5, lower_x=5.5, low_score=0.0, high_score=1.0)`. Clamps invalid/uncalculable fallback scores ($\le 0.0$) strictly to $0.0$ desirability. Threshold: `0.50`.
   - **Drug-likeness (QED)**: `Property(prop="QED")` ensuring molecular drug-likeness. Threshold: `0.50`.
-  - **Multi-Objective Reward Scheme**: Configurable via `--reward-scheme` (`chebyshev` [default: Augmented Chebyshev scalarization directly tying policy gradients to absolute ROCS improvement], `pareto` [ParetoTanimotoDistance with Morgan crowding distance], `gmean` [GeometricMeanReward], `weighted_sum` [WeightedSum]). Thresholds default to `(0.75, 0.50, 0.50)`.
+  - **Multi-Objective Reward Scheme**: Configurable via `--reward-scheme` (`chebyshev` [default: Augmented Chebyshev scalarization directly tying policy gradients to absolute ROCS improvement], `pareto` [ParetoTanimotoDistance with Morgan crowding distance], `gmean` [GeometricMeanReward], `weighted_sum` [WeightedSum]). Thresholds default to `(0.70, 0.50, 0.50)`.
   - **Batch-Unique & No-Op Zero Masking (`BatchUniqueEnvironment`)**: Disqualifies unmodified fragment prompts (`SMILES == FRAGS` or non-grown molecules) from `Accurate` and `Desired`, and zeroes rewards for both no-ops and intra-batch duplicates.
 - **Checkpointing & Peak Recovery**: `PeakRecoveryMonitor` tracks `desired_ratio`, saving `_peak.pkg` on improvement and automatically restoring peak model weights onto the agent upon completion.
 

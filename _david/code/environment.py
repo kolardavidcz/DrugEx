@@ -448,7 +448,7 @@ def resolve_reward_scheme(
 
 def create_environment(
     ref_sdf: str | Path,
-    thresholds: tuple[float, ...] = (0.75, 0.50, 0.50),
+    thresholds: tuple[float, ...] = (0.70, 0.50, 0.50),
     epsilon: float = 0.2,
     max_conformers: int = 30,
     timeout: int = 60,
