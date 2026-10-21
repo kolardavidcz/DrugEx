@@ -243,6 +243,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     parser.add_argument("--gpu", default=defaults.gpu, help="GPU device ID or 'auto'/'cpu'")
     parser.add_argument("--cpu-ratio", type=float, default=defaults.cpu_ratio,
         help="Fraction of CPU cores allocated for parallel scoring (default: 0.60)")
+    parser.add_argument("--agent-path", type=Path, default=None, help="Warm-start model checkpoint (.pkg)")
     parser.add_argument("--out-dir", type=Path, default=None, help="Explicit custom output directory")
     parser.add_argument("--detach", action="store_true", default=False, help="Run as detached background daemon")
     args, _ = parser.parse_known_args()
@@ -259,6 +260,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         max_reference_conformers=args.max_reference_conformers,
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
+        agent_path=args.agent_path,
     )
     paths = RunPaths.resolve(base_dir=args.out_dir)
     target_molecule = args.input if args.input is not None else args.molecule
