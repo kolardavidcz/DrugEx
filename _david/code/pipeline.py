@@ -303,6 +303,9 @@ def main() -> None:
         if config.cpu_ratio is not None:
             cmd.extend(["--cpu-ratio", str(config.cpu_ratio)])
 
+        if config.agent_path is not None:
+            cmd.extend(["--agent-path", str(config.agent_path)])
+
         with open(log_file, "a", encoding="utf-8") as f_out:
             proc = subprocess.Popen(
                 cmd,
