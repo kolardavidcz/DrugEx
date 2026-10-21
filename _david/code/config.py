@@ -25,6 +25,7 @@ class PipelineConfig:
     n_samples: int = 100
     val_samples: int = 50
     n_eval_samples: int = 200
+    batch_size: int | None = None
     criteria: str = std.AVG_AMEAN
     epsilon: float = 0.2
     beta: float = 0.05

@@ -88,13 +88,17 @@ class MoleculePipeline:
             score_variant=self.config.score_variant,
         )
 
+        batch_size = (
+            self.config.batch_size
+            or HardwareManager.get_recommended_batch_size(self.config.n_samples)
+        )
         train_loader, val_loader, _ = optimizer.prepare_seed_fragments(
             molecule,
             n_prompts=self.config.n_samples,
             scaffolds_path=scaffold_tsv,
             val_samples=self.config.val_samples,
+            batch_size=batch_size,
         )
-        batch_size = HardwareManager.get_recommended_batch_size(self.config.n_samples)
         explorer = optimizer.build_explorer(
             env,
             epsilon=epsilon,
@@ -240,6 +244,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     parser.add_argument("--min-epochs", type=int, default=defaults.min_epochs, help="Minimum RL epochs before early exit")
     parser.add_argument("--patience", type=int, default=defaults.patience, help="Early stopping patience")
     parser.add_argument("--n-samples", type=int, default=defaults.n_samples, help="RL prompt batch size")
+    parser.add_argument("--batch-size", type=int, default=defaults.batch_size, help="Explicit batch size for RL exploration")
     parser.add_argument("--val-samples", type=int, default=defaults.val_samples, help="Validation sample size")
     parser.add_argument("--n-eval-samples", type=int, default=defaults.n_eval_samples,
         help="Number of final candidates generated from peak agent")
@@ -275,6 +280,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         min_epochs=args.min_epochs,
         patience=args.patience,
         n_samples=args.n_samples,
+        batch_size=args.batch_size,
         val_samples=args.val_samples,
         n_eval_samples=args.n_eval_samples,
         criteria=args.criteria,
@@ -329,6 +335,9 @@ def main() -> None:
 
         if config.cpu_ratio is not None:
             cmd.extend(["--cpu-ratio", str(config.cpu_ratio)])
+
+        if config.batch_size is not None:
+            cmd.extend(["--batch-size", str(config.batch_size)])
 
         if config.agent_path is not None:
             cmd.extend(["--agent-path", str(config.agent_path)])

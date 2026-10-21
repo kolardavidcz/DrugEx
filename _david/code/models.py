@@ -63,6 +63,7 @@ class GraphTransformerOptimizer:
         n_prompts: int = 100,
         scaffolds_path: Path | str | None = None,
         val_samples: int | None = None,
+        batch_size: int | None = None,
     ) -> tuple[DataLoader, DataLoader, GraphFragDataSet]:
         """Generate training and decoupled validation DataLoaders for seed fragments."""
         seed_tsv = self.RAW_DATA_DIR / "seed_fragments.tsv"
@@ -97,12 +98,12 @@ class GraphTransformerOptimizer:
         val_size = min(val_samples if val_samples else max(50, int(n_prompts * 0.25)), n_prompts)
         val_data = raw_data[:val_size]
 
-        batch_size = HardwareManager.get_recommended_batch_size(n_prompts)
+        eff_batch_size = batch_size or HardwareManager.get_recommended_batch_size(n_prompts)
         train_loader = seed_dataset.dataToLoader(
-            raw_data, batch_size=batch_size, vocabulary=self.VOC
+            raw_data, batch_size=eff_batch_size, vocabulary=self.VOC
         )
         val_loader = seed_dataset.dataToLoader(
-            val_data, batch_size=batch_size, vocabulary=self.VOC
+            val_data, batch_size=eff_batch_size, vocabulary=self.VOC
         )
         return train_loader, val_loader, seed_dataset
 
