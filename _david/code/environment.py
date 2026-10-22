@@ -148,8 +148,10 @@ class PrepareMolecule:
         for conf, (status, e) in zip(mol_h.GetConformers(), results):
             cid = conf.GetId()
             e_val = float(e)
+            
             if status != -1 and math.isfinite(e_val):
                 energies[cid] = e_val
+                
             else:
                 mol_h.RemoveConformer(cid)
 
@@ -265,11 +267,11 @@ class PrepareMolecule:
                                 f_m = Chem.MolFromSmiles(f_smi)
                                 if (
                                     f_m
-                                    and len(Chem.GetMolFrags(f_m)) == 1
+                                    and len(Chem.GetMolFrags(f_m)) == 1 #?
                                     and f_m.GetNumHeavyAtoms() >= 6
                                 ):
                                     clean_f = Chem.MolToSmiles(f_m, isomericSmiles=isomeric)
-                                    if clean_f not in [s[0] for s in sub_scaffolds]:
+                                    if clean_f not in [s[0] for s in sub_scaffolds]: #?
                                         sub_scaffolds.append(
                                             (
                                                 clean_f,

@@ -22,18 +22,25 @@ class PipelineConfig:
     epochs: int = 100
     patience: int = 25
     min_epochs: int = 50
-    n_samples: int = 100
-    val_samples: int = 50
+    
+    n_samples: int = 64*3
+    val_samples: int = 100
+    
     n_eval_samples: int = 200
-    batch_size: int | None = None
+    batch_size: int = 64
+    
     criteria: str = std.AVG_AMEAN
+    beta: float = 0.05
+    
     epsilon: float = 0.25
     epsilon_end: float | None = 0.05
     decay_epochs: int = 50
     decay_type: str = "cosine"
-    beta: float = 0.05
+    
     thresholds: tuple[float, float, float] = (0.70, 0.50, 0.50)
+    
     score_variant: str = "tversky_subshape"
+    
     reward_scheme: str = "harrington"
 
     # 3D Conformer & Chemistry Settings
