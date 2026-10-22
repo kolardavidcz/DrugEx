@@ -274,6 +274,12 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
     )
     parser.add_argument("--beta", type=float, default=defaults.beta, help="Baseline reward penalty")
     parser.add_argument(
+        "--max-conformers",
+        type=int,
+        default=defaults.max_conformers,
+        help="Max 3D conformers generated per candidate molecule for ROCS scoring",
+    )
+    parser.add_argument(
         "--max-reference-conformers",
         type=int,
         default=defaults.max_reference_conformers,
@@ -319,6 +325,7 @@ def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
         beta=args.beta,
         score_variant=args.score_variant,
         reward_scheme=args.reward_scheme,
+        max_conformers=args.max_conformers,
         max_reference_conformers=args.max_reference_conformers,
         gpu=args.gpu,
         cpu_ratio=args.cpu_ratio,
@@ -357,6 +364,7 @@ def main() -> None:
             "--beta", str(config.beta),
             "--score-variant", str(config.score_variant),
             "--reward-scheme", str(config.reward_scheme),
+            "--max-conformers", str(config.max_conformers),
             "--max-reference-conformers", str(config.max_reference_conformers),
             "--gpu", str(config.gpu),
             "--out-dir", str(paths.root),
