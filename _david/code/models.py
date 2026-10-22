@@ -79,7 +79,9 @@ class DecayingFragGraphExplorer(FragGraphExplorer):
         if self.decay_type == "linear":
             return self.epsilon_start + progress * (self.epsilon_end - self.epsilon_start)
         elif self.decay_type == "cosine":
-            cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress)) 
+            #~ [Loshchilov & Hutter, SGDR: Stochastic Gradient Descent with Warm Restarts, ICLR 2017]
+            #~ Half-cycle cosine annealing schedule provides smooth transition from broad exploration to exploitation.
+            cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
             return self.epsilon_end + (self.epsilon_start - self.epsilon_end) * cosine_factor
         else:
             raise ValueError(f"Unsupported decay_type: '{self.decay_type}'. Choose 'cosine' or 'linear'.")

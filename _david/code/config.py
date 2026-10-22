@@ -35,6 +35,7 @@ class PipelineConfig:
     epsilon: float = 0.25
     epsilon_end: float | None = 0.05
     decay_epochs: int = 50
+    #~ [Loshchilov & Hutter, SGDR: Stochastic Gradient Descent with Warm Restarts, ICLR 2017]
     decay_type: str = "cosine"
     
     thresholds: tuple[float, float, float] = (0.70, 0.50, 0.50)
