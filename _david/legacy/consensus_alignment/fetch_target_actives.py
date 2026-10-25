@@ -387,7 +387,7 @@ class ChEMBLActivesHarvester:
         mol_synth = Chem.RWMol()
         conf_synth = Chem.Conformer(len(consensus_centroids))
 
-        for idx, (f_type, pos) in enumerate(consensus_centroids):
+        for _idx, (f_type, pos) in enumerate(consensus_centroids):
             symbol = type_to_element.get(f_type, "C")
             atom_idx = mol_synth.AddAtom(Chem.Atom(symbol))
             from rdkit.Geometry import Point3D
