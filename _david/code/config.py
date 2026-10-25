@@ -41,7 +41,6 @@ class PipelineConfig:
     thresholds: tuple[float, float, float] = (0.70, 0.50, 0.50)
     
     score_variant: str = "tversky_subshape"
-    
     reward_scheme: str = "harrington"
 
     # 3D Conformer & Chemistry Settings
