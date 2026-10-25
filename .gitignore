@@ -1,31 +1,53 @@
-## MINIE
-_david/validation/
-_david/notes/
-_david/code/reserch_test/
-_david/references/
-### DrugEx Specific
+# ==============================================================================
+# DrugEx Project Root .gitignore
+# ==============================================================================
 
-.*
-!.gitignore
-/build/
-/base_test/
+# --- Local Research & Private Environments ---
+.agents/
+_david/validation/
+_david/code/tmp/
+_david/data/
 /drugex/_version.py
 /drugex/training/test_data/A2A_LIGANDS.tsv
 /drugex/training/test_data/AR_LIGANDS.tsv
-# Downloaded tutorial data & root data directory / symlink
-/data
+
+# --- Dynamic Run Outputs & Generated Artifacts ---
+output/
+outputs/
+_david/output/*
+!_david/output/.gitkeep
+
+# --- Preserved Benchmark Runs (Chapter 4 Baselines) ---
+!_david/legacy/runs/
+!_david/legacy/runs/**
+
+# --- Heavy Model Weights & Binary Checkpoints ---
+*.pkg
+*.tgz
+*.gzip
+*.tar.gz
+*.vocab
+*.tsv.vocab
+**/*.cv.tsv
+**/*.ind.tsv
+**/*_smiles.tsv
+
+# Whitelist fit trajectories in preserved legacy benchmarks
+!_david/legacy/runs/**/david_agent_fit.tsv
+
+# --- Downloaded Datasets & Symlinks ---
 /data/
+/data
 /tutorial/data
 /tutorial/advanced/data
 /tutorial/CLI/examples
-/tutorial/download.json
 download.json
 download.log
 **/download.json
 **/download.log
 **/.Papyrus/
 
-# Tutorial generated datasets, models & run outputs
+# --- Tutorial Generated Outputs ---
 /tutorial/advanced/datasets/
 /tutorial/advanced/models/
 /tutorial/advanced/rocs/demo_out/
@@ -36,28 +58,15 @@ download.log
 /tutorial/advanced/rocs/*.png
 /tutorial/advanced/rocs/*.csv
 /tutorial/advanced/rocs/*.txt
-# Generated run outputs & artifacts
-/outputs/
-/outputs
-outputs/
-**/outputs/
-/output/
-/output
-_david/outputs/
-**/_david/outputs/
-_david/output/*
-!_david/output/.gitkeep
-!_david/legacy/runs/
-!_david/legacy/runs/**
 
-# Test directories, copies & runners
+# --- Temporary Files & Test Scratch ---
 /_test_*
 _test_*/
-/test_notebook_runner.py
-/test_cell*.py
-/test_*.py
-
-# Intermediate test & CLI artifacts
+test_notebook_runner.py
+test_cell*.py
+test_*.py
+/tmp/
+tmp*
 /testing/clitest/data/*.txt
 /testing/clitest/data/*.vocab
 /testing/clitest/data/backup*
@@ -66,157 +75,39 @@ _test_*/
 /testing/clitest/new_molecules/
 /docs/_build
 /qspr/
-/tmp/
-tmp*
-*.pkg
-*.tgz
-*.gzip
-*.tar.gz
-*.vocab
-*.tsv.vocab
-**/*.cv.tsv
-**/*.ind.tsv
-**/*_fit.tsv
-**/*_smiles.tsv
 
-### Python template
-# Byte-compiled / optimized / DLL files
+# --- Python, Cache, and Virtual Environments ---
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
 .coverage
 .coverage.*
-.cache
+htmlcov/
 nosetests.xml
 coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
 *.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
 
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
-env.bak/
-venv.bak/
 
-# Spyder project settings
-.spyderproject
-.spyproject
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+MANIFEST
 
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
+.ipynb_checkpoints
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-
