@@ -77,6 +77,8 @@ tmp*
 /qspr/
 
 # --- Python, Cache, and Virtual Environments ---
+.vscode/
+.idea/
 __pycache__/
 *.py[cod]
 *$py.class
