@@ -1,0 +1,24 @@
+{
+    "run_id": "run11_chebyshev_scalarization",
+    "status": "SUCCESS",
+    "gpu_telemetry": {
+        "cuda_available": true,
+        "device_count": 2,
+        "devices": [
+            {
+                "index": 0,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 1095.93,
+                "free_memory_mb": 20781.19,
+                "total_memory_mb": 23987.81
+            },
+            {
+                "index": 1,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "free_memory_mb": 4649.25,
+                "total_memory_mb": 23979.44
+            }
+        ]
+    }
+}

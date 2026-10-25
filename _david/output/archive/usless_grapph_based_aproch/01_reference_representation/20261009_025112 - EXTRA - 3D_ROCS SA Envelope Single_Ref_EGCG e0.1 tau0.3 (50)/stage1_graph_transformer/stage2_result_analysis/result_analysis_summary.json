@@ -1,0 +1,361 @@
+{
+    "query_seed_smiles": "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1",
+    "total_candidates_generated": 93,
+    "valid_candidates_count": 93,
+    "seed_descriptors": {
+        "HAC": 33,
+        "MW": 458.37500000000017,
+        "LogP": 2.233199999999999,
+        "TPSA": 197.36999999999998,
+        "RotBonds": 3,
+        "HBD": 8,
+        "HBA": 11,
+        "QED": 0.2115032367203034,
+        "SA": 3.7397950903945745
+    },
+    "vun_metrics": {
+        "total_generated": 93,
+        "valid_count": 93,
+        "validity_percentage": 100.0,
+        "unique_valid_count": 93,
+        "uniqueness_percentage": 100.0,
+        "novel_count": 93,
+        "novelty_percentage": 100.0,
+        "passed_validity_threshold": true,
+        "passed_uniqueness_threshold": true
+    },
+    "bemis_murcko_scaffold_diversity": {
+        "diversity_ratio": 0.2581,
+        "unique_scaffold_count": 24,
+        "unique_valid_count": 93,
+        "scaffold_distribution": {
+            "O=C(OC1Cc2ccccc2OC1c1ccccc1)c1ccccc1": 69,
+            "O=C(OC1Cc2cc(N3CCOCC3)ccc2OC1c1ccccc1)c1ccccc1": 1,
+            "O=C(OC1Cc2ccccc2OC1c1cccc(C2=CCC=CC=CC=C2)c1)c1ccccc1": 1,
+            "O=C1Nc2ccc(cc2)C2Oc3ccccc3C(O1)C2OC(=O)c1ccccc1": 2,
+            "O=C1Nc2ccc(cc2)C2Oc3cccc(c3CC2OC(=O)c2ccccc2)N1": 1,
+            "O=C(OC1Cc2c(cccc2-c2ccccc2)OC1c1ccccc1)c1ccccc1": 1,
+            "O=C(OC1Cc2c3cccc2OC1c1ccc(cc1)NCCO3)c1ccccc1": 1,
+            "O=C(OC1Cc2cc3cc(c2OC1c1ccccc1)NC3)c1ccccc1": 1,
+            "O=C(OC1Cc2ccc(-c3ccccc3)cc2OC1c1ccccc1)c1ccccc1": 1,
+            "O=C(OC1Cc2ccccc2OC1c1ccc(Cn2cccn2)cc1)c1ccccc1": 1,
+            "O=C1OC2Cc3ccc(cc3OC2c2ccccc2)Oc2ccccc21": 1,
+            "O=C(OC1Cc2ccc(Oc3ccccc3)cc2OC1c1ccccc1)c1ccccc1": 1,
+            "O=C(OC1Cc2ccccc2OC1c1ccccc1)c1cccc2c1SCC2": 1,
+            "O=C(NCCNCC=Cc1ccccc1)c1ccccc1C(=O)OC1Cc2ccccc2OC1c1ccccc1": 1,
+            "O=C(NCc1ccc(C2Oc3ccccc3CC2OC(=O)c2ccccc2)cc1)NS(=O)c1cccs1": 1,
+            "O=C(Nc1ccc2c(c1)OC(c1ccccc1)C(OC(=O)c1ccccc1)C2)OCc1ccccc1": 1,
+            "O=C(OC1Cc2ccccc2OC1c1cccc(-c2ccccc2)c1)c1ccccc1": 1,
+            "O=C(OC1Cc2ccccc2OC1c1ccc(C2=CC=C=CC=C2)cc1)c1ccccc1": 1,
+            "O=C(OC1Cc2cc(-c3ccccc3)ccc2OC1c1ccccc1)c1ccccc1": 1,
+            "O=C(OC1Cc2cc(OCCN3CCOCC3)ccc2OC1c1ccccc1)c1ccccc1": 1,
+            "O=C(OC1Cc2ccccc2OC1c1ccc(CC2CCCO2)cc1)c1ccccc1": 1,
+            "O=C(OC1Cc2ccccc2OC1c1ccc(Cc2ccccc2)cc1)c1ccccc1": 1,
+            "O=C(OC1Cc2ccccc2OC1c1ccccc1)c1cccc(-c2ccccc2)c1": 1,
+            "O=C1Nc2ccc(cc2)C2Oc3ccc1cc3CC2OC(=O)c1ccccc1": 1
+        }
+    },
+    "physicochemical_distributions": {
+        "HAC": {
+            "mean": 31.226,
+            "median": 31.0,
+            "std": 3.09,
+            "min": 25.0,
+            "max": 40.0,
+            "q25": 29.0,
+            "q75": 33.0,
+            "iqr": 4.0
+        },
+        "MW": {
+            "mean": 421.279,
+            "median": 414.46,
+            "std": 43.829,
+            "min": 330.38,
+            "max": 550.66,
+            "q25": 390.44,
+            "q75": 441.48,
+            "iqr": 51.04
+        },
+        "LogP": {
+            "mean": 4.943,
+            "median": 4.7,
+            "std": 0.686,
+            "min": 3.92,
+            "max": 6.83,
+            "q25": 4.59,
+            "q75": 5.31,
+            "iqr": 0.72
+        },
+        "TPSA": {
+            "mean": 63.776,
+            "median": 57.2,
+            "std": 18.038,
+            "min": 35.5,
+            "max": 114.0,
+            "q25": 54.0,
+            "q75": 73.9,
+            "iqr": 19.9
+        },
+        "RotBonds": {
+            "mean": 5.452,
+            "median": 5.0,
+            "std": 1.72,
+            "min": 2.0,
+            "max": 10.0,
+            "q25": 4.0,
+            "q75": 6.0,
+            "iqr": 2.0
+        },
+        "HBD": {
+            "mean": 0.634,
+            "median": 0.0,
+            "std": 0.814,
+            "min": 0.0,
+            "max": 4.0,
+            "q25": 0.0,
+            "q75": 1.0,
+            "iqr": 1.0
+        },
+        "HBA": {
+            "mean": 4.903,
+            "median": 5.0,
+            "std": 0.928,
+            "min": 3.0,
+            "max": 8.0,
+            "q25": 4.0,
+            "q75": 5.0,
+            "iqr": 1.0
+        },
+        "SA": {
+            "mean": 3.209,
+            "median": 3.03,
+            "std": 0.546,
+            "min": 2.65,
+            "max": 5.06,
+            "q25": 2.9,
+            "q75": 3.29,
+            "iqr": 0.39
+        },
+        "QED": {
+            "mean": 0.505,
+            "median": 0.542,
+            "std": 0.131,
+            "min": 0.171,
+            "max": 0.719,
+            "q25": 0.409,
+            "q75": 0.609,
+            "iqr": 0.2
+        },
+        "ROCS": {
+            "mean": 0.882,
+            "median": 0.921,
+            "std": 0.193,
+            "min": 0.0,
+            "max": 1.147,
+            "q25": 0.817,
+            "q75": 0.989,
+            "iqr": 0.172
+        },
+        "Tanimoto_to_Seed": {
+            "mean": 0.334,
+            "median": 0.333,
+            "std": 0.053,
+            "min": 0.187,
+            "max": 0.456,
+            "q25": 0.306,
+            "q75": 0.373,
+            "iqr": 0.067
+        }
+    },
+    "dynamic_envelope_benchmarks": {
+        "reference_seed": {
+            "HAC": 33,
+            "MW": 458.37500000000017,
+            "LogP": 2.233199999999999,
+            "TPSA": 197.36999999999998,
+            "RotBonds": 3,
+            "SA": 3.7397950903945745,
+            "QED": 0.2115032367203034
+        },
+        "envelope_bounds": {
+            "HAC": [
+                23,
+                43
+            ],
+            "MW": [
+                320.9,
+                595.9
+            ],
+            "LogP": [
+                0.73,
+                3.73
+            ],
+            "TPSA": [
+                138.2,
+                256.6
+            ],
+            "RotBonds": [
+                2,
+                6
+            ]
+        },
+        "compliance": {
+            "HAC": {
+                "count": 93,
+                "percentage": 100.0
+            },
+            "MW": {
+                "count": 93,
+                "percentage": 100.0
+            },
+            "LogP": {
+                "count": 0,
+                "percentage": 0.0
+            },
+            "TPSA": {
+                "count": 0,
+                "percentage": 0.0
+            },
+            "RotBonds": {
+                "count": 75,
+                "percentage": 80.6
+            }
+        },
+        "synthesizability_floor": {
+            "unpenalized_count": 93,
+            "unpenalized_percentage": 100.0,
+            "transition_count": 0,
+            "transition_percentage": 0.0,
+            "penalized_count": 0,
+            "penalized_percentage": 0.0,
+            "single_floor_definition": "SA <= 5.5 unpenalized (reward 1.0), SA > 6.0 penalized"
+        }
+    },
+    "unoptimized_diagnostics": {
+        "HBD": {
+            "seed_value": 8,
+            "generated_mean": 0.634,
+            "generated_median": 0.0,
+            "drift_delta": -7.37,
+            "finding": "Epitope loss: Phenolic hydroxyls replaced by methoxy/dioxole bioisosteres"
+        },
+        "RotBonds": {
+            "seed_value": 3,
+            "generated_mean": 5.452,
+            "generated_median": 5.0,
+            "drift_delta": 2.45,
+            "finding": "Conformational flexibility remains bounded despite relaxed maximum limit (25)"
+        },
+        "Tanimoto_to_Seed": {
+            "mean": 0.334,
+            "max": 0.456,
+            "finding": "2D Morgan fingerprint divergence confirms authentic 3D scaffold hopping"
+        }
+    },
+    "metrics": {
+        "mean_rocs": 0.882,
+        "max_rocs": 1.147,
+        "median_rocs": 0.921,
+        "iqr_rocs": 0.172,
+        "mean_qed": 0.505,
+        "max_qed": 0.719,
+        "mean_sa": 3.209,
+        "mean_mw": 421.279,
+        "mean_logp": 4.943,
+        "mean_tpsa": 63.776,
+        "mean_tanimoto_to_seed": 0.334
+    },
+    "top_leads_count": 5,
+    "top_leads": [
+        {
+            "SMILES": "COc1ccc(C2Oc3cccc(OC)c3CC2OC(=O)c2ccccc2)cc1",
+            "Valid": true,
+            "HAC": 29,
+            "MW": 390.44,
+            "LogP": 4.61,
+            "QED": 0.596,
+            "SA": 2.86,
+            "SAscore": 2.86,
+            "HBD": 0,
+            "HBA": 5,
+            "TPSA": 54.0,
+            "RotBonds": 5,
+            "Scaffold": "O=C(OC1Cc2ccccc2OC1c1ccccc1)c1ccccc1",
+            "Tanimoto_to_Seed": 0.391,
+            "ROCS": 1.1467276811599731,
+            "Desirability": 0.5722
+        },
+        {
+            "SMILES": "O=C1Nc2ccc(cc2)C2Oc3ccccc3C(O1)C2OC(=O)c1ccccc1",
+            "Valid": true,
+            "HAC": 29,
+            "MW": 387.39,
+            "LogP": 4.65,
+            "QED": 0.648,
+            "SA": 4.89,
+            "SAscore": 4.89,
+            "HBD": 1,
+            "HBA": 5,
+            "TPSA": 73.9,
+            "RotBonds": 2,
+            "Scaffold": "O=C1Nc2ccc(cc2)C2Oc3ccccc3C(O1)C2OC(=O)c1ccccc1",
+            "Tanimoto_to_Seed": 0.246,
+            "ROCS": 0.9701682925224304,
+            "Desirability": 0.4967
+        },
+        {
+            "SMILES": "O=C(OC1Cc2ccccc2OC1c1ccc(CC2CCCO2)cc1)c1ccccc1",
+            "Valid": true,
+            "HAC": 31,
+            "MW": 414.5,
+            "LogP": 5.31,
+            "QED": 0.531,
+            "SA": 3.19,
+            "SAscore": 3.19,
+            "HBD": 0,
+            "HBA": 4,
+            "TPSA": 44.8,
+            "RotBonds": 5,
+            "Scaffold": "O=C(OC1Cc2ccccc2OC1c1ccc(CC2CCCO2)cc1)c1ccccc1",
+            "Tanimoto_to_Seed": 0.343,
+            "ROCS": 0.952814519405365,
+            "Desirability": 0.46
+        },
+        {
+            "SMILES": "COc1cccc(C2Oc3cc(-c4ccccc4)cc(OC)c3CC2OC(=O)c2ccccc2)c1",
+            "Valid": true,
+            "HAC": 35,
+            "MW": 466.53,
+            "LogP": 6.27,
+            "QED": 0.313,
+            "SA": 3.02,
+            "SAscore": 3.02,
+            "HBD": 0,
+            "HBA": 5,
+            "TPSA": 54.0,
+            "RotBonds": 6,
+            "Scaffold": "O=C(OC1Cc2ccc(-c3ccccc3)cc2OC1c1ccccc1)c1ccccc1",
+            "Tanimoto_to_Seed": 0.397,
+            "ROCS": 1.003659725189209,
+            "Desirability": 0.4298
+        },
+        {
+            "SMILES": "O=C(O)c1ccc(-c2cccc(C3Oc4cc(O)ccc4CC3OC(=O)c3ccccc3)c2)cc1",
+            "Valid": true,
+            "HAC": 35,
+            "MW": 466.49,
+            "LogP": 5.66,
+            "QED": 0.369,
+            "SA": 3.04,
+            "SAscore": 3.04,
+            "HBD": 2,
+            "HBA": 5,
+            "TPSA": 93.1,
+            "RotBonds": 5,
+            "Scaffold": "O=C(OC1Cc2ccccc2OC1c1cccc(-c2ccccc2)c1)c1ccccc1",
+            "Tanimoto_to_Seed": 0.403,
+            "ROCS": 0.9348179697990417,
+            "Desirability": 0.4134
+        }
+    ]
+}

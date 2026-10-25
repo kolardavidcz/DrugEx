@@ -1,0 +1,6 @@
+{
+    "total_generated": 3400,
+    "valid_molecules": 3166,
+    "unique_molecules": 2181,
+    "top_k_extracted": 10
+}

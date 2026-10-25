@@ -1,0 +1,43 @@
+{
+    "run_id": "20261009_021449",
+    "mode": "benchmark_only",
+    "primary_molecule": "O=C(O[C@@H]1Cc2c(O)cc(O)cc2O[C@@H]1c1cc(O)c(O)c(O)c1)c1cc(O)c(O)c(O)c1",
+    "duration_seconds": 97.05,
+    "output_directory": "_david/output/20261007_130035",
+    "reference_sdf": "_david/output/20261007_130035/references/query_molecule_3d.sdf",
+    "seed_core_scaffold_file": "_david/output/20261007_130035/references/seed_core_scaffold.tsv",
+    "generated_candidates_file": "_david/output/20261007_130035/stage1_graph_transformer/generated_candidates.tsv",
+    "prioritized_leads_file": "_david/output/20261007_130035/stage2_result_analysis/top_prioritized_leads.tsv",
+    "analysis_directory": "_david/output/20261007_130035/stage2_result_analysis",
+    "fallback_audit_file": "_david/output/20261007_130035/fallback_audit.json",
+    "fallbacks_count": 0,
+    "gpu_telemetry": {
+        "cuda_available": true,
+        "device_count": 2,
+        "devices": [
+            {
+                "index": 0,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "reserved_mb": 2.0,
+                "max_allocated_mb": 0.0,
+                "total_memory_mb": 23979.44,
+                "free_memory_mb": 23524.62
+            },
+            {
+                "index": 1,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "reserved_mb": 2.0,
+                "max_allocated_mb": 0.0,
+                "total_memory_mb": 23987.81,
+                "free_memory_mb": 23694.88
+            }
+        ]
+    },
+    "stage_statuses": {
+        "INITIALIZING": "RUNNING",
+        "Stage 0: 3D Reference Conformation": "SUCCESS",
+        "Stage 2: Result Analysis": "SUCCESS"
+    }
+}

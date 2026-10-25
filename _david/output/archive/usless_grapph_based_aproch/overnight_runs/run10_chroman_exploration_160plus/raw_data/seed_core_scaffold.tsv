@@ -1,0 +1,5 @@
+Scaffold	Query	Scaffold_Type	Num_Heavy_Atoms	Num_Rings
+O=C(OC1Cc2ccccc2OC1c1ccccc1)c1ccccc1	C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O	BemisMurcko	25	4
+OC1Cc2ccccc2OC1c1ccccc1	C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O	MultiScale_RECAP	17	3
+O=Cc1ccccc1	C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O	MultiScale_RECAP	8	1
+c1ccc2c(c1)CCCO2	C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O	MultiScale_BRICS	10	2

@@ -1,0 +1,5 @@
+{
+    "total_generated": 2000,
+    "valid_molecules": 2000,
+    "top_k_extracted": 10
+}

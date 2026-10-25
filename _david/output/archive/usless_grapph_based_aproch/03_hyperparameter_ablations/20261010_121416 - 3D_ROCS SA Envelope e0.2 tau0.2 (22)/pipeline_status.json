@@ -1,0 +1,38 @@
+{
+    "run_id": "20261010_132511",
+    "mode": "full",
+    "current_stage": "Stage 1: Graph-Transformer Generation",
+    "overall_status": "RUNNING",
+    "elapsed_seconds": 0.0,
+    "updated_at": "2026-10-10T13:25:11.581288",
+    "stages": {
+        "INITIALIZING": "RUNNING",
+        "Stage 0: 3D Reference Conformation": "SUCCESS",
+        "Stage 1: Graph-Transformer Generation": "RUNNING"
+    },
+    "gpu_telemetry": {
+        "cuda_available": true,
+        "device_count": 2,
+        "devices": [
+            {
+                "index": 0,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "reserved_mb": 0.0,
+                "max_allocated_mb": 0.0,
+                "total_memory_mb": 23979.44,
+                "free_memory_mb": 6713.94
+            },
+            {
+                "index": 1,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 64.0,
+                "reserved_mb": 1222.0,
+                "max_allocated_mb": 2927.05,
+                "total_memory_mb": 23987.81,
+                "free_memory_mb": 12789.5
+            }
+        ]
+    },
+    "details": {}
+}

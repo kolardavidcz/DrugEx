@@ -1,0 +1,24 @@
+{
+    "run_id": "20261018_020512",
+    "status": "SUCCESS",
+    "gpu_telemetry": {
+        "cuda_available": true,
+        "device_count": 2,
+        "devices": [
+            {
+                "index": 0,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 975.14,
+                "free_memory_mb": 18462.88,
+                "total_memory_mb": 23987.81
+            },
+            {
+                "index": 1,
+                "name": "NVIDIA RTX PRO 4000 Blackwell",
+                "allocated_mb": 0.0,
+                "free_memory_mb": 23573.0,
+                "total_memory_mb": 23979.44
+            }
+        ]
+    }
+}
