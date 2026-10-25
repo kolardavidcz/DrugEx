@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from drugex.molecules.converters.standardizers import DefaultStandardizer
 from drugex.training.environment import DrugExEnvironment
-from drugex.training.rewards import ParetoTanimotoDistance, RewardScheme, WeightedSum
+from drugex.training.rewards import ParetoCrowdingDistance, RewardScheme, WeightedSum
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import ScoreModifier, Scorer
 from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
@@ -16,21 +16,20 @@ from drugex.training.scorers.properties import Property
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 from rdkit import Chem
 from rdkit.Chem import AllChem, Lipinski
-from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.ML.Cluster import Butina
 
-from _david.code.config import DEFAULT_MOLECULE
+from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
 from _david.code.schema import std
 from _david.code.utils import FallbackMonitor, HardwareManager
 
 
 class PrepareMolecule:
-    """Standardizes inputs, prepares 3D reference conformers, and extracts seed core scaffolds."""
+    """Standardizes input chemical queries and generates 3D reference conformer ensembles."""
 
     def __init__(
         self,
         num_conformers: int = 100,
-        max_reference_conformers: int = 5,
+        max_reference_conformers: int = 3,
         random_seed: int = 42,
     ) -> None:
         self.num_conformers = num_conformers
@@ -39,8 +38,7 @@ class PrepareMolecule:
         self.standardizer = DefaultStandardizer()
 
     def standardize(self, smiles: str) -> str:
-        # ~ [DrugEx DefaultStandardizer; ChEMBL/Papyrus chemical curation protocol]
-        """Standardize input chemical structure into the representation expected by the GraphTransformer prior."""
+        """Standardize input chemical structure into canonical SMILES representation."""
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             raise ValueError(f"Could not parse molecule query: {smiles!r}")
@@ -50,7 +48,11 @@ class PrepareMolecule:
             return Chem.MolToSmiles(mol)
 
     def load_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
-        """Load and standardize molecule across RDKit Mols, SMILES strings, and structure files."""
+        """Load and standardize molecule across RDKit Mols, SMILES strings, and structure files.
+
+        Returns:
+            tuple[Chem.Mol, bool]: (mol, is_3d)
+        """
         if isinstance(query, Chem.Mol):
             if query.GetNumConformers() > 0 and query.GetConformer().Is3D():
                 return query, True
@@ -58,13 +60,23 @@ class PrepareMolecule:
                 return Chem.RemoveHs(query), False
             return query, False
 
-        p = Path(query) if isinstance(query, (Path, str)) and (
-            isinstance(query, Path) or query.endswith((".sdf", ".sd", ".txt", ".smi"))
-        ) else None
+        p = (
+            Path(query)
+            if isinstance(query, (Path, str))
+            and (
+                isinstance(query, Path)
+                or query.endswith((".sdf", ".sd", ".txt", ".smi"))
+            )
+            else None
+        )
 
         if p and p.is_file():
             if p.suffix.lower() in {".sdf", ".sd"}:
-                mols = [m for m in Chem.SDMolSupplier(str(p), removeHs=False) if m is not None]
+                mols = [
+                    m
+                    for m in Chem.SDMolSupplier(str(p), removeHs=False)
+                    if m is not None
+                ]
                 if not mols:
                     raise ValueError(f"No valid molecule in SDF: {p}")
                 base = mols[0]
@@ -89,24 +101,19 @@ class PrepareMolecule:
 
         raise ValueError(f"Could not parse molecule query: {query!r}")
 
-    # Canonical alias for backward compatibility
-    load_query_molecule = load_molecule
-
-    def load_sdf_ensemble(self, path: Path | str) -> tuple[Chem.Mol, bool]:
-        """Backward-compatible alias delegating to load_molecule."""
-        return self.load_molecule(path)
-
     @classmethod
     def determine_ensemble_parameters(
         cls,
         mol: Chem.Mol | None,
-        max_ensemble_size: int = 1,
+        max_ensemble_size: int = 3,
     ) -> tuple[float, int]:
         # ~ [Hawkins, Conformer Generation with RDKit, J. Chem. Inf. Model. 2017]
         """Calculate Butina RMSD clustering cutoff and maximum reference ensemble size based on molecular flexibility."""
         if mol is None:
             return 1.00, 1
-        mol_no_h = Chem.RemoveHs(mol) if mol.GetNumAtoms() > mol.GetNumHeavyAtoms() else mol
+        mol_no_h = (
+            Chem.RemoveHs(mol) if mol.GetNumAtoms() > mol.GetNumHeavyAtoms() else mol
+        )
         n_heavy = int(mol_no_h.GetNumHeavyAtoms())
         if n_heavy == 0:
             return 1.00, 1
@@ -117,8 +124,8 @@ class PrepareMolecule:
         if n_rot <= 7 and n_heavy <= 28:
             return 1.25, min(3, max_ensemble_size)
         if n_rot <= 7:
-            return 1.25, min(10, max_ensemble_size)
-        return 1.50, min(10, max_ensemble_size)
+            return 1.25, min(3, max_ensemble_size)
+        return 1.50, min(3, max_ensemble_size)
 
     @classmethod
     def calculate_conformer_energies(
@@ -130,17 +137,27 @@ class PrepareMolecule:
         results = []
         fallback_reason: str | None = None
         if AllChem.MMFFHasAllMoleculeParams(mol_h):
-            results = AllChem.MMFFOptimizeMoleculeConfs(mol_h, maxIters=1000, numThreads=0)
+            results = AllChem.MMFFOptimizeMoleculeConfs(
+                mol_h, maxIters=1000, numThreads=0
+            )
             if results and all(status == -1 for status, _ in results):
                 results = []
-                fallback_reason = "MMFF94 setup failed for all conformers; falling back to UFF."
+                fallback_reason = (
+                    "MMFF94 setup failed for all conformers; falling back to UFF."
+                )
         else:
-            fallback_reason = "MMFF94 lacks parameters for query molecule; falling back to UFF."
+            fallback_reason = (
+                "MMFF94 lacks parameters for query molecule; falling back to UFF."
+            )
 
         if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
             if fallback_reason:
-                FallbackMonitor.record_fallback("FORCE_FIELD", fallback_reason, {"query": query_desc})
-            results = AllChem.UFFOptimizeMoleculeConfs(mol_h, maxIters=1000, numThreads=0)
+                FallbackMonitor.record_fallback(
+                    "FORCE_FIELD", fallback_reason, {"query": query_desc}
+                )
+            results = AllChem.UFFOptimizeMoleculeConfs(
+                mol_h, maxIters=1000, numThreads=0
+            )
         if not results:
             raise RuntimeError(f"Force field optimization failed for: {query_desc}")
 
@@ -148,25 +165,29 @@ class PrepareMolecule:
         for conf, (status, e) in zip(mol_h.GetConformers(), results):
             cid = conf.GetId()
             e_val = float(e)
-            
             if status != -1 and math.isfinite(e_val):
                 energies[cid] = e_val
-                
             else:
                 mol_h.RemoveConformer(cid)
 
         if not energies:
-            raise RuntimeError(f"Force field optimization produced zero valid conformers for: {query_desc}")
+            raise RuntimeError(
+                f"Force field optimization produced zero valid conformers for: {query_desc}"
+            )
         return energies
 
     def generate_reference_conformers(
         self,
-        query: str | Path | Chem.Mol,
+        query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
         output_path: Path | str | None = None,
         num_conformers: int = 100,
         random_seed: int = 42,
     ) -> Path:
-        """Embed, optimize, filter energy window, and cluster 3D reference conformers."""
+        """Embed, optimize, filter energy window, and cluster 3D reference conformers via Hawkins ensemble protocol.
+
+        Returns:
+            Path: Path to saved 3D reference SDF.
+        """
         target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -183,10 +204,16 @@ class PrepareMolecule:
         params.randomSeed = random_seed
         params.pruneRmsThresh = 0.35
 
-        conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
+        conf_ids = list(
+            AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params)
+        )
         if not conf_ids:
             params.useRandomCoords = True
-            conf_ids = list(AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params))
+            conf_ids = list(
+                AllChem.EmbedMultipleConfs(
+                    mol_h, numConfs=num_conformers, params=params
+                )
+            )
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 conformer embedding failed for: {query}")
 
@@ -201,17 +228,28 @@ class PrepareMolecule:
 
         # ~ [Hawkins, Basin curation via Butina clustering, 2017] Sphere-exclusion RMSD clustering
         remaining_cids = list(energies.keys())
-        cutoff, max_ensemble_size = self.determine_ensemble_parameters(mol_h, self.max_reference_conformers)
+        cutoff, max_ensemble_size = self.determine_ensemble_parameters(
+            mol_h, self.max_reference_conformers
+        )
         if len(remaining_cids) > 1:
             mol_no_h = Chem.RemoveHs(mol_h)
             n_confs = len(remaining_cids)
             rms_matrix: list[float] = [
-                float(AllChem.GetBestRMS(mol_no_h, mol_no_h, remaining_cids[i], remaining_cids[j]))
+                float(
+                    AllChem.GetBestRMS(
+                        mol_no_h, mol_no_h, remaining_cids[i], remaining_cids[j]
+                    )
+                )
                 for i in range(n_confs)
                 for j in range(i)
             ]
-            clusters = Butina.ClusterData(rms_matrix, n_confs, distThresh=cutoff, isDistData=True)
-            curated = [min([remaining_cids[idx] for idx in cl], key=energies.get) for cl in clusters]
+            clusters = Butina.ClusterData(
+                rms_matrix, n_confs, distThresh=cutoff, isDistData=True
+            )
+            curated = [
+                min([remaining_cids[idx] for idx in cl], key=energies.get)
+                for cl in clusters
+            ]
             curated.sort(key=energies.get)
             curated = curated[:max_ensemble_size]
         else:
@@ -226,201 +264,42 @@ class PrepareMolecule:
 
         return target_path
 
-    def extract_seed_core_scaffold(
-        self,
-        query: str | Path | Chem.Mol,
-        output_path: Path | str | None = None,
-        scaffold_type: str = "BemisMurcko",
-        isomeric: bool = False,
-    ) -> str:
-        # ~ [Bemis & Murcko, The Properties of Known Drugs. 1. Molecular Frameworks, J. Med. Chem. 1996]
-        mol, _ = self.load_molecule(query)
-        mol_no_h = Chem.RemoveHs(mol)
-
-        scaff_mol = MurckoScaffold.GetScaffoldForMol(mol_no_h)
-        if scaff_mol and scaff_mol.GetNumHeavyAtoms() > 0:
-            Chem.SanitizeMol(scaff_mol)
-            scaff_smi = Chem.MolToSmiles(scaff_mol, isomericSmiles=isomeric)
-        else:
-            scaff_smi = Chem.MolToSmiles(mol_no_h, isomericSmiles=isomeric)
-
-        if output_path:
-            target = Path(output_path)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            res_mol = Chem.MolFromSmiles(scaff_smi)
-            n_heavy = res_mol.GetNumHeavyAtoms() if res_mol else 0
-            n_rings = res_mol.GetRingInfo().NumRings() if res_mol else 0
-
-            # Multi-scale sub-scaffold portfolio decomposition via native DrugEx Fragmenter
-            sub_scaffolds: list[tuple[str, str, int, int]] = [
-                (scaff_smi, scaffold_type, n_heavy, n_rings)
-            ]
-            if res_mol and res_mol.GetRingInfo().NumRings() >= 1:
-                from drugex.molecules.converters.fragmenters import Fragmenter
-
-                for method in ("recap", "brics"):
-                    try:
-                        frag = Fragmenter(n_frags=4, n_combs=2, method=method, allow_single=True)
-                        pairs = frag(scaff_smi)
-                        if pairs:
-                            for f_smi, _ in pairs:
-                                f_m = Chem.MolFromSmiles(f_smi)
-                                if (
-                                    f_m
-                                    and len(Chem.GetMolFrags(f_m)) == 1 #?
-                                    and f_m.GetNumHeavyAtoms() >= 6
-                                ):
-                                    clean_f = Chem.MolToSmiles(f_m, isomericSmiles=isomeric)
-                                    if clean_f not in [s[0] for s in sub_scaffolds]: #?
-                                        sub_scaffolds.append(
-                                            (
-                                                clean_f,
-                                                f"MultiScale_{method.upper()}",
-                                                f_m.GetNumHeavyAtoms(),
-                                                f_m.GetRingInfo().NumRings(),
-                                            )
-                                        )
-                    except Exception:
-                        pass
-
-            with open(target, "w", encoding="utf-8") as f:
-                f.write("Scaffold\tQuery\tScaffold_Type\tNum_Heavy_Atoms\tNum_Rings\n")
-                for s_smi, s_type, s_heavy, s_rings in sub_scaffolds:
-                    f.write(f"{s_smi}\t{str(query)}\t{s_type}\t{s_heavy}\t{s_rings}\n")
-
-        return scaff_smi
-
-
-# Top-level module convenience dispatchers
-def load_query_molecule(query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
-    """Top-level convenience helper loading molecule via default PrepareMolecule."""
-    return PrepareMolecule().load_molecule(query)
-
 
 def create_rocs_scorer(
     references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
     max_conformers: int = 30,
     timeout: int = 60,
-    score_variant: str = "tversky_subshape",
+    score_variant: str = "tanimoto",
+    conformer_threads: int = 0,
+    n_jobs: int | None = None,
 ) -> RDKitROCSScorer:
     """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
     ref_input = str(references) if isinstance(references, Path) else references
     conf_gen = RDKitConformerGenerator(
         max_conformers=max_conformers,
-        max_heavy_atoms=55,
-        max_rotatable_bonds=25,
-        timeout=timeout,
+        max_isomers=4,
+        max_heavy_atoms=45,
+        max_rotatable_bonds=15,
+        num_threads=conformer_threads,
+        show_progress=False,
+    )
+    safe_jobs = (
+        n_jobs if n_jobs is not None else HardwareManager.get_safe_parallel_jobs(cap=32)
+    )
+    variant = (
+        "tanimoto" if score_variant in ("tanimoto", "tanimoto_combo") else score_variant
     )
     scorer = RDKitROCSScorer(
         references=ref_input,
         conformer_generator=conf_gen,
         score_type="TanimotoCombo",
-        score_variant=score_variant,
-        color_ff="oe_mills_dean",
-        n_jobs=HardwareManager.get_safe_parallel_jobs(),
+        score_variant=variant,
+        use_colors=True,
+        show_progress=False,
+        n_jobs=safe_jobs,
     )
     scorer.getKey = lambda: [std.ROCS]
     return scorer
-
-
-class SafeSAModifier(ScoreModifier):
-    # ~ [Ertl & Schuffenhauer, Estimation of Synthetic Accessibility Score, J. Cheminform. 2009]
-    def __init__(
-        self,
-        upper_x: float = 3.5,
-        lower_x: float = 5.5,
-        high_score: float = 1.0,
-        low_score: float = 0.0,
-    ) -> None:
-        self.smooth = SmoothClippedScore(
-            upper_x=upper_x, lower_x=lower_x, low_score=low_score, high_score=high_score
-        )
-
-    def __call__(self, x: float | np.ndarray) -> float | np.ndarray:
-        """Map raw SAscore [1, 10] into desirability [0, 1], strictly penalizing invalid molecules (<= 0.0)."""
-        arr = np.asarray(x, dtype=np.float64)
-        out = self.smooth(arr)
-        out = np.where(arr <= 0.0, 0.0, out)
-        return float(out.item()) if np.ndim(x) == 0 else out
-
-
-class BatchUniqueEnvironment(DrugExEnvironment):
-    """Multi-objective RL environment with Batch-Unique and No-Op Zero Masking."""
-
-    def __init__(
-        self,
-        scorers: list[Scorer],
-        thresholds: list[float],
-        reward_scheme: RewardScheme | None = None,
-        batch_unique: bool = True,
-    ) -> None:
-        super().__init__(
-            scorers=scorers,
-            thresholds=thresholds,
-            reward_scheme=reward_scheme or ParetoTanimotoDistance(),
-        )
-        self.batch_unique = batch_unique
-
-    @staticmethod
-    def _is_unmodified_fragment(smi: Any, frag: Any) -> bool:
-        """Return True if candidate SMILES failed to grow any heavy atoms beyond input fragment."""
-        if not isinstance(smi, str) or not isinstance(frag, str):
-            return False
-        smi_clean = smi.strip()
-        frag_clean = frag.strip()
-        if not smi_clean or not frag_clean:
-            return False
-        try:
-            mol = Chem.MolFromSmiles(smi_clean)
-            frag_mol = Chem.MolFromSmiles(frag_clean)
-            if mol is None or frag_mol is None:
-                return False
-            if mol.GetNumHeavyAtoms() <= frag_mol.GetNumHeavyAtoms():
-                return True
-            return Chem.CanonSmiles(smi_clean) == Chem.CanonSmiles(frag_clean)
-        except Exception:
-            return smi_clean == frag_clean
-
-    def getScores(
-        self,
-        smiles: list[str],
-        frags: list[str] | None = None,
-        no_multifrag_smiles: bool = True,
-    ) -> pd.DataFrame:
-        """Evaluate multi-objective scores, disqualifying unmodified input fragments from accuracy/desirability."""
-        scores = super().getScores(smiles, frags=frags, no_multifrag_smiles=no_multifrag_smiles)
-        if frags is not None and len(frags) == len(smiles):
-            for idx, (smi, frag) in enumerate(zip(smiles, frags)):
-                if self._is_unmodified_fragment(smi, frag):
-                    if "Accurate" in scores.columns:
-                        scores.loc[idx, "Accurate"] = 0
-                    scores.loc[idx, "Desired"] = 0
-        if "Accurate" in scores.columns:
-            scores.loc[scores["Accurate"] == 0, "Desired"] = 0
-        return scores
-
-    def getRewards(self, smiles: list[str], frags: list[str] | None = None) -> np.ndarray:
-        # ~ [Reinforcement Learning Batch Entropy & Mode Collapse Mitigation]
-        """Calculate multi-objective rewards, zeroing rewards for duplicate molecules and unmodified starting prompts."""
-        rewards = super().getRewards(smiles, frags=frags)
-        seen_smiles: set[str] = set()
-        for idx, smi in enumerate(smiles):
-            if not smi or smi.count(".") > 0:
-                continue
-            frag = frags[idx] if (frags is not None and idx < len(frags)) else None
-            if self._is_unmodified_fragment(smi, frag):
-                rewards[idx] = 0.0
-                continue
-            try:
-                canon = Chem.CanonSmiles(smi)
-            except Exception:
-                canon = smi
-            if self.batch_unique:
-                if canon in seen_smiles:
-                    rewards[idx] = 0.0
-                else:
-                    seen_smiles.add(canon)
-        return rewards
 
 
 class HarringtonDesirabilityReward(RewardScheme):
@@ -436,11 +315,9 @@ class HarringtonDesirabilityReward(RewardScheme):
 
     Properties:
     1. Strict Non-Compensability: If any objective collapses (d_j -> 0), D(x) -> 0.
-       Cheaters with zero 3D shape overlap receive virtually zero reward regardless of QED.
+       Cheaters with zero 3D shape overlap receive virtually zero reward regardless of SA or QED.
     2. Continuous Gradient: Provides a smooth, non-zero gradient everywhere across the
        optimization landscape, eliminating the zero-gradient plateau of hard step filters.
-    3. Diminishing Marginal Returns: High scores above target show asymptotic saturation,
-       encouraging balanced multi-objective improvement.
     """
 
     def __init__(
@@ -497,7 +374,9 @@ class HarringtonDesirabilityReward(RewardScheme):
 
         if scores_arr.ndim == 1:
             scores_arr = (
-                scores_arr.reshape(1, -1) if len(scores_arr) > 0 else scores_arr.reshape(0, 1)
+                scores_arr.reshape(1, -1)
+                if len(scores_arr) > 0
+                else scores_arr.reshape(0, 1)
             )
 
         n_samples = scores_arr.shape[0]
@@ -508,7 +387,11 @@ class HarringtonDesirabilityReward(RewardScheme):
         scores_clean = np.clip(scores_clean, 0.0, 1.0)
         n_objs = scores_clean.shape[1]
 
-        w = self.weights[:n_objs] if len(self.weights) >= n_objs else np.ones(n_objs, dtype=np.float64)
+        w = (
+            self.weights[:n_objs]
+            if len(self.weights) >= n_objs
+            else np.ones(n_objs, dtype=np.float64)
+        )
         w_norm = w / np.sum(w)
 
         log_d_sum = np.zeros(n_samples, dtype=np.float64)
@@ -529,57 +412,71 @@ def resolve_reward_scheme(
     """Resolve RewardScheme instance from canonical name or pass through existing instance."""
     if isinstance(scheme, RewardScheme):
         return scheme
-    name = (scheme or "pareto").lower().strip()
-    if name in ("pareto", "pareto_tanimoto"):
-        return ParetoTanimotoDistance(distance_metric="min")
-    elif name in ("chebyshev", "augmented_chebyshev"):
-        from _david.legacy.morl_scalarizations.scalarizations import AugmentedChebyshevReward
-        return AugmentedChebyshevReward(weights=list(weights), rho=0.02)
+    name = (scheme or "weighted_sum").lower().strip()
+    if name in ("weighted_sum", "ws"):
+        return WeightedSum()
+    elif name in ("pareto", "pareto_crowding"):
+        return ParetoCrowdingDistance()
     elif name in ("harrington", "harrington_desirability", "desirability"):
         return HarringtonDesirabilityReward(weights=weights)
-    elif name in ("gmean", "geometric_mean"):
-        from _david.legacy.morl_scalarizations.scalarizations import GeometricMeanReward
-        return GeometricMeanReward(weights=list(weights), eps=1e-4)
-    elif name in ("weighted_sum", "ws"):
-        from drugex.training.rewards import WeightedSum
-        return WeightedSum()
     else:
         raise ValueError(
-            f"Unknown reward scheme: '{scheme}'. Valid options: ['pareto', 'chebyshev', 'harrington', 'gmean', 'weighted_sum']"
+            f"Unknown reward scheme: '{scheme}'. Valid options: ['weighted_sum', 'pareto_crowding', 'harrington']"
         )
 
 
 def create_environment(
     ref_sdf: str | Path,
-    thresholds: tuple[float, ...] = (0.70, 0.50, 0.50),
-    epsilon: float = 0.2,
+    config: PipelineConfig | None = None,
+    thresholds: tuple[float, ...] | None = None,
     max_conformers: int = 30,
     timeout: int = 60,
-    batch_unique: bool = True,
     reward_scheme: str | RewardScheme | None = None,
-    score_variant: str = "tversky_subshape",
-) -> tuple[DrugExEnvironment, float]:
-    """Construct multi-objective DrugEx reinforcement learning environment with Batch-Unique Zero Masking."""
+    score_variant: str = "tanimoto_combo",
+    conformer_threads: int = 0,
+) -> DrugExEnvironment:
+    """Construct multi-objective DrugEx reinforcement learning environment for ROCS + SA + QED."""
+    cfg = config or PipelineConfig()
+    active_thresholds = thresholds if thresholds is not None else cfg.thresholds
+    active_scheme_str = (
+        reward_scheme if reward_scheme is not None else cfg.reward_scheme
+    )
+    active_variant = score_variant or cfg.score_variant
+    active_max_confs = max_conformers or cfg.max_conformers
+    active_threads = (
+        conformer_threads if conformer_threads is not None else cfg.conformer_threads
+    )
+
     rocs_scorer = create_rocs_scorer(
         ref_sdf,
-        max_conformers=max_conformers,
+        max_conformers=active_max_confs,
         timeout=timeout,
-        score_variant=score_variant,
+        score_variant=active_variant,
+        conformer_threads=active_threads,
     )
-    rocs_scorer.modifier = ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)
+    # Map raw TanimotoCombo [0, 2] linearly into [0, 1] desirability
+    rocs_scorer.setModifier(
+        ClippedScore(lower_x=0.0, upper_x=2.0, low_score=0.0, high_score=1.0)
+    )
 
-    sa_scorer = Property(
-        prop="SA",
-        modifier=SafeSAModifier(upper_x=3.5, lower_x=5.5, low_score=0.0, high_score=1.0),
+    # SA scorer: Smooth clipped score (raw 3.0 -> 0.88, raw 5.0 -> 0.12)
+    sa_scorer = Property("SA")
+    sa_scorer.setModifier(
+        SmoothClippedScore(lower_x=5.0, upper_x=3.0, low_score=0.0, high_score=1.0)
     )
-    qed_scorer = Property(prop="QED")
+
+    # QED scorer: Drug-likeness score [0, 1]
+    qed_scorer = Property("QED")
+    qed_scorer.setModifier(
+        ClippedScore(lower_x=0.0, upper_x=1.0, low_score=0.0, high_score=1.0)
+    )
+
     scorers: list[Scorer] = [rocs_scorer, sa_scorer, qed_scorer]
+    active_reward_scheme = resolve_reward_scheme(active_scheme_str, weights=cfg.weights)
 
-    active_reward_scheme = resolve_reward_scheme(reward_scheme)
-    env = BatchUniqueEnvironment(
+    env = DrugExEnvironment(
         scorers=scorers,
-        thresholds=list(thresholds),
+        thresholds=list(active_thresholds),
         reward_scheme=active_reward_scheme,
-        batch_unique=batch_unique,
     )
-    return env, epsilon
+    return env

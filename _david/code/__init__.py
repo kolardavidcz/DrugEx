@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.environment import (
+    HarringtonDesirabilityReward,
     PrepareMolecule,
     create_environment,
     create_rocs_scorer,
-    load_query_molecule,
+    resolve_reward_scheme,
 )
-from _david.code.models import GraphTransformerOptimizer
+from _david.code.models import DecayingSequenceExplorer, SequenceRNNOptimizer
 from _david.code.pipeline import MoleculePipeline
 from _david.code.schema import std
 from _david.code.utils import (
@@ -16,12 +17,14 @@ from _david.code.utils import (
     get_gpu_telemetry,
 )
 from _david.code.visualization import (
-    AlignedDepicter,
     ResultAnalyzer,
-    render_lead_structures_2d,
-    render_property_distributions,
+    bootstrap_ci,
+    render_before_after_distributions,
+    render_lead_structures_gallery,
+    render_multiobjective_tradeoffs,
     render_reference_ensemble,
-    render_training_curves,
+    render_training_trajectories,
+    render_unfavorable_features_diagnostics,
     unscale_to_physical_metrics,
 )
 
@@ -32,15 +35,19 @@ __all__ = [
     "PrepareMolecule",
     "create_environment",
     "create_rocs_scorer",
-    "load_query_molecule",
-    "GraphTransformerOptimizer",
-    "AlignedDepicter",
+    "resolve_reward_scheme",
+    "HarringtonDesirabilityReward",
+    "SequenceRNNOptimizer",
+    "DecayingSequenceExplorer",
     "ResultAnalyzer",
     "render_reference_ensemble",
-    "render_training_curves",
-    "render_property_distributions",
-    "render_lead_structures_2d",
+    "render_before_after_distributions",
+    "render_multiobjective_tradeoffs",
+    "render_training_trajectories",
+    "render_unfavorable_features_diagnostics",
+    "render_lead_structures_gallery",
     "unscale_to_physical_metrics",
+    "bootstrap_ci",
     "HardwareManager",
     "FallbackMonitor",
     "get_gpu_telemetry",

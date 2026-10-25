@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -12,13 +11,14 @@ from drugex.training.scorers.sascorer import calculateScore as calculate_sa_scor
 from rdkit import Chem, DataStructs
 from rdkit.Chem import Descriptors, Draw, Lipinski, QED, rdDepictor, rdMolDescriptors
 from rdkit.Chem.Scaffolds import MurckoScaffold
+from scipy.stats import gaussian_kde
 
+from _david.code.config import RunPaths
 from _david.code.schema import std
 
 
 def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    # ~ [Ertl & Schuffenhauer, Estimation of Synthetic Accessibility Score, J. Cheminform. 2009]
-    """Unscale ROCS to [0, 2] TanimotoCombo and recalculate raw SAscore in [1, 10] if clipped."""
+    """Ensure ROCS is [0, 2] TanimotoCombo and calculate raw physical properties if missing."""
     if df.empty:
         return df.copy()
 
@@ -28,19 +28,51 @@ def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
         if not vals.empty and vals.max() <= 1.0001:
             df_out[std.ROCS] = df_out[std.ROCS] * 2.0
 
-    if std.SA in df_out.columns and std.SMILES in df_out.columns:
-        vals = df_out[std.SA].dropna()
-        if not vals.empty and vals.max() <= 1.0001:
-            mols = [
-                Chem.MolFromSmiles(s) if isinstance(s, str) else None
-                for s in df_out[std.SMILES]
+    if std.SMILES in df_out.columns:
+        mols = [
+            Chem.MolFromSmiles(s) if isinstance(s, str) and s else None
+            for s in df_out[std.SMILES]
+        ]
+        if std.HAC not in df_out.columns:
+            df_out[std.HAC] = [m.GetNumHeavyAtoms() if m else 0 for m in mols]
+        if std.MW not in df_out.columns:
+            df_out[std.MW] = [Descriptors.MolWt(m) if m else np.nan for m in mols]
+        if std.QED not in df_out.columns:
+            df_out[std.QED] = [QED.qed(m) if m else np.nan for m in mols]
+        if std.ROT_BONDS not in df_out.columns:
+            df_out[std.ROT_BONDS] = [
+                Lipinski.NumRotatableBonds(m) if m else 0 for m in mols
             ]
-            df_out[std.SA] = [
-                float(calculate_sa_score(m)) if m is not None else 10.0
-                for m in mols
+        if "Raw_SA" not in df_out.columns:
+            df_out["Raw_SA"] = [
+                float(calculate_sa_score(m)) if m is not None else np.nan for m in mols
             ]
 
     return df_out
+
+
+def bootstrap_ci(
+    a: np.ndarray,
+    b: np.ndarray,
+    n_boot: int = 2000,
+    ci: float = 0.95,
+) -> tuple[float, float, float]:
+    """Compute bootstrap median difference b - a and (1 - ci) confidence interval."""
+    a_clean = a[np.isfinite(a)]
+    b_clean = b[np.isfinite(b)]
+    if len(a_clean) == 0 or len(b_clean) == 0:
+        return 0.0, 0.0, 0.0
+    delta_obs = float(np.median(b_clean) - np.median(a_clean))
+    rng = np.random.default_rng(seed=42)
+    boot_diffs = np.empty(n_boot, dtype=np.float64)
+    for i in range(n_boot):
+        samp_a = rng.choice(a_clean, size=len(a_clean), replace=True)
+        samp_b = rng.choice(b_clean, size=len(b_clean), replace=True)
+        boot_diffs[i] = np.median(samp_b) - np.median(samp_a)
+    alpha = (1.0 - ci) / 2.0
+    low = float(np.percentile(boot_diffs, 100.0 * alpha))
+    high = float(np.percentile(boot_diffs, 100.0 * (1.0 - alpha)))
+    return delta_obs, low, high
 
 
 def get_universal_rigid_anchor(mol: Chem.Mol) -> list[int]:
@@ -90,31 +122,17 @@ def render_reference_ensemble(
     for m in mols:
         mol_combined.AddConformer(m.GetConformer(), assignId=True)
 
-    # Use pre-calculated energetic properties from SDF directly
-    has_props = any(m.HasProp("DeltaE_kcal_mol") or m.HasProp("Energy_MMFF_kcal_mol") for m in mols)
-    if has_props:
-        de_vals: list[float] = []
-        for m in mols:
-            if m.HasProp("DeltaE_kcal_mol"):
-                de_vals.append(m.GetDoubleProp("DeltaE_kcal_mol"))
-            elif m.HasProp("Energy_MMFF_kcal_mol"):
-                de_vals.append(m.GetDoubleProp("Energy_MMFF_kcal_mol"))
-            else:
-                de_vals.append(0.0)
-        if not any(m.HasProp("DeltaE_kcal_mol") for m in mols):
-            min_e = min(de_vals)
-            de_vals = [e - min_e for e in de_vals]
-    else:
-        from _david.code.environment import PrepareMolecule
-
-        energies_dict = PrepareMolecule.calculate_conformer_energies(
-            mol_combined, query_desc=str(sdf_file.name)
-        )
-        min_e = min(energies_dict.values())
-        de_vals = [
-            energies_dict.get(conf.GetId(), 0.0) - min_e
-            for conf in mol_combined.GetConformers()
-        ]
+    de_vals: list[float] = []
+    for m in mols:
+        if m.HasProp("DeltaE_kcal_mol"):
+            de_vals.append(m.GetDoubleProp("DeltaE_kcal_mol"))
+        elif m.HasProp("Energy_MMFF_kcal_mol"):
+            de_vals.append(m.GetDoubleProp("Energy_MMFF_kcal_mol"))
+        else:
+            de_vals.append(0.0)
+    if not any(m.HasProp("DeltaE_kcal_mol") for m in mols):
+        min_e = min(de_vals) if de_vals else 0.0
+        de_vals = [e - min_e for e in de_vals]
 
     min_idx = int(np.argmin(de_vals))
     max_idx = int(np.argmax(de_vals))
@@ -140,7 +158,6 @@ def render_reference_ensemble(
         alpha: float = 1.0,
         lw: float = 2.0,
         pt_size: float = 30,
-        label_core: bool = False,
     ) -> None:
         conf = mol.GetConformer()
         for b in mol.GetBonds():
@@ -152,8 +169,8 @@ def render_reference_ensemble(
                 conf.GetAtomPosition(a2.GetIdx()),
             )
             is_core = (a1.GetIdx() in core_atoms) and (a2.GetIdx() in core_atoms)
-            c = "#1e293b" if (label_core and is_core) else bond_c
-            w = lw * 1.3 if (label_core and is_core) else lw
+            c = "#1e293b" if is_core else bond_c
+            w = lw * 1.3 if is_core else lw
             ax.plot(
                 [p1.x, p2.x],
                 [p1.y, p2.y],
@@ -162,50 +179,36 @@ def render_reference_ensemble(
                 alpha=alpha,
                 linewidth=w,
             )
-
         heavy = [a for a in mol.GetAtoms() if a.GetSymbol() != "H"]
         for a in heavy:
             p = conf.GetAtomPosition(a.GetIdx())
             is_core = a.GetIdx() in core_atoms
-            c = "#0f172a" if (label_core and is_core) else atom_c
-            s = pt_size * 1.4 if (label_core and is_core) else pt_size
+            c = "#0f172a" if is_core else atom_c
+            s = pt_size * 1.4 if is_core else pt_size
             ax.scatter(
                 [p.x], [p.y], [p.z], color=c, s=s, alpha=alpha, edgecolors="none"
             )
 
-    # Panel A: Ground state
     ax1 = fig.add_subplot(1, 3, 1, projection="3d")
-    _draw_mol(
-        ax1, mols[min_idx], "#0284c7", "#0284c7", lw=2.4, pt_size=40, label_core=True
-    )
+    _draw_mol(ax1, mols[min_idx], "#0284c7", "#0284c7", lw=2.4, pt_size=40)
     ax1.set_title(
-        f"(A) Ground State Basin (ΔE = {de_vals[min_idx]:.2f} kcal/mol)\nCompact Folded Conformation",
+        f"(A) Ground State Basin (ΔE = {de_vals[min_idx]:.2f} kcal/mol)",
         fontsize=11,
         fontweight="bold",
         pad=12,
     )
     ax1.view_init(elev=20, azim=40)
-    ax1.set_xlabel("X (Å)", fontsize=8)
-    ax1.set_ylabel("Y (Å)", fontsize=8)
-    ax1.set_zlabel("Z (Å)", fontsize=8)
 
-    # Panel B: Extended state
     ax2 = fig.add_subplot(1, 3, 2, projection="3d")
-    _draw_mol(
-        ax2, mols[max_idx], "#f59e0b", "#f59e0b", lw=2.4, pt_size=40, label_core=True
-    )
+    _draw_mol(ax2, mols[max_idx], "#f59e0b", "#f59e0b", lw=2.4, pt_size=40)
     ax2.set_title(
-        f"(B) Pocket-Adapted Basin (ΔE = {de_vals[max_idx]:.2f} kcal/mol)\nExtended Conformation",
+        f"(B) Elevated Basin (ΔE = {de_vals[max_idx]:.2f} kcal/mol)",
         fontsize=11,
         fontweight="bold",
         pad=12,
     )
     ax2.view_init(elev=20, azim=40)
-    ax2.set_xlabel("X (Å)", fontsize=8)
-    ax2.set_ylabel("Y (Å)", fontsize=8)
-    ax2.set_zlabel("Z (Å)", fontsize=8)
 
-    # Panel C: Superposition
     ax3 = fig.add_subplot(1, 3, 3, projection="3d")
     cmap = plt.cm.plasma
     norm = plt.Normalize(vmin=0.0, vmax=max(de_vals) if max(de_vals) > 0 else 1.0)
@@ -213,232 +216,12 @@ def render_reference_ensemble(
         color = cmap(norm(de_vals[i]))
         _draw_mol(ax3, m, color, color, alpha=0.75, lw=1.5, pt_size=20)
     ax3.set_title(
-        f"(C) Ensemble Superposition ({len(mols)} Conformer Basins)\nAligned on Rigid Core",
+        f"(C) Ensemble Superposition ({len(mols)} Basins)",
         fontsize=11,
         fontweight="bold",
         pad=12,
     )
     ax3.view_init(elev=20, azim=40)
-    ax3.set_xlabel("X (Å)", fontsize=8)
-    ax3.set_ylabel("Y (Å)", fontsize=8)
-    ax3.set_zlabel("Z (Å)", fontsize=8)
-
-    plt.tight_layout(rect=[0, 0.045, 1, 1])
-    plt.savefig(target_png, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    return target_png
-
-
-class AlignedDepicter:
-    """Renders 2D molecular depictions and prioritized lead cards aligned onto a shared Murcko core template."""
-
-    def __init__(self, reference: str | Chem.Mol | None) -> None:
-        self.ref_mol = (
-            Chem.MolFromSmiles(reference) if isinstance(reference, str) else reference
-        )
-        self.ref_core = (
-            MurckoScaffold.GetScaffoldForMol(self.ref_mol) if self.ref_mol else None
-        )
-        if self.ref_core and self.ref_core.GetNumHeavyAtoms() > 0:
-            rdDepictor.Compute2DCoords(self.ref_core)
-        elif self.ref_mol:
-            rdDepictor.Compute2DCoords(self.ref_mol)
-            self.ref_core = self.ref_mol
-
-    def align_molecule(self, mol: Chem.Mol) -> Chem.Mol:
-        """Compute aligned 2D coordinates for mol matching the reference scaffold."""
-        mol_copy = Chem.Mol(mol)
-        rdDepictor.Compute2DCoords(mol_copy)
-        if self.ref_core and mol_copy.HasSubstructMatch(self.ref_core):
-            try:
-                rdDepictor.GenerateDepictionMatching2DStructure(mol_copy, self.ref_core)
-            except Exception:
-                pass
-        return mol_copy
-
-    def create_aligned_grid(
-        self,
-        molecules: Sequence[str | Chem.Mol],
-        legends: Sequence[str] | None = None,
-        output_path: Path | str | None = None,
-        mols_per_row: int = 3,
-        sub_img_size: tuple[int, int] = (340, 260),
-    ) -> Any:
-        """Render a multi-molecule grid image with aligned 2D coordinate depictions."""
-        mol_objs = []
-        for m in molecules:
-            mol_obj = Chem.MolFromSmiles(m) if isinstance(m, str) else m
-            if mol_obj:
-                mol_objs.append(self.align_molecule(mol_obj))
-
-        img = Draw.MolsToGridImage(
-            mol_objs,
-            molsPerRow=mols_per_row,
-            subImgSize=sub_img_size,
-            legends=list(legends) if legends else None,
-            useSVG=False,
-        )
-        if output_path:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            img.save(str(output_path))
-        return img
-
-    def render_leads(
-        self,
-        molecules: Sequence[str | Chem.Mol] | pd.DataFrame,
-        legends: Sequence[str] | None = None,
-        output_png: Path | str | None = None,
-        max_leads: int = 5,
-    ) -> Path | None:
-        """Render aligned 2D chemical structure cards with true physical metrics."""
-        target_png = Path(output_png) if output_png else Path("lead_structures_2d.png")
-        target_png.parent.mkdir(parents=True, exist_ok=True)
-
-        plot_mols: list[Chem.Mol] = []
-        plot_legends: list[str] = []
-
-        if self.ref_mol is not None:
-            ref_clean = Chem.RemoveHs(Chem.Mol(self.ref_mol))
-            plot_mols.append(ref_clean)
-            hac = int(ref_clean.GetNumHeavyAtoms())
-            mw = float(Descriptors.MolWt(ref_clean))
-            qed_val = float(QED.qed(ref_clean))
-            sa_val = float(calculate_sa_score(ref_clean))
-            plot_legends.append(
-                f"QUERY SEED\n"
-                f"HAC: {hac} | MW: {mw:.1f}\n"
-                f"QED: {qed_val:.2f} | SA: {sa_val:.2f}"
-            )
-
-        if isinstance(molecules, pd.DataFrame):
-            df_leads = molecules.head(max_leads)
-            for rank_num, (_, row) in enumerate(df_leads.iterrows(), start=1):
-                smi = str(row.get(std.SMILES, ""))
-                m = Chem.MolFromSmiles(smi)
-                if m is not None:
-                    plot_mols.append(m)
-                    rocs = float(row.get(std.ROCS, 0.0))
-                    if 0.0 < rocs <= 1.0001:
-                        rocs = rocs * 2.0
-                    des = float(row.get(std.DESIRED, 0.0))
-                    mw_val = row.get(std.MW)
-                    mw = (
-                        float(mw_val)
-                        if (mw_val is not None and pd.notna(mw_val) and float(mw_val) > 0.0)
-                        else float(Descriptors.MolWt(m))
-                    )
-                    qed_v = float(row.get(std.QED, QED.qed(m)))
-                    sa_raw = row.get(std.SA)
-                    sa_v = (
-                        float(sa_raw)
-                        if (sa_raw is not None and pd.notna(sa_raw) and float(sa_raw) > 1.0001)
-                        else float(calculate_sa_score(m))
-                    )
-                    plot_legends.append(
-                        f"Lead #{rank_num}\n"
-                        f"TanimotoCombo: {rocs:.2f} | Des: {des:.2f}\n"
-                        f"MW: {mw:.1f} | QED: {qed_v:.2f} | SA: {sa_v:.2f}"
-                    )
-        else:
-            for idx, item in enumerate(molecules[:max_leads]):
-                m = Chem.MolFromSmiles(item) if isinstance(item, str) else item
-                if m is not None:
-                    plot_mols.append(m)
-                    if legends and idx < len(legends):
-                        plot_legends.append(legends[idx])
-                    else:
-                        mw = float(Descriptors.MolWt(m))
-                        qed_v = float(QED.qed(m))
-                        sa_v = float(calculate_sa_score(m))
-                        plot_legends.append(
-                            f"Lead #{idx + 1}\n"
-                            f"MW: {mw:.1f} | QED: {qed_v:.2f} | SA: {sa_v:.2f}"
-                        )
-
-        if not plot_mols:
-            return None
-
-        self.create_aligned_grid(
-            plot_mols,
-            legends=plot_legends,
-            output_path=target_png,
-            mols_per_row=min(3, len(plot_mols)),
-            sub_img_size=(340, 260),
-        )
-        return target_png
-
-
-def render_lead_structures_2d(
-    molecules: Sequence[str | Chem.Mol] | pd.DataFrame,
-    legends: Sequence[str] | None = None,
-    output_png: Path | str | None = None,
-    reference: str | Chem.Mol | None = None,
-    max_leads: int = 5,
-) -> Path | None:
-    """Convenience functional wrapper delegating lead depiction to AlignedDepicter."""
-    depicter = AlignedDepicter(reference=reference)
-    return depicter.render_leads(
-        molecules=molecules,
-        legends=legends,
-        output_png=output_png,
-        max_leads=max_leads,
-    )
-
-
-def render_training_curves(
-    fit_tsv_path: Path | str,
-    output_png: Path | str | None = None,
-) -> Path | None:
-    """Render reinforcement learning metric progression curves across training epochs."""
-    tsv_file = Path(fit_tsv_path)
-    if not tsv_file.exists():
-        return None
-
-    df_fit = pd.read_csv(tsv_file, sep="\t")
-    if df_fit.empty or std.EPOCH not in df_fit.columns:
-        return None
-
-    target_png = (
-        Path(output_png) if output_png else tsv_file.parent / "rl_training_curves.png"
-    )
-    target_png.parent.mkdir(parents=True, exist_ok=True)
-
-    fig, ax = plt.subplots(figsize=(8.5, 5.2), dpi=200)
-    metric_styles: dict[str, tuple[str, str, str]] = {
-        std.LOSS_TRAIN: ("#e63946", "-", "Training Loss"),
-        std.VALID_RATIO: ("#2a9d8f", "-", "Valid Ratio"),
-        std.UNIQUE_RATIO: ("#e9c46a", "--", "Unique Ratio"),
-        std.DESIRED_RATIO: ("#8b5cf6", "-.", "Desired Ratio"),
-        "epsilon": ("#64748b", ":", "Exploration Noise (ε)"),
-    }
-
-    plotted = False
-    for col, (color, ls, label) in metric_styles.items():
-        if col in df_fit.columns:
-            ax.plot(
-                df_fit[std.EPOCH],
-                df_fit[col],
-                color=color,
-                linestyle=ls,
-                linewidth=2.0,
-                label=label,
-            )
-            plotted = True
-
-    if not plotted:
-        num_cols = [
-            c
-            for c in df_fit.columns
-            if c != std.EPOCH and pd.api.types.is_numeric_dtype(df_fit[c])
-        ]
-        for col in num_cols[:4]:
-            ax.plot(df_fit[std.EPOCH], df_fit[col], linewidth=1.8, label=col)
-
-    ax.set_title("Graph-Transformer Reinforcement Learning Dynamics", fontsize=12, fontweight="bold", pad=12)
-    ax.set_xlabel("Epoch", fontsize=10, fontweight="bold")
-    ax.set_ylabel("Metric Value", fontsize=10, fontweight="bold")
-    ax.grid(True, linestyle="--", alpha=0.6)
-    ax.legend(loc="best", framealpha=0.9, fontsize=9.5)
 
     plt.tight_layout()
     plt.savefig(target_png, dpi=200, bbox_inches="tight")
@@ -446,211 +229,660 @@ def render_training_curves(
     return target_png
 
 
-def render_property_distributions(
-    df: pd.DataFrame,
-    output_png: Path | str | None = None,
-    ref_mol: Chem.Mol | str | None = None,
-) -> Path | None:
-    """Render comprehensive 2x5 physicochemical and alignment property distribution profile."""
-    if df.empty or std.SMILES not in df.columns:
-        return None
+def _plot_kde(
+    ax: Any,
+    vals: np.ndarray,
+    color: str,
+    label: str,
+    alpha: float = 0.30,
+    linewidth: float = 1.8,
+) -> None:
+    """Plot smoothed KDE density curve using scipy.stats.gaussian_kde with histogram fallback."""
+    if len(vals) < 2:
+        return
+    try:
+        kde = gaussian_kde(vals)
+        xs = np.linspace(float(vals.min()), float(vals.max()), 200)
+        ys = kde(xs)
+        ax.plot(xs, ys, color=color, linewidth=linewidth, label=label)
+        ax.fill_between(xs, ys, color=color, alpha=alpha)
+    except Exception:
+        ax.hist(vals, bins=20, color=color, alpha=alpha, density=True, label=label)
 
-    target_png = Path(output_png) if output_png else Path("property_distributions.png")
+
+def render_before_after_distributions(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
+    output_png: Path | str,
+    ref_mol: Chem.Mol | str | None = None,
+) -> Path:
+    """Render publication-grade 2x3 KDE distribution panel comparing baseline vs. reinforced molecules."""
+    target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    valid_df = (
-        df[df[std.VALID].astype(bool)].copy()
-        if std.VALID in df.columns
-        else df.copy()
-    )
-    if valid_df.empty:
-        return None
+    b_df = unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
+    a_df = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
 
     ref_m = Chem.MolFromSmiles(ref_mol) if isinstance(ref_mol, str) else ref_mol
-    mols = [Chem.MolFromSmiles(s) if isinstance(s, str) else None for s in valid_df[std.SMILES]]
+    ref_props: dict[str, float | None] = {
+        std.ROCS: 2.0 if ref_m else None,
+        "Raw_SA": float(calculate_sa_score(ref_m)) if ref_m else 3.74,
+        std.QED: float(QED.qed(ref_m)) if ref_m else 0.21,
+        std.MW: float(Descriptors.MolWt(ref_m)) if ref_m else 458.4,
+        std.HAC: float(ref_m.GetNumHeavyAtoms()) if ref_m else 33.0,
+        std.ROT_BONDS: float(Lipinski.NumRotatableBonds(ref_m)) if ref_m else 3.0,
+    }
 
-    if std.MW not in valid_df.columns:
-        valid_df[std.MW] = [Descriptors.MolWt(m) if m else np.nan for m in mols]
-    if std.LOGP not in valid_df.columns:
-        valid_df[std.LOGP] = [Descriptors.MolLogP(m) if m else np.nan for m in mols]
-    if std.TPSA not in valid_df.columns:
-        valid_df[std.TPSA] = [rdMolDescriptors.CalcTPSA(m) if m else np.nan for m in mols]
-    if std.QED not in valid_df.columns:
-        valid_df[std.QED] = [QED.qed(m) if m else np.nan for m in mols]
-    if std.SA not in valid_df.columns or valid_df[std.SA].nunique() <= 3:
-        valid_df[std.SA] = [calculate_sa_score(m) if m else np.nan for m in mols]
-    if std.HBD not in valid_df.columns:
-        valid_df[std.HBD] = [Lipinski.NumHDonors(m) if m else 0 for m in mols]
-    if std.HBA not in valid_df.columns:
-        valid_df[std.HBA] = [Lipinski.NumHAcceptors(m) if m else 0 for m in mols]
-    if std.ROT_BONDS not in valid_df.columns:
-        valid_df[std.ROT_BONDS] = [Lipinski.NumRotatableBonds(m) if m else 0 for m in mols]
-
-    seed_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(ref_m, 2, nBits=2048) if ref_m else None
-    if std.TANIMOTO_TO_SEED not in valid_df.columns:
-        if seed_fp is not None:
-            valid_df[std.TANIMOTO_TO_SEED] = [
-                float(DataStructs.TanimotoSimilarity(seed_fp, rdMolDescriptors.GetMorganFingerprintAsBitVect(m, 2, nBits=2048)))
-                if m else 0.0
-                for m in mols
-            ]
-        else:
-            valid_df[std.TANIMOTO_TO_SEED] = 0.0
-
-    fig, axes = plt.subplots(2, 5, figsize=(22, 9), dpi=200)
-    fig.suptitle("Ligand-Based De Novo Drug Design: Multi-Objective & Diagnostic Profiles", fontsize=16, fontweight="bold", y=0.98)
-
-    props_config = [
-        (std.ROCS, "3D ROCS TanimotoCombo (Color + Shape)", "#2563EB", (0.0, 2.0), 2.0 if ref_m else None),
-        (std.SA, "SA Score (Synthesizability)", "#10B981", (1.0, 10.0), float(calculate_sa_score(ref_m)) if ref_m else 3.74),
-        (std.QED, "Quantitative Estimate of Drug-likeness (QED)", "#8B5CF6", (0.0, 1.0), float(QED.qed(ref_m)) if ref_m else 0.21),
-        (std.MW, "Molecular Weight (Da)", "#F59E0B", (150.0, 600.0), float(Descriptors.MolWt(ref_m)) if ref_m else 458.4),
-        (std.LOGP, "Calculated LogP (Wildman-Crippen)", "#EC4899", (-2.0, 6.0), float(Descriptors.MolLogP(ref_m)) if ref_m else 2.23),
-        (std.TPSA, "Topological Polar Surface Area (Å²)", "#06B6D4", (20.0, 220.0), float(rdMolDescriptors.CalcTPSA(ref_m)) if ref_m else 197.4),
-        (std.HBD, "Hydrogen Bond Donors (Lipinski)", "#64748B", (0, 10), int(Lipinski.NumHDonors(ref_m)) if ref_m else 8),
-        (std.HBA, "Hydrogen Bond Acceptors (Lipinski)", "#0EA5E9", (0, 15), int(Lipinski.NumHAcceptors(ref_m)) if ref_m else 11),
-        (std.ROT_BONDS, "Rotatable Bonds Count", "#6366F1", (0, 15), int(Lipinski.NumRotatableBonds(ref_m)) if ref_m else 3),
-        (std.TANIMOTO_TO_SEED, "2D ECFP4 Tanimoto to Seed", "#E11D48", (0.0, 1.0), 1.0 if ref_m else None),
+    panels = [
+        (std.ROCS, "ROCS TanimotoCombo [0, 2]", (0.0, 1.5)),
+        ("Raw_SA", "Synthetic Accessibility (SAscore [1, 10])", (1.0, 7.0)),
+        (std.QED, "Drug-likeness (QED [0, 1])", (0.0, 1.0)),
+        (std.MW, "Molecular Weight (MW [Da])", (100.0, 600.0)),
+        (std.HAC, "Heavy Atom Count (HAC)", (10.0, 45.0)),
+        (std.ROT_BONDS, "Rotatable Bonds Count", (0.0, 15.0)),
     ]
 
-    for idx, (col, title, color, x_range, ref_val) in enumerate(props_config):
-        ax = axes[idx // 5, idx % 5]
-        data = valid_df[col].dropna()
-        if not data.empty:
-            ax.hist(data, bins=25, range=x_range, color=color, alpha=0.75, edgecolor="#1e293b", linewidth=0.6)
-            mean_v = float(data.mean())
-            ax.axvline(mean_v, color="#1e293b", linestyle="--", linewidth=1.5, label=f"Mean: {mean_v:.2f}")
-        if ref_val is not None:
-            ax.axvline(ref_val, color="#DC2626", linestyle="-", linewidth=2.0, label=f"Seed: {ref_val:.2f}")
-        ax.set_title(title, fontsize=10, fontweight="bold")
-        ax.set_xlim(x_range)
-        ax.grid(True, linestyle=":", alpha=0.5)
-        ax.legend(loc="upper right", fontsize=8)
+    fig, axes = plt.subplots(2, 3, figsize=(16, 9), dpi=250)
+    fig.suptitle(
+        "De Novo SequenceRNN: Pre-training Baseline vs. Reinforced Distributions",
+        fontsize=15,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    for idx, (col, title, xlim) in enumerate(panels):
+        ax = axes[idx // 3, idx % 3]
+        b_vals = b_df[col].dropna().values
+        a_vals = a_df[col].dropna().values
+
+        if len(b_vals) > 0 and len(a_vals) > 0:
+            _plot_kde(
+                ax,
+                b_vals,
+                color="#3b82f6",
+                label="Baseline (Papyrus prior)",
+                alpha=0.30,
+                linewidth=1.8,
+            )
+            _plot_kde(
+                ax,
+                a_vals,
+                color="#ea580c",
+                label="Reinforced (Active agent)",
+                alpha=0.35,
+                linewidth=2.0,
+            )
+
+            b_med = float(np.median(b_vals))
+            a_med = float(np.median(a_vals))
+            delta, ci_l, ci_h = bootstrap_ci(b_vals, a_vals)
+
+            ax.axvline(
+                b_med,
+                color="#2563eb",
+                linestyle="--",
+                linewidth=1.2,
+                label=f"Base Med: {b_med:.2f}",
+            )
+            ax.axvline(
+                a_med,
+                color="#c2410c",
+                linestyle="-",
+                linewidth=1.5,
+                label=f"Reinf Med: {a_med:.2f}",
+            )
+
+            sign = "+" if delta >= 0 else ""
+            ax.text(
+                0.04,
+                0.92,
+                f"ΔMed: {sign}{delta:.2f}\n95% CI: [{ci_l:.2f}, {ci_h:.2f}]",
+                transform=ax.transAxes,
+                fontsize=8.5,
+                fontweight="bold",
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor="white",
+                    edgecolor="#cbd5e1",
+                    alpha=0.9,
+                ),
+                verticalalignment="top",
+            )
+
+        ref_v = ref_props.get(col)
+        if ref_v is not None and np.isfinite(ref_v):
+            ax.axvline(
+                ref_v,
+                color="#dc2626",
+                linestyle=":",
+                linewidth=1.5,
+                label=f"Ref EGCG: {ref_v:.1f}",
+            )
+
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        ax.set_xlim(xlim)
+        ax.grid(True, linestyle=":", alpha=0.4)
+        ax.legend(loc="upper right", fontsize=7.5, framealpha=0.85)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.savefig(target_png, dpi=250, bbox_inches="tight")
     plt.close(fig)
     return target_png
 
 
+def render_multiobjective_tradeoffs(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
+    output_png: Path | str,
+) -> Path:
+    """Render 2-panel trade-off scatter plots: ROCS vs SA (colored by QED) and ROCS vs Heavy Atoms."""
+    target_png = Path(output_png)
+    target_png.parent.mkdir(parents=True, exist_ok=True)
+
+    b_df = unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
+    a_df = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6.2), dpi=250)
+    fig.suptitle(
+        "Multi-Objective Trade-Offs & Size Evolution",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    # Panel 1: ROCS vs. SA (colored by QED)
+    if not b_df.empty and not a_df.empty:
+        ax1.scatter(
+            b_df[std.ROCS],
+            b_df["Raw_SA"],
+            c="#94a3b8",
+            alpha=0.25,
+            s=18,
+            label="Baseline",
+            edgecolors="none",
+        )
+        sc = ax1.scatter(
+            a_df[std.ROCS],
+            a_df["Raw_SA"],
+            c=a_df[std.QED],
+            cmap="viridis",
+            alpha=0.75,
+            s=28,
+            edgecolors="none",
+        )
+        cb = plt.colorbar(sc, ax=ax1, pad=0.02)
+        cb.set_label("QED (Drug-likeness)", fontsize=9)
+        ax1.set_xlabel(
+            "3D ROCS TanimotoCombo (higher = better)", fontsize=10, fontweight="bold"
+        )
+        ax1.set_ylabel(
+            "Raw SAscore (lower = easier synthesis)", fontsize=10, fontweight="bold"
+        )
+        ax1.set_title(
+            "(A) Shape Alignment vs. Synthetic Accessibility",
+            fontsize=11,
+            fontweight="bold",
+        )
+        ax1.grid(True, linestyle=":", alpha=0.4)
+        ax1.legend(loc="upper right", fontsize=8.5)
+
+    # Panel 2: ROCS vs. Heavy Atom Count (identifying molecule shrinkage)
+    if not b_df.empty and not a_df.empty:
+        ax2.scatter(
+            b_df[std.HAC],
+            b_df[std.ROCS],
+            color="#3b82f6",
+            alpha=0.30,
+            s=20,
+            label="Baseline Prior",
+        )
+        ax2.scatter(
+            a_df[std.HAC],
+            a_df[std.ROCS],
+            color="#ea580c",
+            alpha=0.60,
+            s=24,
+            label="Reinforced Agent",
+        )
+        ax2.axvline(
+            33,
+            color="#dc2626",
+            linestyle="--",
+            linewidth=1.5,
+            label="EGCG Size (33 atoms)",
+        )
+        ax2.axhline(
+            0.70,
+            color="#10b981",
+            linestyle=":",
+            linewidth=1.5,
+            label="ROCS Threshold (0.70)",
+        )
+        ax2.set_xlabel("Heavy Atom Count (HAC)", fontsize=10, fontweight="bold")
+        ax2.set_ylabel("3D ROCS TanimotoCombo", fontsize=10, fontweight="bold")
+        ax2.set_title(
+            "(B) Shape Matching vs. Molecular Size", fontsize=11, fontweight="bold"
+        )
+        ax2.grid(True, linestyle=":", alpha=0.4)
+        ax2.legend(loc="lower right", fontsize=8.5)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(target_png, dpi=250, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+def render_training_trajectories(
+    history_file_or_df: Path | str | pd.DataFrame,
+    output_png: Path | str,
+) -> Path | None:
+    """Render 4-panel training trajectory: loss, desired/valid ratio, objective scores, and epsilon."""
+    target_png = Path(output_png)
+    target_png.parent.mkdir(parents=True, exist_ok=True)
+
+    if isinstance(history_file_or_df, (str, Path)):
+        p = Path(history_file_or_df)
+        if not p.is_file():
+            return None
+        df = pd.read_csv(p, sep="\t")
+    else:
+        df = history_file_or_df.copy()
+
+    if df.empty or "Epoch" not in df.columns:
+        return None
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 8.5), dpi=250)
+    fig.suptitle(
+        "SequenceRNN Reinforcement Learning Training Dynamics",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    epochs = df["Epoch"]
+
+    # Panel 1: Loss & Mean Reward
+    ax1 = axes[0, 0]
+    if "loss_train" in df.columns:
+        ax1.plot(
+            epochs, df["loss_train"], color="#dc2626", linewidth=1.8, label="Train Loss"
+        )
+    if "avg_amean" in df.columns:
+        ax1.plot(
+            epochs,
+            df["avg_amean"],
+            color="#2563eb",
+            linewidth=1.8,
+            label="Avg Arithmetic Mean",
+        )
+    ax1.set_title(
+        "(A) Training Loss & Mean Objective Score", fontsize=11, fontweight="bold"
+    )
+    ax1.set_xlabel("Epoch")
+    ax1.grid(True, linestyle=":", alpha=0.4)
+    ax1.legend(loc="best", fontsize=8.5)
+
+    # Panel 2: Desired & Valid Ratio
+    ax2 = axes[0, 1]
+    if "valid_ratio" in df.columns:
+        ax2.plot(
+            epochs,
+            df["valid_ratio"],
+            color="#10b981",
+            linewidth=1.8,
+            label="Valid Ratio",
+        )
+    if "desired_ratio" in df.columns:
+        ax2.plot(
+            epochs,
+            df["desired_ratio"],
+            color="#8b5cf6",
+            linewidth=2.0,
+            label="Desired Ratio",
+        )
+    if "unique_ratio" in df.columns:
+        ax2.plot(
+            epochs,
+            df["unique_ratio"],
+            color="#06b6d4",
+            linewidth=1.5,
+            linestyle="--",
+            label="Unique Ratio",
+        )
+    ax2.set_title(
+        "(B) Validity, Uniqueness & Desired Ratio", fontsize=11, fontweight="bold"
+    )
+    ax2.set_xlabel("Epoch")
+    ax2.set_ylim(-0.05, 1.05)
+    ax2.grid(True, linestyle=":", alpha=0.4)
+    ax2.legend(loc="best", fontsize=8.5)
+
+    # Panel 3: Individual Objective Dynamics
+    ax3 = axes[1, 0]
+    for col, color, lbl in [
+        ("ROCS", "#2563eb", "ROCS"),
+        ("SA", "#10b981", "SA Desirability"),
+        ("QED", "#f59e0b", "QED"),
+    ]:
+        if col in df.columns:
+            ax3.plot(epochs, df[col], color=color, linewidth=1.8, label=lbl)
+    ax3.set_title(
+        "(C) Multi-Objective Desirability Evolution", fontsize=11, fontweight="bold"
+    )
+    ax3.set_xlabel("Epoch")
+    ax3.grid(True, linestyle=":", alpha=0.4)
+    ax3.legend(loc="best", fontsize=8.5)
+
+    # Panel 4: Exploration Noise (Epsilon) Schedule
+    ax4 = axes[1, 1]
+    if "epsilon" in df.columns:
+        ax4.plot(
+            epochs,
+            df["epsilon"],
+            color="#ea580c",
+            linewidth=2.0,
+            label="Epsilon (Noise)",
+        )
+    ax4.set_title("(D) Scheduled Exploration Rate (ε)", fontsize=11, fontweight="bold")
+    ax4.set_xlabel("Epoch")
+    ax4.set_ylim(0.0, 0.30)
+    ax4.grid(True, linestyle=":", alpha=0.4)
+    ax4.legend(loc="best", fontsize=8.5)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(target_png, dpi=250, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+def render_unfavorable_features_diagnostics(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
+    output_png: Path | str,
+    ref_heavy_atoms: int = 33,
+) -> Path:
+    """Render diagnostic panels highlighting flaws, shrinkage, and distribution shifts.
+
+    Directly implements academic critique requirement:
+    Visualizes negative / unpromising features (molecular shrinkage, repeat counts)
+    to spot inaccuracies and limitations in the methods.
+    """
+    target_png = Path(output_png)
+    target_png.parent.mkdir(parents=True, exist_ok=True)
+
+    b_df = unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
+    a_df = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5.5), dpi=250)
+    fig.suptitle(
+        "Critical Diagnostic Analysis: Negative Trends & Shrinkage",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    # Panel 1: Heavy Atom Shrinkage Distribution (Delta HAC relative to reference)
+    if not b_df.empty and not a_df.empty:
+        b_delta = b_df[std.HAC] - ref_heavy_atoms
+        a_delta = a_df[std.HAC] - ref_heavy_atoms
+        bins = np.arange(-25, 15, 1)
+        ax1.hist(
+            b_delta,
+            bins=bins,
+            alpha=0.4,
+            color="#3b82f6",
+            label="Baseline ΔHAC",
+            density=True,
+        )
+        ax1.hist(
+            a_delta,
+            bins=bins,
+            alpha=0.5,
+            color="#ea580c",
+            label="Reinforced ΔHAC",
+            density=True,
+        )
+        ax1.axvline(
+            0, color="#dc2626", linestyle="--", linewidth=1.5, label="Target Size (0)"
+        )
+        ax1.axvline(
+            float(np.median(a_delta)),
+            color="#c2410c",
+            linestyle="-",
+            linewidth=1.8,
+            label=f"Reinf Med: {float(np.median(a_delta)):.1f}",
+        )
+        ax1.set_title(
+            "(A) Heavy Atom Size Drift (Δ vs. EGCG=33)", fontsize=11, fontweight="bold"
+        )
+        ax1.set_xlabel("Heavy Atom Difference (Generated - Reference)")
+        ax1.set_ylabel("Density")
+        ax1.grid(True, linestyle=":", alpha=0.4)
+        ax1.legend(loc="upper left", fontsize=8.5)
+
+    # Panel 2: Rotatable Bond Rigidity Shift
+    if not b_df.empty and not a_df.empty:
+        b_rot = b_df[std.ROT_BONDS]
+        a_rot = a_df[std.ROT_BONDS]
+        bins_rot = np.arange(0, 16, 1)
+        ax2.hist(
+            b_rot,
+            bins=bins_rot,
+            alpha=0.4,
+            color="#3b82f6",
+            label="Baseline RotBonds",
+            density=True,
+        )
+        ax2.hist(
+            a_rot,
+            bins=bins_rot,
+            alpha=0.5,
+            color="#ea580c",
+            label="Reinforced RotBonds",
+            density=True,
+        )
+        ax2.set_title(
+            "(B) Molecular Flexibility & Rotatable Bonds",
+            fontsize=11,
+            fontweight="bold",
+        )
+        ax2.set_xlabel("Number of Rotatable Bonds")
+        ax2.grid(True, linestyle=":", alpha=0.4)
+        ax2.legend(loc="upper right", fontsize=8.5)
+
+    # Panel 3: Duplication and Frequency Distribution (Soft Mode Collapse Diagnosis)
+    if not a_df.empty and std.CANONICAL_SMILES in a_df.columns:
+        counts = a_df[std.CANONICAL_SMILES].value_counts().values
+        max_rep = int(counts.max()) if len(counts) > 0 else 1
+        ax3.hist(
+            counts,
+            bins=min(25, max_rep),
+            color="#8b5cf6",
+            alpha=0.75,
+            edgecolor="#1e293b",
+        )
+        ax3.set_yscale("log")
+        ax3.set_title(
+            f"(C) Output Duplication Profile (Max Repeat: {max_rep})",
+            fontsize=11,
+            fontweight="bold",
+        )
+        ax3.set_xlabel("Copies per Unique Molecule")
+        ax3.set_ylabel("Frequency (log scale)")
+        ax3.grid(True, linestyle=":", alpha=0.4)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(target_png, dpi=250, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+def render_lead_structures_gallery(
+    top_leads: pd.DataFrame,
+    ref_smiles: str,
+    output_png: Path | str,
+    top_k: int = 5,
+) -> Path | None:
+    """Render 2D grid image showing top prioritized leads aligned alongside the reference molecule."""
+    target_png = Path(output_png)
+    target_png.parent.mkdir(parents=True, exist_ok=True)
+
+    if top_leads.empty:
+        return None
+
+    clean_leads = (
+        top_leads.drop_duplicates(subset=[std.CANONICAL_SMILES]).head(top_k).copy()
+    )
+    ref_m = Chem.MolFromSmiles(ref_smiles)
+
+    mols: list[Chem.Mol] = [ref_m] if ref_m else []
+    legends: list[str] = ["EGCG (Reference)\nCID 65064 | 33 atoms"] if ref_m else []
+
+    rocs_col = std.ROCS if std.ROCS in clean_leads.columns else clean_leads.columns[0]
+    for _, row in clean_leads.iterrows():
+        s = row.get(std.CANONICAL_SMILES) or row.get(std.SMILES)
+        m = Chem.MolFromSmiles(str(s))
+        if m:
+            mols.append(m)
+            rocs_v = float(row.get(rocs_col, 0.0))
+            sa_v = float(row.get("Raw_SA", calculate_sa_score(m)))
+            qed_v = float(row.get(std.QED, QED.qed(m)))
+            mw_v = float(row.get(std.MW, Descriptors.MolWt(m)))
+            hac_v = int(row.get(std.HAC, m.GetNumHeavyAtoms()))
+            legends.append(
+                f"ROCS={rocs_v:.3f} | SA={sa_v:.2f}\nQED={qed_v:.2f} | MW={mw_v:.0f} ({hac_v}at)"
+            )
+
+    if not mols:
+        return None
+
+    img = Draw.MolsToGridImage(
+        mols,
+        molsPerRow=min(len(mols), 3),
+        subImgSize=(300, 280),
+        legends=legends,
+        useSVG=False,
+    )
+    img.save(str(target_png))
+    return target_png
+
+
 class ResultAnalyzer:
-    """Extracts, prioritizes, deduplicates chemical leads, and renders presentation deliverables."""
+    """Comprehensive post-run analyzer computing statistics, CI bounds, and delivering visualization artifacts."""
 
-    def __init__(
-        self,
-        deliverables_dir: Path | str,
-        raw_data_dir: Path | str | None = None,
-    ) -> None:
-        self.deliverables_dir = Path(deliverables_dir)
-        self.raw_data_dir = Path(raw_data_dir) if raw_data_dir is not None else self.deliverables_dir
-        self.deliverables_dir.mkdir(parents=True, exist_ok=True)
-        self.raw_data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, paths: RunPaths) -> None:
+        self.paths = paths
 
-    def analyze(
+    def generate_full_report(
         self,
-        candidates_tsv: Path | str,
-        ref_sdf: Path | str | None = None,
-        top_k: int = 10,
-        history_tsv: Path | str | None = None,
+        df_before: pd.DataFrame,
+        df_after: pd.DataFrame,
+        ref_smiles: str,
+        monitor_prefix: str | Path | None = None,
     ) -> pd.DataFrame:
-        """Process candidate TSV, pool trajectory history, calculate properties, prioritize leads, and emit presentation figures."""
-        tsv_path = Path(candidates_tsv)
-        df_list: list[pd.DataFrame] = []
+        """Produce authoritative comparative analysis, bootstrap CIs, and full figure suite."""
+        b_df = unscale_to_physical_metrics(df_before)
+        a_df = unscale_to_physical_metrics(df_after)
 
-        if tsv_path.is_file():
-            df_cand = pd.read_csv(tsv_path, sep="\t")
-            if not df_cand.empty:
-                df_list.append(df_cand)
+        b_valid = b_df[b_df[std.VALID] == 1]
+        a_valid = a_df[a_df[std.VALID] == 1]
 
-        if history_tsv and Path(history_tsv).is_file():
-            df_hist = pd.read_csv(Path(history_tsv), sep="\t")
-            if not df_hist.empty:
-                df_list.append(df_hist)
+        # Summarize key properties
+        metrics_before = {
+            "validity": len(b_valid) / max(1, len(b_df)),
+            "uniqueness": b_valid[std.CANONICAL_SMILES].nunique() / max(1, len(b_df)),
+            "desired_ratio": float(b_df[std.DESIRED].mean())
+            if std.DESIRED in b_df.columns
+            else 0.0,
+            "median_rocs": float(b_valid[std.ROCS].median())
+            if not b_valid.empty
+            else 0.0,
+            "p90_rocs": float(b_valid[std.ROCS].quantile(0.90))
+            if not b_valid.empty
+            else 0.0,
+            "median_raw_sa": float(b_valid["Raw_SA"].median())
+            if not b_valid.empty
+            else 0.0,
+            "median_qed": float(b_valid[std.QED].median())
+            if not b_valid.empty
+            else 0.0,
+            "median_hac": float(b_valid[std.HAC].median())
+            if not b_valid.empty
+            else 0.0,
+            "median_mw": float(b_valid[std.MW].median()) if not b_valid.empty else 0.0,
+        }
 
-        if not df_list:
-            return pd.DataFrame()
+        metrics_after = {
+            "validity": len(a_valid) / max(1, len(a_df)),
+            "uniqueness": a_valid[std.CANONICAL_SMILES].nunique() / max(1, len(a_df)),
+            "desired_ratio": float(a_df[std.DESIRED].mean())
+            if std.DESIRED in a_df.columns
+            else 0.0,
+            "median_rocs": float(a_valid[std.ROCS].median())
+            if not a_valid.empty
+            else 0.0,
+            "p90_rocs": float(a_valid[std.ROCS].quantile(0.90))
+            if not a_valid.empty
+            else 0.0,
+            "median_raw_sa": float(a_valid["Raw_SA"].median())
+            if not a_valid.empty
+            else 0.0,
+            "median_qed": float(a_valid[std.QED].median())
+            if not a_valid.empty
+            else 0.0,
+            "median_hac": float(a_valid[std.HAC].median())
+            if not a_valid.empty
+            else 0.0,
+            "median_mw": float(a_valid[std.MW].median()) if not a_valid.empty else 0.0,
+        }
 
-        df = pd.concat(df_list, ignore_index=True)
-        if df.empty or std.SMILES not in df.columns:
-            return df
+        comparison = pd.DataFrame({"Before": metrics_before, "After": metrics_after})
+        comparison["Delta"] = comparison["After"] - comparison["Before"]
 
-        df = unscale_to_physical_metrics(df)
+        # Save comparison table
+        comp_csv = self.paths.root / "comparison.csv"
+        comparison.to_csv(comp_csv)
 
-        if std.VALID not in df.columns:
-            df[std.VALID] = [Chem.MolFromSmiles(s) is not None for s in df[std.SMILES]]
-        valid_df = df[df[std.VALID].fillna(False).astype(bool)].copy()
+        # Prioritize top unique leads: ROCS descending, SA ascending, QED descending
+        top_leads = a_valid.sort_values(
+            by=[std.ROCS, "Raw_SA", std.QED], ascending=[False, True, False]
+        )
+        top_leads_unique = top_leads.drop_duplicates(
+            subset=[std.CANONICAL_SMILES]
+        ).head(20)
+        leads_tsv = self.paths.root / "top_prioritized_leads.tsv"
+        top_leads_unique.to_csv(leads_tsv, sep="\t", index=False)
 
-        if valid_df.empty:
-            return pd.DataFrame()
-
-        # Multi-objective filtering: Disqualify unmodified input fragments (no-ops)
-        if std.FRAGS in valid_df.columns:
-            from _david.code.environment import BatchUniqueEnvironment
-
-            is_noop = [
-                BatchUniqueEnvironment._is_unmodified_fragment(s, f)
-                for s, f in zip(valid_df[std.SMILES], valid_df[std.FRAGS])
-            ]
-            valid_df = valid_df[~np.array(is_noop)].copy()
-
-        if "Accurate" in valid_df.columns:
-            valid_df = valid_df[valid_df["Accurate"].astype(float) > 0.5].copy()
-
-        if valid_df.empty:
-            return pd.DataFrame()
-
-        if std.QED not in valid_df.columns or valid_df[std.QED].isna().any():
-            valid_df[std.QED] = [
-                float(QED.qed(m)) if (isinstance(s, str) and (m := Chem.MolFromSmiles(s)) is not None) else 0.0
-                for s in valid_df[std.SMILES]
-            ]
-        if std.MW not in valid_df.columns or valid_df[std.MW].isna().any():
-            valid_df[std.MW] = [
-                float(Descriptors.MolWt(m)) if (isinstance(s, str) and (m := Chem.MolFromSmiles(s)) is not None) else 0.0
-                for s in valid_df[std.SMILES]
-            ]
-
-        # Deduplicate candidates by canonical SMILES to extract distinct chemical leads
-        valid_df[std.CANONICAL_SMILES] = [
-            Chem.CanonSmiles(s) if (isinstance(s, str) and Chem.MolFromSmiles(s) is not None) else str(s)
-            for s in valid_df[std.SMILES]
-        ]
-        unique_leads = valid_df.drop_duplicates(subset=[std.CANONICAL_SMILES]).copy()
-
-        # Prioritize leads: ROCS descending, SA ascending (lower is easier), QED descending
-        sort_cols = [c for c in [std.ROCS, std.SA, std.QED] if c in unique_leads.columns]
-        ascending = [False, True, False][:len(sort_cols)]
-        if sort_cols:
-            unique_leads = unique_leads.sort_values(by=sort_cols, ascending=ascending)
-
-        top_leads = unique_leads.head(top_k).reset_index(drop=True)
-        top_leads.to_csv(self.deliverables_dir / "top_prioritized_leads.tsv", sep="\t", index=False)
-
-        ref_mol: Chem.Mol | None = None
-        if ref_sdf and Path(ref_sdf).exists():
-            suppl = Chem.SDMolSupplier(str(ref_sdf), removeHs=False)
-            ref_mol = next((m for m in suppl if m is not None), None)
-
-        render_property_distributions(
-            unique_leads,
-            output_png=self.deliverables_dir / "property_distributions.png",
-            ref_mol=ref_mol,
+        # Generate complete publication visualization suite
+        render_before_after_distributions(
+            df_before=b_df,
+            df_after=a_df,
+            output_png=self.paths.figures_dir / "01_before_after_distributions.png",
+            ref_mol=ref_smiles,
+        )
+        render_multiobjective_tradeoffs(
+            df_before=b_df,
+            df_after=a_df,
+            output_png=self.paths.figures_dir / "02_multiobjective_tradeoffs.png",
+        )
+        if monitor_prefix:
+            fit_tsv = Path(f"{monitor_prefix}_fit.tsv")
+            if fit_tsv.is_file():
+                render_training_trajectories(
+                    history_file_or_df=fit_tsv,
+                    output_png=self.paths.figures_dir / "03_training_trajectories.png",
+                )
+        render_unfavorable_features_diagnostics(
+            df_before=b_df,
+            df_after=a_df,
+            output_png=self.paths.figures_dir
+            / "04_diagnostic_unfavorable_features.png",
+        )
+        render_lead_structures_gallery(
+            top_leads=top_leads_unique,
+            ref_smiles=ref_smiles,
+            output_png=self.paths.figures_dir / "05_lead_structures_gallery.png",
+            top_k=5,
         )
 
-        if not top_leads.empty:
-            lead_png = self.deliverables_dir / "lead_structures_2d.png"
-            depicter = AlignedDepicter(reference=ref_mol)
-            depicter.render_leads(top_leads, output_png=lead_png)
-            if lead_png.exists():
-                shutil.copyfile(lead_png, self.raw_data_dir / "aligned_lead_depictions.png")
-
-        summary = {
-            "total_generated": len(df),
-            "valid_molecules": int(len(valid_df)),
-            "unique_molecules": int(len(unique_leads)),
-            "top_k_extracted": len(top_leads),
-        }
-        with open(self.raw_data_dir / "result_analysis_summary.json", "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=4)
-
-        return top_leads
+        return comparison

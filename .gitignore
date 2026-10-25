@@ -64,7 +64,8 @@ download.log
 _test_*/
 test_notebook_runner.py
 test_cell*.py
-test_*.py
+/test_*.py
+!_david/tests/**
 /tmp/
 tmp*
 /testing/clitest/data/*.txt
@@ -95,6 +96,7 @@ coverage.xml
 
 .env
 .venv/
+uv.lock
 env/
 venv/
 ENV/

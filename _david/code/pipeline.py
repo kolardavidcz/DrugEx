@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
-import shutil
-import subprocess
 import sys
+import time
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import torch
-from drugex.training.monitors import PeakRecoveryMonitor
+from drugex.logs import logger
+from drugex.training.environment import DrugExEnvironment
+from drugex.training.generators import SequenceRNN
+from drugex.training.monitors import FileMonitor
+from rdkit import Chem
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -18,18 +20,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.environment import PrepareMolecule, create_environment
-from _david.code.models import GraphTransformerOptimizer
+from _david.code.models import SequenceRNNOptimizer
 from _david.code.schema import std
-from _david.code.utils import HardwareManager, get_gpu_telemetry
-from _david.code.visualization import (
-    ResultAnalyzer,
-    render_reference_ensemble,
-    render_training_curves,
-)
+from _david.code.utils import HardwareManager
+from _david.code.visualization import ResultAnalyzer, render_reference_ensemble
 
 
 class MoleculePipeline:
-    """Production Ligand-Based De Novo Design (LBDD) pipeline in DrugEx."""
+    """Production Ligand-Based De Novo Design (LBDD) SequenceRNN pipeline in DrugEx."""
 
     def __init__(
         self,
@@ -54,366 +52,218 @@ class MoleculePipeline:
             random_seed=self.config.random_seed,
         )
 
+    @staticmethod
+    def sample_and_score(
+        agent: SequenceRNN,
+        env: DrugExEnvironment,
+        n_samples: int,
+        label: str,
+        batch_size: int = 64,
+    ) -> pd.DataFrame:
+        """Sample raw sequences from agent and evaluate multi-objective scores through the environment.
+
+        Avoids generator-level evaluator bugs by explicitly sampling raw SMILES, canonicalizing,
+        and querying environment scores.
+        """
+        t0 = time.time()
+        gen_df = agent.generate(
+            num_samples=n_samples,
+            batch_size=batch_size,
+            drop_invalid=False,
+            drop_duplicates=False,
+            evaluator=None,
+            progress=False,
+        )
+        smiles_list = gen_df["SMILES"].tolist()
+        scores_df = env.getScores(smiles_list)
+        df = pd.DataFrame({"SMILES": smiles_list})
+        for col in scores_df.columns:
+            df[col] = scores_df[col].values
+
+        mols = [
+            Chem.MolFromSmiles(s) if isinstance(s, str) and s else None
+            for s in smiles_list
+        ]
+        df[std.CANONICAL_SMILES] = [Chem.MolToSmiles(m) if m else None for m in mols]
+        elapsed = time.time() - t0
+        logger.info(
+            f"[{label.upper()}] Sampled and scored {n_samples} molecules in {elapsed / 60:.1f} min."
+        )
+        return df
+
     def run(self, molecule: str | Path = DEFAULT_MOLECULE) -> Path:
-        """Execute end-to-end multi-objective LBDD RL exploration and lead prioritization."""
+        """Execute end-to-end multi-objective SequenceRNN RL exploration and lead prioritization."""
         self.paths.create_directories()
 
         ref_sdf = self.paths.raw_data_dir / "query_molecule_3d.sdf"
-        ref_png = self.paths.raw_data_dir / "reference_3d_superposition.png"
-        scaffold_tsv = self.paths.raw_data_dir / "seed_core_scaffold.tsv"
+        ref_png = self.paths.figures_dir / "reference_3d_superposition.png"
 
-        # Stage 0: 3D Reference Conformers & Core Scaffold
+        # Stage 0: 3D Reference Conformer Ensemble
         query_desc = str(molecule)[:40]
-        print(f"\n[Stage 0] Generating 3D reference conformers for: {query_desc}...")
+        logger.info(
+            f"\n[Stage 0] Generating 3D reference conformer ensemble for: {query_desc}..."
+        )
         self.preparer.generate_reference_conformers(molecule, output_path=ref_sdf)
         render_reference_ensemble(ref_sdf, output_png=ref_png)
-        self.preparer.extract_seed_core_scaffold(molecule, output_path=scaffold_tsv)
 
-        # Stage 1: Reinforcement Learning Exploration
-        print(
-            f"[Stage 1] Executing RL exploration (epochs={self.config.epochs}, samples={self.config.n_samples}, criteria={self.config.criteria})..."
+        # Stage 1: Load Pretrained Models & Sample Pre-Training Baseline Arm
+        logger.info(
+            "\n[Stage 1] Loading pretrained models and sampling pre-training baseline arm..."
         )
-        optimizer = GraphTransformerOptimizer(
+        optimizer = SequenceRNNOptimizer(
             models_dir=self.paths.models_dir,
-            raw_data_dir=self.paths.raw_data_dir,
             gpu=self.config.gpu,
             agent_path=self.config.agent_path,
+            vocab_path=self.config.vocab_path,
         )
-        env, epsilon = create_environment(
-            ref_sdf,
-            thresholds=self.config.thresholds,
-            epsilon=self.config.epsilon,
-            max_conformers=self.config.max_conformers,
-            timeout=self.config.timeout_seconds,
-            reward_scheme=self.config.reward_scheme,
-            score_variant=self.config.score_variant,
-        )
+        agent, prior, voc = optimizer.load_models()
 
-        batch_size = (
-            self.config.batch_size
-            or HardwareManager.get_recommended_batch_size(self.config.n_samples)
+        env = create_environment(ref_sdf, config=self.config)
+
+        logger.info(
+            f"Sampling {self.config.n_eval_samples} baseline molecules from untrained prior..."
         )
-        train_loader, val_loader, _ = optimizer.prepare_seed_fragments(
-            molecule,
-            n_prompts=self.config.n_samples,
-            scaffolds_path=scaffold_tsv,
-            val_samples=self.config.val_samples,
-            batch_size=batch_size,
+        df_before = self.sample_and_score(
+            agent=agent,
+            env=env,
+            n_samples=self.config.n_eval_samples,
+            label="baseline",
+            batch_size=self.config.batch_size,
+        )
+        baseline_csv = self.paths.raw_data_dir / "baseline_raw.csv.gz"
+        df_before.to_csv(baseline_csv, index=False, compression="gzip")
+
+        # Stage 2: Reinforcement Learning Exploration
+        logger.info(
+            f"\n[Stage 2] Executing RL exploration (epochs={self.config.epochs}, samples={self.config.n_samples}, "
+            f"epsilon={self.config.epsilon}, beta={self.config.beta}, reward_scheme={self.config.reward_scheme})..."
         )
         explorer = optimizer.build_explorer(
-            env,
-            epsilon=epsilon,
-            beta=self.config.beta,
-            batch_size=batch_size,
-            epsilon_end=self.config.epsilon_end,
-            decay_epochs=self.config.decay_epochs,
-            decay_type=self.config.decay_type,
+            agent=agent,
+            env=env,
+            mutate=prior,
+            config=self.config,
         )
 
-        model_prefix = self.paths.raw_data_dir / "david_agent"
-        monitor = PeakRecoveryMonitor(
-            model_prefix,
-            save_smiles=True,
-            reset_directory=False,
-            criteria=self.config.criteria,
-        )
+        output_base = self.paths.models_dir / "SequenceRNN_reinforced"
+        monitor = FileMonitor(str(output_base), save_smiles=True, reset_directory=True)
 
+        t_start = time.time()
         explorer.fit(
-            train_loader,
-            val_loader,
+            monitor=monitor,
             epochs=self.config.epochs,
             patience=self.config.patience,
-            min_epochs=min(self.config.min_epochs, self.config.epochs),
+            reload_interval=self.config.epochs + 1,
             criteria=self.config.criteria,
-            monitor=monitor,
+            min_epochs=self.config.min_epochs,
+        )
+        monitor.close()
+        logger.info(
+            f"RL training complete in {(time.time() - t_start) / 60:.1f} minutes."
         )
 
-        # Persist final epoch model checkpoint explicitly before peak restoration
-        final_pkg = self.paths.raw_data_dir / "david_agent_final.pkg"
-        agent_model = (
-            optimizer.AGENT.getModel()
-            if hasattr(optimizer.AGENT, "getModel")
-            else (optimizer.AGENT.state_dict() if hasattr(optimizer.AGENT, "state_dict") else None)
+        # Save explicit final-epoch weights separately
+        final_pkg = self.paths.models_dir / "SequenceRNN_reinforced_final_epoch.pkg"
+        torch.save(agent.getModel(), str(final_pkg))
+        logger.info(f"Saved final-epoch checkpoint to: {final_pkg}")
+
+        # Stage 3: Post-Training Evaluation Arm
+        logger.info(
+            f"\n[Stage 3] Sampling {self.config.n_eval_samples} molecules from reinforced agent..."
         )
-        if agent_model is not None:
-            torch.save(agent_model, final_pkg)
-
-        monitor.restore_peak_model(optimizer.AGENT)
-
-        for pkg in self.paths.raw_data_dir.glob("*.pkg"):
-            shutil.move(str(pkg), str(self.paths.models_dir / pkg.name))
-
-        fit_tsv = Path(f"{model_prefix}_fit.tsv")
-        if fit_tsv.exists():
-            render_training_curves(fit_tsv, output_png=self.paths.root / "rl_training_curves.png")
-
-        # Stage 2: Final Candidate Generation from Peak Agent
-        eval_samples = self.config.n_eval_samples
-        print(f"\n[Final Evaluation] Generating {eval_samples} candidate molecules from peak agent...")
-        eval_loader, _, _ = optimizer.prepare_seed_fragments(
-            molecule,
-            n_prompts=eval_samples,
-            scaffolds_path=scaffold_tsv,
+        df_after = self.sample_and_score(
+            agent=agent,
+            env=env,
+            n_samples=self.config.n_eval_samples,
+            label="reinforced",
+            batch_size=self.config.batch_size,
         )
-        smiles_list, frags_list = optimizer.AGENT.sample(eval_loader)
-        df = env.getScores(smiles_list, frags=frags_list)
-        df.insert(0, std.SMILES, smiles_list)
-        df.insert(1, std.FRAGS, frags_list)
+        reinforced_csv = self.paths.raw_data_dir / "reinforced_raw.csv.gz"
+        df_after.to_csv(reinforced_csv, index=False, compression="gzip")
 
-        candidates_tsv = self.paths.raw_data_dir / "generated_candidates.tsv"
-        df.to_csv(candidates_tsv, sep="\t", index=False)
-
-        # Stage 3: Lead Prioritization & Deliverables
-        print("[Stage 2] Profiling generated leads and deliverables...")
-        analyzer = ResultAnalyzer(
-            deliverables_dir=self.paths.root,
-            raw_data_dir=self.paths.raw_data_dir,
+        # Stage 4: Publication Visualization Suite & Comparative Analytics
+        logger.info(
+            "\n[Stage 4] Generating publication-grade figures, trajectory analytics, and lead structures..."
         )
-        history_tsv = Path(f"{model_prefix}_smiles.tsv")
-        analyzer.analyze(
-            candidates_tsv,
-            ref_sdf=ref_sdf,
-            history_tsv=history_tsv if history_tsv.is_file() else None,
+        analyzer = ResultAnalyzer(self.paths)
+        analyzer.generate_full_report(
+            df_before=df_before,
+            df_after=df_after,
+            ref_smiles=str(molecule),
+            monitor_prefix=str(output_base),
         )
 
-        status = {
-            "run_id": self.paths.root.name,
-            "status": "SUCCESS",
-            "gpu_telemetry": get_gpu_telemetry(),
-        }
-        with open(self.paths.logs_dir / "pipeline_status.json", "w", encoding="utf-8") as f:
-            json.dump(status, f, indent=4)
-
-        summary_md = self.paths.root / "summary.md"
-        top_leads_tsv = self.paths.root / "top_prioritized_leads.tsv"
-        top_leads_df = (
-            pd.read_csv(top_leads_tsv, sep="\t")
-            if top_leads_tsv.is_file()
-            else pd.DataFrame()
+        logger.info(
+            f"\n[Pipeline Complete] Authoritative outputs generated at: {self.paths.root}"
         )
-
-        md_lines = [
-            f"# DrugEx Run Summary: {self.paths.root.name}",
-            "",
-            f"- **Target Molecule**: `{query_desc}...`",
-            f"- **Epochs**: `{self.config.epochs}`",
-            f"- **Criteria**: `{self.config.criteria}`",
-            f"- **Candidates Evaluated**: `{eval_samples}`",
-            "",
-            "## Presentation Deliverables",
-            "- [Lead Structures 2D](lead_structures_2d.png)",
-            "- [Property Distributions (2x5 Profile)](property_distributions.png)",
-            "- [RL Training Curves](rl_training_curves.png)",
-            "- [Top Prioritized Leads (TSV)](top_prioritized_leads.tsv)",
-            "",
-            "## Top Prioritized Chemical Leads",
-            "",
-        ]
-        if not top_leads_df.empty:
-            cols = [
-                c
-                for c in [
-                    std.ROCS,
-                    std.SA,
-                    std.QED,
-                    std.MW,
-                    std.CANONICAL_SMILES,
-                ]
-                if c in top_leads_df.columns
-            ]
-            md_lines.append("| " + " | ".join(cols) + " |")
-            md_lines.append("| " + " | ".join(["---"] * len(cols)) + " |")
-            for _, row in top_leads_df[cols].head(5).iterrows():
-                vals = [
-                    f"{float(row[c]):.3f}"
-                    if isinstance(row[c], (float, int))
-                    else str(row[c])
-                    for c in cols
-                ]
-                md_lines.append("| " + " | ".join(vals) + " |")
-        else:
-            md_lines.append("*No leads generated.*")
-        summary_md.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
-
-        print(f"\n[DONE] Deliverables saved directly to: {self.paths.root}")
         return self.paths.root
 
 
-def parse_args() -> tuple[PipelineConfig, RunPaths, str | Path, bool]:
-    """Parse CLI arguments deriving all defaults strictly from PipelineConfig."""
-    parser = argparse.ArgumentParser(description="DrugEx LBDD Pipeline Runner")
-    defaults = PipelineConfig()
-
-    parser.add_argument("--epochs", type=int, default=defaults.epochs, help="Number of RL epochs")
-    parser.add_argument("--min-epochs", type=int, default=defaults.min_epochs, help="Minimum RL epochs before early exit")
-    parser.add_argument("--patience", type=int, default=defaults.patience, help="Early stopping patience")
-    parser.add_argument("--n-samples", type=int, default=defaults.n_samples, help="RL prompt batch size")
-    parser.add_argument("--batch-size", type=int, default=defaults.batch_size, help="Explicit batch size for RL exploration")
-    parser.add_argument("--val-samples", type=int, default=defaults.val_samples, help="Validation sample size")
-    parser.add_argument("--n-eval-samples", type=int, default=defaults.n_eval_samples,
-        help="Number of final candidates generated from peak agent")
-    parser.add_argument("--criteria", default=defaults.criteria, help="Peak model monitoring criteria")
-    parser.add_argument("--epsilon", type=float, default=defaults.epsilon, help="Exploration noise epsilon (start)")
-    parser.add_argument(
-        "--epsilon-end",
-        type=float,
-        default=defaults.epsilon_end,
-        help="Scheduled exploration noise epsilon floor (or None to disable decay)",
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments for standalone execution."""
+    parser = argparse.ArgumentParser(
+        description="DrugEx SequenceRNN De Novo Drug Design Pipeline"
     )
     parser.add_argument(
-        "--decay-epochs",
+        "--epochs", type=int, default=50, help="RL training epochs (default: 50)"
+    )
+    parser.add_argument(
+        "--samples",
         type=int,
-        default=defaults.decay_epochs,
-        help="Number of epochs over which epsilon decays from start to end",
+        default=500,
+        help="Molecules per training epoch (default: 500)",
     )
     parser.add_argument(
-        "--decay-type",
-        default=defaults.decay_type,
-        choices=["cosine", "linear"],
-        help="Decay schedule profile ('cosine' or 'linear')",
-    )
-    parser.add_argument("--beta", type=float, default=defaults.beta, help="Baseline reward penalty")
-    parser.add_argument(
-        "--max-conformers",
+        "--eval-samples",
         type=int,
-        default=defaults.max_conformers,
-        help="Max 3D conformers generated per candidate molecule for ROCS scoring",
+        default=1000,
+        help="Molecules per evaluation arm (default: 1000)",
     )
     parser.add_argument(
-        "--max-reference-conformers",
-        type=int,
-        default=defaults.max_reference_conformers,
-        help="Max Butina cluster centroids in reference 3D ensemble",
+        "--epsilon", type=float, default=0.20, help="Exploration rate (default: 0.20)"
     )
     parser.add_argument(
-        "--score-variant",
-        default=defaults.score_variant,
-        choices=["tanimoto", "tversky_ref", "tversky_fit", "tversky_subshape"],
-        help="3D shape/color scoring variant",
+        "--beta", type=float, default=0.0, help="Policy baseline penalty (default: 0.0)"
     )
     parser.add_argument(
         "--reward-scheme",
-        default=defaults.reward_scheme,
-        choices=["pareto", "chebyshev", "harrington", "gmean", "weighted_sum"],
-        help="Multi-objective RL reward scalarization scheme",
+        type=str,
+        default="weighted_sum",
+        choices=["weighted_sum", "pareto_crowding", "harrington"],
+        help="Multi-objective reward scheme (default: weighted_sum)",
     )
-    parser.add_argument("--molecule", default=DEFAULT_MOLECULE, help="Target molecule SMILES string")
-    parser.add_argument("--input", default=None, help="Target molecule structure file (.sdf, .smi, .txt)")
-    parser.add_argument("--gpu", default=defaults.gpu, help="GPU device ID or 'auto'/'cpu'")
-    parser.add_argument("--cpu-ratio", type=float, default=defaults.cpu_ratio,
-        help="Fraction of CPU cores allocated for parallel scoring (default: 0.60)")
-    parser.add_argument("--agent-path", type=Path, default=None, help="Warm-start model checkpoint (.pkg)")
-    parser.add_argument("--thresholds", nargs="+", type=float, default=None, help="Thresholds for objectives (ROCS, SA, QED)")
-    parser.add_argument("--out-dir", "--output-dir", type=Path, default=None, help="Explicit custom output directory")
-    parser.add_argument("--detach", action="store_true", default=False, help="Run as detached background daemon")
-    args, _ = parser.parse_known_args()
-
-    thresholds = tuple(args.thresholds) if args.thresholds is not None else defaults.thresholds
-    config = PipelineConfig(
-        epochs=args.epochs,
-        min_epochs=args.min_epochs,
-        patience=args.patience,
-        n_samples=args.n_samples,
-        batch_size=args.batch_size,
-        val_samples=args.val_samples,
-        n_eval_samples=args.n_eval_samples,
-        criteria=args.criteria,
-        epsilon=args.epsilon,
-        epsilon_end=args.epsilon_end,
-        decay_epochs=args.decay_epochs,
-        decay_type=args.decay_type,
-        beta=args.beta,
-        score_variant=args.score_variant,
-        reward_scheme=args.reward_scheme,
-        max_conformers=args.max_conformers,
-        max_reference_conformers=args.max_reference_conformers,
-        gpu=args.gpu,
-        cpu_ratio=args.cpu_ratio,
-        agent_path=args.agent_path,
-        thresholds=thresholds,
+    parser.add_argument(
+        "--score-variant",
+        type=str,
+        default="tanimoto_combo",
+        choices=["tanimoto_combo", "tversky_subshape"],
+        help="3D ROCS scoring variant (default: tanimoto_combo)",
     )
-    paths = RunPaths.resolve(base_dir=args.out_dir)
-    target_molecule = args.input if args.input is not None else args.molecule
-    return config, paths, target_molecule, args.detach
-
-
-def main() -> None:
-    config, paths, molecule, detach = parse_args()
-    is_worker = os.environ.get("DRUGEX_DETACHED_WORKER") == "1"
-
-    if detach and not is_worker:
-        paths.create_directories()
-        log_file = paths.logs_dir / "pipeline.log"
-        pid_file = paths.logs_dir / "run.pid"
-
-        env = dict(os.environ)
-        env["DRUGEX_DETACHED_WORKER"] = "1"
-        env["DRUGEX_OUTPUT_DIR"] = str(paths.root)
-
-        cmd = [
-            sys.executable,
-            str(Path(__file__).resolve()),
-            "--epochs", str(config.epochs),
-            "--min-epochs", str(config.min_epochs),
-            "--patience", str(config.patience),
-            "--n-samples", str(config.n_samples),
-            "--val-samples", str(config.val_samples),
-            "--n-eval-samples", str(config.n_eval_samples),
-            "--criteria", str(config.criteria),
-            "--epsilon", str(config.epsilon),
-            "--beta", str(config.beta),
-            "--score-variant", str(config.score_variant),
-            "--reward-scheme", str(config.reward_scheme),
-            "--max-conformers", str(config.max_conformers),
-            "--max-reference-conformers", str(config.max_reference_conformers),
-            "--gpu", str(config.gpu),
-            "--out-dir", str(paths.root),
-        ]
-        if config.epsilon_end is not None:
-            cmd.extend([
-                "--epsilon-end", str(config.epsilon_end),
-                "--decay-epochs", str(config.decay_epochs),
-                "--decay-type", str(config.decay_type),
-            ])
-
-        if isinstance(molecule, (str, Path)) and Path(str(molecule)).exists():
-            cmd.extend(["--input", str(molecule)])
-        else:
-            cmd.extend(["--molecule", str(molecule)])
-
-        if config.cpu_ratio is not None:
-            cmd.extend(["--cpu-ratio", str(config.cpu_ratio)])
-
-        if config.batch_size is not None:
-            cmd.extend(["--batch-size", str(config.batch_size)])
-
-        if config.agent_path is not None:
-            cmd.extend(["--agent-path", str(config.agent_path)])
-
-        if config.thresholds is not None:
-            cmd.extend(["--thresholds"] + [str(t) for t in config.thresholds])
-
-        with open(log_file, "a", encoding="utf-8") as f_out:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=f_out,
-                stderr=subprocess.STDOUT,
-                cwd=str(PROJECT_ROOT),
-                env=env,
-                start_new_session=(sys.platform != "win32"),
-            )
-
-        with open(pid_file, "w", encoding="utf-8") as f_pid:
-            f_pid.write(str(proc.pid))
-
-        print(f"Spawned detached background process PID: {proc.pid}")
-        print(f"Output directory: {paths.root}")
-        print(f"Live log: tail -f {log_file}")
-        return
-
-    pipeline = MoleculePipeline(config=config, paths=paths)
-    pipeline.run(molecule)
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Authoritative output root directory",
+    )
+    parser.add_argument(
+        "--molecule",
+        type=str,
+        default=DEFAULT_MOLECULE,
+        help="Target reference SMILES / SDF path",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    cfg = PipelineConfig(
+        epochs=args.epochs,
+        n_samples=args.samples,
+        n_eval_samples=args.eval_samples,
+        epsilon=args.epsilon,
+        beta=args.beta,
+        reward_scheme=args.reward_scheme,
+        score_variant=args.score_variant,
+    )
+    pipe = MoleculePipeline(config=cfg, output_dir=args.output_dir)
+    pipe.run(molecule=args.molecule)
