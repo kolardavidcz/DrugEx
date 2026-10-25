@@ -37,19 +37,8 @@ download.log
 /outputs
 outputs/
 **/outputs/
-# /output
-output/*
-!output/archive/
-!output/archive/**
-output/archive/aborted_runs/
-output/archive/batch_logs/
-output/archive/dev_tests/
-!output/RUN_DIFFERENCES.md
-!output/**/README.md
-!_david/output/archive/
-!_david/output/archive/**
-!_david/output/RUN_DIFFERENCES.md
-!_david/output/**/README.md
+output/
+outputs/
 
 # Test directories, copies & runners
 /_test_*

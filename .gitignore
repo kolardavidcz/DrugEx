@@ -37,22 +37,10 @@ download.log
 /tutorial/advanced/rocs/*.csv
 /tutorial/advanced/rocs/*.txt
 # Generated run outputs & artifacts
-/outputs/
-/outputs
 outputs/
-**/outputs/
-/output/
-/output
+output/
+_david/output/
 _david/outputs/
-**/_david/outputs/
-_david/output/*
-!_david/output/archive/
-!_david/output/archive/**
-!_david/output/RUN_DIFFERENCES.md
-!_david/output/**/README.md
-!_david/output/**/*.png
-!_david/output/*.md
-!_david/output/*.html
 
 # Test directories, copies & runners
 /_test_*
@@ -60,7 +48,6 @@ _test_*/
 /test_notebook_runner.py
 /test_cell*.py
 /test_*.py
-!_david/output/archive/**
 
 # Intermediate test & CLI artifacts
 /testing/clitest/data/*.txt
