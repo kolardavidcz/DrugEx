@@ -1,60 +1,16 @@
 from __future__ import annotations
 
 import os
-import sys
-from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 import torch
 
 
-@dataclass
-class FallbackEvent:
-    """Record of an automated architectural fallback event for diagnostic tracking."""
-
-    timestamp: str
-    fallback_type: str
-    message: str
-    context: dict[str, Any] = field(default_factory=dict)
-
-
-class FallbackMonitor:
-    """Thread-safe diagnostic monitor tracking graceful architectural fallbacks."""
-
-    _events: list[FallbackEvent] = []
-
-    @classmethod
-    def record_fallback(
-        cls,
-        fallback_type: str,
-        message: str,
-        context: dict[str, Any] | None = None,
-    ) -> None:
-        """Record an architectural fallback event and emit alert to stderr."""
-        event = FallbackEvent(
-            timestamp=datetime.now().isoformat(),
-            fallback_type=fallback_type,
-            message=message,
-            context=context or {},
-        )
-        cls._events.append(event)
-        print(f"\n[FALLBACK MONITOR ALERT] {fallback_type}: {message}", file=sys.stderr)
-
-    @classmethod
-    def get_events(cls) -> list[FallbackEvent]:
-        """Return shallow copy of recorded fallback events."""
-        return list(cls._events)
-
-
 class HardwareManager:
     """Central dynamic hardware solver for machine-agnostic compute resource allocation."""
 
-    def __init__(self, cpu_ratio: float = 0.60) -> None:
-        self.cpu_ratio = cpu_ratio
-
     @classmethod
-    def get_safe_parallel_jobs(cls, ratio: float = 0.60, cap: int | None = None) -> int:
+    def get_safe_parallel_jobs(cls, ratio: float = 0.90, cap: int | None = None) -> int:
         """Calculate parallel worker allocation dynamically based on host logical core capacity."""
         total = os.cpu_count() or 1
         jobs = max(1, int(total * ratio))
@@ -139,13 +95,16 @@ class HardwareManager:
         return max(1, min(batch_size, n_samples))
 
     @classmethod
-    def init_runtime_environment(cls, ratio: float = 0.60) -> dict[str, str]:
+    def init_runtime_environment(cls, ratio: float = 0.90) -> dict[str, str]:
         """Sole authority for initializing multiprocessing and scoring environment."""
-        n_jobs = str(cls.get_safe_parallel_jobs(ratio=ratio, cap=32))
+        n_jobs = str(cls.get_safe_parallel_jobs(ratio=ratio))
         os.environ["DRUGEX_SCORE_NJOBS"] = n_jobs
         if "DRUGEX_MP_CONTEXT" not in os.environ:
             os.environ["DRUGEX_MP_CONTEXT"] = "fork"
-        return {"DRUGEX_SCORE_NJOBS": n_jobs, "DRUGEX_MP_CONTEXT": os.environ["DRUGEX_MP_CONTEXT"]}
+        return {
+            "DRUGEX_SCORE_NJOBS": n_jobs,
+            "DRUGEX_MP_CONTEXT": os.environ["DRUGEX_MP_CONTEXT"],
+        }
 
 
 def get_gpu_telemetry() -> dict[str, Any]:

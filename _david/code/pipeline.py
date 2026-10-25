@@ -4,7 +4,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import torch
@@ -37,7 +36,7 @@ class MoleculePipeline:
         **kwargs,
     ) -> None:
         self.config: PipelineConfig = config or PipelineConfig(**kwargs)
-        HardwareManager.init_runtime_environment(ratio=self.config.cpu_ratio or 0.60)
+        HardwareManager.init_runtime_environment(ratio=self.config.cpu_ratio)
 
         if paths is not None:
             self.paths: RunPaths = paths
@@ -60,11 +59,7 @@ class MoleculePipeline:
         label: str,
         batch_size: int = 64,
     ) -> pd.DataFrame:
-        """Sample raw sequences from agent and evaluate multi-objective scores through the environment.
-
-        Avoids generator-level evaluator bugs by explicitly sampling raw SMILES, canonicalizing,
-        and querying environment scores.
-        """
+        """Sample raw sequences from agent and evaluate multi-objective scores through the environment."""
         t0 = time.time()
         gen_df = agent.generate(
             num_samples=n_samples,
@@ -96,7 +91,7 @@ class MoleculePipeline:
         self.paths.create_directories()
 
         ref_sdf = self.paths.raw_data_dir / "query_molecule_3d.sdf"
-        ref_png = self.paths.figures_dir / "reference_3d_superposition.png"
+        ref_png = self.paths.root / "reference_3d_superposition.png"
 
         # Stage 0: 3D Reference Conformer Ensemble
         query_desc = str(molecule)[:40]
@@ -106,7 +101,7 @@ class MoleculePipeline:
         self.preparer.generate_reference_conformers(molecule, output_path=ref_sdf)
         render_reference_ensemble(ref_sdf, output_png=ref_png)
 
-        # Stage 1: Load Pretrained Models & Sample Pre-Training Baseline Arm
+        # Stage 1: Load Pretrained Models & Sample Baseline Arm
         logger.info(
             "\n[Stage 1] Loading pretrained models and sampling pre-training baseline arm..."
         )
@@ -117,7 +112,6 @@ class MoleculePipeline:
             vocab_path=self.config.vocab_path,
         )
         agent, prior, voc = optimizer.load_models()
-
         env = create_environment(ref_sdf, config=self.config)
 
         logger.info(
@@ -130,8 +124,11 @@ class MoleculePipeline:
             label="baseline",
             batch_size=self.config.batch_size,
         )
-        baseline_csv = self.paths.raw_data_dir / "baseline_raw.csv.gz"
-        df_before.to_csv(baseline_csv, index=False, compression="gzip")
+        df_before.to_csv(
+            self.paths.raw_data_dir / "baseline_raw.csv.gz",
+            index=False,
+            compression="gzip",
+        )
 
         # Stage 2: Reinforcement Learning Exploration
         logger.info(
@@ -162,12 +159,12 @@ class MoleculePipeline:
             f"RL training complete in {(time.time() - t_start) / 60:.1f} minutes."
         )
 
-        # Save explicit final-epoch weights separately
+        # Save final-epoch checkpoint
         final_pkg = self.paths.models_dir / "SequenceRNN_reinforced_final_epoch.pkg"
         torch.save(agent.getModel(), str(final_pkg))
         logger.info(f"Saved final-epoch checkpoint to: {final_pkg}")
 
-        # Stage 3: Post-Training Evaluation Arm
+        # Stage 3: Reinforced Agent Evaluation Arm
         logger.info(
             f"\n[Stage 3] Sampling {self.config.n_eval_samples} molecules from reinforced agent..."
         )
@@ -178,23 +175,26 @@ class MoleculePipeline:
             label="reinforced",
             batch_size=self.config.batch_size,
         )
-        reinforced_csv = self.paths.raw_data_dir / "reinforced_raw.csv.gz"
-        df_after.to_csv(reinforced_csv, index=False, compression="gzip")
+        df_after.to_csv(
+            self.paths.raw_data_dir / "reinforced_raw.csv.gz",
+            index=False,
+            compression="gzip",
+        )
 
-        # Stage 4: Publication Visualization Suite & Comparative Analytics
+        # Stage 4: Result Analysis & Visualization Suite
         logger.info(
-            "\n[Stage 4] Generating publication-grade figures, trajectory analytics, and lead structures..."
+            "\n[Stage 4] Generating publication deliverables, comparative analytics, and lead structures..."
         )
         analyzer = ResultAnalyzer(self.paths)
-        analyzer.generate_full_report(
-            df_before=df_before,
+        analyzer.analyze(
             df_after=df_after,
+            df_before=df_before,
             ref_smiles=str(molecule),
             monitor_prefix=str(output_base),
         )
 
         logger.info(
-            f"\n[Pipeline Complete] Authoritative outputs generated at: {self.paths.root}"
+            f"\n[Pipeline Complete] Authoritative deliverables generated at: {self.paths.root}"
         )
         return self.paths.root
 
@@ -240,6 +240,12 @@ def parse_args() -> argparse.Namespace:
         help="3D ROCS scoring variant (default: tanimoto_combo)",
     )
     parser.add_argument(
+        "--cpu-ratio",
+        type=float,
+        default=0.90,
+        help="CPU core utilization ratio (default: 0.90)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -264,6 +270,7 @@ if __name__ == "__main__":
         beta=args.beta,
         reward_scheme=args.reward_scheme,
         score_variant=args.score_variant,
+        cpu_ratio=args.cpu_ratio,
     )
     pipe = MoleculePipeline(config=cfg, output_dir=args.output_dir)
     pipe.run(molecule=args.molecule)

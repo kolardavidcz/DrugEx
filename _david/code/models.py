@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import torch
 from drugex import DEFAULT_DEVICE, DEFAULT_GPUS
 from drugex.data.corpus.vocabulary import VocSmiles
 from drugex.logs import logger
@@ -20,11 +19,7 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 
 class DecayingSequenceExplorer(SequenceExplorer):
-    """SequenceExplorer with optional scheduled exploration noise (epsilon) decay.
-
-    Provides smooth transitioning between broad initial exploration and focused late-stage
-    policy gradient exploitation, avoiding late policy dilution while logging exact epsilon rates.
-    """
+    """SequenceExplorer with scheduled exploration noise (epsilon) decay."""
 
     def __init__(
         self,
@@ -67,14 +62,10 @@ class DecayingSequenceExplorer(SequenceExplorer):
         self.current_epoch: int = 0
 
     def get_decayed_epsilon(self, epoch: int) -> float:
-        """Compute scheduled exploration noise epsilon for the given 1-based epoch.
-
-        Supports 'cosine' (Loshchilov & Hutter) and 'linear' schedules.
-        Beyond decay_epochs, epsilon remains clamped at epsilon_end.
-        """
-        if not self.use_decay:
+        """Compute scheduled exploration noise epsilon for the given 1-based epoch."""
+        if not self.use_decay or self.decay_epochs <= 1:
             return self.epsilon_start
-        if self.decay_epochs <= 1 or epoch >= self.decay_epochs:
+        if epoch >= self.decay_epochs:
             return self.epsilon_end
         if epoch <= 1:
             return self.epsilon_start
@@ -97,22 +88,16 @@ class DecayingSequenceExplorer(SequenceExplorer):
             )
 
     def forward(self) -> tuple[Any, Any]:
-        """Advance epoch counter, update decayed epsilon if enabled, and sample evolution sequences."""
+        """Advance epoch counter, update exploration noise if scheduled, and generate sample batch."""
         self.current_epoch += 1
         if self.use_decay:
-            new_eps = self.get_decayed_epsilon(self.current_epoch)
-            self.epsilon = new_eps
-            logger.info(
-                f"[Exploration Schedule] Epoch {self.current_epoch}: epsilon = {self.epsilon:.4f} "
-                f"(start={self.epsilon_start:.2f}, end={self.epsilon_end:.2f}, "
-                f"decay_epochs={self.decay_epochs}, type={self.decay_type})"
-            )
+            self.epsilon = self.get_decayed_epsilon(self.current_epoch)
         return super().forward()
 
     def logPerformanceAndCompounds(
         self, epoch: int, metrics: dict[str, Any], scores: pd.DataFrame
     ) -> None:
-        """Enrich epoch summary metrics with exact current exploration noise (epsilon)."""
+        """Record exact current exploration noise (epsilon) alongside standard epoch metrics."""
         metrics["epsilon"] = float(self.epsilon)
         super().logPerformanceAndCompounds(epoch, metrics, scores)
 
@@ -127,7 +112,7 @@ class SequenceRNNOptimizer:
         agent_path: Path | str | None = None,
         vocab_path: Path | str | None = None,
     ) -> None:
-        HardwareManager.init_runtime_environment()
+        HardwareManager.init_runtime_environment(ratio=0.90)
         self.models_dir = Path(models_dir)
         self.models_dir.mkdir(parents=True, exist_ok=True)
         self.device, self.use_gpus = HardwareManager.get_device_and_gpus(
@@ -141,23 +126,12 @@ class SequenceRNNOptimizer:
         pkg_path: Path | str | None = None,
         vocab_path: Path | str | None = None,
     ) -> tuple[SequenceRNN, SequenceRNN, VocSmiles]:
-        """Instantiate active SequenceRNN agent and an independent, frozen mutate exploration prior.
-
-        Returns:
-            tuple[SequenceRNN, SequenceRNN, VocSmiles]: (agent, frozen_prior, voc)
-        """
-        pkg = (
-            Path(pkg_path or self.agent_path) if (pkg_path or self.agent_path) else None
+        """Instantiate active SequenceRNN agent and an independent, frozen mutate exploration prior."""
+        cfg = PipelineConfig(
+            agent_path=pkg_path or self.agent_path,
+            vocab_path=vocab_path or self.vocab_path,
         )
-        voc_file = (
-            Path(vocab_path or self.vocab_path)
-            if (vocab_path or self.vocab_path)
-            else None
-        )
-
-        if not pkg or not voc_file or not pkg.is_file() or not voc_file.is_file():
-            cfg_dummy = PipelineConfig(agent_path=pkg, vocab_path=voc_file)
-            pkg, voc_file = cfg_dummy.resolve_pretrained_paths()
+        pkg, voc_file = cfg.resolve_pretrained_paths()
 
         logger.info(f"Loading SMILES vocabulary from: {voc_file}")
         voc = VocSmiles.fromFile(str(voc_file), encode_frags=False)
@@ -167,8 +141,8 @@ class SequenceRNNOptimizer:
         agent = SequenceRNN(voc, is_lstm=True, device=self.device)
         agent.loadStatesFromFile(str(pkg))
 
-        # Separate, frozen exploration prior instance for mutate
-        logger.info(f"Instantiating separate frozen SequenceRNN prior from: {pkg}")
+        # Separate frozen exploration prior for mutate
+        logger.info(f"Instantiating frozen SequenceRNN prior from: {pkg}")
         prior = SequenceRNN(voc, is_lstm=True, device=self.device)
         prior.loadStatesFromFile(str(pkg))
         for p in prior.parameters():
@@ -194,7 +168,7 @@ class SequenceRNNOptimizer:
     ) -> SequenceExplorer:
         """Construct configured SequenceExplorer with decoupled stopping criteria and exploration schedule."""
         if config.use_epsilon_decay:
-            explorer: SequenceExplorer = DecayingSequenceExplorer(
+            return DecayingSequenceExplorer(
                 agent=agent,
                 env=env,
                 mutate=mutate,
@@ -209,21 +183,14 @@ class SequenceRNNOptimizer:
                 device=self.device,
                 use_gpus=self.use_gpus,
             )
-        else:
-            explorer = SequenceExplorer(
-                agent=agent,
-                env=env,
-                mutate=mutate,
-                batch_size=config.batch_size,
-                epsilon=config.epsilon,
-                beta=config.beta,
-                n_samples=config.n_samples,
-                device=self.device,
-                use_gpus=self.use_gpus,
-            )
-
-        logger.info(
-            f"Configured SequenceExplorer: samples={config.n_samples}, batch_size={config.batch_size}, "
-            f"epsilon={config.epsilon}, beta={config.beta}, use_decay={config.use_epsilon_decay}"
+        return SequenceExplorer(
+            agent=agent,
+            env=env,
+            mutate=mutate,
+            batch_size=config.batch_size,
+            epsilon=config.epsilon,
+            beta=config.beta,
+            n_samples=config.n_samples,
+            device=self.device,
+            use_gpus=self.use_gpus,
         )
-        return explorer

@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 import numpy as np
-import pandas as pd
 from drugex.molecules.converters.standardizers import DefaultStandardizer
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.rewards import ParetoCrowdingDistance, RewardScheme, WeightedSum
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-from drugex.training.scorers.interfaces import ScoreModifier, Scorer
+from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
 from drugex.training.scorers.properties import Property
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
@@ -20,7 +19,7 @@ from rdkit.ML.Cluster import Butina
 
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
 from _david.code.schema import std
-from _david.code.utils import FallbackMonitor, HardwareManager
+from _david.code.utils import HardwareManager
 
 
 class PrepareMolecule:
@@ -48,11 +47,7 @@ class PrepareMolecule:
             return Chem.MolToSmiles(mol)
 
     def load_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
-        """Load and standardize molecule across RDKit Mols, SMILES strings, and structure files.
-
-        Returns:
-            tuple[Chem.Mol, bool]: (mol, is_3d)
-        """
+        """Load and standardize molecule across RDKit Mols, SMILES strings, and structure files."""
         if isinstance(query, Chem.Mol):
             if query.GetNumConformers() > 0 and query.GetConformer().Is3D():
                 return query, True
@@ -121,8 +116,6 @@ class PrepareMolecule:
 
         if n_rot <= 2 and n_heavy <= 18:
             return 1.00, min(1, max_ensemble_size)
-        if n_rot <= 7 and n_heavy <= 28:
-            return 1.25, min(3, max_ensemble_size)
         if n_rot <= 7:
             return 1.25, min(3, max_ensemble_size)
         return 1.50, min(3, max_ensemble_size)
@@ -135,29 +128,18 @@ class PrepareMolecule:
     ) -> dict[int, float]:
         """Minimize conformers using MMFF94 with UFF fallback and return valid conformer energies in kcal/mol."""
         results = []
-        fallback_reason: str | None = None
         if AllChem.MMFFHasAllMoleculeParams(mol_h):
             results = AllChem.MMFFOptimizeMoleculeConfs(
                 mol_h, maxIters=1000, numThreads=0
             )
             if results and all(status == -1 for status, _ in results):
                 results = []
-                fallback_reason = (
-                    "MMFF94 setup failed for all conformers; falling back to UFF."
-                )
-        else:
-            fallback_reason = (
-                "MMFF94 lacks parameters for query molecule; falling back to UFF."
-            )
 
         if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
-            if fallback_reason:
-                FallbackMonitor.record_fallback(
-                    "FORCE_FIELD", fallback_reason, {"query": query_desc}
-                )
             results = AllChem.UFFOptimizeMoleculeConfs(
                 mol_h, maxIters=1000, numThreads=0
             )
+
         if not results:
             raise RuntimeError(f"Force field optimization failed for: {query_desc}")
 
@@ -183,11 +165,7 @@ class PrepareMolecule:
         num_conformers: int = 100,
         random_seed: int = 42,
     ) -> Path:
-        """Embed, optimize, filter energy window, and cluster 3D reference conformers via Hawkins ensemble protocol.
-
-        Returns:
-            Path: Path to saved 3D reference SDF.
-        """
+        """Embed, optimize, filter energy window, and cluster 3D reference conformers via Hawkins ensemble protocol."""
         target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -269,7 +247,7 @@ def create_rocs_scorer(
     references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
     max_conformers: int = 30,
     timeout: int = 60,
-    score_variant: str = "tanimoto",
+    score_variant: str = "tanimoto_combo",
     conformer_threads: int = 0,
     n_jobs: int | None = None,
 ) -> RDKitROCSScorer:
@@ -284,7 +262,9 @@ def create_rocs_scorer(
         show_progress=False,
     )
     safe_jobs = (
-        n_jobs if n_jobs is not None else HardwareManager.get_safe_parallel_jobs(cap=32)
+        n_jobs
+        if n_jobs is not None
+        else HardwareManager.get_safe_parallel_jobs(ratio=0.90)
     )
     variant = (
         "tanimoto" if score_variant in ("tanimoto", "tanimoto_combo") else score_variant
@@ -307,17 +287,8 @@ class HarringtonDesirabilityReward(RewardScheme):
 
     Maps each objective score s_j through a two-parameter Gompertz desirability function:
         d_j(s_j) = exp(-exp(-(b_{0,j} + b_{1,j} * s_j)))
-    where (b_{0,j}, b_{1,j}) are calibrated from an unacceptable baseline (y0 -> d0 = 0.05)
-    and an aspirational target (y1 -> d1 = 0.70 or 0.90).
-
     The composite desirability D(x) is the weighted geometric mean across all M objectives:
         D(x) = exp(sum_j w_j * ln(d_j(s_j) + eps) / sum_j w_j)
-
-    Properties:
-    1. Strict Non-Compensability: If any objective collapses (d_j -> 0), D(x) -> 0.
-       Cheaters with zero 3D shape overlap receive virtually zero reward regardless of SA or QED.
-    2. Continuous Gradient: Provides a smooth, non-zero gradient everywhere across the
-       optimization landscape, eliminating the zero-gradient plateau of hard step filters.
     """
 
     def __init__(
@@ -474,9 +445,8 @@ def create_environment(
     scorers: list[Scorer] = [rocs_scorer, sa_scorer, qed_scorer]
     active_reward_scheme = resolve_reward_scheme(active_scheme_str, weights=cfg.weights)
 
-    env = DrugExEnvironment(
+    return DrugExEnvironment(
         scorers=scorers,
         thresholds=list(active_thresholds),
         reward_scheme=active_reward_scheme,
     )
-    return env

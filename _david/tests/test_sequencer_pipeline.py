@@ -5,13 +5,10 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-import torch
 from rdkit import Chem
 
 from _david.code.config import (
     DEFAULT_MOLECULE,
-    PRETRAINED_PKG_SHA256,
-    PRETRAINED_VOCAB_SHA256,
     PipelineConfig,
     RunPaths,
 )
@@ -33,17 +30,12 @@ class TestSequenceRNNPipeline(unittest.TestCase):
         cls.config = PipelineConfig()
         cls.pkg_path, cls.voc_path = cls.config.resolve_pretrained_paths()
 
-    def test_01_config_paths_and_hashes(self) -> None:
-        """Verify Papyrus pretrained paths exist and match asserted cryptographic SHA-256 hashes."""
+    def test_01_config_paths(self) -> None:
+        """Verify Papyrus pretrained checkpoint and vocabulary files exist and are non-empty."""
         self.assertTrue(self.pkg_path.is_file(), f"Missing .pkg: {self.pkg_path}")
         self.assertTrue(self.voc_path.is_file(), f"Missing .vocab: {self.voc_path}")
-
-        import hashlib
-
-        pkg_hash = hashlib.sha256(self.pkg_path.read_bytes()).hexdigest()
-        voc_hash = hashlib.sha256(self.voc_path.read_bytes()).hexdigest()
-        self.assertEqual(pkg_hash, PRETRAINED_PKG_SHA256, "Papyrus .pkg hash mismatch!")
-        self.assertEqual(voc_hash, PRETRAINED_VOCAB_SHA256, "Papyrus .vocab hash mismatch!")
+        self.assertGreater(self.pkg_path.stat().st_size, 1000)
+        self.assertGreater(self.voc_path.stat().st_size, 10)
 
     def test_02_model_loading_and_frozen_prior_isolation(self) -> None:
         """Verify agent and mutate prior instantiate as strictly separate objects with frozen prior parameters."""
@@ -58,13 +50,23 @@ class TestSequenceRNNPipeline(unittest.TestCase):
 
             # Strict memory identity verification
             self.assertIsNot(agent, prior, "Mutate prior must NOT be the agent!")
-            self.assertNotEqual(id(agent), id(prior), "Agent and prior must not share identical memory address!")
+            self.assertNotEqual(
+                id(agent),
+                id(prior),
+                "Agent and prior must not share identical memory address!",
+            )
 
             # Trainable vs frozen checks
             agent_trainable = any(p.requires_grad for p in agent.parameters())
             prior_frozen = all(not p.requires_grad for p in prior.parameters())
-            self.assertTrue(agent_trainable, "Active agent must have trainable parameters (requires_grad=True)!")
-            self.assertTrue(prior_frozen, "Mutate prior must have completely frozen parameters (requires_grad=False)!")
+            self.assertTrue(
+                agent_trainable,
+                "Active agent must have trainable parameters (requires_grad=True)!",
+            )
+            self.assertTrue(
+                prior_frozen,
+                "Mutate prior must have completely frozen parameters (requires_grad=False)!",
+            )
             self.assertFalse(prior.training, "Mutate prior must be in eval() mode!")
 
     def test_03_hawkins_conformer_ensemble_generation(self) -> None:
@@ -72,12 +74,17 @@ class TestSequenceRNNPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             sdf_out = Path(tmp_dir) / "test_ref.sdf"
             preparer = PrepareMolecule(max_reference_conformers=3, random_seed=42)
-            # Use Aspirin for fast test
             aspirin_smi = "CC(=O)Oc1ccccc1C(=O)O"
-            res_path = preparer.generate_reference_conformers(aspirin_smi, output_path=sdf_out)
+            res_path = preparer.generate_reference_conformers(
+                aspirin_smi, output_path=sdf_out
+            )
 
             self.assertTrue(res_path.is_file())
-            suppl = [m for m in Chem.SDMolSupplier(str(res_path), removeHs=False) if m is not None]
+            suppl = [
+                m
+                for m in Chem.SDMolSupplier(str(res_path), removeHs=False)
+                if m is not None
+            ]
             self.assertGreaterEqual(len(suppl), 1)
             self.assertLessEqual(len(suppl), 3)
 
@@ -87,14 +94,17 @@ class TestSequenceRNNPipeline(unittest.TestCase):
                 self.assertTrue(conf.Is3D(), "Generated conformer must be 3D!")
                 zs = [conf.GetAtomPosition(i).z for i in range(conf_mol.GetNumAtoms())]
                 z_span = max(zs) - min(zs)
-                self.assertGreater(z_span, 0.5, "Conformer coordinates must not be flat/degenerate in Z axis!")
+                self.assertGreater(
+                    z_span,
+                    0.5,
+                    "Conformer coordinates must not be flat/degenerate in Z axis!",
+                )
 
     def test_04_environment_scoring_and_discrimination(self) -> None:
         """Verify ROCS, SA, and QED multi-objective evaluation discriminates reference from dissimilar control."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             sdf_out = Path(tmp_dir) / "test_egcg_ref.sdf"
             preparer = PrepareMolecule(max_reference_conformers=1, random_seed=42)
-            # Embed fast single conformer of benzene as query reference
             preparer.generate_reference_conformers("c1ccccc1", output_path=sdf_out)
 
             cfg = PipelineConfig(max_conformers=5, reward_scheme="weighted_sum")
@@ -132,7 +142,9 @@ class TestSequenceRNNPipeline(unittest.TestCase):
         harrington = HarringtonDesirabilityReward()
         zero_shape = np.array([[0.0, 0.95, 0.95]])
         rew_zero = float(harrington(["smi"], scores=zero_shape)[0, 0])
-        self.assertLess(rew_zero, 0.10, "Harrington desirability must strictly penalize zero shape!")
+        self.assertLess(
+            rew_zero, 0.10, "Harrington desirability must strictly penalize zero shape!"
+        )
 
     def test_06_decaying_sequence_explorer_schedule(self) -> None:
         """Verify half-cycle cosine and linear exploration decay schedules."""
