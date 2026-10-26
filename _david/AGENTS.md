@@ -67,7 +67,9 @@ These architectural laws were derived empirically from extensive profiling, math
 ### 3.1 The Mutate Prior Identity Trap in DrugEx `SequenceExplorer`
 - **Mechanism**: In `SequenceExplorer.forward()`, the agent evolves batches via:
   ```python
-  seq = self.agent.evolve(self.batchSize, epsilon=self.epsilon, crover=self.crover, mutate=self.mutate)
+  seq = self.agent.evolve(
+      self.batchSize, epsilon=self.epsilon, crover=self.crover, mutate=self.mutate
+  )
   ```
   With probability $\epsilon$, tokens are sampled from `mutate`. If `mutate` is identical to `agent` (or `mutate=None`), mutating samples from the agent's *own* policy. When the agent converges or drifts, $\epsilon$-greedy exploration becomes completely inert ($0\%$ effective exploration).
 - **Consequence**: Catastrophic mode collapse (measured uniqueness collapsing from $0.955$ down to $0.226$).

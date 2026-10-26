@@ -1,8 +1,5 @@
-"""Legacy and historical reward schemes archive."""
+"""Legacy and historical reward schemes and experiments archive."""
+
 from __future__ import annotations
 
-from _david.legacy.anti_cheating.anti_cheating_rewards import AntiCollapseSoftGateReward
-
-__all__: list[str] = [
-    "AntiCollapseSoftGateReward",
-]
+__all__: list[str] = []

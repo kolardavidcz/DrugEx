@@ -132,9 +132,7 @@ class TestLBDDPipeline(unittest.TestCase):
             mols_uff = [m for m in suppl_uff if m is not None]
             self.assertGreater(len(mols_uff), 0)
             self.assertTrue(mols_uff[0].GetConformer().Is3D())
-            self.assertGreater(
-                float(mols_uff[0].GetProp("Energy_MMFF_kcal_mol")), 0.0
-            )
+            self.assertGreater(float(mols_uff[0].GetProp("Energy_MMFF_kcal_mol")), 0.0)
 
     def test_determine_ensemble_parameters(self) -> None:
         """Verify Hawkins (2017) heavy-atom RMSD cutoffs across chemical tiers with topology invariance."""
@@ -163,9 +161,7 @@ class TestLBDDPipeline(unittest.TestCase):
             PrepareMolecule.determine_ensemble_parameters(m_decanoic), (1.50, 1)
         )
 
-        self.assertEqual(
-            PrepareMolecule.determine_ensemble_parameters(None), (1.00, 1)
-        )
+        self.assertEqual(PrepareMolecule.determine_ensemble_parameters(None), (1.00, 1))
         self.assertEqual(
             PrepareMolecule.determine_ensemble_parameters(Chem.MolFromSmiles("")),
             (1.00, 1),
@@ -289,7 +285,9 @@ class TestLBDDPipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             models_dir = Path(tmp_dir) / "models"
             raw_dir = Path(tmp_dir) / "raw_data"
-            optimizer = GraphTransformerOptimizer(models_dir=models_dir, raw_data_dir=raw_dir, gpu="auto")
+            optimizer = GraphTransformerOptimizer(
+                models_dir=models_dir, raw_data_dir=raw_dir, gpu="auto"
+            )
 
             train_loader, val_loader, dataset = optimizer.prepare_seed_fragments(
                 "c1ccccc1O", n_prompts=20, val_samples=5
@@ -308,7 +306,9 @@ class TestLBDDPipeline(unittest.TestCase):
 
         for val in [1.0, 2.5, 3.5, 5.0, 8.0, 10.0]:
             score = float(modifier(val))
-            self.assertTrue(0.0 <= score <= 1.0, f"Score {score} out of [0, 1] bounds for SA {val}")
+            self.assertTrue(
+                0.0 <= score <= 1.0, f"Score {score} out of [0, 1] bounds for SA {val}"
+            )
 
         self.assertEqual(float(modifier(0.0)), 0.0)
         self.assertEqual(float(modifier(-1.0)), 0.0)
@@ -356,7 +356,9 @@ class TestLBDDPipeline(unittest.TestCase):
             df_hist.to_csv(history_tsv, sep="\t", index=False)
 
             analyzer = ResultAnalyzer(tmp_path)
-            saved_leads = analyzer.analyze(candidates_tsv, top_k=5, history_tsv=history_tsv)
+            saved_leads = analyzer.analyze(
+                candidates_tsv, top_k=5, history_tsv=history_tsv
+            )
 
             # 1. No-op must be filtered out despite high ROCS
             self.assertNotIn(smi_noop, saved_leads[std.SMILES].tolist())
@@ -364,11 +366,15 @@ class TestLBDDPipeline(unittest.TestCase):
             # 2. Duplicate canonical SMILES must be collapsed
             asp_canon = Chem.CanonSmiles(smi_asp1)
             asp_rows = saved_leads[saved_leads[std.CANONICAL_SMILES] == asp_canon]
-            self.assertEqual(len(asp_rows), 1, "Duplicate canonical SMILES must be collapsed")
+            self.assertEqual(
+                len(asp_rows), 1, "Duplicate canonical SMILES must be collapsed"
+            )
 
             # 3. Trajectory pooled lead must be retained and prioritized highest (ROCS 1.8)
             self.assertEqual(saved_leads.iloc[0][std.SMILES], smi_high_lead)
-            self.assertGreater(saved_leads.iloc[0][std.ROCS], saved_leads.iloc[-1][std.ROCS])
+            self.assertGreater(
+                saved_leads.iloc[0][std.ROCS], saved_leads.iloc[-1][std.ROCS]
+            )
 
             # 4. Deliverables verified
             self.assertTrue((tmp_path / "top_prioritized_leads.tsv").exists())
@@ -473,16 +479,10 @@ class TestLBDDPipeline(unittest.TestCase):
             )
             pipeline = MoleculePipeline(config=test_config, paths=paths)
             pipeline.run("Oc1ccccc1")
-            self.assertTrue(
-                (paths.logs_dir / "pipeline_status.json").exists()
-            )
+            self.assertTrue((paths.logs_dir / "pipeline_status.json").exists())
             self.assertTrue((paths.root / "summary.md").exists())
-            self.assertTrue(
-                (paths.raw_data_dir / "query_molecule_3d.sdf").exists()
-            )
-            self.assertTrue(
-                (paths.raw_data_dir / "generated_candidates.tsv").exists()
-            )
+            self.assertTrue((paths.raw_data_dir / "query_molecule_3d.sdf").exists())
+            self.assertTrue((paths.raw_data_dir / "generated_candidates.tsv").exists())
             self.assertTrue(
                 (paths.root / "lead_structures_2d.png").exists()
                 or (paths.root / "property_distributions.png").exists()
@@ -500,11 +500,17 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertIsNotNone(cheb_scheme)
 
         # Test continuous monotonic reward response under Chebyshev
-        scores = np.array([
-            [0.0, 1.0, 1.0],  # Benzene/cheater: zero 3D overlap -> heavily penalized
-            [0.75, 1.0, 0.65],  # Good lead
-            [0.85, 1.0, 0.65],  # Superior lead with higher 3D overlap
-        ])
+        scores = np.array(
+            [
+                [
+                    0.0,
+                    1.0,
+                    1.0,
+                ],  # Benzene/cheater: zero 3D overlap -> heavily penalized
+                [0.75, 1.0, 0.65],  # Good lead
+                [0.85, 1.0, 0.65],  # Superior lead with higher 3D overlap
+            ]
+        )
         smiles = ["c1ccccc1", "Cc1ccccc1", "CCc1ccccc1"]
         rewards = cheb_scheme(smiles, scores=scores)
         self.assertEqual(rewards.shape, (3, 1))
@@ -571,7 +577,9 @@ class TestLBDDPipeline(unittest.TestCase):
                 self.epsilon = self.epsilon_start
 
         # 1. Cosine decay schedule verification
-        cos_exp = DummyExplorer(epsilon=0.25, epsilon_end=0.05, decay_epochs=50, decay_type="cosine")
+        cos_exp = DummyExplorer(
+            epsilon=0.25, epsilon_end=0.05, decay_epochs=50, decay_type="cosine"
+        )
         self.assertAlmostEqual(cos_exp.get_decayed_epsilon(1), 0.25, places=5)
         self.assertAlmostEqual(cos_exp.get_decayed_epsilon(50), 0.05, places=5)
         # Monotonically non-increasing
@@ -586,7 +594,9 @@ class TestLBDDPipeline(unittest.TestCase):
         self.assertAlmostEqual(cos_exp.get_decayed_epsilon(100), 0.05, places=5)
 
         # 2. Linear decay schedule verification
-        lin_exp = DummyExplorer(epsilon=0.25, epsilon_end=0.05, decay_epochs=50, decay_type="linear")
+        lin_exp = DummyExplorer(
+            epsilon=0.25, epsilon_end=0.05, decay_epochs=50, decay_type="linear"
+        )
         self.assertAlmostEqual(lin_exp.get_decayed_epsilon(1), 0.25, places=5)
         self.assertAlmostEqual(lin_exp.get_decayed_epsilon(50), 0.05, places=5)
         self.assertAlmostEqual(lin_exp.get_decayed_epsilon(100), 0.05, places=5)
@@ -604,19 +614,26 @@ class TestLBDDPipeline(unittest.TestCase):
         metrics_dict: dict[str, Any] = {"Epoch": 1, "avg_amean": 0.65}
         # Call DecayingFragGraphExplorer.logPerformanceAndCompounds logic
         cos_exp.epsilon = 0.18
+
         # Mock monitor
         class MockMonitor:
             def savePerformanceInfo(self, m, df_smiles=None):
                 self.saved_metrics = m
+
             def endStep(self, step, epoch):
                 pass
+
         cos_exp.monitor = MockMonitor()
         cos_exp.last_save = 1
         mock_env = MagicMock()
         mock_env.getScorerKeys.return_value = []
         cos_exp.env = mock_env
-        df_scores = pd.DataFrame({"Epoch": [1], "SMILES": ["c1ccccc1"], "Valid": [True], "Desired": [True]})
-        DecayingFragGraphExplorer.logPerformanceAndCompounds(cos_exp, 1, metrics_dict, df_scores)
+        df_scores = pd.DataFrame(
+            {"Epoch": [1], "SMILES": ["c1ccccc1"], "Valid": [True], "Desired": [True]}
+        )
+        DecayingFragGraphExplorer.logPerformanceAndCompounds(
+            cos_exp, 1, metrics_dict, df_scores
+        )
         self.assertIn("epsilon", metrics_dict)
         self.assertAlmostEqual(metrics_dict["epsilon"], 0.18, places=4)
 

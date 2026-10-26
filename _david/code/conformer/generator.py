@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Mapping
 
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdForceFieldHelpers, rdMolAlign
+from rdkit.Chem import rdForceFieldHelpers, rdMolAlign
+from rdkit.Chem.rdDistGeom import ETKDGv3, EmbedMultipleConfs
 from rdkit.ML.Cluster import Butina
 
 from _david.code.conformer.physics import ForceFieldVariant
@@ -49,10 +50,10 @@ class ConformerGenerator:
             RDKit molecule with raw embedded 3D conformers.
         """
         mol = Chem.Mol(self.mol_h)
-        params = AllChem.ETKDGv3()
+        params = ETKDGv3()
         params.randomSeed = seed
         params.pruneRmsThresh = prune_rms
-        AllChem.EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
+        EmbedMultipleConfs(mol, numConfs=n_conformers, params=params)
         return mol
 
     def minimize_and_score(
@@ -128,9 +129,9 @@ class ConformerGenerator:
             valid_cids = list(energies.keys())
 
         if not valid_cids:
-            return [min(energies, key=energies.get)]
+            return [min(energies, key=lambda k: energies[k])]
 
-        valid_cids.sort(key=energies.get)
+        valid_cids.sort(key=lambda k: energies[k])
         n_cids = len(valid_cids)
 
         if n_cids <= 1:
@@ -153,7 +154,7 @@ class ConformerGenerator:
         )
 
         centroids = [valid_cids[c[0]] for c in clusters]
-        centroids.sort(key=energies.get)
+        centroids.sort(key=lambda k: energies[k])
         return centroids
 
     def build_ensemble(

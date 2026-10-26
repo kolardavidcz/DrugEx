@@ -1,4 +1,5 @@
 """Dynamic physicochemical property envelope calibration for universal reference ligands."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -124,7 +125,9 @@ class DynamicPropertyEnvelope:
 
         # TPSA envelope: [0.70 * X, 1.30 * X] with low-TPSA fallback to prevent inversion
         tpsa_lower: float = max(0.0, 0.70 * tpsa)
-        tpsa_upper: float = max(tpsa + 10.0 if tpsa < 10.0 else 1.30 * tpsa, 1.30 * tpsa)
+        tpsa_upper: float = max(
+            tpsa + 10.0 if tpsa < 10.0 else 1.30 * tpsa, 1.30 * tpsa
+        )
         tpsa_sigma: float = max(5.0, 0.12 * tpsa)
 
         # HBD & HBA envelope: Delta +/- 2 relative to reference
@@ -226,7 +229,9 @@ class DynamicPropertyEnvelope:
         return [hac_scorer, logp_scorer]
 
 
-def compute_dynamic_envelope(query: str | Path | Chem.Mol) -> dict[str, dict[str, float]]:
+def compute_dynamic_envelope(
+    query: str | Path | Chem.Mol,
+) -> dict[str, dict[str, float]]:
     """Compute dynamic physicochemical envelope dictionary for a query ligand."""
     envelope = DynamicPropertyEnvelope.from_query(query)
     return envelope.to_dict()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -225,9 +225,7 @@ class ConformerVisualizer:
                     scene_name: dict(
                         xaxis_title="K_ref (Basins)",
                         yaxis_title="K_gen (Candidates)",
-                        zaxis=dict(
-                            title="ROCS TanimotoCombo", range=[0.0, 2.05]
-                        ),
+                        zaxis=dict(title="ROCS TanimotoCombo", range=[0.0, 2.05]),
                         camera=dict(eye=dict(x=-1.5, y=-1.5, z=1.2)),
                     )
                 }
@@ -263,7 +261,9 @@ class ConformerVisualizer:
         colors = ["#2563eb", "#dc2626", "#059669", "#7c3aed", "#d97706"]
 
         for (title, df), col in zip(results_by_variant.items(), colors):
-            slice_df = df[df["k_ref_requested"] == 3].sort_values("k_gen_requested")
+            slice_df = cast(pd.DataFrame, df[df["k_ref_requested"] == 3]).sort_values(
+                by="k_gen_requested"
+            )
             ax1.plot(
                 slice_df["k_gen_requested"],
                 slice_df["tanimoto_combo"],
@@ -291,7 +291,9 @@ class ConformerVisualizer:
         ax1.legend(fontsize=8, loc="lower right")
 
         for (title, df), col in zip(results_by_variant.items(), colors):
-            slice_df = df[df["k_gen_requested"] == 30].sort_values("k_ref_requested")
+            slice_df = cast(pd.DataFrame, df[df["k_gen_requested"] == 30]).sort_values(
+                by="k_ref_requested"
+            )
             ax2.plot(
                 slice_df["k_ref_requested"],
                 slice_df["tanimoto_combo"],
@@ -343,7 +345,7 @@ class ConformerVisualizer:
         colors = ["#2563eb", "#dc2626", "#059669", "#7c3aed", "#d97706"]
 
         data_to_plot = [
-            df_exp[df_exp["variant"] == v]["radius_of_gyration"].to_numpy()
+            np.asarray(df_exp[df_exp["variant"] == v]["radius_of_gyration"])
             for v in variants
         ]
 

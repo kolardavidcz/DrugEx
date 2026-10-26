@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -130,7 +130,9 @@ class ConformerStudyOrchestrator:
             )
             deliverable_paths[f"sdf_{v.name}"] = sdf_path
             deliverable_paths[f"pdb_{v.name}"] = pdb_path
-            print(f"  -> Exported 3D Models for VS Code: {sdf_path.name}, {pdb_path.name}")
+            print(
+                f"  -> Exported 3D Models for VS Code: {sdf_path.name}, {pdb_path.name}"
+            )
 
             # 5. Execute 2D grid scan
             df_res = self.analyzer.run_surface_scan(
@@ -145,19 +147,16 @@ class ConformerStudyOrchestrator:
             results_by_variant[v.display_title] = df_res
 
             # 6. Extract key quantitative metrics
-            score_k1_1 = float(
-                df_res[
-                    (df_res["k_ref_requested"] == 1)
-                    & (df_res["k_gen_requested"] == 1)
-                ]["tanimoto_combo"].values[0]
-            )
-            score_k3_30 = float(
-                df_res[
-                    (df_res["k_ref_requested"] == 3)
-                    & (df_res["k_gen_requested"] == 30)
-                ]["tanimoto_combo"].values[0]
-            )
-            score_kmax = float(df_res["tanimoto_combo"].max())
+            sub_k1 = df_res[
+                (df_res["k_ref_requested"] == 1) & (df_res["k_gen_requested"] == 1)
+            ]["tanimoto_combo"]
+            score_k1_1 = float(np.asarray(sub_k1)[0])
+
+            sub_k3 = df_res[
+                (df_res["k_ref_requested"] == 3) & (df_res["k_gen_requested"] == 30)
+            ]["tanimoto_combo"]
+            score_k3_30 = float(np.asarray(sub_k3)[0])
+            score_kmax = float(np.max(np.asarray(df_res["tanimoto_combo"])))
 
             summary_rows.append(
                 {
@@ -167,7 +166,7 @@ class ConformerStudyOrchestrator:
                     "Mean_Rg_A": float(
                         np.mean(
                             [
-                                d["radius_of_gyration"]
+                                float(cast(Any, d["radius_of_gyration"]))
                                 for d in expansion_data
                                 if d["variant"] == v.name
                             ]
@@ -210,8 +209,7 @@ class ConformerStudyOrchestrator:
         )
         p_exp = self.visualizer.render_expansion_profiles(
             expansion_data,
-            self.output_dir
-            / "03_conformational_volume_and_energy_distributions.png",
+            self.output_dir / "03_conformational_volume_and_energy_distributions.png",
         )
 
         deliverable_paths["figure_3d_surfaces"] = p_3d

@@ -33,9 +33,7 @@ class ConformerConvergenceAnalyzer:
         if not heavy_atom_indices:
             heavy_atom_indices = list(range(mol.GetNumAtoms()))
 
-        positions = [
-            np.array(conf.GetAtomPosition(i)) for i in heavy_atom_indices
-        ]
+        positions = [np.array(conf.GetAtomPosition(i)) for i in heavy_atom_indices]
         centroid = np.mean(positions, axis=0)
         squared_distances = [np.sum((pos - centroid) ** 2) for pos in positions]
         return float(math.sqrt(np.mean(squared_distances)))
