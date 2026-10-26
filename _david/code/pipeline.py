@@ -223,6 +223,24 @@ def parse_args() -> argparse.Namespace:
         "--epsilon", type=float, default=0.20, help="Exploration rate (default: 0.20)"
     )
     parser.add_argument(
+        "--use-decay",
+        action="store_true",
+        help="Enable scheduled exploration noise decay",
+    )
+    parser.add_argument(
+        "--epsilon-end",
+        type=float,
+        default=0.05,
+        help="Terminal exploration rate (default: 0.05)",
+    )
+    parser.add_argument(
+        "--decay-type",
+        type=str,
+        default="cosine",
+        choices=["cosine", "linear"],
+        help="Schedule decay type (default: cosine)",
+    )
+    parser.add_argument(
         "--beta", type=float, default=0.0, help="Policy baseline penalty (default: 0.0)"
     )
     parser.add_argument(
@@ -267,6 +285,9 @@ if __name__ == "__main__":
         n_samples=args.samples,
         n_eval_samples=args.eval_samples,
         epsilon=args.epsilon,
+        epsilon_end=args.epsilon_end,
+        use_epsilon_decay=args.use_decay,
+        decay_type=args.decay_type,
         beta=args.beta,
         reward_scheme=args.reward_scheme,
         score_variant=args.score_variant,
