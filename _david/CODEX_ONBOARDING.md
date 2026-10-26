@@ -1,5 +1,19 @@
 # Codex onboarding baseline
 
+## Setup follow-up: 2026-10-27
+
+Codex CLI 0.164.0 is installed in local WSL and on dichtator, authenticated using the user's existing ChatGPT subscription. No API billing was enabled. The remote login shell resolves the CLI and its strict app-server startup check succeeds.
+
+The Windows SSH route was repaired through a ProxyCommand using the existing WSL connection; native Windows SSH now reaches dichtator. Configuration is maintained in `/home/kolar/dotfiles`, including canonical `codex/AGENTS.md`, a Codex-only installer, and host integration checks. The full dotfiles suite passed 84 checks with no failures.
+
+Three workflows were added: `literature-research` automatically routes research/evidence requests across the five free database skills; explicit `boost` uses an orchestrator/implementer/improver; explicit `teamwork-preview` chooses a small task-specific team. Single-agent work remains the default. Worktree management is the agent's responsibility when parallel writers need isolation.
+
+Personal guidance now explicitly favors intended outcomes and completion criteria, candid methodological debate, proactive architectural alternatives with justified trade-offs, and reproducible verification. Guidance/11 managed skills are linked into WSL and synchronized to dichtator. Existing unrelated WSL skills were preserved.
+
+App SSH registration is a separate final user action; prepared server-side access does not establish that a desktop connection/project has been saved. This resumed chat still exposed PowerShell, so the user-selected WSL default should be checked in a fresh chat.
+
+The dated baseline below records the earlier setup and findings; the follow-up supersedes its personal-skill count and missing-remote-CLI statements.
+
 Verified 2026-10-26, Europe/Prague. Implementation baseline: 9261af8; initial onboarding archive: fb1d1e4. This is a dated record, not a new experiment or permission to run jobs.
 
 ## Current guidance and provenance
