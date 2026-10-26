@@ -91,7 +91,7 @@ class MoleculePipeline:
         self.paths.create_directories()
 
         ref_sdf = self.paths.raw_data_dir / "query_molecule_3d.sdf"
-        ref_png = self.paths.root / "reference_3d_superposition.png"
+        ref_png = self.paths.figures_dir / "reference_3d_superposition.png"
 
         # Stage 0: 3D Reference Conformer Ensemble
         query_desc = str(molecule)[:40]
