@@ -29,29 +29,35 @@ class PipelineConfig:
     batch_size: int = 64
 
     criteria: str = std.AVG_AMEAN
-    beta: float = 0.0  # Baseline policy penalization (0.0 = unpenalized) #^ [0.0, 0.05]
+    beta: float = 0.0  # Baseline policy penalization (0.0 = unpenalized) #^ [0.0, 0.05, or someting better]
 
     # Exploration Noise (Epsilon)
-    epsilon: float = 0.20 #^[0.2, 0.1, [use_epsilon_decay=True, linear], [use_epsilon_decay=True, cosine], 0.0]
+    epsilon: float = 0.20  # ^[0.2, 0.1, [use_epsilon_decay=True, linear], [use_epsilon_decay=True, cosine], 0.0]
     epsilon_end: float = 0.05
     decay_epochs: int = 50
     decay_type: str = "cosine"  # "cosine" or "linear"
     use_epsilon_decay: bool = False
 
     # Multi-Objective Desirability Thresholds (ROCS, SA, QED)
-    thresholds: tuple[float, float, float] = (0.70, 0.27, 0.50) 
+    thresholds: tuple[float, float, float] = (0.70, 0.27, 0.50)
 
     # Scoring & Rewards
-    score_variant: str = "tanimoto_combo"  #^ ["tanimoto_combo", "tversky_subshape"]
+    score_variant: str = "tanimoto_combo"  # ^ ["tanimoto_combo", "tversky_subshape"]
     reward_scheme: str = (
-        "weighted_sum"  #^[ "weighted_sum", "pareto_crowding", "harrington" ]
+        "weighted_sum"  # ^[ "weighted_sum", "pareto_crowding", "harrington" ]
     )
-    weights: tuple[float, float, float] = (0.50, 0.25, 0.25) #^ [none, (0.50, 0.25, 0.25)]
+    weights: tuple[float, float, float] = (
+        0.50,
+        0.25,
+        0.25,
+    )  # ^ [none, (0.50, 0.25, 0.25)]
 
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30
-    max_reference_conformers: int = 3  # Hawkins low-energy basin ensemble size #^[3, all]
-    energy_window_kcal: float = 8.0 #^ also try insted of vacume with 8.0 kcal, try water, humen-like envirument
+    max_reference_conformers: int = (
+        3  # Hawkins low-energy basin ensemble size #^[3, all]
+    )
+    energy_window_kcal: float = 8.0  # ^ also try insted of vacume with 8.0 kcal, try water, humen-like envirument
     timeout_seconds: int = 60
     random_seed: int = 42
 
