@@ -10,7 +10,7 @@ Three workflows were added: `literature-research` automatically routes research/
 
 Personal guidance now explicitly favors intended outcomes and completion criteria, candid methodological debate, proactive architectural alternatives with justified trade-offs, and reproducible verification. Guidance/11 managed skills are linked into WSL and synchronized to dichtator. Existing unrelated WSL skills were preserved.
 
-App SSH registration is a separate final user action; prepared server-side access does not establish that a desktop connection/project has been saved. This resumed chat still exposed PowerShell, so the user-selected WSL default should be checked in a fresh chat.
+The user confirmed successful desktop SSH connection to dichtator on 2026-10-27. The project inventory exposed to this local chat still listed only the local project, so remote project registration was not independently observable through that connector. Select the remote host/project when starting remote work; connecting does not migrate this existing chat. This resumed chat still exposed PowerShell, so the user-selected WSL default should be checked in a fresh chat.
 
 The dated baseline below records the earlier setup and findings; the follow-up supersedes its personal-skill count and missing-remote-CLI statements.
 
