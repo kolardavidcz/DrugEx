@@ -5,6 +5,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 from drugex.logs import logger
@@ -129,6 +130,17 @@ class MoleculePipeline:
             index=False,
             compression="gzip",
         )
+
+        if self.config.threshold_percentile is not None and not df_before.empty:
+            p = float(self.config.threshold_percentile)
+            t_rocs = float(np.percentile(df_before[std.ROCS].dropna(), p))
+            t_sa = float(np.percentile(df_before[std.SA].dropna(), p))
+            t_qed = float(np.percentile(df_before[std.QED].dropna(), p))
+            env.thresholds = [t_rocs, t_sa, t_qed]
+            logger.info(
+                f"Calibrated dynamic empirical baseline thresholds (P{p:.0f}): "
+                f"ROCS>={t_rocs:.3f}, SA>={t_sa:.3f}, QED>={t_qed:.3f}"
+            )
 
         # Stage 2: Reinforcement Learning Exploration
         logger.info(

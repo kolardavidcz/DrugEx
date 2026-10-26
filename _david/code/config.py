@@ -39,7 +39,10 @@ class PipelineConfig:
     use_epsilon_decay: bool = False
 
     # Multi-Objective Desirability Thresholds (ROCS, SA, QED)
-    thresholds: tuple[float, float, float] = (0.70, 0.27, 0.50)
+    # Default static fallback calibrated to raw ROCS >= 0.70, raw SA <= 3.5, QED >= 0.50
+    thresholds: tuple[float, float, float] = (0.35, 0.85, 0.50)
+    # Empirical baseline percentile (e.g. 75.0 = Q3) to auto-calibrate from Stage 1 prior distribution
+    threshold_percentile: float | None = 75.0
 
     # Scoring & Rewards
     score_variant: str = "tanimoto_combo"  # ^ ["tanimoto_combo", "tversky_subshape"]
