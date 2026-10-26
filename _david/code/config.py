@@ -61,7 +61,7 @@ class PipelineConfig:
         3  # Hawkins low-energy basin ensemble size #^[3, all]
     )
     energy_window_kcal: float = 8.0  # ^ also try insted of vacume with 8.0 kcal, try water, humen-like envirument
-    timeout_seconds: int = 60
+    timeout_seconds: int = 0  # 0 = unlimited execution time (only limited by max_conformers)
     random_seed: int = 42
 
     # Hardware & Multiprocessing (Authoritative 0.90 CPU allocation)

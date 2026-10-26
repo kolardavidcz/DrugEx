@@ -246,7 +246,7 @@ class PrepareMolecule:
 def create_rocs_scorer(
     references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
     max_conformers: int = 30,
-    timeout: int = 60,
+    timeout: int = 0,
     score_variant: str = "tanimoto_combo",
     conformer_threads: int = 0,
     n_jobs: int | None = None,
@@ -401,7 +401,7 @@ def create_environment(
     config: PipelineConfig | None = None,
     thresholds: tuple[float, ...] | None = None,
     max_conformers: int = 30,
-    timeout: int = 60,
+    timeout: int = 0,
     reward_scheme: str | RewardScheme | None = None,
     score_variant: str = "tanimoto_combo",
     conformer_threads: int = 0,
