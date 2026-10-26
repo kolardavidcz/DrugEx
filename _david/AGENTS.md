@@ -1,5 +1,7 @@
 # DrugEx Ligand-Based De Novo Drug Design: Architecture & Agent Guide
 
+> **Codex onboarding (2026-10-26)**: Read [`CODEX_ONBOARDING.md`](CODEX_ONBOARDING.md) for verified commands, provenance, and differences between historical notes and the implementation. Preserve informal annotations in `code/config.py`. Historical proposals are not authorization to launch jobs or change parameters.
+
 > **Audience**: AI Agents & Pair-Programmers  
 > **Scope**: Universal 3D Ligand-Based De Novo Drug Design (LBDD) in DrugEx  
 > **Working Branch**: `main` (Strictly local commits; push ONLY to private remote `dichtator`; NEVER push to GitHub `origin`)  
