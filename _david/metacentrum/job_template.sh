@@ -5,8 +5,8 @@
 # ==============================================================================
 
 #PBS -N drugex_run
-#PBS -l select=1:ncpus=32:mem=64gb:ngpus=1:gpu_cap=cuda80:scratch_local=30gb
-#PBS -l walltime=14:00:00
+#PBS -l select=1:ncpus=16:mem=32gb:ngpus=1:gpu_cap=cuda80:scratch_local=15gb
+#PBS -l walltime=12:00:00
 #PBS -j oe
 #PBS -m ae
 

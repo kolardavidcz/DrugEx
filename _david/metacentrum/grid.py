@@ -14,12 +14,14 @@ class GridJobSpec:
 
     experiment_name: str
     args: str
-    n_cpus: int = 32
-    mem_gb: int = 64
+    n_cpus: int = (
+        16  # Optimal sweet spot: 16-24 cores avoids scheduler queue starvation
+    )
+    mem_gb: int = 32  # Realistic headroom: DrugEx uses <4 GB peak RAM
     n_gpus: int = 1
     gpu_cap: str = "cuda80"
-    scratch_gb: int = 30
-    walltime: str = "14:00:00"
+    scratch_gb: int = 15
+    walltime: str = "12:00:00"
 
 
 class MetaCentrumGridManager:
