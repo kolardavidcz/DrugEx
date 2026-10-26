@@ -1,84 +1,78 @@
 # Codex onboarding baseline
 
-Verified on 2026-10-26, Europe/Prague. This note records onboarding checks, not a new experimental result. The inspected implementation baseline is commit `9261af8` on `main`; onboarding documentation is added afterward.
+Verified 2026-10-26, Europe/Prague. Implementation baseline: 9261af8; initial onboarding archive: fb1d1e4. This is a dated record, not a new experiment or permission to run jobs.
 
-## Start here
+## Current guidance and provenance
 
-Read root `AGENTS.md`, `_david/AGENTS.md`, this note, then the implementation relevant to the task. Defaults are in `_david/code/config.py`. Conformer research is in `_david/code/conformer/`; the RL path runs through `environment.py`, `models.py`, and `pipeline.py`. `_david/THESIS_PIVOT_REVIEW.md` records the pivot away from fragment-conditioned GraphTransformer work. Treat its action lists as historical descriptions, not pending instructions.
+Read root AGENTS.md and the relevant nested guide, then the actual source. Historical guides were shortened to remove contradictory settings, unsupported scientific claims, and obsolete tool instructions.
 
-The user owns the research and wants candid academic debate. Preserve informal config.py comments: they are exploration markers. Include negative diagnostics as well as favorable metrics.
+The original Desktop handoff and three previous-agent reports are preserved in Git at fb1d1e4. Original handoff SHA256: c18131a07855af577d25fdba93d2dbe0da7ec0b29ef71120581e4d185bdd4d4c. Their current Markdown versions are corrected summaries with explicit limitations; they are no longer byte-identical archives.
 
-## Provenance
+The active source map is in [AGENTS.md](AGENTS.md). Preserve config.py exploration comments. The user owns research choices and expects evidence, critical discussion, and unfavorable diagnostics.
 
-- User-supplied source: `C:/Users/kolar/Desktop/GEMINI_HANDOFF.md`.
-- Existing `_david/GEMINI_HANDOFF.md` was byte-identical on inspection; preserved unchanged.
-- SHA256 of both: `c18131a07855af577d25fdba93d2dbe0da7ec0b29ef71120581e4d185bdd4d4c`.
-- Supporting reports are preserved unchanged in `onboarding/gemini-reports/`: `conformer_convergence_and_dielectric_study.md`, `run17_50epoch_baseline_evaluation_report.md`, and `run18_50epoch_pure_reinforce_evaluation_report.md`.
-- Reports originated in `C:/Users/kolar/.gemini/antigravity/brain/3c0732c1-95a4-4444-ba73-318653568f70/`.
-- Handoff proposals, claimed supervisor requirements, scientific interpretations, and literature attributions remain historical claims unless separately verified. They do not authorize training, job submission, deletion, or credential changes.
+## Environment
 
-## Access and repository baseline
+- Local: /home/kolar/DrugEx; Windows bridge C:/Ubuntu/home/kolar/DrugEx.
+- Remote: /home/kolarv/DrugEx through WSL SSH alias dichtator. Probe succeeded without touching VPN.
+- Remote Python 3.12.3; Ruff 0.16.7; torch 2.14.0+cu130; RDKit 2026.3.6.
+- Threadripper 9960X: 24 physical cores / 48 logical threads; 125 GiB RAM; two RTX PRO 4000 Blackwell GPUs, about 24 GB each.
+- PyTorch reports CUDA available, two devices, and sm_120 support. No compute benchmark was run. Hardware availability/load must be rechecked before jobs.
+- No recognised training process or tmux session was active at the SSH survey.
+- origin pushes are blocked by DISABLED_NO_PUSH_SECRET_DATA. Use private dichtator synchronization after checking both worktrees.
+- Remote rg and uv were not found on PATH; use scoped git grep and the existing .venv. Locally, uv is /home/kolar/.local/bin/uv; non-login WSL exec may require the absolute path.
+- Papyrus SMILES checkpoint/vocabulary loaded in CPU-mode tests. Pretrained models are under tutorial/data/models/pretrained; data is a symlink to tutorial/data.
 
-- Windows desktop Codex uses the migrated skills under `C:/Users/kolar/.agents/skills/` and guidance at `C:/Users/kolar/.codex/AGENTS.md`. The skills have appeared in the active catalog.
-- Local repository: `/home/kolar/DrugEx`; Windows bridge: `C:/Ubuntu/home/kolar/DrugEx`.
-- `wsl ssh -o BatchMode=yes -o ConnectTimeout=15 dichtator 'echo OK'` succeeded; VPN was left untouched.
-- Remote root: `/home/kolarv/DrugEx`. Its `.venv/bin/python` is Python 3.12.3; `.venv/bin/ruff` is Ruff 0.16.7.
-- Both checkouts were at `9261af8`. Remote was clean; local had only the supplied untracked `_david/GEMINI_HANDOFF.md` before onboarding edits.
-- `dichtator` fetch/push URL is `dichtator:/home/kolarv/DrugEx`.
-- `origin` fetches from `https://github.com/kolardavidcz/DrugEx`; pushing is blocked by `DISABLED_NO_PUSH_SECRET_DATA`. Keep that protection.
-- Both RTX PRO 4000 Blackwell devices answered `nvidia-smi`, each with 24467 MiB total and 0% utilization at inspection. This does not validate CUDA compute or reserve resources; the old guide's GPU-1-error statement is not established by this check.
-- No tmux server was running for the user at inspection. Python/editor service processes existed; none were interrupted. Low GPU utilization does not prove absence of CPU work.
-- Papyrus checkpoint/vocabulary were present and loaded in CPU-mode remote unit tests. Run 17, Run 18, and conformer-study directories exist on both machines.
+## Validation
 
-## Verified validation commands
+Remote Ruff check of _david/code and _david/tests passed. All 10 unittest cases passed: 4 conformer tests and 6 pipeline tests. Commands are in the thesis AGENTS.md.
 
-From Windows PowerShell; omit `wsl` when already in WSL:
+A Python warning about fork from a multithreaded process occurred. Short-suite success does not establish long-training deadlock safety. Full core-suite or type-check success was not verified.
 
-```powershell
-wsl ssh -o BatchMode=yes -o ConnectTimeout=15 dichtator 'cd /home/kolarv/DrugEx && /home/kolarv/DrugEx/.venv/bin/ruff check --no-cache _david/code _david/tests'
-wsl ssh -o BatchMode=yes -o ConnectTimeout=15 dichtator 'cd /home/kolarv/DrugEx && MPLBACKEND=Agg OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 DRUGEX_SCORE_NJOBS=2 DRUGEX_MP_CONTEXT=fork /home/kolarv/DrugEx/.venv/bin/python -B -m unittest discover -s _david/tests -p test_*.py -v'
-```
+## Experiments and ignored work
 
-Baseline: Ruff passed; all 10 tests passed (4 conformer and 6 pipeline tests; unittest reported 1.757 seconds). They check model loading/frozen-prior isolation, scoring, conformers, output structure, rewards, and decay schedules. They do not train a model or establish scientific correctness. `_david/tests.py` is absent; use discovery under `_david/tests`.
+- Run 16 has 10 recorded epochs; Run 17 and Run 18 each have 50.
+- Run 19 has 18 recorded epochs and a best checkpoint, but no completed reinforced evaluation/final checkpoint found. No Run 20 output directory was found.
+- Run 17/18 retain best and final-epoch checkpoints; do not assume a training metric refers to the same checkpoint as the final evaluation.
+- Conformer study outputs and scorecard exist.
+- validation/ contains ignored docking/MD code and results: six ligands across three recorded targets (Pin1, TTR, SIRT6). Saved paths reference an older workspace. These results were not independently validated; Vina, Meeko, and PLIP were absent from the inspected current .venv.
+- The eight validation Python files matched local copies. Two ignored remote code/tmp runners were absent locally. Git synchronization alone does not protect or transfer ignored work.
+- Completed October 16 orchestration notes from .agents/teamwork/ were archived outside the repository at C:/Users/kolar/.codex/backups/2026-10-26-instruction-cleanup/historical-teamwork. Their forkserver, 60%-CPU, test counts, and dispatch commands described an older GraphTransformer setup and are not current guidance.
 
-Python emitted a DeprecationWarning for `fork()` from a multithreaded process. The short suite completed; that does not establish deadlock safety during long training.
+## Unresolved implementation issues
 
-## Discrepancies to preserve for future work
+1. Reporting scale: ResultAnalyzer.analyze() calls unscale_to_physical_metrics(), then downstream scorecard/renderers can call it again. For these saved evaluations, maxima below 0.5 allow two successive doublings. Run 17/18 scorecard medians match about four times the stored medians. Do not quote their absolute physical scores until corrected.
+2. Timeout wiring: config timeout_seconds=0 is not passed to the core RDKitConformerGenerator constructor, whose default is 20 seconds. Scoring has separate timeout environment variables.
+3. Concurrency: current HardwareManager defaults to fork and 90% of logical CPUs. It does not impose the historical fixed 24/32-worker limits. Runtime warnings/behavior require workload-specific investigation.
+4. Standalone-versus-RL physics: the five-variant conformer study is a different path from RL query preparation and candidate scoring. Pocket/water-labelled variants are not automatically deployed in training.
+5. Conformer counts: grids clip requested K to retained basins. The scorecard has only 2-3 reference basins. Duration_sec is variant-study time, not candidate latency at each K. EGCG self-similarity alone does not select a production K.
+6. Thresholds: the pipeline calibrates once from Stage 1 percentiles, not continuously. Desired ratio is not itself an optimization-gradient guarantee.
 
-### Multiprocessing and worker limits
+Run reports now distinguish direct stored-column statistics from generated scorecards; see [Run 17](onboarding/gemini-reports/run17_50epoch_baseline_evaluation_report.md) and [Run 18](onboarding/gemini-reports/run18_50epoch_pure_reinforce_evaluation_report.md). The prior handoff's 99.8-100% validity and mean-improvement claims were unsupported.
 
-`_david/AGENTS.md` specifies `fork` and a 32-worker cap; `drugex/AGENTS.md` specifies `forkserver` and 24 workers. `_david/code/utils.py` currently defaults to `fork` if not overridden and computes `floor(0.90 * os.cpu_count())` without an implicit 32-worker cap. `drugex/training/scorers/parallel.py` caps workers through `DRUGEX_SCORE_NJOBS`. Do not silently change the method or assume a documented cap is enforced. Investigate the workload and warning before production training.
+## MetaCentrum
 
-### Disabled timeout claim is not verified end to end
+SSH alias meta resolved to tarkil.metacentrum.cz, but authentication was denied. This does not prove key propagation delay. No credentials or VPN configuration were changed.
 
-`PipelineConfig.timeout_seconds` is 0, but `create_rocs_scorer()` in `_david/code/environment.py` does not pass its timeout argument into `RDKitConformerGenerator`. That constructor defaults to 20 seconds and applies it to ETKDG parameters. Scoring has independent `DRUGEX_SCORE_TIMEOUT` and `DRUGEX_SCORE_MOL_TIMEOUT` controls. The handoff's blanket disabled-timeout claim is unsupported. No timeout code/settings were changed during onboarding.
+grid.py supports test, sync, status, and pull CLI actions. Submission is through Python methods, not a submit CLI action. Its test command can print failure without a nonzero exit.
 
-### Standalone conformer study differs from RL
+The PBS template's Python 3.10 environment, dependencies, scheduler resource syntax, and smoke-job behavior remain unverified. No grid jobs were submitted.
 
-The study uses `PhysicalVariantFactory` and `ConformerGenerator` with five force-field variants. RL creates `PrepareMolecule` and core `RDKitConformerGenerator`; no automatic wiring from the study's pocket variant into pipeline configuration was found. Do not describe pocket dielectric as deployed training physics without tracing that path.
+## Personal skills and free literature access
 
-`ConformerStudyOrchestrator` creates raw reference/probe pools with seeds 42 and 9999 before scanning retained ensembles. `run_surface_scan()` clips requested counts to retained counts, recording `k_ref_actual`/`k_gen_actual`. The scorecard shows 2-3 reference basins, so larger requested counts can repeat identical selections. `Duration_sec` is study work for a variant, not per-candidate timing for each K. EGCG self-comparison alone does not establish a production K for diverse candidates.
+The active personal set in C:/Users/kolar/.agents/skills contains drugex-dichtator, wsl-first, wsl-ide-dotfiles, pubmed-database, literature-search-europepmc, literature-search-openalex, literature-search-arxiv, and literature-search-biorxiv.
 
-The saved scorecard matches the handoff's rounded conformer values. Explanations about solvent realism and universal pocket dielectric remain interpretations; literature was not verified during onboarding.
+The 26 legacy personal skills were removed from discovery into C:/Users/kolar/.codex/backups/2026-10-26-instruction-cleanup/legacy-skills. Built-in and plugin-managed skills were not removed.
 
-### Run reports require reconciliation
+The five literature skills reuse the user's local Google DeepMind science-skills resources under Apache-2.0, retaining licenses and original helper scripts. Instructions were adapted for Codex, free-only access, optional credentials, and local WSL uv isolation.
 
-The handoff and saved Run 17/18 `summary.md` files present inconsistent evaluation figures. For example, the handoff gives Run 17 validity 99.80%, while its saved summary gives reinforced validity 88.3%. Summaries show ROCS median decreases (Run 17: 1.392 to 1.368; Run 18: 1.39 to 1.294), while the handoff discusses increased means on an apparent different scale. Mean and median need not agree. Establish sampling stage, filtering, scales, denominators, and provenance before combining reports or quoting thesis results.
+Live keyless smoke checks passed for PubMed, Europe PMC, OpenAlex, arXiv, and bioRxiv. Europe PMC full-text retrieval succeeded for PMC13330364 (57,801 bytes). Its direct PDF download was blocked by a Cloudflare response; use available text/XML or another legitimate OA location and report the limitation. No bypass was attempted.
 
-Current scoring maps raw TanimotoCombo [0,2] into modified [0,1]. Current pipeline calibrates thresholds once from Stage 1 percentiles, not continuously each epoch. A nonzero desired ratio does not itself establish a useful policy-gradient signal. Trace raw_data, fit logs, scorecard calculations, and producing revisions before interpreting results.
+These are API-backed skills, not MCP servers. They provide the needed free discovery/full-text workflow without a paid integration. Scite was not connected; no paid plan, subscription trial, or API key was activated. Optional free API keys do not block ordinary keyless research.
 
-### MetaCentrum remains blocked
+Keep DOI/PMID/PMCID, source URL, access level, version, and relevant paper sections when supporting claims. Discovery metadata is not full-text evidence; preprints are not automatically peer-reviewed.
 
-Local SSH alias `meta` resolves to `tarkil.metacentrum.cz`. A bounded read-only probe returned `Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)`: endpoint reachable, authentication not established. This does not prove a propagation delay. Credentials, keys, VPN settings, and known-host entries were unchanged.
+## Next research discussion
 
-`_david/metacentrum/grid.py` offers CLI actions `test`, `sync`, `status`, and `pull`; no `submit` CLI action exists. Submission exists as Python methods `submit_job()` and `submit_matrix()`. The handoff's `grid submit --name ...` command is not supported.
+Resolve score scales and timeout/config wiring before production decisions. Define a diverse-candidate latency/recovery benchmark with actual retained counts, consistent scorers, repeated timings, and a fixed comparison protocol. K=10 and a new 100-epoch matrix remain hypotheses/proposals for the user to assess.
 
-The PBS template requests 16 CPUs, 32 GB RAM, one GPU, and 15 GB scratch. It creates Python 3.10 in scratch and installs dependencies, while the verified workstation uses Python 3.12.3. Scheduler compatibility, dependencies, and a smoke job remain unverified. The wrapper's test action can print FAILED without a nonzero process exit; check actual SSH results.
-
-## Research continuation
-
-The stopping point is debate about conformer methodology and missing candidate latency trade-offs. A diverse-candidate latency/recovery benchmark is proposed; K=10 is a hypothesis, not a measured optimum. Define candidate selection, actual retained counts, scorer consistency, timing boundaries, repeated measurements, and score scale first.
-
-Reconcile the reports and timeout/config wiring before production design. MetaCentrum needs an external access change before live verification, then separate submission/template review and a smoke test.
-
-No experiments were launched, checkpoints changed, or grid jobs submitted during onboarding. Research code and existing outputs were preserved.
+No research code, raw data, checkpoints, or running jobs were changed by the documentation/skill cleanup.

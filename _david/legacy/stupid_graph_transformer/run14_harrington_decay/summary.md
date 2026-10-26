@@ -1,3 +1,7 @@
+# Historical experiment record
+
+These generated metrics describe a legacy fragment-conditioned run. They were not independently revalidated during Codex onboarding and are not current settings or instructions. Check code revision, raw data, score scale, and evaluation protocol before thesis use or comparison with SequenceRNN results.
+
 # DrugEx Run Summary: run14_harrington_epsilon_decay
 
 - **Target Molecule**: `C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(...`

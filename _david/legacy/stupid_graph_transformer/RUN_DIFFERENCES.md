@@ -2,11 +2,7 @@
 
 This document highlights the **underlying code differences** across runs in `_david/output/`. Because the codebase developed over time in Git, runs that look similar on the surface used fundamentally different reward schemes, conformer curation algorithms, and convergence rules.
 
-For detailed run-by-run comparisons within each research topic, see the respective category READMEs:
-- [`01_reference_representation/README.md`](file:///home/kolarv/DrugEx/_david/output/01_reference_representation/README.md)
-- [`02_reward_formulations_and_cheating/README.md`](file:///home/kolarv/DrugEx/_david/output/02_reward_formulations_and_cheating/README.md)
-- [`03_hyperparameter_ablations/README.md`](file:///home/kolarv/DrugEx/_david/output/03_hyperparameter_ablations/README.md)
-- [`04_flagship_lead_optimization/README.md`](file:///home/kolarv/DrugEx/_david/output/04_flagship_lead_optimization/README.md)
+This is a historical comparison, not current agent guidance or a reproducible benchmark specification. Earlier category READMEs are no longer present. Retained examples are [Run 01](run01_baseline/summary.md), [Run 14](run14_harrington_decay/summary.md), and [Run 15](run15_harrington_deep_sampling/summary.md). Verify historical metrics and configurations before comparing them to current SequenceRNN runs; see [current onboarding notes](../../CODEX_ONBOARDING.md).
 
 ---
 
