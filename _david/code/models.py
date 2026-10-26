@@ -138,12 +138,16 @@ class SequenceRNNOptimizer:
 
         # Active trainable RL agent
         logger.info(f"Instantiating trainable SequenceRNN agent from: {pkg}")
-        agent = SequenceRNN(voc, is_lstm=True, device=self.device)
+        agent = SequenceRNN(
+            voc, is_lstm=True, device=self.device, use_gpus=self.use_gpus
+        )
         agent.loadStatesFromFile(str(pkg))
 
         # Separate frozen exploration prior for mutate
         logger.info(f"Instantiating frozen SequenceRNN prior from: {pkg}")
-        prior = SequenceRNN(voc, is_lstm=True, device=self.device)
+        prior = SequenceRNN(
+            voc, is_lstm=True, device=self.device, use_gpus=self.use_gpus
+        )
         prior.loadStatesFromFile(str(pkg))
         for p in prior.parameters():
             p.requires_grad_(False)

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import gc
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
+
+import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -32,7 +36,13 @@ def run_experiment(name: str, config: PipelineConfig, output_dir: Path) -> None:
         logs_dir=output_dir / "logs",
     )
     pipeline = MoleculePipeline(config=config, paths=paths)
-    pipeline.run(molecule=DEFAULT_MOLECULE)
+    try:
+        pipeline.run(molecule=DEFAULT_MOLECULE)
+    finally:
+        del pipeline
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     elapsed = (time.time() - t0) / 3600.0
     print(f"\n{'=' * 80}")
@@ -119,6 +129,7 @@ def main() -> None:
             run_experiment(name, cfg, out_dir)
         except Exception as e:
             print(f"ERROR in {name}: {e}", file=sys.stderr)
+            traceback.print_exc()
 
     total_hours = (time.time() - start_all) / 3600.0
     print(f"\nALL OVERNIGHT EXPERIMENTS COMPLETED in {total_hours:.2f} hours total.")
