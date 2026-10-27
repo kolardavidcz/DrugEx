@@ -18,56 +18,76 @@ from _david.code.schema import std
 
 
 def render_conformer_study(frame: pd.DataFrame, output: Path) -> None:
-    """One figure: candidate/reference grids, faceted by isomer cap and mode.
-
-    Each cell shows the mean across seeds and sample standard deviation. Time is
-    candidate generation + optional minimization + the sum of measured overlays
-    for that reference prefix, excluding one-time reference preparation.
-    """
-    modes = ["training_ETKDG", "MMFF94_minimized"]
+    """Two rows for preparation methods; score/time occupy separate columns."""
+    frame = frame.copy()
+    modes = [
+        ("training_ETKDG", "ETKDG only"),
+        ("MMFF94_minimized", "ETKDG + MMFF94"),
+    ]
     caps = sorted(frame.isomer_cap.unique())
+    keys = ["mode", "seed", "requested_conformers", "requested_references"]
+    equivalent = (
+        frame.actual_isomers.eq(1).all()
+        and frame.groupby(keys).normalized_combo.nunique(dropna=False).max() <= 1
+    )
+    all_caps = caps.copy()
+    if equivalent:
+        caps = [4 if 4 in caps else caps[0]]
     budgets = sorted(frame.requested_conformers.unique())
-    references = sorted(frame.requested_references.unique(), key=lambda r: r or np.inf)
-    fig, axes = plt.subplots(4, len(caps), figsize=(5.5 * len(caps), 14), squeeze=False)
-    time_limit = float(frame.total_seconds.max())
-    for column, cap in enumerate(caps):
-        for mode_index, mode in enumerate(modes):
+    requests = sorted(frame.requested_references.unique(), key=lambda r: r or np.inf)
+    first = frame[frame.isomer_cap == caps[0]]
+    actual = first.groupby("requested_references").actual_references.first()
+    available = (
+        first.groupby("requested_references").reference_budget_available.first()
+        if "reference_budget_available" in frame
+        else pd.Series(True, index=actual.index)
+    )
+    references = []
+    seen_counts = set()
+    for request in requests:
+        count = int(actual.loc[request])
+        if available.loc[request] and count in seen_counts:
+            continue
+        references.append(request)
+        if available.loc[request]:
+            seen_counts.add(count)
+    fig, axes = plt.subplots(
+        2, 2 * len(caps), figsize=(12 * len(caps), 10), squeeze=False
+    )
+    time_limit = max(float(frame.total_seconds.max()), 1e-9)
+    for facet, cap in enumerate(caps):
+        for row, (mode, label) in enumerate(modes):
             subset = frame[(frame.isomer_cap == cap) & (frame["mode"] == mode)]
-            for metric_index, metric in enumerate(
-                ("normalized_combo", "total_seconds")
-            ):
-                row = mode_index * 2 + metric_index
-                ax = axes[row, column]
-                means = subset.pivot_table(
-                    index="requested_references",
-                    columns="requested_conformers",
-                    values=metric,
-                    aggfunc="mean",
-                ).reindex(index=references, columns=budgets)
-                deviations = subset.pivot_table(
-                    index="requested_references",
-                    columns="requested_conformers",
-                    values=metric,
-                    aggfunc="std",
-                ).reindex(index=references, columns=budgets)
+            for column, metric in enumerate(("normalized_combo", "total_seconds")):
+                ax = axes[row, 2 * facet + column]
+                grouped = subset.groupby(
+                    ["requested_references", "requested_conformers"]
+                )[metric]
+                means = (
+                    grouped.mean().unstack().reindex(index=references, columns=budgets)
+                )
+                deviations = (
+                    grouped.std().unstack().reindex(index=references, columns=budgets)
+                )
+                palette = plt.get_cmap("viridis" if column == 0 else "magma").copy()
+                palette.set_bad("#dddddd")
                 image = ax.imshow(
                     means,
                     vmin=0,
-                    vmax=1 if metric_index == 0 else time_limit,
-                    cmap="viridis" if metric_index == 0 else "magma",
+                    vmax=1 if column == 0 else time_limit,
+                    cmap=palette,
                     aspect="auto",
                 )
-                for y in range(len(references)):
+                for y, reference in enumerate(references):
                     for x in range(len(budgets)):
                         value, sd = means.iloc[y, x], deviations.iloc[y, x]
-                        text = "failed" if not np.isfinite(value) else f"{value:.3f}"
-                        if np.isfinite(value):
-                            text += (
-                                f"\n±{sd:.3f}" if np.isfinite(sd) else "\n(single seed)"
-                            )
-                        fraction = value / (
-                            1 if metric_index == 0 else max(time_limit, 1e-9)
+                        text = (
+                            "unavailable" if not available.loc[reference] else "failed"
                         )
+                        if np.isfinite(value):
+                            text = f"{value:.3f}"
+                            text += f"\n±{sd:.3f}" if np.isfinite(sd) else ""
+                        fraction = value / (1 if column == 0 else time_limit)
                         ax.text(
                             x,
                             y,
@@ -75,38 +95,47 @@ def render_conformer_study(frame: pd.DataFrame, output: Path) -> None:
                             ha="center",
                             va="center",
                             fontsize=8,
-                            color="black" if fraction > 0.65 else "white",
+                            color="black"
+                            if not np.isfinite(value) or fraction > 0.65
+                            else "white",
                         )
-                ax.set_xticks(range(len(budgets)), budgets)
-                actual = subset.groupby(
-                    "requested_references"
-                ).actual_references.first()
                 labels = [
-                    f"{'all' if r == 0 else r} → {int(actual.loc[r])}"
+                    f"{'all' if r == 0 or (0 in actual.index and actual.loc[r] == actual.loc[0]) else r} → {int(actual.loc[r])}"
+                    if available.loc[r]
+                    else f"{r} (unavailable)"
                     for r in references
                 ]
+                ax.set_xticks(range(len(budgets)), budgets)
                 ax.set_yticks(range(len(references)), labels)
-                ax.set_xlabel("Requested conformers per isomer")
-                ax.set_ylabel("Reference cap → actual count")
-                quantity = "combo / 2" if metric_index == 0 else "seconds per molecule"
-                actual_isomers = sorted(map(int, subset.actual_isomers.unique()))
+                ax.set_xlabel("Requested candidate conformers per isomer")
+                ax.set_ylabel("Reference conformer count")
+                quantity = (
+                    "Score: shape-plus-color combo / 2"
+                    if column == 0
+                    else "Seconds per molecule"
+                )
+                counts = ", ".join(
+                    map(str, sorted(map(int, subset.actual_isomers.unique())))
+                )
                 ax.set_title(
-                    f"{mode} | I cap={cap}, actual={actual_isomers}\n{quantity}",
+                    f"{label}\n{quantity} | isomer cap {cap}, actual {counts}",
                     fontsize=10,
                 )
                 fig.colorbar(image, ax=ax, fraction=0.04, pad=0.025)
-    repeats = frame.seed.nunique()
     fig.suptitle(
-        f"MMFF94 / RDKit Tanimoto shape + color\n{repeats} embedding seeds; molecular identity in manifest.json",
+        f"MMFF94 / RDKit Tanimoto shape + color | {frame.seed.nunique()} embedding seeds\n"
+        "Molecular identity and reference-generation settings: manifest.json",
         fontsize=12,
     )
     footer = (
-        "Means ± seed SD. Timing excludes reference preparation and pool startup; includes SDF generation/read. "
-        "Actual counts can be below requests. A specified stereoisomer has no additional isomers to enumerate. "
-        "This is self-recovery, not evidence of training improvement."
+        "Means ± seed SD. No RNN was trained. Time includes candidate preparation and overlays, "
+        "excluding reference preparation and multiprocessing startup. Grey cells lack the requested number of references. "
+        "Equivalent reference counts are shown once."
     )
-    fig.text(0.5, 0.008, fill(footer, width=65 * len(caps)), ha="center", fontsize=9)
-    fig.tight_layout(rect=(0, 0.085, 1, 0.95))
+    if equivalent and len(all_caps) > 1:
+        footer += f" Isomer caps {list(map(int, all_caps))} yielded one isomer and identical scores; cap {caps[0]} timing is shown."
+    fig.text(0.5, 0.01, fill(footer, width=135 * len(caps)), ha="center", fontsize=9)
+    fig.tight_layout(rect=(0, 0.08, 1, 0.94))
     fig.savefig(output, dpi=170)
     plt.close(fig)
 

@@ -27,7 +27,7 @@ from drugex.training.scorers.rocs_rdkit import _score_single_reference
 from rdkit import Chem, rdBase
 from rdkit.Chem import AllChem
 
-from _david.code.chemistry import check_identity
+from _david.code.chemistry import check_identity, minimize_mmff94
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
 from _david.code.environment import PrepareMolecule, create_rocs_scorer
 from _david.code.visualization import render_conformer_study
@@ -173,6 +173,10 @@ def run(args):
         reference_seconds=reference_seconds,
         reference_embedded=references[0].GetIntProp("EmbeddedConformers"),
         reference_converged=references[0].GetIntProp("ConvergedConformers"),
+        reference_within_energy_window=references[0].GetIntProp(
+            "EnergyWindowConformers"
+        ),
+        reference_clusters=references[0].GetIntProp("ReferenceClusters"),
         reference_retained=len(references),
     )
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
@@ -190,6 +194,7 @@ def run(args):
                 conformer_threads=1,
                 n_jobs=1,
                 random_seed=seed,
+                minimize_candidates=False,
             )
             start = time.perf_counter()
             with tempfile.TemporaryDirectory() as directory:
@@ -200,17 +205,7 @@ def run(args):
             generation_seconds = time.perf_counter() - start
             identities = {check_identity(m, expected_candidate) for m in candidates}
             start = time.perf_counter()
-            minimized = []
-            statuses = []
-            for candidate in candidates:
-                mol = Chem.Mol(candidate)
-                status = AllChem.MMFFOptimizeMolecule(
-                    mol, mmffVariant="MMFF94", maxIters=1000
-                )
-                check_identity(mol, expected_candidate)
-                statuses.append(status)
-                if status == 0:
-                    minimized.append(mol)
+            minimized, statuses = minimize_mmff94(candidates)
             minimization_seconds = time.perf_counter() - start
             for mode, pool in (
                 ("training_ETKDG", candidates),
@@ -224,17 +219,21 @@ def run(args):
                     writer.write(mol)
                 scores, seconds = overlay_matrix(pool, references)
                 for requested_references in args.references:
+                    available = (
+                        requested_references == 0
+                        or requested_references <= len(references)
+                    )
                     count = min(
                         requested_references or len(references), len(references)
                     )
                     subset = scores[:, :count]
-                    raw = float(subset.max()) if subset.size else np.nan
+                    raw = float(subset.max()) if subset.size and available else np.nan
                     winner = (
                         check_identity(
                             pool[np.unravel_index(subset.argmax(), subset.shape)[0]],
                             expected_candidate,
                         )
-                        if subset.size
+                        if subset.size and available
                         else ""
                     )
                     overlay_seconds = float(seconds[:, :count].sum())
@@ -252,15 +251,19 @@ def run(args):
                                 status != 0 for status in statuses
                             ),
                             "requested_references": requested_references,
-                            "actual_references": count,
+                            "actual_references": count if available else 0,
+                            "reference_pool_size": len(references),
+                            "reference_budget_available": available,
                             "raw_combo": raw,
                             "normalized_combo": raw / 2,
                             "generation_seconds": generation_seconds,
                             "minimization_seconds": extra,
-                            "overlay_seconds": overlay_seconds,
+                            "overlay_seconds": overlay_seconds if available else np.nan,
                             "total_seconds": generation_seconds
                             + extra
-                            + overlay_seconds,
+                            + overlay_seconds
+                            if available
+                            else np.nan,
                             "winning_isomer": winner,
                         }
                     )
@@ -300,9 +303,9 @@ def main():
         help="Optional candidate input; defaults to the reference input",
     )
     parser.add_argument(
-        "--conformers", type=int, nargs="+", default=[1, 10, 30, 100, 200]
+        "--conformers", type=int, nargs="+", default=[1, 5, 10, 15, 20, 30, 100, 200]
     )
-    parser.add_argument("--isomers", type=int, nargs="+", default=[1, 4, 8])
+    parser.add_argument("--isomers", type=int, nargs="+", default=[4])
     parser.add_argument("--references", type=int, nargs="+", default=[1, 2, 3, 0])
     parser.add_argument(
         "--seeds", type=int, nargs="+", default=[0xC0FFEE, 0xC0FFEF, 0xC0FFF0]
