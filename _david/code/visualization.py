@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from textwrap import fill
 from typing import Any, Sequence
 
 import matplotlib.pyplot as plt
@@ -14,6 +15,100 @@ from scipy.stats import gaussian_kde
 
 from _david.code.config import RunPaths
 from _david.code.schema import std
+
+
+def render_conformer_study(frame: pd.DataFrame, output: Path) -> None:
+    """One figure: candidate/reference grids, faceted by isomer cap and mode.
+
+    Each cell shows the mean across seeds and sample standard deviation. Time is
+    candidate generation + optional minimization + the sum of measured overlays
+    for that reference prefix, excluding one-time reference preparation.
+    """
+    modes = ["training_ETKDG", "MMFF94_minimized"]
+    caps = sorted(frame.isomer_cap.unique())
+    budgets = sorted(frame.requested_conformers.unique())
+    references = sorted(frame.requested_references.unique(), key=lambda r: r or np.inf)
+    fig, axes = plt.subplots(4, len(caps), figsize=(5.5 * len(caps), 14), squeeze=False)
+    time_limit = float(frame.total_seconds.max())
+    for column, cap in enumerate(caps):
+        for mode_index, mode in enumerate(modes):
+            subset = frame[(frame.isomer_cap == cap) & (frame["mode"] == mode)]
+            for metric_index, metric in enumerate(
+                ("normalized_combo", "total_seconds")
+            ):
+                row = mode_index * 2 + metric_index
+                ax = axes[row, column]
+                means = subset.pivot_table(
+                    index="requested_references",
+                    columns="requested_conformers",
+                    values=metric,
+                    aggfunc="mean",
+                ).reindex(index=references, columns=budgets)
+                deviations = subset.pivot_table(
+                    index="requested_references",
+                    columns="requested_conformers",
+                    values=metric,
+                    aggfunc="std",
+                ).reindex(index=references, columns=budgets)
+                image = ax.imshow(
+                    means,
+                    vmin=0,
+                    vmax=1 if metric_index == 0 else time_limit,
+                    cmap="viridis" if metric_index == 0 else "magma",
+                    aspect="auto",
+                )
+                for y in range(len(references)):
+                    for x in range(len(budgets)):
+                        value, sd = means.iloc[y, x], deviations.iloc[y, x]
+                        text = "failed" if not np.isfinite(value) else f"{value:.3f}"
+                        if np.isfinite(value):
+                            text += (
+                                f"\n±{sd:.3f}" if np.isfinite(sd) else "\n(single seed)"
+                            )
+                        fraction = value / (
+                            1 if metric_index == 0 else max(time_limit, 1e-9)
+                        )
+                        ax.text(
+                            x,
+                            y,
+                            text,
+                            ha="center",
+                            va="center",
+                            fontsize=8,
+                            color="black" if fraction > 0.65 else "white",
+                        )
+                ax.set_xticks(range(len(budgets)), budgets)
+                actual = subset.groupby(
+                    "requested_references"
+                ).actual_references.first()
+                labels = [
+                    f"{'all' if r == 0 else r} → {int(actual.loc[r])}"
+                    for r in references
+                ]
+                ax.set_yticks(range(len(references)), labels)
+                ax.set_xlabel("Requested conformers per isomer")
+                ax.set_ylabel("Reference cap → actual count")
+                quantity = "combo / 2" if metric_index == 0 else "seconds per molecule"
+                actual_isomers = sorted(map(int, subset.actual_isomers.unique()))
+                ax.set_title(
+                    f"{mode} | I cap={cap}, actual={actual_isomers}\n{quantity}",
+                    fontsize=10,
+                )
+                fig.colorbar(image, ax=ax, fraction=0.04, pad=0.025)
+    repeats = frame.seed.nunique()
+    fig.suptitle(
+        f"MMFF94 / RDKit Tanimoto shape + color\n{repeats} embedding seeds; molecular identity in manifest.json",
+        fontsize=12,
+    )
+    footer = (
+        "Means ± seed SD. Timing excludes reference preparation and pool startup; includes SDF generation/read. "
+        "Actual counts can be below requests. A specified stereoisomer has no additional isomers to enumerate. "
+        "This is self-recovery, not evidence of training improvement."
+    )
+    fig.text(0.5, 0.008, fill(footer, width=65 * len(caps)), ha="center", fontsize=9)
+    fig.tight_layout(rect=(0, 0.085, 1, 0.95))
+    fig.savefig(output, dpi=170)
+    plt.close(fig)
 
 
 def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
