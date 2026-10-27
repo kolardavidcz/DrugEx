@@ -13,6 +13,8 @@ Read repository guidance and inspect the relevant implementation, configuration,
 
 Consult before making the recommendation or implementing a methodological choice. Do not turn every refactor, typo correction, logging fix, or equivalent optimization into a literature exercise. Reuse an inspected, applicable evidence note when its question, code assumptions, source versions, and limitations still match; refresh missing or outdated evidence.
 
+Revisit evidence when the implementation or relevant dependency behavior, dataset/split, objective or score transformation, intended evaluation task, or relevant publication changes. Record whether the note is a proposal, the user's selected method, or an evaluated result; an old proposal is not an approval. A single consultation covers that decision within the task. Domain/tool skills should return evidence to this workflow without recursively starting another consultation.
+
 ## Consult and challenge
 
 Use the installed `literature-research` skill and its free database routes. Resolve its current location on the execution host; on Linux the managed skill is normally `~/.agents/skills/literature-research/SKILL.md`. Read the chosen database skill before using its helpers. Keep access keyless/free where available; use no paid plans or trials.

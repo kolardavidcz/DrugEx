@@ -9,6 +9,8 @@ The active thesis uses unprompted SequenceRNN generation; EGCG is a scoring refe
 
 Before choosing or changing research methods, use [consult-literature](../consult-literature/SKILL.md), which routes evidence searches through the installed `literature-research` skill. Keep existing research choices intact while investigating alternatives. No fixed dielectric, conformer count, potency cutoff, or structure identifier in an old report is automatically authoritative.
 
+When that consultation already selected this skill for an inspection step, perform the inspection and return evidence to the caller; do not reload the consultation. Read-only retrieval and ordinary engineering edits do not introduce new scientific choices by themselves.
+
 ## Choose the relevant workflow
 
 - Ligand/assay retrieval and dataset preparation: [active ligand mining](references/active_ligand_mining_runbook.md).

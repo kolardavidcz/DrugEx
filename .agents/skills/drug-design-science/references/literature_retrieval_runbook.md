@@ -2,7 +2,7 @@
 
 Use `consult-literature` for DrugEx method decisions and the installed `literature-research` skill for database selection, free access, critical appraisal, and citation provenance. Reuse its maintained PubMed, Europe PMC, arXiv, bioRxiv, and OpenAlex helpers instead of building another search client. Resolve helper paths for the active host.
 
-The suite's `literature` command is a small Europe PMC metadata search. Europe PMC includes preprints as well as peer-reviewed articles; an indexed hit is not evidence of peer review. Metadata or an OA flag does not mean the full text was inspected. Follow up using actual PMID/PMCID/DOI records and label access limits. The installed Europe PMC helper restricts searches to OA records, so no hit there does not establish absence from the broader literature.
+The suite's `literature` command is a small Europe PMC metadata search. Europe PMC includes preprints as well as peer-reviewed articles; an indexed hit is not evidence of peer review. Metadata or an OA flag does not mean the full text was inspected. Follow up using actual PMID/PMCID/DOI records and label access limits. The maintained Europe PMC helper discovers all metadata by default; use `--open-access-only` for a deliberately restricted search. Neither an empty restricted search nor unavailable full text establishes absence from the broader literature.
 
 ## Verified starting records
 
