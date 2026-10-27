@@ -16,6 +16,145 @@ from _david.code.config import RunPaths
 from _david.code.schema import std
 
 
+class ConformerBenchmarkVisualizer:
+    """Render score, search-loss, and measured-time matrices for each condition."""
+
+    @staticmethod
+    def render(summary: pd.DataFrame, directory: Path) -> list[Path]:
+        """Export annotated PNG/PDF heatmaps with a shared scale per quantity."""
+        from matplotlib.colors import LogNorm
+
+        directory.mkdir(parents=True, exist_ok=True)
+        paths: list[Path] = []
+        positive = summary.median_candidate_seconds[
+            summary.median_candidate_seconds > 0
+        ]
+        time_norm = LogNorm(
+            vmin=max(float(positive.min()), 1e-4),
+            vmax=max(
+                float(
+                    summary[
+                        ["mean_candidate_seconds", "median_candidate_seconds", "p95_candidate_seconds"]
+                    ].max().max()
+                ),
+                1e-3,
+            ),
+        )
+        for key, group in summary.groupby(["protocol", "candidate_method", "matching"]):
+            budgets = sorted(group.reference_budget.unique())
+            fig, axes = plt.subplots(
+                5,
+                len(budgets),
+                figsize=(5.0 * len(budgets), 18),
+                squeeze=False,
+                layout="constrained",
+            )
+            quantities = [
+                ("mean_raw_combo", "Mean raw combo [0,2]", "viridis", 0.0, 2.0),
+                (
+                    "mean_loss",
+                    "Mean loss to best observed [0,2]",
+                    "magma",
+                    0.0,
+                    max(0.05, float(summary.mean_loss.max())),
+                ),
+                (
+                    "mean_candidate_seconds",
+                    "Mean generation + alignment [seconds]",
+                    "cividis",
+                    None,
+                    None,
+                ),
+                (
+                    "median_candidate_seconds",
+                    "Median generation + alignment [seconds]",
+                    "cividis",
+                    None,
+                    None,
+                ),
+                (
+                    "p95_candidate_seconds",
+                    "P95 generation + alignment [seconds]",
+                    "cividis",
+                    None,
+                    None,
+                ),
+            ]
+            for column, budget in enumerate(budgets):
+                part = group[group.reference_budget == budget]
+                counts = part.pivot(
+                    index="k_candidate_requested",
+                    columns="k_ref_requested",
+                    values="median_actual_reference",
+                ).sort_index()
+                for row, (quantity, label, cmap, lower, upper) in enumerate(quantities):
+                    axis = axes[row, column]
+                    values = part.pivot(
+                        index="k_candidate_requested",
+                        columns="k_ref_requested",
+                        values=quantity,
+                    ).sort_index()
+                    options: dict[str, Any] = (
+                        {"norm": time_norm}
+                        if row >= 2
+                        else {"vmin": lower, "vmax": upper}
+                    )
+                    image = axis.imshow(
+                        values.to_numpy(),
+                        origin="lower",
+                        aspect="auto",
+                        cmap=cmap,
+                        **options,
+                    )
+                    axis.set_xticks(range(len(values.columns)), values.columns)
+                    axis.set_yticks(range(len(values.index)), values.index)
+                    axis.set_xlabel("Requested retained-reference cap")
+                    axis.set_ylabel("Candidate conformers requested per isomer")
+                    for yi in range(len(values.index)):
+                        for xi in range(len(values.columns)):
+                            value = values.iloc[yi, xi]
+                            text = "FAIL" if pd.isna(value) else f"{value:.3f}"
+                            if row == 0:
+                                text += f"\nR={counts.iloc[yi, xi]:g}"
+                            axis.text(
+                                xi,
+                                yi,
+                                text,
+                                ha="center",
+                                va="center",
+                                fontsize=8,
+                                color="white",
+                                bbox={
+                                    "facecolor": "black",
+                                    "alpha": 0.28,
+                                    "edgecolor": "none",
+                                    "pad": 1,
+                                },
+                            )
+                    if row == 0:
+                        axis.set_title(
+                            f"Reference attempts: {budget}\nOne-time preparation: {part.mean_reference_seconds.mean():.2f} s"
+                        )
+                    fig.colorbar(image, ax=axis, label=label, shrink=0.85)
+            fig.suptitle(
+                "\n".join(
+                    (
+                        str(key[0]),
+                        f"{key[1]} | {key[2]}",
+                        f"Model panel: {int(group.n_molecules.max())} molecules; repeated seeds",
+                    )
+                ),
+                fontsize=12,
+            )
+            stem = "__".join(str(x) for x in key)
+            for suffix in ("png", "pdf"):
+                path = directory / f"{stem}.{suffix}"
+                fig.savefig(path, dpi=180, bbox_inches="tight")
+                paths.append(path)
+            plt.close(fig)
+        return paths
+
+
 def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure ROCS is [0, 2] TanimotoCombo and calculate physical properties if missing."""
     if df.empty:

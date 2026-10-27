@@ -161,7 +161,10 @@ class RDKitConformerGenerator(ConformerGenerator):
         max_rotatable_bonds (int): drop molecules with more rotatable bonds than
             max_rotatable_bonds
         show_progress (bool): whether to show progress during conformer generation
+        rejected_embedding_results (int): Negative embedding IDs rejected in the last batch.
     """
+
+    rejected_embedding_results: int
 
     def __init__(self, max_conformers: int = ..., max_isomers: int = ..., max_heavy_atoms: int = ..., max_rotatable_bonds: int = ..., num_threads: int = ..., timeout: int = ..., show_progress: bool = ..., protonate: bool = ..., canonicalize_tautomer: bool = ...) -> None:
         """
