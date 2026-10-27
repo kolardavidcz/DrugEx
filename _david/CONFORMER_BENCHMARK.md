@@ -4,6 +4,9 @@ This experiment asks how much conformational search is needed to preserve the
 production scorer's results at an acceptable CPU cost. It does not establish
 binding affinity or identify a bioactive EGCG conformation.
 
+The completed experiment and qualified conclusions are in
+[CONFORMER_BENCHMARK_RESULTS.md](CONFORMER_BENCHMARK_RESULTS.md).
+
 Three separate quantities matter:
 
 | Quantity | Meaning | Tested values |
@@ -86,6 +89,9 @@ benchmark baseline was corrected before drawing conclusions. Its reference
 builds and partial matching records remain explicitly marked as superseded;
 final matching uses rebuilt 1.25 Å references throughout.
 
+Here 1.25 Å is the project's EGCG clustering rule; it is not presented as a
+universal RDKit default.
+
 The wider panel also exposed a production generator bug: RDKit can return
 `[-1]` after a native embedding timeout. The previous loop passed that sentinel
 to `SDWriter`, which generated a 2D depiction when no 3D conformer existed;
@@ -153,6 +159,15 @@ the timeout argument is not forwarded to the candidate generator, the reference
 energy window is hardcoded, and reference preparation caps the EGCG ensemble at
 three even when a larger cap is requested. This benchmark passes its settings
 explicitly and does not change the user's annotated training configuration.
+
+Full-batch confirmation exposed a separate precision issue: default RDKit
+process pickling reduced coordinate precision and changed some overlay optima.
+The production scorer now serializes its reference and candidate payloads with
+`CoordsAsDouble`, retaining the existing property flags without changing global
+pickle settings. Native probes isolate the effect from candidate threading.
+The corrected full scorer matches the grid within 1e-15 for all 32 molecules
+at both confirmed count settings. The overlay kernel and grid scores are
+unchanged; earlier production-confirmation results remain archived separately.
 
 ## Method sources
 

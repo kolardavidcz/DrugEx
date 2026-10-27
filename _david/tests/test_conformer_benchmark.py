@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 import tempfile
 import unittest
 from dataclasses import asdict
@@ -14,7 +15,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer, _serialize_worker_molecule
 
 from _david.code.conformer.benchmark import (
     CandidateBuilder,
@@ -109,6 +110,20 @@ class TestConformerBenchmark(unittest.TestCase):
                 self.assertAlmostEqual(measured, expected, places=9)
                 self.assertGreater(measured, 0)
                 self.assertLessEqual(measured, 2)
+                scorer.n_jobs = 2
+                with patch.dict("os.environ", {"DRUGEX_MP_CONTEXT": "spawn"}):
+                    parallel = float(scorer.getScores([Chem.MolFromSmiles(smile)])[0, 0])
+                self.assertAlmostEqual(parallel, expected, places=12)
+
+    def test_parallel_payload_preserves_coordinates(self) -> None:
+        """Keep native double coordinates exact after the multiprocessing pickle step."""
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCOc1ccccc1"))
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        payload = pickle.loads(pickle.dumps(_serialize_worker_molecule(mol)))
+        restored = Chem.Mol(payload)
+        np.testing.assert_array_equal(
+            mol.GetConformer().GetPositions(), restored.GetConformer().GetPositions()
+        )
 
     def test_filtered_candidate_is_recorded_as_failure(self) -> None:
         """Keep a valid but out-of-domain molecule visible rather than dropping it."""

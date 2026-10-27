@@ -173,13 +173,17 @@ def _score_single_reference(query_mol: Chem.Mol, ref_mol: Chem.Mol, score_type: 
     ...
 
 
-def _rdkit_worker_init(reference_mols: List[Chem.Mol], group_to_indices: List[List[int]], score_type: str, use_colors: bool, inject_color: bool = ..., score_variant: str = ..., color_ff: str = ...) -> None:
+def _serialize_worker_molecule(mol: Chem.Mol) -> bytes:
+    """Preserve conformer coordinate precision during process serialization."""
+    ...
+
+def _rdkit_worker_init(reference_mols: List[bytes], group_to_indices: List[List[int]], score_type: str, use_colors: bool, inject_color: bool = ..., score_variant: str = ..., color_ff: str = ...) -> None:
     """Initializer to share immutable worker state."""
 
     ...
 
 
-def _score_molecule_rdkit_worker(args: Tuple[int, List[Chem.Mol]]) -> Tuple[int, List[float]]:
+def _score_molecule_rdkit_worker(args: Tuple[int, List[bytes]]) -> Tuple[int, List[float]]:
     """Score a molecule in a worker process."""
 
     ...
