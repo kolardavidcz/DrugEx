@@ -54,6 +54,8 @@ def minimize_mmff94(
 
     Status 0 means converged, 1 means more iterations are needed, and -1 means
     invalid geometry/missing parameters. No UFF fallback is used for this method.
+    Round-trip results through the scorer's SDF representation so the study and
+    training use the same coordinates, aromaticity perception and properties.
     """
     minimized, statuses = [], []
     for record in records:
@@ -73,6 +75,10 @@ def minimize_mmff94(
                     check_identity(mol, record)
                     mol.SetProp("ForceField", "MMFF94")
                     mol.SetIntProp("MMFFOptimizationStatus", status)
+                    supplier = Chem.SDMolSupplier()
+                    supplier.SetData(Chem.SDWriter.GetText(mol), removeHs=False)
+                    mol = supplier[0]
+                    check_identity(mol, record)
                     minimized.append(mol)
         statuses.append(status)
     return minimized, statuses

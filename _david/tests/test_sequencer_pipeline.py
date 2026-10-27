@@ -17,10 +17,52 @@ from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
 from _david.code.chemistry import check_identity, minimize_mmff94, standardize_smiles
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
 from _david.code.environment import PrepareMolecule, create_environment
+from _david.code.environment import create_rocs_scorer
 from _david.code.models import SequenceRNNOptimizer
 
 
 class TestPreparation(unittest.TestCase):
+    def test_minimized_study_score_matches_the_public_training_scorer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "reference.sdf"
+            PrepareMolecule(
+                num_conformers=5, num_threads=1
+            ).generate_reference_conformers(DEFAULT_MOLECULE, path)
+            references = list(Chem.SDMolSupplier(str(path), removeHs=False))
+            baseline = create_rocs_scorer(
+                references,
+                max_conformers=5,
+                timeout=0,
+                conformer_threads=1,
+                n_jobs=1,
+            )
+            raw_path = baseline.conformer_generator.genConformers(
+                [DEFAULT_MOLECULE], directory
+            )
+            records = list(Chem.SDMolSupplier(raw_path, removeHs=False))
+            minimized, _ = minimize_mmff94(records)
+            self.assertTrue(minimized)
+            study_score = max(
+                _score_single_reference(
+                    Chem.Mol(mol), Chem.Mol(ref), "TanimotoCombo", True
+                )
+                for mol in minimized
+                for ref in references
+            )
+            training = create_rocs_scorer(
+                references,
+                max_conformers=5,
+                timeout=0,
+                conformer_threads=1,
+                n_jobs=1,
+                minimize_candidates=True,
+            )
+            self.assertAlmostEqual(
+                float(training.getScores([DEFAULT_MOLECULE])[0, 0]),
+                study_score,
+                places=10,
+            )
+
     def test_candidate_minimization_switch_is_off_by_default_and_preserves_identity(
         self,
     ):
