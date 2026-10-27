@@ -27,6 +27,8 @@ implementation are unchanged by this work.
   minimized using MMFF94. Candidate minimization is a diagnostic alternative;
   training still uses unminimized candidates. Only MMFF94 references are accepted
   in this condition; a UFF fallback is not silently mixed into its results.
+- `conformer_experiment.py` delegates to the current study. The moved legacy
+  launcher no longer imports the removed Gemini implementation.
 
 A reference must specify its stereochemistry for this self-recovery study.
 Candidate input can be supplied separately; unresolved centers can be enumerated
