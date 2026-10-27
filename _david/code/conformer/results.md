@@ -48,6 +48,13 @@ Dichtator, RDKit 2026.03.6, revision `51b5562`: all six passed (0.984 s);
 Ruff passed for the task files. A broader check also found an unrelated E741 in
 the user's moved molecular-dynamics code; it was not changed.
 
+Final validation and measurements used clean committed source `a09fe58` in
+`/home/kolarv/.cache/drugex-mmff94-a09fe58`. All six tests passed (0.937 s), and
+Ruff passed for that checkout's code/tests. Import origins and before/after source
+hashes were verified. Full commands, logs, versions and validation records are in
+the experiment manifest. Concurrent user reorganization, including deletion of
+old molecular-dynamics ligands/output, was preserved in the active checkout.
+
 The earlier weak smoke assertions were replaced, not treated as proof of
 conformer correctness. Tests do not substitute for reviewing the saved structures
 and measurements. The RNN guard does not constitute an audit of the earlier
@@ -59,7 +66,7 @@ The user selected the default MMFF model (RDKit MMFF94) and RDKit Tanimoto
 shape-plus-color as the initial baseline, with paired minimized/unminimized
 candidates. The earlier five-method/two-score comparison is deferred.
 
-Planned run: 1,000 reference embedding attempts, reference seed 42, MMFF94
+Completed run: 1,000 reference embedding attempts, reference seed 42, MMFF94
 minimization up to 1,000 iterations, 8 kcal/mol energy window and 1.25 Å heavy-atom
 RMSD clustering. Candidate attempts per isomer: 1, 10, 30, 100, 200; isomer caps:
 1, 4, 8; reference caps: 1, 2, 3, all; candidate seeds: 12648430–12648432.
@@ -69,6 +76,7 @@ No wall-clock embedding timeout; one CPU thread; no RNN training.
 Each row records requested and actual counts, convergence failures, winning
 isomer, raw combo [0,2], combo/2 [0,1], generation/minimization/overlay times.
 Timings exclude one-time reference preparation and multiprocessing startup.
+They include the study's identity audits and are not a training throughput claim.
 Reference-prefix scores reuse measured pairwise overlays; times sum those
 overlays and add candidate preparation. They are not full training latency.
 
@@ -76,6 +84,66 @@ Fully specified EGCG should yield one stereoisomer at every isomer cap. Flat
 isomer panels are an expected negative result, not evidence for a universal cap.
 A later broader-molecule study must evaluate whole distributions as well as a
 predefined top-5% tail. The current lead renderer selects five molecules, not 5%.
+
+## Measured EGCG self-recovery
+
+One specified molecule, three independent candidate embedding seeds. The 360 CSV
+rows are configuration/seed combinations, not 360 molecules. Isomer caps 1/4/8
+each produced one isomer and identical scores for each otherwise matched case.
+Reference preparation took 16.98 s: 1,000 requested attempts → 36 embedded →
+36 converged → three retained representatives. All 375 generated candidate
+conformers converged in the paired minimization; 750 original/minimized SDF
+records were saved and their 3D identities checked.
+
+The following uses isomer cap 4 and all three references. Scores are combo/2,
+mean ± sample SD across the three seeds; time is the mean seconds per molecule
+under the single-thread measurement definition above.
+
+| Requested C | Actually embedded | ETKDG score | Minimized score | ETKDG seconds | With minimization seconds |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 0.596 ± 0.018 | 0.877 ± 0.133 | 0.168 | 0.189 |
+| 10 | 5–7 | 0.685 ± 0.047 | 0.988 ± 0.015 | 0.429 | 0.543 |
+| 30 | 7–10 | 0.714 ± 0.050 | 0.988 ± 0.015 | 0.820 | 1.019 |
+| 100 | 11–13 | 0.736 ± 0.015 | 0.998 ± 0.004 | 2.055 | 2.322 |
+| 200 | 13–15 | 0.736 ± 0.015 | 0.998 ± 0.004 | 3.670 | 3.980 |
+
+Minimization has a much larger effect here than increasing the unminimized search
+from 100 to 200 attempts. This supports a geometry-preparation mismatch for this
+specified EGCG comparison. It does not establish bioactive conformations, an
+optimal force field, general conformer/isomer budgets or improved RNN training.
+In particular, the flat isomer axis cannot select a cap for ambiguous molecules.
+
+All three exact-geometry controls scored 2 raw. A deliberately inverted center
+was rejected by the identity check (its raw overlay was 0.621431; no similarity
+threshold was used as an identity test). Public-scorer replay at C=30/200,
+default seed, cap 4 and all references reproduced both CSV scores exactly.
+Replay from saved C=200 SDFs matched the unminimized score exactly and differed
+by 1.554e-8 raw for the minimized score, consistent with SDF coordinate rounding.
+These are the stated replay cases, not a replay of every measured cell.
+
+![Score and time grids](../../output/conformer/mmff94_20261027/summary.png)
+
+Generated evidence, mirrored from dichtator with matching hashes:
+[measurements](../../output/conformer/mmff94_20261027/data.csv),
+[controls](../../output/conformer/mmff94_20261027/controls.csv),
+[reference structures](../../output/conformer/mmff94_20261027/reference.sdf),
+[candidate structures](../../output/conformer/mmff94_20261027/candidates.sdf),
+[manifest and verification](../../output/conformer/mmff94_20261027/manifest.json).
+These ignored outputs are not included in a fresh Git clone.
+
+From the repository root on dichtator, reproduce into a new output directory:
+
+```bash
+MPLBACKEND=Agg OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 DRUGEX_SCORE_NJOBS=1 \
+  .venv/bin/python -B -m _david.code.conformer.study \
+  --output /home/kolarv/DrugEx/_david/output/conformer/mmff94_repeat
+```
+
+Use `--render-only --output <existing-run-directory>` to regenerate the PNG from
+the CSV. Read [chemistry.py](../chemistry.py), [reference/scorer construction](../environment.py),
+[study.py](study.py), [the renderer](../visualization.py) and the focused test
+module for code review. No earlier unreviewed RNN implementation is certified by
+this study.
 
 ## Evidence and limits
 
