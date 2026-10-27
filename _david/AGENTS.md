@@ -1,55 +1,82 @@
 # Thesis implementation guide
 
-## Scope
+## Ownership and scope
 
-The current work uses an unprompted Papyrus SMILES SequenceRNN, an independent frozen mutation prior, and RL with ROCS, SA, and QED objectives. EGCG is the default query. Fragment-conditioned GraphTransformer runs are historical comparisons under `legacy/stupid_graph_transformer/`.
+The user owns the bachelor's thesis and its scientific decisions. Debate methods
+candidly, challenge unsupported assumptions, and implement the choices the user
+makes. Discuss new scientifically consequential settings before adding them to a
+study. Research discussion alone does not authorize experiments.
 
-Debate methods candidly; implement the user's research choices. Preserve informal annotations in `code/config.py`. Include unfavorable diagnostics such as shrinkage, invalid/duplicate samples, and scaffold concentration.
+Keep all thesis implementation under `_david/`. DrugEx core and other source
+paths are read-only. Keep code simple, readable and easy to review; refactor only
+as necessary for the requested change. Preserve the user's annotations in
+`code/config.py`. Before adding functionality, inspect DrugEx, then established
+libraries such as RDKit.
 
-Keep all thesis implementation changes inside `_david/`. Treat DrugEx core and
-other repository paths as read-only. Report core issues and discuss any solution
-within `_david/`; do not patch core code. Keep diffs small and refactor only as
-needed for the requested change.
+## Molecule-agnostic pipeline
 
-## Source map
+References and candidates are inputs, not named special cases. EGCG is the
+current configurable default reference for unprompted Papyrus SMILES SequenceRNN
+generation, not a fragment prompt. Do not specialize preparation, conformer
+budgets, identity checks, visualization or success criteria to EGCG or another
+named molecule. A single-reference experiment cannot establish generality.
 
-- `code/config.py`: PipelineConfig, RunPaths, query, checkpoint resolution.
-- `code/environment.py`: query preparation, reference conformers, scorers, modifiers, rewards.
-- `code/models.py`: agent/frozen-prior loading and exploration schedules.
-- `code/pipeline.py`: reference preparation, baseline sampling, threshold calibration, RL, final sampling, analysis.
-- `code/schema.py`: column names; distinguish modified ROCS/SA from physical values.
-- `code/utils.py`: hardware selection and runtime initialization.
-- `code/visualization.py`: analysis, scorecards, lead ranking, diagnostic figures.
-- `code/run_overnight_matrix.py`: sequential Run 17-20 launcher. It skips runs when summary.md exists and prints a final completion message even after caught errors. Inspect before reuse.
-- `tests/`: current unittest suites; the former tests.py path is absent.
-- `metacentrum/`: grid manager and PBS template; live authentication/submission remains unverified.
-- `output/`: generated artifacts, mostly ignored by Git.
-- `validation/` and `code/tmp/`: ignored research work; Git synchronization does not transfer them.
+Apply the same explicit chemistry policy to every supported input. Preserve
+specified stereochemistry; distinguish unresolved stereochemistry from a
+preparation error. Report unsupported chemistry, missing force-field parameters,
+embedding failures and nonconvergence explicitly. Molecule-agnostic does not
+promise support for every chemical structure.
 
-## Current behavior and open issues
+The conformer study must use the same candidate-preparation/scoring path and
+isomer policy as training. Deep reference optimization and candidate preparation
+serve different roles; document that distinction. Any alternative candidate path
+is a labelled comparison, not evidence that training already uses it. Keep
+isomer and conformer limits independently configurable; coupling them is a
+proposal until selected. Report actual enumerated/embedded/retained counts.
 
-- Keep agent and mutation prior separate; the prior is frozen and in evaluation mode. Model construction passes the selected GPU tuple.
-- Generate with evaluator=None, then score explicitly. Use canonical SMILES for uniqueness and state its denominator.
-- Thresholds are calibrated once from baseline percentiles, not continuously during RL. A nonzero desired ratio does not establish a useful optimization signal.
-- Runtime defaults to DRUGEX_MP_CONTEXT=fork if unset. Python warns about forking multithreaded processes; neither fork nor forkserver is universally safe without workload-specific verification.
-- HardwareManager and scorer environment settings determine workers. Old fixed 24/32-worker claims are not implemented guarantees. Check current load/allocation before machine-wide defaults.
-- Config timeout_seconds=0 does not prove the core conformer generator has no timeout; trace constructor wiring.
-- Reporting infers ROCS scale from maxima; nested conversions can double it twice. Do not use existing scorecards/plots as calibrated physical results until resolved.
-- The standalone conformer implementations have been removed. Do not import or launch their historical scripts/results as current code.
+## Science and reporting
 
-See [CODEX_ONBOARDING.md](CODEX_ONBOARDING.md) for dated evidence. Historical handoffs/reports are not standing instructions or approved experiment parameters.
-See [CONFORMER_ROLLBACK.md](CONFORMER_ROLLBACK.md) for the restored baseline,
-explicit exceptions, retained evidence and known unresolved issues.
+Use [consult-literature](../.agents/skills/consult-literature/SKILL.md) before
+choosing, recommending or changing research methods, consequential parameters,
+datasets or evaluation. Use free primary literature and inspect the actual
+implementation. Routine software fixes preserving scientific behavior do not
+need a new literature review.
 
-## Validation and synchronization
+Measure unfavorable outcomes as well as promising ones. Include relevant
+diagnostics in `code/visualization.py`. State score definitions and transformations
+explicitly; never infer their scale from observed maxima. Scoring/conformer
+experiments do not establish RNN training improvements.
 
-Edit locally with apply_patch and LF endings. Use the existing remote .venv, preserving user work. From WSL:
+This file is the single source of current project instructions.
+[results.md](results.md) is the single maintained findings/limitations/decision
+record. Mark proposals, selected methods and measured results separately. Keep
+the conformer delivery compact: one score/time figure, reproducible scripts and
+raw data referenced from results.md. Frozen historical evidence, raw data and
+Git history are provenance, not additional live guidance. Do not revive their
+action lists or settings.
 
-```bash
-ssh -o BatchMode=yes -o ConnectTimeout=15 dichtator 'cd /home/kolarv/DrugEx && .venv/bin/ruff check --no-cache _david/code _david/tests'
-ssh -o BatchMode=yes -o ConnectTimeout=15 dichtator 'cd /home/kolarv/DrugEx && MPLBACKEND=Agg OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 DRUGEX_SCORE_NJOBS=2 DRUGEX_MP_CONTEXT=fork .venv/bin/python -B -m unittest discover -s _david/tests -p test_*.py -v'
-```
+## Code and execution
 
-Prefix with wsl from PowerShell. These are validation examples, not production settings. Onboarding passed 10 tests; rerun relevant checks for implementation changes.
+- `code/config.py`: run configuration and checkpoint resolution.
+- `code/environment.py`: reference preparation, conformer/scorer construction,
+  modifiers and rewards.
+- `code/models.py`, `code/pipeline.py`: agent/frozen-prior loading and RL workflow.
+- `code/schema.py`, `code/utils.py`: score columns and runtime configuration.
+- `code/visualization.py`: analysis and figures; `tests/`: executable assertions.
+- `legacy/`: fragment-conditioned historical comparisons; `output/`: generated
+  artifacts. Ignored data/checkpoints are not transferred by Git.
 
-Commit task files with a detailed message and synchronize through dichtator after checking both worktrees. Never push to GitHub origin or commit checkpoints/bulky raw output.
+Default to local WSL `/home/kolar/DrugEx` for editing and small checks, and
+`/home/kolarv/DrugEx` for compute through SSH alias `dichtator`. Follow the personal
+`drugex-dichtator` skill. In a native SSH chat, work directly in that checkout.
+Inspect both hosts before synchronization and preserve unrelated/user edits.
+Commit only task files and synchronize through private `dichtator`; never push
+to GitHub `origin` or force push. Do not commit credentials, checkpoints or bulky
+output. Use LF endings and the existing remote `.venv`.
+
+Validate the relevant source, including import origins for isolated checkouts.
+Record host, revision/dirty state, exact command and result for substantive
+validation. When relevant source is dirty or concurrent edits are possible,
+compare its hashes before claiming remote validation. Reuse existing experiment
+manifests; record configuration, input identities, dependency versions, seeds,
+sample denominators, failures and score scales. No additional validation framework.
