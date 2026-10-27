@@ -3,6 +3,8 @@
 # ==============================================================================
 
 # --- Local Research & Private Environments ---
+!_david/tests/**
+!_david/output/.gitkeep
 .agents/*
 !.agents/skills/
 .agents/skills/*
@@ -11,19 +13,12 @@
 _david/validation/
 _david/code/tmp/
 _david/data/
-/drugex/_version.py
-/drugex/training/test_data/A2A_LIGANDS.tsv
-/drugex/training/test_data/AR_LIGANDS.tsv
-
 # --- Dynamic Run Outputs & Generated Artifacts ---
-output/
-outputs/
+*/output/*
+*/outputs/*
+_david/tests/molecular_dynamics/*/*
 _david/output/*
-!_david/output/.gitkeep
-
-# --- Preserved Benchmark Runs (Chapter 4 Baselines) ---
-!_david/legacy/runs/
-!_david/legacy/runs/**
+_david/tests/molecular_dynamics/*
 
 # --- Heavy Model Weights & Binary Checkpoints ---
 *.pkg
@@ -35,9 +30,6 @@ _david/output/*
 **/*.cv.tsv
 **/*.ind.tsv
 **/*_smiles.tsv
-
-# Whitelist fit trajectories in preserved legacy benchmarks
-!_david/legacy/runs/**/david_agent_fit.tsv
 
 # --- Downloaded Datasets & Symlinks ---
 /data/
@@ -69,7 +61,6 @@ _test_*/
 test_notebook_runner.py
 test_cell*.py
 /test_*.py
-!_david/tests/**
 /tmp/
 tmp*
 /testing/clitest/data/*.txt
@@ -119,3 +110,4 @@ MANIFEST
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
