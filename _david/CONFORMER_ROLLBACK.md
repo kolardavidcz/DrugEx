@@ -57,5 +57,20 @@ observations about scoring separate from claims about RNN training outcomes.
 
 ## Validation
 
-Pending validation of the restored committed source. Tests and lint will be
-reported here with the exact revision and execution context.
+Revision `8a8386c` was validated on dichtator in the clean isolated checkout
+`/home/kolarv/.cache/drugex-rollback-validation-8a8386c`. Core/thesis import paths
+were checked to resolve to that checkout, rather than the active working tree.
+
+- `.venv/bin/ruff check --no-cache _david/code _david/tests`: passed.
+- `.venv/bin/python -B -m unittest discover -s _david/tests -p 'test_*.py' -v`:
+  all six restored baseline tests passed (1.782 seconds).
+- Test environment: `MPLBACKEND=Agg OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2
+  DRUGEX_SCORE_NJOBS=2 DRUGEX_MP_CONTEXT=fork`. Existing Papyrus files were used
+  through the resolver's absolute-path fallback; no checkpoint was copied.
+- The existing warning about fork from a multithreaded process remains recorded.
+
+Exact commands, logs, revision, import origins and clean before/after status are
+in the dichtator checkpoint's `validation.json`, `ruff.log` and `tests.log`.
+These checks cover loading and basic component behavior; the scientific issues
+above remain unresolved. This documentation-only follow-up does not change the
+validated source.
