@@ -320,7 +320,51 @@ def run(args):
     output = args.output.resolve()
     if args.render_only:
         manifest = json.loads((output / "manifest.json").read_text())
+        if manifest["state"] != "complete":
+            raise ValueError("Finish measurements before rendering the final images")
+        data_paths = [
+            output / name
+            for name in (
+                "data.csv.gz",
+                "summary.csv",
+                "panel.csv",
+                "references.sdf",
+                "controls.csv",
+            )
+        ]
+        before = {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in data_paths
+        }
         render_mega_study(pd.read_csv(output / "summary.csv"), output, manifest)
+        assert before == {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in data_paths
+        }
+        manifest["rendering"] = {
+            "git_revision": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], text=True
+            ).strip(),
+            "command": [
+                sys.executable,
+                "-m",
+                "_david.code.conformer.mega",
+                *sys.argv[1:],
+            ],
+            "data_sha256": before,
+            "source_sha256": {
+                p: hashlib.sha256((PROJECT_ROOT / p).read_bytes()).hexdigest()
+                for p in (
+                    "_david/code/conformer/mega.py",
+                    "_david/code/visualization.py",
+                )
+            },
+        }
+        manifest["sha256"].update(
+            {
+                p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in output.glob("mega_*.png")
+            }
+        )
+        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         return
     output.mkdir(parents=True, exist_ok=args.resume)
     parts = output / "parts"

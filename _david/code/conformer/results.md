@@ -19,6 +19,36 @@ Their docking/pharmacophore results do not establish DrugEx RL benefit or the
 best parameters here. The new study keeps specified input stereo and labels
 best-over-isomer scoring as a search over prepared forms, not activity evidence.
 
+## Active execution checkpoint
+
+- Measurement source: clean committed `ff96921`, isolated at
+  `/home/kolarv/.cache/drugex-mega-ff96921` on dichtator.
+- Persistent job: tmux `drugex-mega-512`; 16 one-thread workers, no RL epochs.
+- Output: `/home/kolarv/DrugEx/_david/output/conformer/mega_20261028`.
+  Read its `manifest.json` and `exit_code` for the next bounded completion check.
+  A successful full grid contains 2,150,400 parent/configuration/seed rows.
+- Query preparation completed. Retained reference counts by method are:
+  none=4; MMFF94=3; MMFF94s ε1=3; ε6.5=2; ε78.4=3; distance-dependent=3;
+  UFF=2. Unsupported reference requests are unavailable, not clipped repeats.
+- Eleven regression tests passed on the lab source (2.124 s), scoped Ruff
+  passed, and all seven pilot public-scorer checks matched within 1e-10.
+  Exact validation records are `/tmp/drugex-mega-ff96921-validation.json` on
+  dichtator; copy them into the completed experiment's manifest verification.
+- Measurements must finish in the frozen source above. The current renderer
+  improves contrast and records rendering provenance; use `--render-only` after
+  completion to generate final images without changing raw data or summaries.
+- Remaining delivery: validate grid/denominators and representative public-scorer
+  replay, render the four images, mirror evidence locally, replace this checkpoint
+  with findings, and synchronize through private `dichtator` preserving user edits.
+- The failed first minimized trial is preserved under
+  `output/conformer/archive/mmff94_candidates_7039298_failed_parity` on dichtator,
+  with its manifest explicitly marking the 0.034 raw-score parity failure.
+
+## Historical single-molecule baseline
+
+The following dated sections describe the earlier single-molecule experiment;
+they are not the current mega-study result or a production-parameter selection.
+
 Updated 2026-10-27. Current instructions: [AGENTS.md](../../AGENTS.md).
 Source lives here; generated evidence belongs under `_david/output/conformer/`.
 

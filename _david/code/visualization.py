@@ -223,10 +223,9 @@ def render_mega_study(summary: pd.DataFrame, output: Path, manifest: dict) -> No
                                 if metric_index == 1 and is_time
                                 else f"{value:.3f}"
                             )
-                            fraction = (
-                                float(norms[metric_index](value))
-                                if np.isfinite(value)
-                                else 1
+                            rgba = palettes[metric_index](norms[metric_index](value))
+                            luminance = float(
+                                np.dot(rgba[:3], [0.2126, 0.7152, 0.0722])
                             )
                             ax.text(
                                 x,
@@ -236,7 +235,7 @@ def render_mega_study(summary: pd.DataFrame, output: Path, manifest: dict) -> No
                                 va="center",
                                 fontsize=5.5,
                                 color="black"
-                                if fraction > 0.65 or not np.isfinite(value)
+                                if luminance > 0.5 or not np.isfinite(value)
                                 else "white",
                             )
                     ax.set_xticks(range(len(conformers)), conformers, fontsize=6)
