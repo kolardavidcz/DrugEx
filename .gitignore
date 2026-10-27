@@ -3,7 +3,11 @@
 # ==============================================================================
 
 # --- Local Research & Private Environments ---
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/consult-literature/
+!.agents/skills/drug-design-science/
 _david/validation/
 _david/code/tmp/
 _david/data/
