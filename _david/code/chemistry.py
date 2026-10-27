@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
@@ -11,15 +12,37 @@ from rdkit.Chem import AllChem
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
 
+@dataclass(frozen=True)
+class Optimization:
+    """One explicit force-field condition, shared by references and candidates."""
+
+    method: str = "MMFF94"
+    dielectric: float = 1.0
+    dielectric_model: int = 1
+    max_iterations: int = 1000
+
+    @property
+    def name(self) -> str:
+        if self.method in {"none", "UFF"}:
+            return self.method
+        model = "distance" if self.dielectric_model == 2 else "constant"
+        return f"{self.method} eps={self.dielectric:g} {model}"
+
+
 class CandidateConformerGenerator(RDKitConformerGenerator):
     """DrugEx ETKDG with a selectable seed and optional MMFF94 post-minimization."""
 
     def __init__(
-        self, random_seed: int = 0xC0FFEE, minimize_candidates: bool = False, **kwargs
+        self,
+        random_seed: int = 0xC0FFEE,
+        minimize_candidates: bool = False,
+        optimization: Optimization | None = None,
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.random_seed = random_seed
         self.minimize_candidates = minimize_candidates
+        self.optimization = optimization or Optimization()
         self.last_minimization_statuses: list[int] = []
 
     def _create_fresh_etkdg(self):
@@ -32,7 +55,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         self.last_minimization_statuses = []
         if self.minimize_candidates:
             records = list(Chem.SDMolSupplier(path, removeHs=False))
-            minimized, statuses = minimize_mmff94(records)
+            minimized, statuses = optimize_conformers(records, self.optimization)
             self.last_minimization_statuses = statuses
             with Chem.SDWriter(path) as writer:
                 for mol in minimized:
@@ -40,7 +63,8 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
             failures = sum(status != 0 for status in statuses)
             if failures:
                 logging.getLogger(__name__).warning(
-                    "MMFF94 candidate minimization excluded %d/%d conformers",
+                    "%s candidate minimization excluded %d/%d conformers",
+                    self.optimization.name,
                     failures,
                     len(statuses),
                 )
@@ -50,6 +74,13 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
 def minimize_mmff94(
     records: list[Chem.Mol], max_iterations: int = 1000
 ) -> tuple[list[Chem.Mol], list[int]]:
+    """Compatibility wrapper for the selected default MMFF94 condition."""
+    return optimize_conformers(records, Optimization(max_iterations=max_iterations))
+
+
+def optimize_conformers(
+    records: list[Chem.Mol], settings: Optimization
+) -> tuple[list[Chem.Mol], list[int]]:
     """Minimize copies; return converged conformers and every native status.
 
     Status 0 means converged, 1 means more iterations are needed, and -1 means
@@ -57,24 +88,41 @@ def minimize_mmff94(
     Round-trip results through the scorer's SDF representation so the study and
     training use the same coordinates, aromaticity perception and properties.
     """
+    if settings.method not in {"MMFF94", "MMFF94s", "UFF"}:
+        raise ValueError(f"Unsupported optimization method: {settings.method}")
     minimized, statuses = [], []
     for record in records:
         status = -1
         if record is not None and record.GetNumConformers():
             mol = Chem.Mol(record)
             conf = mol.GetConformer()
-            if (
-                conf.Is3D()
-                and np.isfinite(conf.GetPositions()).all()
-                and AllChem.MMFFHasAllMoleculeParams(mol)
-            ):
-                status = AllChem.MMFFOptimizeMolecule(
-                    mol, mmffVariant="MMFF94", maxIters=max_iterations
-                )
+            field = None
+            if conf.Is3D() and np.isfinite(conf.GetPositions()).all():
+                if settings.method == "UFF" and AllChem.UFFHasAllMoleculeParams(mol):
+                    field = AllChem.UFFGetMoleculeForceField(mol)
+                elif settings.method.startswith(
+                    "MMFF"
+                ) and AllChem.MMFFHasAllMoleculeParams(mol):
+                    props = AllChem.MMFFGetMoleculeProperties(
+                        mol, mmffVariant=settings.method
+                    )
+                    props.SetMMFFDielectricConstant(settings.dielectric)
+                    props.SetMMFFDielectricModel(settings.dielectric_model)
+                    field = AllChem.MMFFGetMoleculeForceField(mol, props)
+            if field is not None:
+                status = field.Minimize(maxIts=settings.max_iterations)
                 if status == 0:
                     check_identity(mol, record)
-                    mol.SetProp("ForceField", "MMFF94")
-                    mol.SetIntProp("MMFFOptimizationStatus", status)
+                    energy = float(field.CalcEnergy())
+                    if not np.isfinite(energy):
+                        statuses.append(-1)
+                        continue
+                    mol.SetProp("ForceField", settings.method)
+                    mol.SetProp("Optimization", settings.name)
+                    mol.SetDoubleProp("Energy_kcal_mol", energy)
+                    mol.SetIntProp("OptimizationStatus", status)
+                    if settings.method.startswith("MMFF"):
+                        mol.SetIntProp("MMFFOptimizationStatus", status)
                     supplier = Chem.SDMolSupplier()
                     supplier.SetData(Chem.SDWriter.GetText(mol), removeHs=False)
                     mol = supplier[0]

@@ -1,5 +1,24 @@
 # Conformer study: status and evidence
 
+**2026-10-28: mega benchmark implementation in progress.** The user selected a
+fixed generated-molecule scoring test, not RNN training. The new matrix compares
+seven matched reference/candidate preparation methods on 512 randomly selected
+valid, unique molecules from saved RNN evaluations, with three embedding seeds.
+Candidate attempts: 1/5/10/15/20/30/50/100; isomer caps: 1/3/5/10/all≤30;
+reference caps: 1/2/4/8/all≤30. Missing reference counts remain unavailable.
+Four images will show mean, median, tail score/time, and failure/ranking stability.
+The selected training switch remains OFF by default. The earlier minimized
+in-memory trial failed a public-scorer parity check at C=15 (0.034 raw difference);
+the shared helper now round-trips through SDF before either path scores it.
+
+Evidence consulted for this extension: full-text Methods and Discussion of
+[McNutt et al., 2023, DOI 10.1021/acs.jcim.3c01245](https://pmc.ncbi.nlm.nih.gov/articles/PMC10647020/).
+Their task-specific comparisons support measuring minimization, ensemble size
+and diversity separately; larger ensembles can also introduce false positives.
+Their docking/pharmacophore results do not establish DrugEx RL benefit or the
+best parameters here. The new study keeps specified input stereo and labels
+best-over-isomer scoring as a search over prepared forms, not activity evidence.
+
 Updated 2026-10-27. Current instructions: [AGENTS.md](../../AGENTS.md).
 Source lives here; generated evidence belongs under `_david/output/conformer/`.
 

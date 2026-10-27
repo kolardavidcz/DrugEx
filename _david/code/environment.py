@@ -18,7 +18,9 @@ from rdkit.ML.Cluster import Butina
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
 from _david.code.chemistry import (
     CandidateConformerGenerator,
+    Optimization,
     check_identity,
+    optimize_conformers,
     standardize_smiles,
 )
 from _david.code.schema import std
@@ -36,6 +38,7 @@ class PrepareMolecule:
         rmsd_cutoff: float = 1.25,
         energy_window_kcal: float = 8.0,
         num_threads: int = 0,
+        optimization: Optimization | None = None,
     ) -> None:
         self.num_conformers = num_conformers
         self.max_reference_conformers = max_reference_conformers
@@ -43,6 +46,7 @@ class PrepareMolecule:
         self.rmsd_cutoff = rmsd_cutoff
         self.energy_window_kcal = energy_window_kcal
         self.num_threads = num_threads
+        self.optimization = optimization
 
     def standardize(self, smiles: str) -> str:
         """Standardize input chemical structure into canonical SMILES representation."""
@@ -178,18 +182,38 @@ class PrepareMolecule:
             raise RuntimeError(f"ETKDGv3 conformer embedding failed for: {query}")
 
         mol_h.SetIntProp("EmbeddedConformers", len(conf_ids))
-        energies = self.calculate_conformer_energies(
-            mol_h, query_desc=str(query), num_threads=self.num_threads
+        energies = None
+        if self.optimization is None:
+            energies = self.calculate_conformer_energies(
+                mol_h, query_desc=str(query), num_threads=self.num_threads
+            )
+        elif self.optimization.method != "none":
+            records = [Chem.Mol(mol_h, confId=cid) for cid in conf_ids]
+            optimized, _ = optimize_conformers(records, self.optimization)
+            if not optimized:
+                raise RuntimeError(
+                    f"No reference converged with {self.optimization.name}"
+                )
+            mol_h = Chem.Mol(optimized[0])
+            mol_h.RemoveAllConformers()
+            energies = {}
+            for record in optimized:
+                cid = mol_h.AddConformer(record.GetConformer(), assignId=True)
+                energies[cid] = record.GetDoubleProp("Energy_kcal_mol")
+            mol_h.SetIntProp("EmbeddedConformers", len(conf_ids))
+        else:
+            mol_h.SetProp("ForceField", "none")
+        mol_h.SetIntProp(
+            "ConvergedConformers", len(energies) if energies is not None else 0
         )
-        mol_h.SetIntProp("ConvergedConformers", len(energies))
-
-        min_e = min(energies.values())
-        for cid, e in list(energies.items()):
-            if (e - min_e) > self.energy_window_kcal:
-                mol_h.RemoveConformer(cid)
-                del energies[cid]
-
-        remaining_cids = list(energies.keys())
+        mol_h.SetBoolProp("EnergyWindowApplied", energies is not None)
+        min_e = min(energies.values()) if energies is not None else None
+        if energies is not None:
+            for cid, e in list(energies.items()):
+                if (e - min_e) > self.energy_window_kcal:
+                    mol_h.RemoveConformer(cid)
+                    del energies[cid]
+        remaining_cids = [c.GetId() for c in mol_h.GetConformers()]
         mol_h.SetIntProp("EnergyWindowConformers", len(remaining_cids))
         max_ensemble_size = self.max_reference_conformers
         if len(remaining_cids) > 1:
@@ -210,9 +234,12 @@ class PrepareMolecule:
             mol_h.SetIntProp("ReferenceClusters", len(clusters))
             curated = [
                 min([remaining_cids[idx] for idx in cl], key=energies.get)
+                if energies is not None
+                else remaining_cids[cl[0]]
                 for cl in clusters
             ]
-            curated.sort(key=energies.get)
+            if energies is not None:
+                curated.sort(key=energies.get)
             curated = curated[:max_ensemble_size]
         else:
             mol_h.SetIntProp("ReferenceClusters", len(remaining_cids))
@@ -222,8 +249,9 @@ class PrepareMolecule:
             for i, cid in enumerate(curated):
                 check_identity(Chem.Mol(mol_h, confId=cid), mol)
                 mol_h.SetProp("_Name", f"Conformer_{i + 1}")
-                mol_h.SetDoubleProp("Energy_kcal_mol", energies[cid])
-                mol_h.SetDoubleProp("DeltaE_kcal_mol", energies[cid] - min_e)
+                if energies is not None:
+                    mol_h.SetDoubleProp("Energy_kcal_mol", energies[cid])
+                    mol_h.SetDoubleProp("DeltaE_kcal_mol", energies[cid] - min_e)
                 writer.write(mol_h, confId=cid)
 
         return target_path
@@ -239,6 +267,7 @@ def create_rocs_scorer(
     max_isomers: int = 4,
     random_seed: int = 0xC0FFEE,
     minimize_candidates: bool = False,
+    optimization: Optimization | None = None,
 ) -> RDKitROCSScorer:
     """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
     ref_input = str(references) if isinstance(references, Path) else references
@@ -252,6 +281,7 @@ def create_rocs_scorer(
         timeout=timeout,
         random_seed=random_seed,
         minimize_candidates=minimize_candidates,
+        optimization=optimization,
     )
     safe_jobs = (
         n_jobs

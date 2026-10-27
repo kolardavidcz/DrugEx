@@ -5,7 +5,6 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 from drugex.molecules.converters.standardizers import DefaultStandardizer
@@ -14,7 +13,13 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
 
-from _david.code.chemistry import check_identity, minimize_mmff94, standardize_smiles
+from _david.code.chemistry import (
+    Optimization,
+    check_identity,
+    minimize_mmff94,
+    optimize_conformers,
+    standardize_smiles,
+)
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
 from _david.code.environment import PrepareMolecule, create_environment
 from _david.code.environment import create_rocs_scorer
@@ -108,12 +113,43 @@ class TestPreparation(unittest.TestCase):
     def test_unconverged_candidate_is_reported_and_excluded(self):
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
-        with patch(
-            "_david.code.chemistry.AllChem.MMFFOptimizeMolecule", return_value=1
-        ):
-            minimized, statuses = minimize_mmff94([mol])
+        minimized, statuses = minimize_mmff94([mol], max_iterations=0)
         self.assertEqual(minimized, [])
         self.assertEqual(statuses, [1])
+
+    def test_force_fields_preserve_multiple_molecular_structures(self):
+        methods = [
+            Optimization(),
+            Optimization("MMFF94s"),
+            Optimization("MMFF94s", 6.5),
+            Optimization("MMFF94s", 78.4),
+            Optimization("MMFF94s", 1, 2),
+            Optimization("UFF"),
+        ]
+        for smiles in (
+            "CCCCCC",
+            "c1ccccc1",
+            "N[C@@H](C)C(=O)O",
+            "F/C=C/F",
+            DEFAULT_MOLECULE,
+        ):
+            mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+            self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
+            for method in methods:
+                with self.subTest(smiles=smiles, method=method.name):
+                    optimized, statuses = optimize_conformers([mol], method)
+                    self.assertEqual(statuses, [0])
+                    check_identity(optimized[0], mol)
+                    self.assertTrue(
+                        np.isfinite(optimized[0].GetDoubleProp("Energy_kcal_mol"))
+                    )
+        with tempfile.TemporaryDirectory() as directory:
+            path = PrepareMolecule(
+                num_conformers=5, num_threads=1, optimization=Optimization("none")
+            ).generate_reference_conformers("CCCCC", Path(directory) / "none.sdf")
+            mol = next(Chem.SDMolSupplier(str(path), removeHs=False))
+            self.assertFalse(mol.HasProp("Energy_kcal_mol"))
+            self.assertFalse(mol.GetBoolProp("EnergyWindowApplied"))
 
     def test_standardization_preserves_stereo_and_existing_chemistry(self):
         for smiles in (

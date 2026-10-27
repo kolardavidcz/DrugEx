@@ -140,6 +140,147 @@ def render_conformer_study(frame: pd.DataFrame, output: Path) -> None:
     plt.close(fig)
 
 
+def render_mega_study(summary: pd.DataFrame, output: Path, manifest: dict) -> None:
+    """Four zoomable images; methods × isomer caps, each tile references × C."""
+    from matplotlib.colors import LogNorm, Normalize
+
+    caps = manifest["isomer_caps"]
+    references = manifest["reference_caps"]
+    conformers = manifest["conformers"]
+    methods = manifest["methods"]
+    figures = (
+        ("mean", "mean_score", "mean_seconds", "Mean ROCS / 2", "Mean seconds"),
+        (
+            "median",
+            "median_score",
+            "median_seconds",
+            "Median ROCS / 2",
+            "Median seconds",
+        ),
+        (
+            "tails",
+            "q10_score",
+            "q95_seconds",
+            "10th-percentile ROCS / 2",
+            "95th-percentile seconds",
+        ),
+        (
+            "reliability",
+            "failure_fraction",
+            "top5_overlap",
+            "Preparation failure fraction",
+            "Top-5% ranking overlap",
+        ),
+    )
+    for filename, first_metric, second_metric, first_label, second_label in figures:
+        fig, axes = plt.subplots(
+            2 * len(methods), len(caps), figsize=(25, 4 * len(methods)), squeeze=False
+        )
+        time_values = summary[second_metric].dropna()
+        is_time = filename != "reliability"
+        norms = [
+            Normalize(0, 1),
+            LogNorm(
+                max(float(time_values.min()), 1e-5),
+                max(float(time_values.max()), float(time_values.min()) * 1.01),
+            )
+            if is_time
+            else Normalize(0, 1),
+        ]
+        palettes = [
+            plt.get_cmap("Reds" if filename == "reliability" else "viridis").copy(),
+            plt.get_cmap("magma" if is_time else "Greens").copy(),
+        ]
+        for palette in palettes:
+            palette.set_bad("#dddddd")
+        images = [None, None]
+        for method_index, method in enumerate(methods):
+            pool_size = manifest["references"][str(method_index)]["count"]
+            for metric_index, (metric, label) in enumerate(
+                ((first_metric, first_label), (second_metric, second_label))
+            ):
+                for column, cap in enumerate(caps):
+                    ax = axes[2 * method_index + metric_index, column]
+                    selected = summary[
+                        (summary.method == method_index) & (summary.isomer_cap == cap)
+                    ]
+                    table = selected.pivot(
+                        index="reference_cap", columns="conformers", values=metric
+                    ).reindex(index=references, columns=conformers)
+                    images[metric_index] = ax.imshow(
+                        table,
+                        aspect="auto",
+                        cmap=palettes[metric_index],
+                        norm=norms[metric_index],
+                    )
+                    for y in range(len(references)):
+                        for x in range(len(conformers)):
+                            value = table.iloc[y, x]
+                            text = (
+                                "—"
+                                if not np.isfinite(value)
+                                else f"{value:.2f}"
+                                if metric_index == 1 and is_time
+                                else f"{value:.3f}"
+                            )
+                            fraction = (
+                                float(norms[metric_index](value))
+                                if np.isfinite(value)
+                                else 1
+                            )
+                            ax.text(
+                                x,
+                                y,
+                                text,
+                                ha="center",
+                                va="center",
+                                fontsize=5.5,
+                                color="black"
+                                if fraction > 0.65 or not np.isfinite(value)
+                                else "white",
+                            )
+                    ax.set_xticks(range(len(conformers)), conformers, fontsize=6)
+                    labels = [
+                        f"all≤30 ({pool_size})"
+                        if r == 0
+                        else str(r)
+                        if r <= pool_size
+                        else f"{r}: n/a"
+                        for r in references
+                    ]
+                    ax.set_yticks(range(len(references)), labels, fontsize=6)
+                    if column == 0:
+                        ax.set_ylabel(
+                            f"{method['name']}\n{label}\nReference count", fontsize=7
+                        )
+                    if method_index == 0 and metric_index == 0:
+                        ax.set_title(
+                            f"Isomer cap: {'all≤30' if cap == 30 else cap}", fontsize=10
+                        )
+                    if method_index == len(methods) - 1 and metric_index == 1:
+                        ax.set_xlabel("Candidate conformer attempts", fontsize=8)
+        for i, label in enumerate((first_label, second_label)):
+            bar = fig.add_axes([0.965, 0.56 if i == 0 else 0.12, 0.008, 0.30])
+            fig.colorbar(images[i], cax=bar).set_label(label, fontsize=9)
+        fig.suptitle(
+            f"{filename.upper()} | fixed query vs {manifest['panel_size']} different generated molecules\n"
+            "Each tile: reference count × candidate conformer attempts; no RNN training",
+            fontsize=14,
+        )
+        footer = (
+            "Parent-molecule summaries after averaging embedding seeds; failures score zero. Grey = unavailable reference count. "
+            "Time is decomposed wall seconds on concurrent one-thread workers; cached work is charged to every configuration. "
+            "All is explicitly capped at 30. None = no force-field minimization or energy-window filtering. "
+            "Top-5% overlap uses each method's largest tested budget, not activity labels or biological ground truth."
+        )
+        fig.text(0.5, 0.006, fill(footer, 200), ha="center", fontsize=9)
+        fig.subplots_adjust(
+            left=0.06, right=0.95, top=0.96, bottom=0.04, hspace=0.36, wspace=0.22
+        )
+        fig.savefig(output / f"mega_{filename}.png", dpi=200)
+        plt.close(fig)
+
+
 def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure ROCS is [0, 2] TanimotoCombo and calculate physical properties if missing."""
     if df.empty:
