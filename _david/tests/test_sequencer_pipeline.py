@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from drugex.molecules.converters.standardizers import DefaultStandardizer
@@ -13,13 +14,65 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
 
-from _david.code.chemistry import check_identity, standardize_smiles
+from _david.code.chemistry import check_identity, minimize_mmff94, standardize_smiles
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
 from _david.code.environment import PrepareMolecule, create_environment
 from _david.code.models import SequenceRNNOptimizer
 
 
 class TestPreparation(unittest.TestCase):
+    def test_candidate_minimization_switch_is_off_by_default_and_preserves_identity(
+        self,
+    ):
+        self.assertFalse(PipelineConfig().minimize_candidates)
+        smiles = "CCCCCC"
+        reference = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        self.assertEqual(AllChem.EmbedMolecule(reference, randomSeed=42), 0)
+        generated = {}
+        with tempfile.TemporaryDirectory() as directory:
+            for enabled in (False, True):
+                env = create_environment(
+                    reference,
+                    config=PipelineConfig(
+                        max_conformers=3,
+                        minimize_candidates=enabled,
+                        conformer_threads=1,
+                    ),
+                )
+                generator = env.scorers[0].conformer_generator
+                self.assertEqual(generator.minimize_candidates, enabled)
+                path = generator.genConformers([smiles], directory)
+                generated[enabled] = list(Chem.SDMolSupplier(path, removeHs=False))
+                self.assertTrue(generated[enabled])
+                for mol in generated[enabled]:
+                    check_identity(mol, Chem.MolFromSmiles(smiles))
+                    self.assertEqual(mol.HasProp("MMFFOptimizationStatus"), enabled)
+                if enabled:
+                    self.assertTrue(
+                        all(
+                            status == 0
+                            for status in generator.last_minimization_statuses
+                        )
+                    )
+            self.assertEqual(len(generated[False]), len(generated[True]))
+            for before, after in zip(generated[False], generated[True]):
+
+                def energy(mol):
+                    props = AllChem.MMFFGetMoleculeProperties(mol)
+                    return AllChem.MMFFGetMoleculeForceField(mol, props).CalcEnergy()
+
+                self.assertLessEqual(energy(after), energy(before) + 1e-3)
+
+    def test_unconverged_candidate_is_reported_and_excluded(self):
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
+        with patch(
+            "_david.code.chemistry.AllChem.MMFFOptimizeMolecule", return_value=1
+        ):
+            minimized, statuses = minimize_mmff94([mol])
+        self.assertEqual(minimized, [])
+        self.assertEqual(statuses, [1])
+
     def test_standardization_preserves_stereo_and_existing_chemistry(self):
         for smiles in (
             DEFAULT_MOLECULE,

@@ -271,6 +271,11 @@ def parse_args() -> argparse.Namespace:
         help="3D ROCS scoring variant (default: tanimoto_combo)",
     )
     parser.add_argument(
+        "--minimize-candidates",
+        action="store_true",
+        help="Apply MMFF94 after candidate ETKDG generation (default: off)",
+    )
+    parser.add_argument(
         "--cpu-ratio",
         type=float,
         default=0.90,
@@ -304,6 +309,7 @@ if __name__ == "__main__":
         beta=args.beta,
         reward_scheme=args.reward_scheme,
         score_variant=args.score_variant,
+        minimize_candidates=args.minimize_candidates,
         cpu_ratio=args.cpu_ratio,
     )
     pipe = MoleculePipeline(config=cfg, output_dir=args.output_dir)
