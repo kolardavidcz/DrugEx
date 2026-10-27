@@ -50,6 +50,7 @@ class MoleculePipeline:
             num_conformers=100,
             max_reference_conformers=self.config.max_reference_conformers,
             random_seed=self.config.random_seed,
+            energy_window_kcal=self.config.energy_window_kcal,
         )
 
     @staticmethod

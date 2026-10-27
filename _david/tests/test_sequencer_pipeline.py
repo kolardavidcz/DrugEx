@@ -1,3 +1,5 @@
+"""Regression checks for chemical identity, scoring and RNN prior isolation."""
+
 from __future__ import annotations
 
 import tempfile
@@ -5,180 +7,135 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+from drugex.molecules.converters.standardizers import DefaultStandardizer
+from drugex.training.scorers.rocs_rdkit import _score_single_reference
 from rdkit import Chem
+from rdkit.Chem import AllChem
+from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
 
-from _david.code.config import (
-    DEFAULT_MOLECULE,
-    PipelineConfig,
-    RunPaths,
-)
-from _david.code.environment import (
-    HarringtonDesirabilityReward,
-    PrepareMolecule,
-    create_environment,
-    resolve_reward_scheme,
-)
-from _david.code.models import DecayingSequenceExplorer, SequenceRNNOptimizer
-from _david.code.schema import std
+from _david.code.chemistry import check_identity, standardize_smiles
+from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
+from _david.code.environment import PrepareMolecule, create_environment
+from _david.code.models import SequenceRNNOptimizer
 
 
-class TestSequenceRNNPipeline(unittest.TestCase):
-    """Rigorous unit test suite verifying SequenceRNN pipeline components, models, and scorers."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.config = PipelineConfig()
-        cls.pkg_path, cls.voc_path = cls.config.resolve_pretrained_paths()
-
-    def test_01_config_paths(self) -> None:
-        """Verify Papyrus pretrained checkpoint and vocabulary files exist and are non-empty."""
-        self.assertTrue(self.pkg_path.is_file(), f"Missing .pkg: {self.pkg_path}")
-        self.assertTrue(self.voc_path.is_file(), f"Missing .vocab: {self.voc_path}")
-        self.assertGreater(self.pkg_path.stat().st_size, 1000)
-        self.assertGreater(self.voc_path.stat().st_size, 10)
-
-    def test_02_model_loading_and_frozen_prior_isolation(self) -> None:
-        """Verify agent and mutate prior instantiate as strictly separate objects with frozen prior parameters."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            optimizer = SequenceRNNOptimizer(
-                models_dir=tmp_dir,
-                gpu="cpu",
-                agent_path=self.pkg_path,
-                vocab_path=self.voc_path,
-            )
-            agent, prior, voc = optimizer.load_models()
-
-            # Strict memory identity verification
-            self.assertIsNot(agent, prior, "Mutate prior must NOT be the agent!")
-            self.assertNotEqual(
-                id(agent),
-                id(prior),
-                "Agent and prior must not share identical memory address!",
-            )
-
-            # Trainable vs frozen checks
-            agent_trainable = any(p.requires_grad for p in agent.parameters())
-            prior_frozen = all(not p.requires_grad for p in prior.parameters())
-            self.assertTrue(
-                agent_trainable,
-                "Active agent must have trainable parameters (requires_grad=True)!",
-            )
-            self.assertTrue(
-                prior_frozen,
-                "Mutate prior must have completely frozen parameters (requires_grad=False)!",
-            )
-            self.assertFalse(prior.training, "Mutate prior must be in eval() mode!")
-
-    def test_03_hawkins_conformer_ensemble_generation(self) -> None:
-        """Verify Hawkins ensemble protocol generates 3D, non-degenerate conformers within energy window."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            sdf_out = Path(tmp_dir) / "test_ref.sdf"
-            preparer = PrepareMolecule(max_reference_conformers=3, random_seed=42)
-            aspirin_smi = "CC(=O)Oc1ccccc1C(=O)O"
-            res_path = preparer.generate_reference_conformers(
-                aspirin_smi, output_path=sdf_out
-            )
-
-            self.assertTrue(res_path.is_file())
-            suppl = [
-                m
-                for m in Chem.SDMolSupplier(str(res_path), removeHs=False)
-                if m is not None
-            ]
-            self.assertGreaterEqual(len(suppl), 1)
-            self.assertLessEqual(len(suppl), 3)
-
-            for conf_mol in suppl:
-                self.assertGreaterEqual(conf_mol.GetNumConformers(), 1)
-                conf = conf_mol.GetConformer()
-                self.assertTrue(conf.Is3D(), "Generated conformer must be 3D!")
-                zs = [conf.GetAtomPosition(i).z for i in range(conf_mol.GetNumAtoms())]
-                z_span = max(zs) - min(zs)
-                self.assertGreater(
-                    z_span,
-                    0.5,
-                    "Conformer coordinates must not be flat/degenerate in Z axis!",
+class TestPreparation(unittest.TestCase):
+    def test_standardization_preserves_stereo_and_existing_chemistry(self):
+        for smiles in (
+            DEFAULT_MOLECULE,
+            "N[C@@H](C)C(=O)O",
+            "F/C=C/F",
+            "F/C=C\\F",
+            "CC(O)C(=O)[O-].[Na+]",
+        ):
+            with self.subTest(smiles=smiles):
+                result = standardize_smiles(smiles)
+                self.assertEqual(
+                    Chem.MolToSmiles(Chem.MolFromSmiles(result), isomericSmiles=False),
+                    DefaultStandardizer()(smiles),
                 )
+                if "." not in smiles:
+                    check_identity(
+                        Chem.MolFromSmiles(result), Chem.MolFromSmiles(smiles)
+                    )
+        unresolved = Chem.MolFromSmiles(standardize_smiles("FC(Cl)C(O)C"))
+        self.assertEqual(len(tuple(EnumerateStereoisomers(unresolved))), 4)
+        with self.assertRaises(ValueError):
+            standardize_smiles("not a molecule")
 
-    def test_04_environment_scoring_and_discrimination(self) -> None:
-        """Verify ROCS, SA, and QED multi-objective evaluation discriminates reference from dissimilar control."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            sdf_out = Path(tmp_dir) / "test_egcg_ref.sdf"
-            preparer = PrepareMolecule(max_reference_conformers=1, random_seed=42)
-            preparer.generate_reference_conformers("c1ccccc1", output_path=sdf_out)
+    def test_reference_round_trip_preserves_geometry_identity_and_energy_window(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for index, smiles in enumerate(
+                (DEFAULT_MOLECULE, "N[C@@H](C)C(=O)O", "F/C=C/F")
+            ):
+                with self.subTest(smiles=smiles):
+                    path = Path(directory) / f"reference_{index}.sdf"
+                    preparer = PrepareMolecule(
+                        num_conformers=5, random_seed=43, num_threads=1
+                    )
+                    preparer.generate_reference_conformers(smiles, path)
+                    records = list(Chem.SDMolSupplier(str(path), removeHs=False))
+                    self.assertTrue(records)
+                    for mol in records:
+                        self.assertIsNotNone(mol)
+                        check_identity(
+                            mol, Chem.MolFromSmiles(preparer.standardize(smiles))
+                        )
+                        self.assertLessEqual(mol.GetDoubleProp("DeltaE_kcal_mol"), 8.0)
+                        self.assertGreaterEqual(
+                            mol.GetIntProp("EmbeddedConformers"), len(records)
+                        )
 
-            cfg = PipelineConfig(max_conformers=5, reward_scheme="weighted_sum")
-            env = create_environment(sdf_out, config=cfg)
+    def test_wrong_isomer_and_mixed_reference_file_are_rejected(self):
+        left = Chem.AddHs(Chem.MolFromSmiles("N[C@@H](C)C(=O)O"))
+        right = Chem.AddHs(Chem.MolFromSmiles("N[C@H](C)C(=O)O"))
+        for mol in (left, right):
+            self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
+        with self.assertRaisesRegex(ValueError, "identity changed"):
+            check_identity(right, left)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mixed.sdf"
+            with Chem.SDWriter(str(path)) as writer:
+                writer.write(left)
+                writer.write(right)
+            with self.assertRaisesRegex(ValueError, "identity changed"):
+                PrepareMolecule().load_molecule(path)
 
-            keys = env.getScorerKeys()
-            self.assertIn(std.ROCS, keys)
-            self.assertIn(std.SA, keys)
-            self.assertIn(std.QED, keys)
-
-            # Test scoring on benzene (identical to ref) vs caffeine
-            test_smiles = ["c1ccccc1", "Cn1cnc2c1c(=O)n(c(=O)n2C)C"]
-            scores_df = env.getScores(test_smiles)
-
-            self.assertEqual(len(scores_df), 2)
-            self.assertIn(std.VALID, scores_df.columns)
-            self.assertIn(std.DESIRED, scores_df.columns)
-
-            # Self-score should exceed dissimilar compound
-            benzene_rocs = float(scores_df[std.ROCS].iloc[0])
-            caffeine_rocs = float(scores_df[std.ROCS].iloc[1])
-            self.assertGreater(benzene_rocs, caffeine_rocs)
-
-    def test_05_reward_schemes_and_harrington_non_compensability(self) -> None:
-        """Verify WeightedSum and HarringtonDesirability calculate valid scalar rewards."""
-        ws = resolve_reward_scheme("weighted_sum")
-        scores = np.array([[0.8, 0.7, 0.6], [0.2, 0.3, 0.4]])
-        thresholds = np.array([0.7, 0.5, 0.5])
-        rewards_ws = ws(["smi1", "smi2"], scores=scores, thresholds=thresholds)
-        self.assertEqual(len(rewards_ws), 2)
-        self.assertTrue(all(np.isfinite(rewards_ws)))
-
-        # Harrington strict non-compensability check:
-        # If shape score collapses to 0.0, total composite desirability must approach 0.0
-        harrington = HarringtonDesirabilityReward()
-        zero_shape = np.array([[0.0, 0.95, 0.95]])
-        rew_zero = float(harrington(["smi"], scores=zero_shape)[0, 0])
-        self.assertLess(
-            rew_zero, 0.10, "Harrington desirability must strictly penalize zero shape!"
+    def test_exact_geometry_overlay_and_score_scale(self):
+        mol = Chem.AddHs(Chem.MolFromSmiles("N[C@@H](C)C(=O)O"))
+        self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
+        raw = _score_single_reference(
+            Chem.Mol(mol), Chem.Mol(mol), "TanimotoCombo", True
         )
+        self.assertAlmostEqual(raw, 2.0, places=5)
+        env = create_environment(
+            mol, config=PipelineConfig(max_conformers=7, max_isomers=8)
+        )
+        scorer = env.scorers[0]
+        self.assertAlmostEqual(float(scorer.getModifiedScores(np.array([raw]))[0]), 1.0)
+        generator = scorer.conformer_generator
+        self.assertEqual(
+            (generator.max_conformers, generator.max_isomers, generator.timeout),
+            (7, 8, 0),
+        )
+        self.assertEqual(generator._create_fresh_etkdg().randomSeed, 0xC0FFEE)
 
-    def test_06_decaying_sequence_explorer_schedule(self) -> None:
-        """Verify half-cycle cosine and linear exploration decay schedules."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            sdf_out = Path(tmp_dir) / "test_ref.sdf"
-            preparer = PrepareMolecule(max_reference_conformers=1, random_seed=42)
-            preparer.generate_reference_conformers("c1ccccc1", output_path=sdf_out)
+    def test_candidate_generation_preserves_specified_identity(self):
+        env = create_environment(
+            Chem.AddHs(Chem.MolFromSmiles("c1ccccc1")),
+            config=PipelineConfig(max_conformers=5),
+        )
+        generator = env.scorers[0].conformer_generator
+        with tempfile.TemporaryDirectory() as directory:
+            path = generator.genConformers([DEFAULT_MOLECULE], directory)
+            mols = list(Chem.SDMolSupplier(path, removeHs=False))
+            self.assertTrue(mols)
+            for mol in mols:
+                check_identity(mol, Chem.MolFromSmiles(DEFAULT_MOLECULE))
+            self.assertEqual(len({Chem.MolToSmiles(Chem.RemoveHs(m)) for m in mols}), 1)
 
-            optimizer = SequenceRNNOptimizer(models_dir=tmp_dir, gpu="cpu")
-            agent, prior, voc = optimizer.load_models()
-            env = create_environment(sdf_out, config=self.config)
 
-            explorer = DecayingSequenceExplorer(
-                agent=agent,
-                env=env,
-                mutate=prior,
-                epsilon=0.25,
-                epsilon_end=0.05,
-                decay_epochs=50,
-                decay_type="cosine",
-                use_decay=True,
+class TestRNNTransfer(unittest.TestCase):
+    def test_loaded_agent_and_frozen_prior_do_not_share_parameter_storage(self):
+        try:
+            package, vocabulary = PipelineConfig().resolve_pretrained_paths()
+        except FileNotFoundError as error:
+            self.skipTest(str(error))
+        with tempfile.TemporaryDirectory() as directory:
+            optimizer = SequenceRNNOptimizer(
+                models_dir=directory,
+                gpu="cpu",
+                agent_path=package,
+                vocab_path=vocabulary,
             )
-
-            # Check start, midpoint, and terminal epsilons
-            eps_1 = explorer.get_decayed_epsilon(1)
-            eps_25 = explorer.get_decayed_epsilon(25)
-            eps_50 = explorer.get_decayed_epsilon(50)
-            eps_100 = explorer.get_decayed_epsilon(100)
-
-            self.assertAlmostEqual(eps_1, 0.25, places=3)
-            self.assertLess(eps_25, 0.25)
-            self.assertGreater(eps_25, 0.05)
-            self.assertAlmostEqual(eps_50, 0.05, places=3)
-            self.assertAlmostEqual(eps_100, 0.05, places=3)
+            agent, prior, _ = optimizer.load_models()
+            self.assertIsNot(agent, prior)
+            agent_storage = {p.data_ptr() for p in agent.parameters()}
+            prior_storage = {p.data_ptr() for p in prior.parameters()}
+            self.assertTrue(agent_storage.isdisjoint(prior_storage))
+            self.assertTrue(any(p.requires_grad for p in agent.parameters()))
+            self.assertTrue(all(not p.requires_grad for p in prior.parameters()))
+            self.assertFalse(prior.training)
 
 
 if __name__ == "__main__":

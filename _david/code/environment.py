@@ -5,19 +5,22 @@ from pathlib import Path
 from typing import Sequence
 
 import numpy as np
-from drugex.molecules.converters.standardizers import DefaultStandardizer
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.rewards import ParetoCrowdingDistance, RewardScheme, WeightedSum
-from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
 from drugex.training.scorers.properties import Property
 from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 from rdkit import Chem
-from rdkit.Chem import AllChem, Lipinski
+from rdkit.Chem import AllChem
 from rdkit.ML.Cluster import Butina
 
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
+from _david.code.chemistry import (
+    SeededConformerGenerator,
+    check_identity,
+    standardize_smiles,
+)
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
 
@@ -30,21 +33,20 @@ class PrepareMolecule:
         num_conformers: int = 100,
         max_reference_conformers: int = 3,
         random_seed: int = 42,
+        rmsd_cutoff: float = 1.25,
+        energy_window_kcal: float = 8.0,
+        num_threads: int = 0,
     ) -> None:
         self.num_conformers = num_conformers
         self.max_reference_conformers = max_reference_conformers
         self.random_seed = random_seed
-        self.standardizer = DefaultStandardizer()
+        self.rmsd_cutoff = rmsd_cutoff
+        self.energy_window_kcal = energy_window_kcal
+        self.num_threads = num_threads
 
     def standardize(self, smiles: str) -> str:
         """Standardize input chemical structure into canonical SMILES representation."""
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is None:
-            raise ValueError(f"Could not parse molecule query: {smiles!r}")
-        try:
-            return self.standardizer(smiles)
-        except Exception:
-            return Chem.MolToSmiles(mol)
+        return standardize_smiles(smiles)
 
     def load_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
         """Load and standardize molecule across RDKit Mols, SMILES strings, and structure files."""
@@ -67,16 +69,17 @@ class PrepareMolecule:
 
         if p and p.is_file():
             if p.suffix.lower() in {".sdf", ".sd"}:
-                mols = [
-                    m
-                    for m in Chem.SDMolSupplier(str(p), removeHs=False)
-                    if m is not None
-                ]
-                if not mols:
-                    raise ValueError(f"No valid molecule in SDF: {p}")
+                mols = [m for m in Chem.SDMolSupplier(str(p), removeHs=False)]
+                if not mols or any(m is None for m in mols):
+                    raise ValueError(f"Empty or invalid molecule record in SDF: {p}")
                 base = mols[0]
                 for extra in mols[1:]:
-                    base.AddConformer(extra.GetConformer(), assignId=True)
+                    check_identity(extra, base)
+                    order = extra.GetSubstructMatch(base, useChirality=True)
+                    if len(order) != base.GetNumAtoms():
+                        raise ValueError("SDF records have incompatible atom mappings")
+                    aligned = Chem.RenumberAtoms(extra, order)
+                    base.AddConformer(aligned.GetConformer(), assignId=True)
                 if base.GetNumConformers() > 0 and base.GetConformer().Is3D():
                     return base, True
                 return Chem.RemoveHs(base), False
@@ -97,48 +100,27 @@ class PrepareMolecule:
         raise ValueError(f"Could not parse molecule query: {query!r}")
 
     @classmethod
-    def determine_ensemble_parameters(
-        cls,
-        mol: Chem.Mol | None,
-        max_ensemble_size: int = 3,
-    ) -> tuple[float, int]:
-        # ~ [Hawkins, Conformer Generation with RDKit, J. Chem. Inf. Model. 2017]
-        """Calculate Butina RMSD clustering cutoff and maximum reference ensemble size based on molecular flexibility."""
-        if mol is None:
-            return 1.00, 1
-        mol_no_h = (
-            Chem.RemoveHs(mol) if mol.GetNumAtoms() > mol.GetNumHeavyAtoms() else mol
-        )
-        n_heavy = int(mol_no_h.GetNumHeavyAtoms())
-        if n_heavy == 0:
-            return 1.00, 1
-        n_rot = int(Lipinski.NumRotatableBonds(mol_no_h))
-
-        if n_rot <= 2 and n_heavy <= 18:
-            return 1.00, min(1, max_ensemble_size)
-        if n_rot <= 7:
-            return 1.25, min(3, max_ensemble_size)
-        return 1.50, min(3, max_ensemble_size)
-
-    @classmethod
     def calculate_conformer_energies(
         cls,
         mol_h: Chem.Mol,
         query_desc: str = "",
+        num_threads: int = 0,
     ) -> dict[int, float]:
         """Minimize conformers using MMFF94 with UFF fallback and return valid conformer energies in kcal/mol."""
         results = []
         if AllChem.MMFFHasAllMoleculeParams(mol_h):
             results = AllChem.MMFFOptimizeMoleculeConfs(
-                mol_h, maxIters=1000, numThreads=0
+                mol_h, maxIters=1000, numThreads=num_threads, mmffVariant="MMFF94"
             )
+            mol_h.SetProp("ForceField", "MMFF94")
             if results and all(status == -1 for status, _ in results):
                 results = []
 
         if not results and AllChem.UFFHasAllMoleculeParams(mol_h):
             results = AllChem.UFFOptimizeMoleculeConfs(
-                mol_h, maxIters=1000, numThreads=0
+                mol_h, maxIters=1000, numThreads=num_threads
             )
+            mol_h.SetProp("ForceField", "UFF")
 
         if not results:
             raise RuntimeError(f"Force field optimization failed for: {query_desc}")
@@ -147,7 +129,7 @@ class PrepareMolecule:
         for conf, (status, e) in zip(mol_h.GetConformers(), results):
             cid = conf.GetId()
             e_val = float(e)
-            if status != -1 and math.isfinite(e_val):
+            if status == 0 and math.isfinite(e_val):
                 energies[cid] = e_val
             else:
                 mol_h.RemoveConformer(cid)
@@ -162,10 +144,10 @@ class PrepareMolecule:
         self,
         query: str | Path | Chem.Mol = DEFAULT_MOLECULE,
         output_path: Path | str | None = None,
-        num_conformers: int = 100,
-        random_seed: int = 42,
+        num_conformers: int | None = None,
+        random_seed: int | None = None,
     ) -> Path:
-        """Embed, optimize, filter energy window, and cluster 3D reference conformers via Hawkins ensemble protocol."""
+        """Embed, minimize, energy-filter and cluster a reference ensemble."""
         target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -173,42 +155,42 @@ class PrepareMolecule:
         if is_3d:
             with Chem.SDWriter(str(target_path)) as writer:
                 for conf in mol.GetConformers():
+                    check_identity(Chem.Mol(mol, confId=conf.GetId()), mol)
                     writer.write(mol, confId=conf.GetId())
             return target_path
 
-        # ~ [Hawkins, Conformer Generation with RDKit, J. Chem. Inf. Model. 2017] ETKDGv3 embedding
         mol_h = Chem.AddHs(mol)
         params = AllChem.ETKDGv3()
-        params.randomSeed = random_seed
+        params.randomSeed = self.random_seed if random_seed is None else random_seed
         params.pruneRmsThresh = 0.35
+        params.numThreads = self.num_threads
+        attempts = self.num_conformers if num_conformers is None else num_conformers
 
         conf_ids = list(
-            AllChem.EmbedMultipleConfs(mol_h, numConfs=num_conformers, params=params)
+            AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
         )
         if not conf_ids:
             params.useRandomCoords = True
             conf_ids = list(
-                AllChem.EmbedMultipleConfs(
-                    mol_h, numConfs=num_conformers, params=params
-                )
+                AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
             )
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 conformer embedding failed for: {query}")
 
-        energies = self.calculate_conformer_energies(mol_h, query_desc=str(query))
+        mol_h.SetIntProp("EmbeddedConformers", len(conf_ids))
+        energies = self.calculate_conformer_energies(
+            mol_h, query_desc=str(query), num_threads=self.num_threads
+        )
+        mol_h.SetIntProp("ConvergedConformers", len(energies))
 
-        # ~ [Hawkins, Physiological energy window, 2017] Delta E <= 8.0 kcal/mol window
         min_e = min(energies.values())
         for cid, e in list(energies.items()):
-            if (e - min_e) > 8.0:
+            if (e - min_e) > self.energy_window_kcal:
                 mol_h.RemoveConformer(cid)
                 del energies[cid]
 
-        # ~ [Hawkins, Basin curation via Butina clustering, 2017] Sphere-exclusion RMSD clustering
         remaining_cids = list(energies.keys())
-        cutoff, max_ensemble_size = self.determine_ensemble_parameters(
-            mol_h, self.max_reference_conformers
-        )
+        max_ensemble_size = self.max_reference_conformers
         if len(remaining_cids) > 1:
             mol_no_h = Chem.RemoveHs(mol_h)
             n_confs = len(remaining_cids)
@@ -222,7 +204,7 @@ class PrepareMolecule:
                 for j in range(i)
             ]
             clusters = Butina.ClusterData(
-                rms_matrix, n_confs, distThresh=cutoff, isDistData=True
+                rms_matrix, n_confs, distThresh=self.rmsd_cutoff, isDistData=True
             )
             curated = [
                 min([remaining_cids[idx] for idx in cl], key=energies.get)
@@ -235,8 +217,9 @@ class PrepareMolecule:
 
         with Chem.SDWriter(str(target_path)) as writer:
             for i, cid in enumerate(curated):
+                check_identity(Chem.Mol(mol_h, confId=cid), mol)
                 mol_h.SetProp("_Name", f"Conformer_{i + 1}")
-                mol_h.SetDoubleProp("Energy_MMFF_kcal_mol", energies[cid])
+                mol_h.SetDoubleProp("Energy_kcal_mol", energies[cid])
                 mol_h.SetDoubleProp("DeltaE_kcal_mol", energies[cid] - min_e)
                 writer.write(mol_h, confId=cid)
 
@@ -250,16 +233,20 @@ def create_rocs_scorer(
     score_variant: str = "tanimoto_combo",
     conformer_threads: int = 0,
     n_jobs: int | None = None,
+    max_isomers: int = 4,
+    random_seed: int = 0xC0FFEE,
 ) -> RDKitROCSScorer:
     """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
     ref_input = str(references) if isinstance(references, Path) else references
-    conf_gen = RDKitConformerGenerator(
+    conf_gen = SeededConformerGenerator(
         max_conformers=max_conformers,
-        max_isomers=4,
+        max_isomers=max_isomers,
         max_heavy_atoms=45,
         max_rotatable_bonds=15,
         num_threads=conformer_threads,
         show_progress=False,
+        timeout=timeout,
+        random_seed=random_seed,
     )
     safe_jobs = (
         n_jobs
@@ -400,11 +387,11 @@ def create_environment(
     ref_sdf: str | Path,
     config: PipelineConfig | None = None,
     thresholds: tuple[float, ...] | None = None,
-    max_conformers: int = 30,
-    timeout: int = 60,
+    max_conformers: int | None = None,
+    timeout: int | None = None,
     reward_scheme: str | RewardScheme | None = None,
-    score_variant: str = "tanimoto_combo",
-    conformer_threads: int = 0,
+    score_variant: str | None = None,
+    conformer_threads: int | None = None,
 ) -> DrugExEnvironment:
     """Construct multi-objective DrugEx reinforcement learning environment for ROCS + SA + QED."""
     cfg = config or PipelineConfig()
@@ -413,7 +400,7 @@ def create_environment(
         reward_scheme if reward_scheme is not None else cfg.reward_scheme
     )
     active_variant = score_variant or cfg.score_variant
-    active_max_confs = max_conformers or cfg.max_conformers
+    active_max_confs = cfg.max_conformers if max_conformers is None else max_conformers
     active_threads = (
         conformer_threads if conformer_threads is not None else cfg.conformer_threads
     )
@@ -421,9 +408,10 @@ def create_environment(
     rocs_scorer = create_rocs_scorer(
         ref_sdf,
         max_conformers=active_max_confs,
-        timeout=timeout,
+        timeout=cfg.timeout_seconds if timeout is None else timeout,
         score_variant=active_variant,
         conformer_threads=active_threads,
+        max_isomers=cfg.max_isomers,
     )
     # Map raw TanimotoCombo [0, 2] linearly into [0, 1] desirability
     rocs_scorer.setModifier(

@@ -57,6 +57,7 @@ class PipelineConfig:
 
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30
+    max_isomers: int = 4  # Independent cap; enumerate only unresolved stereochemistry.
     max_reference_conformers: int = (
         3  # Hawkins low-energy basin ensemble size #^[3, all]
     )
