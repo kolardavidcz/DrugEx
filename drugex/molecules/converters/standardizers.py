@@ -12,11 +12,7 @@ class StandardizationException(ConversionException):
 class DefaultStandardizer(MolConverter):
     """Standardizes chemical structures via metal disconnection, normalization, desalt, uncharging, and validation."""
 
-    def __init__(self, preserve_stereochemistry: bool = False) -> None:
-        """Optionally retain stereochemistry; preserve legacy corpus behavior by default."""
-        self.preserve_stereochemistry: bool = preserve_stereochemistry
-
-    def __call__(self, smiles: str) -> str:
+    def __call__(self, smiles):
         """Convert an input SMILES string to its standardized, desalted, and uncharged canonical form."""
         try:
             rd_mol = Chem.MolFromSmiles(smiles)
@@ -32,9 +28,7 @@ class DefaultStandardizer(MolConverter):
             rd_mol = charger.uncharge(rd_mol)
             rd_mol = disconnector.Disconnect(rd_mol)
             rd_mol = normalizer.normalize(rd_mol)
-            smileR = Chem.MolToSmiles(
-                rd_mol, isomericSmiles=self.preserve_stereochemistry
-            )
+            smileR = Chem.MolToSmiles(rd_mol, 0)
             # remove SMILES that do not contain carbon
             if len(rd_mol.GetSubstructMatches(carbon)) == 0:
                 raise StandardizationException(f"No carbon in SMILES: {smileR}")

@@ -24,12 +24,6 @@ class StandardizationException(ConversionException):
 class DefaultStandardizer(MolConverter):
     """Original standardization implementation from the original DrugEx v3."""
 
-    preserve_stereochemistry: bool
-
-    def __init__(self, preserve_stereochemistry: bool = ...) -> None:
-        """Opt into stereochemistry-preserving standardization for molecular references."""
-        ...
-
     def __call__(self, smiles: str) -> str:
         """
         Takes smiles of the input molecule and converts it to a standardized represenation.

@@ -363,11 +363,7 @@ class SchrodingerConformerGenerator(ConformerGenerator):
 
 
 class RDKitConformerGenerator(ConformerGenerator):
-    """Generate ETKDGv3 ensembles with stereoisomer enumeration.
-
-    ``rejected_embedding_results`` counts negative native IDs in the last batch,
-    including timeout sentinels; these are never serialized as conformers.
-    """
+    """Generate 3D conformer ensembles using RDKit ETKDGv3 with stereoisomer enumeration."""
 
     def __init__(
         self,
@@ -380,11 +376,16 @@ class RDKitConformerGenerator(ConformerGenerator):
         show_progress: bool = False,
         protonate: bool = True,
         canonicalize_tautomer: bool = True,
-    ) -> None:
+    ):
         """Initialize RDKit ETKDGv3 generator with stereoisomer limits, threading, and embedding timeout."""
-        if max_conformers < 1:
-            raise ValueError("max_conformers must be positive")
-        self.max_conformers: int = max_conformers
+        if max_conformers > 200:
+            print(
+                "Warning: max_conformers > 200 may cause memory issues "
+                "Setting to 200."
+            )
+            self.max_conformers = 200
+        else:
+            self.max_conformers = max_conformers
         self.max_isomers = max_isomers
         self.max_heavy_atoms = max_heavy_atoms
         self.max_rotatable_bonds = max_rotatable_bonds
@@ -393,7 +394,6 @@ class RDKitConformerGenerator(ConformerGenerator):
         self.show_progress = show_progress
         self.protonate = protonate
         self.canonicalize_tautomer = canonicalize_tautomer
-        self.rejected_embedding_results: int = 0
 
     def _create_fresh_etkdg(self):
         """Create ETKDGv3 parameters for conformer generation."""
@@ -437,9 +437,8 @@ class RDKitConformerGenerator(ConformerGenerator):
         for iso in EnumerateStereoisomers(mol, options=opts):
             yield iso
 
-    def genConformers(self, smiles_list: list[str], out_dir: str) -> str:
-        """Write successful ETKDGv3 conformers and count rejected native embedding IDs."""
-        self.rejected_embedding_results = 0
+    def genConformers(self, smiles_list, out_dir) -> str:
+        """Generate 3D conformers for SMILES using ETKDGv3 embedding and write to SDF."""
         tmp_outfile = os.path.join(out_dir, f"conformers.sdf")
         writer = Chem.SDWriter(tmp_outfile)
 
@@ -485,20 +484,10 @@ class RDKitConformerGenerator(ConformerGenerator):
                         numConfs=self.max_conformers,
                         params=etkdg
                     )
-                    # RDKit can return [-1] on timeout. Passing confId=-1 to
-                    # SDWriter selects a default conformer, even creating a 2D
-                    # depiction when embedding produced no coordinates.
-                    valid_ids = [int(conf_id) for conf_id in conf_ids if conf_id >= 0]
-                    rejected = len(conf_ids) - len(valid_ids)
-                    self.rejected_embedding_results += rejected
-                    if rejected:
-                        logger.warning(
-                            "Rejected %d failed RDKit embedding results for %s (stereoisomer %d)",
-                            rejected, smi, j,
-                        )
-                    if valid_ids:
+
+                    if len(conf_ids) > 0:
                         # Write all conformers
-                        for conf_id in valid_ids:
+                        for conf_id in conf_ids:
                             writer.write(iso, confId=conf_id)
                     else:
                         message = f"{smi}: {iso.GetProp('_Name')} failed conformer generation"

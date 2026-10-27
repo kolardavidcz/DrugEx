@@ -345,14 +345,8 @@ def _score_single_reference(
     return best_score
 
 
-def _serialize_worker_molecule(mol: Chem.Mol) -> bytes:
-    """Preserve coordinates across processes without changing global pickle settings."""
-    flags = int(Chem.GetDefaultPickleProperties()) | int(Chem.PropertyPickleOptions.CoordsAsDouble)
-    return mol.ToBinary(flags)
-
-
 def _rdkit_worker_init(
-    reference_mols: List[bytes],
+    reference_mols: List[Chem.Mol],
     group_to_indices: List[List[int]],
     score_type: str,
     use_colors: bool,
@@ -363,7 +357,7 @@ def _rdkit_worker_init(
     """Initializer to share immutable worker state."""
     global _RDKIT_WORKER_SETTINGS
     _RDKIT_WORKER_SETTINGS = {
-        "reference_mols": [Chem.Mol(record) for record in reference_mols],
+        "reference_mols": reference_mols,
         "group_to_indices": group_to_indices,
         "score_type": score_type,
         "use_colors": use_colors,
@@ -373,10 +367,9 @@ def _rdkit_worker_init(
     }
 
 
-def _score_molecule_rdkit_worker(args: Tuple[int, List[bytes]]) -> Tuple[int, List[float]]:
+def _score_molecule_rdkit_worker(args: Tuple[int, List[Chem.Mol]]) -> Tuple[int, List[float]]:
     """Score a molecule in a worker process."""
-    mol_id, conformer_records = args
-    mol_conformers = [Chem.Mol(record) for record in conformer_records]
+    mol_id, mol_conformers = args
     settings = _RDKIT_WORKER_SETTINGS
     reference_mols: List[Chem.Mol] = settings.get("reference_mols", [])
     group_to_indices: List[List[int]] = settings.get("group_to_indices", [])
@@ -753,12 +746,7 @@ class RDKitROCSScorer(Scorer):
             if self.n_jobs == 1:
                 scores_unique = self._score_sequential(unique_count, conformers_by_mol, num_groups)
             else:
-                # Default RDKit pickling rounds coordinates to float32. The overlay
-                # optimizer can amplify that rounding into different local optima.
-                worker_args = [
-                    (mol_id, [_serialize_worker_molecule(m) for m in conformers_by_mol.get(mol_id, [])])
-                    for mol_id in range(unique_count)
-                ]
+                worker_args = [(mol_id, conformers_by_mol.get(mol_id, [])) for mol_id in range(unique_count)]
                 effective_jobs = max(1, self.n_jobs)
                 chunksize = max(1, unique_count // (effective_jobs * 4))
 
@@ -770,7 +758,7 @@ class RDKitROCSScorer(Scorer):
                         self.n_jobs,
                         initializer=_rdkit_worker_init,
                         initargs=(
-                            [_serialize_worker_molecule(m) for m in self.reference_mols],
+                            self.reference_mols,
                             self.group_to_indices,
                             self.score_type,
                             self.use_colors,

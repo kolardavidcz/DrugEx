@@ -1,5 +1,8 @@
+# Historical outputs of the withdrawn study; not an active implementation.
 data.csv
 controls.csv
 manifest.json
 conformers.sdf
 summary.png
+report.md
+details.md
