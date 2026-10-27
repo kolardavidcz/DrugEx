@@ -5,11 +5,14 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Chem.rdDistGeom import EmbedParameters
 
 from drugex.molecules.converters.standardizers import DefaultStandardizer
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 
 from _david.code.config import DEFAULT_MOLECULE
 from _david.code.conformer.self_recovery import EGCGSelfRecovery, StudySettings
@@ -54,3 +57,22 @@ class TestReferenceIdentity(unittest.TestCase):
             study = EGCGSelfRecovery(Path(directory) / "study", StudySettings())
             with self.assertRaisesRegex(ValueError, "identity differs"):
                 study.checked_record(mol)
+
+    def test_generator_passes_large_budget_to_native_embedding(self) -> None:
+        """A request for 500 must reach RDKit as 500, with no hidden 200-conformer cap."""
+        requested: list[int] = []
+        native = AllChem.EmbedMultipleConfs
+
+        def embed(mol: Chem.Mol, numConfs: int, params: EmbedParameters) -> list[int]:
+            """Capture the real budget while generating one genuine 3D test conformer."""
+            requested.append(numConfs)
+            return list(native(mol, numConfs=1, params=params))
+
+        generator = RDKitConformerGenerator(
+            max_conformers=500, max_isomers=1, timeout=0,
+            protonate=False, canonicalize_tautomer=False,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(AllChem, "EmbedMultipleConfs", side_effect=embed):
+                generator.genConformers(["CCO"], directory)
+        self.assertEqual(requested, [500])

@@ -411,6 +411,7 @@ class EGCGSelfRecoveryVisualizer:
 - The lowest-energy representative of each basin is retained; reference caps are {settings["reference_caps"]}, with 0 meaning all basins.
 - Candidates use the production generator: ETKDGv3, pruning 0.5 Å, current tautomer/protonation/stereo handling, no force-field minimization.
 - Candidate requests: {settings["candidate_requests"]}; independent generation at each budget.
+- The core generator now honors requests above 200 instead of replacing them with 200. A regression test captures the actual count passed to native embedding.
 - Reference seeds: {settings["seeds"]}; candidate seeds: {manifest["candidate_seeds"]}.
 - Effective embedding timeout=0; overlay calls have no wall-clock cap. Numerical optimization has the iteration limit above and rejects nonconvergence.
 - One CPU thread; mean values across seeds; exact per-seed data remain in CSV. Reference cost includes shared measured embedding time plus method-specific optimization/clustering.
@@ -431,7 +432,7 @@ Use `--render-only --output EXISTING_PATH` to regenerate the report and single f
 Use `--smoke` with a fresh directory for a small integration check.
 
 Read `_david/code/conformer/self_recovery.py` and `EGCGSelfRecoveryVisualizer` in `_david/code/visualization.py`.
-The reference identity correction is in `PrepareMolecule` and the opt-in stereochemistry flag in `DefaultStandardizer`.
+The reference identity correction is in `PrepareMolecule` and the opt-in stereochemistry flag in `DefaultStandardizer`. The count-cap correction is in `RDKitConformerGenerator.__init__`.
 `_david/tests/test_reference_identity.py` checks standardization and embedded-reference stereochemistry.
 The core generation/scoring implementation is reused; the earlier large benchmark framework is not imported by this script.
 

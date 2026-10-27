@@ -252,6 +252,8 @@ class EGCGSelfRecovery:
         """Generate each requested budget independently through the training SDF path."""
         start = time.perf_counter()
         generator = SeededGenerator(count, seed)
+        if generator.max_conformers != count:
+            raise ValueError("The generator changed the requested conformer budget")
         with tempfile.TemporaryDirectory() as directory:
             path = generator.genConformers([DEFAULT_MOLECULE], directory)
             records = list(Chem.SDMolSupplier(path, removeHs=False))

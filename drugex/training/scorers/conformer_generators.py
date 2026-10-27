@@ -382,14 +382,9 @@ class RDKitConformerGenerator(ConformerGenerator):
         canonicalize_tautomer: bool = True,
     ) -> None:
         """Initialize RDKit ETKDGv3 generator with stereoisomer limits, threading, and embedding timeout."""
-        if max_conformers > 200:
-            print(
-                "Warning: max_conformers > 200 may cause memory issues "
-                "Setting to 200."
-            )
-            self.max_conformers = 200
-        else:
-            self.max_conformers = max_conformers
+        if max_conformers < 1:
+            raise ValueError("max_conformers must be positive")
+        self.max_conformers: int = max_conformers
         self.max_isomers = max_isomers
         self.max_heavy_atoms = max_heavy_atoms
         self.max_rotatable_bonds = max_rotatable_bonds
