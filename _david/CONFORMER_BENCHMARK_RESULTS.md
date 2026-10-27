@@ -119,6 +119,36 @@ solvent or validated protein environments. Different matching functions also
 change the score scale and size preference; a higher raw score under one
 function is not evidence of better ligand ranking or activity.
 
+At the common 100-attempt / three-reference / 30-request Tanimoto setting,
+the model-panel means below include all 24 model molecules and three seeds,
+including the structurally rejected molecule's zero production score:
+
+| Reference protocol | Mean raw combo | One-time reference preparation, seconds |
+|---|---:|---:|
+| MMFF94 baseline | 0.53306 | 2.297 |
+| MMFF94s, dielectric 1 | 0.53306 | 2.311 |
+| MMFF94s, dielectric 6.5 | 0.52546 | 2.321 |
+| MMFF94s, dielectric 78.4 | 0.52484 | 2.245 |
+| MMFF94s, distance-dependent | 0.52752 | 2.316 |
+| UFF | 0.52413 | 2.096 |
+| Unminimized ETKDG reference | 0.52421 | 1.338 |
+| MMFF94s, tighter 0.75 Å clustering | 0.53395 | 2.376 |
+
+MMFF94s at dielectric 1 has the same baseline-cell mean as MMFF94 to the shown
+precision. The higher-dielectric conditions do not improve this cell's average
+similarity, and tighter clustering produces only a small change at the same
+three-reference cap. These observations do not select a physically superior
+force field: changing the reference geometry also changes the scoring target,
+and no active/decoy or experimental-pose endpoint was measured.
+
+For the baseline protocol and counts, mean raw scores are 0.53306 for Tanimoto,
+0.56846 for reference-weighted Tversky, and 0.89311 for subshape Tversky.
+Corresponding molecule-level score/heavy-atom Spearman correlations are
+0.684, 0.723, and 0.526. These descriptive stress-panel correlations may also
+reflect chemistry; they are not causal evidence of size bias. In particular,
+the larger subshape score cannot be interpreted as better conformer recovery
+or a reason to change the training objective.
+
 Additional candidate minimization has no demonstrated average Tanimoto benefit
 for the baseline count setting. Among pairs successful under both methods,
 MMFF94 changes the mean score by -0.00241 with bootstrap interval
