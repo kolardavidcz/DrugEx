@@ -3,7 +3,8 @@
 For this thesis, core source is read-only. Implement approved adaptations under
 `_david/`, reusing DrugEx and RDKit APIs where possible. The authoritative project
 instructions are [../_david/AGENTS.md](../_david/AGENTS.md); verified issues and
-research status are in [../_david/results.md](../_david/results.md).
+research status are in
+[../_david/code/conformer/results.md](../_david/code/conformer/results.md).
 
 Inspect core implementations when tracing behavior: molecular converters are in
 `molecules/converters/`; conformer generation and ROCS scoring in

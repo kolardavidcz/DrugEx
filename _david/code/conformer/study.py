@@ -1,6 +1,6 @@
 """MMFF94/TanimotoCombo study using the training candidate generator.
 
-Run from the repository root with ``python -m _david.code.conformer_study``.
+Run from the repository root with ``python -m _david.code.conformer.study``.
 Reference counts select energy-ordered basin representatives; 0 means all.
 Candidate minimization is a paired diagnostic, not a change to training.
 """
@@ -62,7 +62,7 @@ def run(args):
     settings = vars(args) | {"output": str(output)}
     source_paths = [
         "_david/code/chemistry.py",
-        "_david/code/conformer_study.py",
+        "_david/code/conformer/study.py",
         "_david/code/environment.py",
         "_david/code/config.py",
         "_david/code/visualization.py",
@@ -79,7 +79,7 @@ def run(args):
         "dirty_state": subprocess.check_output(["git", "status", "--short"], text=True),
         "code_root": str(PROJECT_ROOT),
         "rdkit": rdBase.rdkitVersion,
-        "command": [sys.executable, "-m", "_david.code.conformer_study", *sys.argv[1:]],
+        "command": [sys.executable, "-m", "_david.code.conformer.study", *sys.argv[1:]],
         "python": platform.python_version(),
         "cpu_threads": 1,
         "dimorphite_available": importlib.util.find_spec("dimorphite_dl") is not None,

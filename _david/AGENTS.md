@@ -48,7 +48,7 @@ explicitly; never infer their scale from observed maxima. Scoring/conformer
 experiments do not establish RNN training improvements.
 
 This file is the single source of current project instructions.
-[results.md](results.md) is the single maintained findings/limitations/decision
+[code/conformer/results.md](code/conformer/results.md) is the single maintained findings/limitations/decision
 record. Mark proposals, selected methods and measured results separately. Keep
 the conformer delivery compact: one score/time figure, reproducible scripts and
 raw data referenced from results.md. Frozen historical evidence, raw data and
@@ -63,6 +63,8 @@ action lists or settings.
 - `code/models.py`, `code/pipeline.py`: agent/frozen-prior loading and RL workflow.
 - `code/schema.py`, `code/utils.py`: score columns and runtime configuration.
 - `code/visualization.py`: analysis and figures; `tests/`: executable assertions.
+- `code/conformer/`: conformer study and maintained results; generated evidence
+  belongs under `output/conformer/`, separate from source.
 - `legacy/`: fragment-conditioned historical comparisons; `output/`: generated
   artifacts. Ignored data/checkpoints are not transferred by Git.
 

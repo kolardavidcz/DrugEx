@@ -2,7 +2,8 @@
 
 The bachelor's thesis implementation lives under `_david/`. Read
 [_david/AGENTS.md](_david/AGENTS.md) for the authoritative project instructions
-and [_david/results.md](_david/results.md) for dated findings and open decisions.
+and [_david/code/conformer/results.md](_david/code/conformer/results.md) for dated
+findings and open decisions.
 
 The pipeline must be molecule-agnostic: references are inputs; EGCG is a default
 example, not a special algorithmic case. Apply the same configurable preparation,
