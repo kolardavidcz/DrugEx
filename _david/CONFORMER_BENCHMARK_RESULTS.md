@@ -1,5 +1,10 @@
 # Conformer budget results, 2026-10-27
 
+> **The conformer-count recommendations below are withdrawn.** Reference
+> standardization removed stereochemistry; the inspected reference and candidate
+> were different stereoisomers. Read the corrected
+> [EGCG self-recovery report](conformer_self_recovery/report.md).
+
 Use 100 reference embedding attempts and 30 candidate requests per stereoisomer
 as the working baseline while assessing reference coverage. This experiment
 does not justify lowering the training budget to 10 or 20. The most promising

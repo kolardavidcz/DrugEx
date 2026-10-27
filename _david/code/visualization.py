@@ -155,6 +155,298 @@ class ConformerBenchmarkVisualizer:
         return paths
 
 
+class EGCGSelfRecoveryVisualizer:
+    """Generate one comparison sheet and two short documents from measured data."""
+
+    @classmethod
+    def render(cls, output: Path) -> None:
+        """Show scores and measured times without loss-based setting selection."""
+        import json
+        from matplotlib.colors import LogNorm, Normalize
+
+        output = output.resolve()
+        manifest = json.loads((output / "manifest.json").read_text())
+        if manifest["state"] not in {"measured", "complete"}:
+            raise ValueError("Measure the complete self-recovery grid before rendering")
+        data = pd.read_csv(output / "data.csv", dtype={"reference_cap": str})
+        controls = pd.read_csv(output / "controls.csv")
+        if len(data) != manifest["measurement_rows"]:
+            raise ValueError("Measurement denominator disagrees with the manifest")
+        if not np.allclose(data.raw_combo / 2, data.rocs_fraction):
+            raise ValueError("The plotted score must equal raw combo divided by two")
+        caps = [
+            str(cap) if cap else "all" for cap in manifest["settings"]["reference_caps"]
+        ]
+        counts = manifest["settings"]["candidate_requests"]
+        methods = [method["name"] for method in manifest["methods"]]
+        metrics = manifest["settings"]["metrics"]
+        averages = data.groupby(
+            ["method", "metric", "reference_cap", "candidate_requested"], as_index=False
+        )[["rocs_fraction", "time_seconds"]].mean()
+        score_norm = Normalize(0, 1)
+        time_norm = LogNorm(averages.time_seconds.min(), averages.time_seconds.max())
+        fig = plt.figure(figsize=(18, 19), layout="constrained")
+        grid = fig.add_gridspec(7, 4, height_ratios=[1, 1, 1, 1, 1, 0.07, 0.45])
+        images: list[Any] = [None] * 4
+        for row, method in enumerate(methods):
+            measured = data[data.method == method]
+            available = measured.groupby("seed").reference_available.first()
+            prep = measured.groupby("seed").reference_seconds.first().mean()
+            for column in range(4):
+                axis = fig.add_subplot(grid[row, column])
+                metric = metrics[column // 2]
+                quantity = "rocs_fraction" if column % 2 == 0 else "time_seconds"
+                part = averages[
+                    (averages.method == method) & (averages.metric == metric)
+                ]
+                matrix = part.pivot(
+                    index="candidate_requested",
+                    columns="reference_cap",
+                    values=quantity,
+                ).reindex(index=counts, columns=caps)
+                images[column] = axis.imshow(
+                    matrix.to_numpy(),
+                    origin="lower",
+                    aspect="auto",
+                    cmap="viridis" if column % 2 == 0 else "cividis",
+                    norm=score_norm if column % 2 == 0 else time_norm,
+                )
+                labels: list[str] = []
+                for cap in caps:
+                    actual = measured[measured.reference_cap == cap].reference_actual
+                    span = (
+                        f"{actual.min()}"
+                        if actual.min() == actual.max()
+                        else f"{actual.min()}–{actual.max()}"
+                    )
+                    labels.append(f"{cap}\n({span})")
+                axis.set_xticks(range(len(caps)), labels, fontsize=7)
+                axis.set_yticks(range(len(counts)), counts, fontsize=8)
+                axis.set_xlabel("Reference cap (actual retained)", fontsize=8)
+                if column == 0:
+                    axis.set_ylabel("Candidate requests", fontsize=9)
+                for yi in range(len(counts)):
+                    for xi in range(len(caps)):
+                        value = matrix.iloc[yi, xi]
+                        label = f"{value:.3f}" if column % 2 == 0 else f"{value:.2g}"
+                        axis.text(
+                            xi,
+                            yi,
+                            label,
+                            ha="center",
+                            va="center",
+                            fontsize=7,
+                            color="white",
+                            bbox={
+                                "facecolor": "black",
+                                "alpha": 0.3,
+                                "pad": 0.5,
+                                "edgecolor": "none",
+                            },
+                        )
+                title = "TanimotoCombo" if column < 2 else "TverskySubshapeCombo"
+                title += " / 2" if column % 2 == 0 else " time [s]"
+                if column == 0:
+                    title = f"{method}\nprep {prep:.2f}s; {available.min()}–{available.max()} basins\n{title}"
+                axis.set_title(title, fontsize=9)
+        score_axis = fig.add_subplot(grid[5, :2])
+        time_axis = fig.add_subplot(grid[5, 2:])
+        fig.colorbar(images[0], cax=score_axis, orientation="horizontal",
+                     label="Combo / 2 (exact-geometry self-score = 1)")
+        fig.colorbar(images[1], cax=time_axis, orientation="horizontal",
+                     label="Generation + alignment [seconds]")
+        cls.control_tables(fig, grid, data, controls, counts)
+        fig.suptitle(
+            "EGCG → the identical EGCG stereoisomer | deep reference vs training ETKDG\n"
+            f"{len(manifest['settings']['seeds'])} seeds · {manifest['settings']['reference_attempts']} reference attempts · "
+            "no timeouts · one CPU thread\n"
+            "Cells: mean best-overlay score or generation + overlay seconds; reference preparation is separate",
+            fontsize=13,
+        )
+        fig.savefig(output / "summary.png", dpi=180)
+        plt.close(fig)
+        cls.documents(output, manifest, data, controls)
+
+    @staticmethod
+    def control_tables(
+        fig: Any,
+        grid: Any,
+        data: pd.DataFrame,
+        controls: pd.DataFrame,
+        counts: list[int],
+    ) -> None:
+        """Put positive/identity controls and actual generation counts on the same sheet."""
+        left = fig.add_subplot(grid[6, :2])
+        left.axis("off")
+        names = [
+            "exact_geometry",
+            "legacy_stereo_removed",
+            "corrected_production_reference",
+            "matched_minimized",
+        ]
+        cells: list[list[str]] = []
+        for name in names:
+            row = [name.replace("_", " ")]
+            for metric in ("tanimoto", "tversky_subshape"):
+                values = controls[
+                    (controls.control == name) & (controls.metric == metric)
+                ].rocs_fraction
+                row.append(f"{values.min():.3f}–{values.max():.3f}")
+            cells.append(row)
+        table = left.table(
+            cellText=cells,
+            colLabels=["Control (score range)", "Tanimoto / 2", "Subshape / 2"],
+            loc="center",
+            cellLoc="center",
+            colWidths=[0.55, 0.225, 0.225],
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(8)
+        table.scale(1, 1.4)
+        right = fig.add_subplot(grid[6, 2:])
+        right.axis("off")
+        builds = data.drop_duplicates(["seed", "candidate_requested"])
+        retained = builds.groupby("candidate_requested").candidate_actual.agg(
+            ["min", "max"]
+        )
+        seconds = builds.groupby("candidate_requested").generation_seconds.mean()
+        table = right.table(
+            cellText=[
+                [f"{retained.loc[c, 'min']}–{retained.loc[c, 'max']}" for c in counts],
+                [f"{seconds.loc[c]:.3f}" for c in counts],
+            ],
+            colLabels=[str(c) for c in counts],
+            rowLabels=["Actual retained", "Generation [s]"],
+            loc="center",
+            cellLoc="center",
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(8)
+        table.scale(1, 1.5)
+        right.set_title(
+            "Requested candidates → actual retained / generation time", fontsize=9
+        )
+
+    @staticmethod
+    def documents(
+        output: Path,
+        manifest: dict[str, Any],
+        data: pd.DataFrame,
+        controls: pd.DataFrame,
+    ) -> None:
+        """Keep the main report short and put exact assumptions in one deeper note."""
+        maximum = data.candidate_requested.max()
+        end = data[
+            (data.candidate_requested == maximum) & (data.reference_cap == "all")
+        ]
+        lines = [
+            "# EGCG self-recovery",
+            "",
+            "Compare the identical specified EGCG stereoisomer against deeply optimized references. "
+            "This is a scoring/conformer experiment; it makes no claim about RL learning or a 200-epoch run.",
+            "",
+            "![All score/time tables](summary.png)",
+            "",
+            "## What was corrected",
+            "",
+            "Reference standardization previously discarded stereochemistry. The inspected old reference was S,R; "
+            "the input/candidate was R,R. Earlier EGCG count recommendations are withdrawn. "
+            "The new main grid asserts identical isomeric identity for every reference and candidate.",
+            "",
+            "The old ~0.53 heatmap was also a mean over different generated molecules, not an EGCG self-score. "
+            "Separately, the old EGCG self-comparison was about 1.112 raw combo, or 0.556 after dividing by two.",
+            "",
+            "## Maximum tested candidate budget and all retained references",
+            "",
+            f"Candidate requests: {maximum}. Values below are mean combo/2 across {len(manifest['settings']['seeds'])} seeds; 1 is an exact-geometry self-overlay.",
+            "",
+            "| Reference method | ETKDG Tanimoto | Matched-minimized Tanimoto | ETKDG Subshape | Matched-minimized Subshape | Extra minimization seconds |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+        for method in [m["name"] for m in manifest["methods"]]:
+            values: list[str] = []
+            for metric in ("tanimoto", "tversky_subshape"):
+                raw = end[
+                    (end.method == method) & (end.metric == metric)
+                ].rocs_fraction.mean()
+                relaxed = controls[
+                    (controls.method == method)
+                    & (controls.metric == metric)
+                    & (controls.control == "matched_minimized")
+                ].rocs_fraction.mean()
+                values.extend([f"{raw:.4f}", f"{relaxed:.4f}"])
+            extra = controls[
+                (controls.method == method) & (controls.control == "matched_minimized")
+            ].extra_preparation_seconds.mean()
+            values.append(f"{extra:.3f}")
+            lines.append(f"| {method} | {' | '.join(values)} |")
+        lines += [
+            "",
+            "## How to read the result",
+            "",
+            "The main maps use unminimized training ETKDG candidates. More attempts do not guarantee "
+            "more retained conformers or a geometry near a force-field minimum. The matched-minimized "
+            "control tests that representation mismatch separately; the exact-geometry control must equal 1.",
+            "",
+            "ROCS here means the existing RDKit shape/color combo. The plotted value is raw combo/2, "
+            "not a percentage of biological accuracy. Raw scores, actual counts and individual-seed times "
+            "are in [data.csv](data.csv); controls are in [controls.csv](controls.csv).",
+            "",
+            "Timing is measured generation/SDF plus overlay on one CPU thread, without wall-clock timeouts. "
+            "Reference preparation is a separate one-time cost. This does not predict an RNN epoch.",
+            "",
+            "Read [details.md](details.md) for parameters, sources, reproduction and code-review entry points.",
+        ]
+        (output / "report.md").write_text("\n".join(lines) + "\n")
+        settings = manifest["settings"]
+        details = f"""# Parameters and reproducibility
+
+- Input: `{manifest["identity"]}`; reference and candidate charge/stereochemistry must match.
+- Five user-selected mechanics conditions, two existing scores; no ranking or loss-based selection.
+- Reference: {settings["reference_attempts"]} ETKDGv3 attempts per seed, pruning 0.35 Å, chirality enforced.
+- The same embedded pool is copied for each reference mechanics condition.
+- Optimization: max {settings["max_iterations"]} iterations, force tolerance {settings["force_tolerance"]}, energy tolerance {settings["energy_tolerance"]}. Every included optimization must return native status 0.
+- Convergence means a local minimum under the selected force field, not a proven global minimum.
+- A common {settings["energy_window"]} kcal/mol relative-energy window and {settings["rmsd_cutoff"]} Å heavy-atom Butina clustering isolate mechanics changes. These are project settings, not physiological constants.
+- The lowest-energy representative of each basin is retained; reference caps are {settings["reference_caps"]}, with 0 meaning all basins.
+- Candidates use the production generator: ETKDGv3, pruning 0.5 Å, current tautomer/protonation/stereo handling, no force-field minimization.
+- Candidate requests: {settings["candidate_requests"]}; independent generation at each budget.
+- Reference seeds: {settings["seeds"]}; candidate seeds: {manifest["candidate_seeds"]}.
+- Effective embedding timeout=0; overlay calls have no wall-clock cap. Numerical optimization has the iteration limit above and rejects nonconvergence.
+- One CPU thread; mean values across seeds; exact per-seed data remain in CSV. Reference cost includes shared measured embedding time plus method-specific optimization/clustering.
+- Both metrics call the production TanimotoCombo pose optimizer; Subshape converts overlaps with reference/candidate weights 0.30/0.70 on those poses.
+- Raw combo is 0–2. The visualization divides by two; no observed-maximum rescaling.
+- Dimorphite-DL available: {manifest["dimorphite_available"]}. Identity assertions prevent an unnoticed protomer change.
+- Data are checked after an SDF-precision round trip. `conformers.sdf` contains the measured geometries and labeled controls.
+- RDKit: {manifest["rdkit"]}; Python: {manifest["python"]}; host: {manifest["host"]}.
+- Revision: `{manifest["git_revision"]}`. `manifest.json` records source hashes and the actual execution checkout.
+
+## Reproduce and review
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MPLBACKEND=Agg .venv/bin/python -m _david.code.conformer.self_recovery --output _david/conformer_self_recovery_NEW
+```
+
+Use `--render-only --output EXISTING_PATH` to regenerate the report and single figure from CSV.
+Use `--smoke` with a fresh directory for a small integration check.
+
+Read `_david/code/conformer/self_recovery.py` and `EGCGSelfRecoveryVisualizer` in `_david/code/visualization.py`.
+The reference identity correction is in `PrepareMolecule` and the opt-in stereochemistry flag in `DefaultStandardizer`.
+`_david/tests/test_reference_identity.py` checks standardization and embedded-reference stereochemistry.
+The core generation/scoring implementation is reused; the earlier large benchmark framework is not imported by this script.
+
+## Evidence consulted before implementation
+
+- [RDKit MolToSmiles](https://www.rdkit.org/docs/source/rdkit.Chem.rdmolfiles.html#rdkit.Chem.rdmolfiles.MolToSmiles): `isomericSmiles` controls retained stereochemistry; runtime reproduction verifies the bug and correction.
+- [RDKit conformer generation](https://www.rdkit.org/docs/RDKit_Book.html#conformer-generation): ETKDG, pruning and seed parameters. ETKDG sampling and subsequent force-field minimization are separate operations.
+- [RDKit force-field minimization](https://www.rdkit.org/docs/source/rdkit.ForceField.rdForceField.html): convergence status and force/energy tolerances; installed API behavior is checked directly.
+- [Botten et al., 2015, DOI 10.1021/acs.jpcb.5b08737](https://kclpure.kcl.ac.uk/ws/portalfiles/portal/48751449/acs_2Ejpcb_2E5b08737.pdf): previously inspected full text, Methods p.12861 and Conclusions p.12865. Its force-field/solvent analysis does not validate a specific dielectric or conformer count here.
+
+The numerical grids and tighter tolerances are explicit experimental settings, not literature-derived optima.
+Dielectric conditions are mechanical sensitivity tests, not explicit water or a protein environment.
+This measures only EGCG self-recovery. Choosing RL settings still requires the later training comparisons.
+"""
+        (output / "details.md").write_text(details)
 def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure ROCS is [0, 2] TanimotoCombo and calculate physical properties if missing."""
     if df.empty:

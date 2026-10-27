@@ -34,7 +34,9 @@ class PrepareMolecule:
         self.num_conformers = num_conformers
         self.max_reference_conformers = max_reference_conformers
         self.random_seed = random_seed
-        self.standardizer = DefaultStandardizer()
+        self.standardizer: DefaultStandardizer = DefaultStandardizer(
+            preserve_stereochemistry=True
+        )
 
     def standardize(self, smiles: str) -> str:
         """Standardize input chemical structure into canonical SMILES representation."""
@@ -102,7 +104,6 @@ class PrepareMolecule:
         mol: Chem.Mol | None,
         max_ensemble_size: int = 3,
     ) -> tuple[float, int]:
-        # ~ [Hawkins, Conformer Generation with RDKit, J. Chem. Inf. Model. 2017]
         """Calculate Butina RMSD clustering cutoff and maximum reference ensemble size based on molecular flexibility."""
         if mol is None:
             return 1.00, 1
@@ -165,7 +166,7 @@ class PrepareMolecule:
         num_conformers: int = 100,
         random_seed: int = 42,
     ) -> Path:
-        """Embed, optimize, filter energy window, and cluster 3D reference conformers via Hawkins ensemble protocol."""
+        """Embed, minimize, energy-filter, and cluster stereochemically specified references."""
         target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -176,7 +177,7 @@ class PrepareMolecule:
                     writer.write(mol, confId=conf.GetId())
             return target_path
 
-        # ~ [Hawkins, Conformer Generation with RDKit, J. Chem. Inf. Model. 2017] ETKDGv3 embedding
+        # ETKDG respects the stereochemistry retained by reference standardization.
         mol_h = Chem.AddHs(mol)
         params = AllChem.ETKDGv3()
         params.randomSeed = random_seed
@@ -197,14 +198,14 @@ class PrepareMolecule:
 
         energies = self.calculate_conformer_energies(mol_h, query_desc=str(query))
 
-        # ~ [Hawkins, Physiological energy window, 2017] Delta E <= 8.0 kcal/mol window
+        # This project energy window is not a physiological population model.
         min_e = min(energies.values())
         for cid, e in list(energies.items()):
             if (e - min_e) > 8.0:
                 mol_h.RemoveConformer(cid)
                 del energies[cid]
 
-        # ~ [Hawkins, Basin curation via Butina clustering, 2017] Sphere-exclusion RMSD clustering
+        # Retain the lowest-energy representative of each heavy-atom RMSD basin.
         remaining_cids = list(energies.keys())
         cutoff, max_ensemble_size = self.determine_ensemble_parameters(
             mol_h, self.max_reference_conformers

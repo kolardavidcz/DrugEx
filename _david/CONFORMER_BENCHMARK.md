@@ -1,5 +1,10 @@
 # Reference and training conformer benchmark
 
+> **Withdrawn for EGCG recommendations.** An audit found that reference
+> standardization discarded the specified stereochemistry. Use the corrected,
+> compact [EGCG self-recovery study](conformer_self_recovery/report.md).
+> This document and its measurements remain historical evidence.
+
 This experiment asks how much conformational search is needed to preserve the
 production scorer's results at an acceptable CPU cost. It does not establish
 binding affinity or identify a bioactive EGCG conformation.
