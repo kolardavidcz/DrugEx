@@ -175,6 +175,7 @@ def measure_parent(case, parts_directory):
         for conformers, effective_cap in work:
             start = time.perf_counter()
             error, records = "", []
+            embedding_failures = 0
             try:
                 scorer = create_rocs_scorer(
                     _REFS[1],
@@ -188,6 +189,9 @@ def measure_parent(case, parts_directory):
                 with tempfile.TemporaryDirectory() as directory:
                     path = scorer.conformer_generator.genConformers(
                         [case["smiles"]], directory
+                    )
+                    embedding_failures = (
+                        scorer.conformer_generator.last_embedding_failures
                     )
                     records = list(Chem.SDMolSupplier(path, removeHs=False))
                 if not records or any(m is None for m in records):
@@ -243,6 +247,7 @@ def measure_parent(case, parts_directory):
                                 "optimization_seconds": optimization_seconds,
                                 "overlay_seconds": overlays,
                                 "candidate_conformers": len(records),
+                                "embedding_failures": embedding_failures,
                                 "scored_conformers": successes,
                                 "actual_isomers": isomer_count,
                                 "failed_conformers": len(records) - successes,
@@ -442,6 +447,10 @@ def run(args):
         for case in panel.to_dict("records")
         if not (parts / f"{case['molecule_id']:05d}.csv.gz").exists()
     ]
+    pending.sort(
+        key=lambda case: (min(case["isomer_upper_bound"], 30), case["rotatable_bonds"]),
+        reverse=True,
+    )
     manifest["state"] = "measuring"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     with ProcessPoolExecutor(

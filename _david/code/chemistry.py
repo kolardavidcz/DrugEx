@@ -44,6 +44,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         self.minimize_candidates = minimize_candidates
         self.optimization = optimization or Optimization()
         self.last_minimization_statuses: list[int] = []
+        self.last_embedding_failures: int = 0
 
     def _create_fresh_etkdg(self):
         params = super()._create_fresh_etkdg()
@@ -53,9 +54,26 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
     def genConformers(self, smiles_list, out_dir) -> str:
         path = super().genConformers(smiles_list, out_dir)
         self.last_minimization_statuses = []
-        if self.minimize_candidates:
+        self.last_embedding_failures = 0
+        try:
             records = list(Chem.SDMolSupplier(path, removeHs=False))
-            minimized, statuses = optimize_conformers(records, self.optimization)
+        except (OSError, ValueError):
+            return path  # An empty generation remains an empty scorer input.
+        valid = [
+            mol
+            for mol in records
+            if mol is not None
+            and mol.GetNumConformers()
+            and mol.GetConformer().Is3D()
+            and np.isfinite(mol.GetConformer().GetPositions()).all()
+        ]
+        self.last_embedding_failures = len(records) - len(valid)
+        if self.last_embedding_failures and not self.minimize_candidates:
+            with Chem.SDWriter(path) as writer:
+                for mol in valid:
+                    writer.write(mol)
+        if self.minimize_candidates:
+            minimized, statuses = optimize_conformers(valid, self.optimization)
             self.last_minimization_statuses = statuses
             with Chem.SDWriter(path) as writer:
                 for mol in minimized:

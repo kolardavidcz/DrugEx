@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from drugex.molecules.converters.standardizers import DefaultStandardizer
@@ -27,6 +28,20 @@ from _david.code.models import SequenceRNNOptimizer
 
 
 class TestPreparation(unittest.TestCase):
+    def test_failed_embedding_is_not_written_as_a_2d_candidate(self):
+        reference = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        self.assertEqual(AllChem.EmbedMolecule(reference, randomSeed=42), 0)
+        scorer = create_rocs_scorer(reference, max_conformers=1, n_jobs=1)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch(
+                "_david.code.chemistry.AllChem.EmbedMultipleConfs", return_value=[-1]
+            ),
+        ):
+            path = scorer.conformer_generator.genConformers(["CCO"], directory)
+            self.assertEqual(Path(path).stat().st_size, 0)
+            self.assertEqual(scorer.conformer_generator.last_embedding_failures, 1)
+
     def test_minimized_study_score_matches_the_public_training_scorer(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "reference.sdf"
