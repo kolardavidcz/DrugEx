@@ -62,6 +62,30 @@ best-over-isomer scoring as a search over prepared forms, not activity evidence.
   `output/conformer/archive/mmff94_candidates_7039298_failed_parity` on dichtator,
   with its manifest explicitly marking the 0.034 raw-score parity failure.
 
+## Visualization proposal — 2026-10-28, not yet selected
+
+Inspection of the 508-parent preview found stereoisomer-upper-bound groups
+1:293, 2:128, 4:55, 8:18, >8:14. These are bounds after preparation, not counts
+of physically realizable or successfully embedded isomers. RDKit documents this
+[distinction](https://www.rdkit.org/docs/source/rdkit.Chem.EnumerateStereoisomers.html).
+The 293 upper-bound-one cases have exactly zero score change between isomer caps
+1 and 30 at MMFF94/C100; pooling them dilutes the ambiguous-molecule effect.
+Proposed main strata: 1, 2, 4, >=8 (32 cases), with finer splits descriptive only.
+Prefer paired score changes and time versus budgets within each fixed stratum;
+retain absolute-score distributions, failure rates and actual embedding counts.
+Use shared scales, independent isomer/conformer axes and distinct available
+reference counts. Top-5% overlap is ranking stability, not ROCS similarity.
+At MMFF94/C100/I30/all references, the 26 highest seed-averaged scores have mean
+0.421813 and maximum 0.441972; this is not EGCG self-recovery. Fixed top cohorts
+would be exploratory because selection uses the same measurements.
+
+Evidence refreshed from free Europe PMC full text: McNutt et al. 2023 (linked
+above), conformer retrieval and pharmacophore ensemble-size results. They report
+heterogeneous responses hidden by average trends and effects of ligand flexibility;
+their task does not select our strata or budgets. Search: ensemble size,
+rotatable bonds, flexibility, false positives. Proposal only; no measurement,
+scoring or rendering policy changed in this consultation.
+
 ## Historical single-molecule baseline
 
 The following dated sections describe the earlier single-molecule experiment;
