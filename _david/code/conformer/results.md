@@ -9,6 +9,13 @@ reach 0.95; four fall below it (minimum 0.777589). This is not a universal
 guarantee or evidence for exactly three references. The user's latest steering
 keeps epoch runs on hold. Defaults remain unchanged; the new explicit profile
 configuration is optional. Historical measurements remain bound to 95d0d60.
+Clean refactored source **0dca8cc** passed **27 tests** (3.906 s), scoped Ruff
+and PBS shell syntax checks. Its production EGCG diagnostic retained three
+references and seven candidates from 20 requests, scoring **0.99871485**
+(shape 0.99979687, color 0.99763283), exactly matching component replay.
+The adaptive-planner audit covers 507 saved prepared inputs: 151 hit the 250
+per-isomer ceiling; nine exceed the stereo ceiling 25; total requests can reach
+6,250. These are planning diagnostics, not validated coverage or new defaults.
 
 **2026-10-28: native-scoring mini-study completed and verified.**
 
