@@ -62,29 +62,87 @@ best-over-isomer scoring as a search over prepared forms, not activity evidence.
   `output/conformer/archive/mmff94_candidates_7039298_failed_parity` on dichtator,
   with its manifest explicitly marking the 0.034 raw-score parity failure.
 
-## Visualization proposal — 2026-10-28, not yet selected
+## Selected stratified visualization — 2026-10-28
 
-Inspection of the 508-parent preview found stereoisomer-upper-bound groups
-1:293, 2:128, 4:55, 8:18, >8:14. These are bounds after preparation, not counts
-of physically realizable or successfully embedded isomers. RDKit documents this
-[distinction](https://www.rdkit.org/docs/source/rdkit.Chem.EnumerateStereoisomers.html).
-The 293 upper-bound-one cases have exactly zero score change between isomer caps
-1 and 30 at MMFF94/C100; pooling them dilutes the ambiguous-molecule effect.
-Proposed main strata: 1, 2, 4, >=8 (32 cases), with finer splits descriptive only.
-Prefer paired score changes and time versus budgets within each fixed stratum;
-retain absolute-score distributions, failure rates and actual embedding counts.
-Use shared scales, independent isomer/conformer axes and distinct available
-reference counts. Top-5% overlap is ranking stability, not ROCS similarity.
-At MMFF94/C100/I30/all references, the 26 highest seed-averaged scores have mean
-0.421813 and maximum 0.441972; this is not EGCG self-recovery. Fixed top cohorts
-would be exploratory because selection uses the same measurements.
+The user selected disjoint ranges **{1}, {2}, {3–4}, {5–8}, {9+}**, containing
+293, 128, 55, 18 and 14 completed parents. These group the estimated isomer upper
+bound after preparation, not physically realizable or successfully embedded
+isomer counts; see [RDKit](https://www.rdkit.org/docs/source/rdkit.Chem.EnumerateStereoisomers.html).
+The 508-parent snapshot is still provisional; four unusually slow parents are
+missing, so time summaries may be biased downward. No new conformers or scores
+were generated for this analysis. The training switch remains OFF.
 
-Evidence refreshed from free Europe PMC full text: McNutt et al. 2023 (linked
-above), conformer retrieval and pharmacophore ensemble-size results. They report
-heterogeneous responses hidden by average trends and effects of ligand flexibility;
-their task does not select our strata or budgets. Search: ensemble size,
-rotatable bonds, flexibility, false positives. Proposal only; no measurement,
-scoring or rendering policy changed in this consultation.
+Artifacts on both hosts: `output/20261028_1405_conformer_analysis/`:
+[group 1](../../output/20261028_1405_conformer_analysis/isomers_1.png),
+[group 2](../../output/20261028_1405_conformer_analysis/isomers_2.png),
+[group 3–4](../../output/20261028_1405_conformer_analysis/isomers_3_4.png),
+[group 5–8](../../output/20261028_1405_conformer_analysis/isomers_5_8.png),
+[group 9+](../../output/20261028_1405_conformer_analysis/isomers_ge9.png),
+[score/time](../../output/20261028_1405_conformer_analysis/score_time.png),
+[distributions/fixed cohort](../../output/20261028_1405_conformer_analysis/score_distributions.png),
+[sampling diagnostics](../../output/20261028_1405_conformer_analysis/sampling_diagnostics.png),
+[reference counts](../../output/20261028_1405_conformer_analysis/reference_effects.png).
+The folder also contains `molecules.csv.gz` (seed-averaged parent measurements),
+`stratified.csv` (plotted summaries), `panel.csv`, `fixed_top_cohort.csv`,
+`identity_count_warnings.csv`, and the manifest with source/output hashes,
+definitions, verification and separate rendering provenance. No extra report MD.
+
+Heatmaps use all available references and shared scales. Paired isomer gains
+compare the same parent/method/C against cap 1. Group 1 has zero such gain and
+omits redundant gain panels. Score/time frontiers compare budgets within each
+method; methods have different query geometries. MMFF94 time bars span median
+to 95th percentile across parent seed-average times, not confidence intervals.
+Preparation failures score zero in overall summaries. The success-only diagnostic
+requires all three seeds to succeed at both caps and reports its smaller denominator.
+At MMFF94/C100 in group 5–8, cap-30 minus cap-1 gain is 0.096466 mean, 0.024601
+median, and about 0.020 among 12 fully successful pairs: overall gains partly
+reflect failure recovery. Small strata remain descriptive, without significance claims.
+
+Two inspectable examples (same prepared parent, MMFF94/C100/all references,
+three-seed averages): parent 100 scores 0 at cap 1 with failure in every seed,
+then 0.392378 at cap 30 with no failures. Parent 138 succeeds at both and scores
+0.393194 vs 0.437888. Both inputs have unassigned stereo (bound 8), so changing
+the cap can search different stereoisomers; these are not guaranteed comparisons
+of one fully specified chemical identity. Different generated candidates versus
+EGCG are not EGCG self-recovery. All 20 saved exact-geometry controls score 1.0;
+ROCS here is `(shape Tanimoto + color Tanimoto) / 2`. Separate winning-pose
+components were not saved, so this dataset alone cannot establish which component
+limits an individual low score. Top-5% overlap is ranking stability, not similarity;
+the fixed 26-parent MMFF94 anchor cohort has mean 0.421813 and maximum 0.441972.
+It is selected on these measurements and is exploratory, not held-out validation.
+
+**Diagnostic exception:** recorded `actual_isomers` exceeds its requested cap in
+seven generation settings for parent 46. The benchmark counts distinct isomeric
+SMILES after SDF readback; this is not a validated enumeration count. The cause
+is unresolved. Preserve the measured values, flag them in the warnings CSV and
+label that curve as SDF-readback identities; do not silently clip it to the cap.
+
+Validation on dichtator: scoped Ruff and one targeted regression test passed
+(seed averaging, paired failure handling and range boundaries). Every included
+parent passed complete/unique grid, reference availability/count, score range,
+failure/count and decomposed-time checks, with the identity-count exception above.
+Independent Python statistics calculations checked all 1,400 summary cells and
+12 raw-parent score/SD reductions for IDs 0/1/11/22/41/46. This is reduction replay,
+not public molecular-scorer replay. Saved tables were unchanged during rendering.
+
+Reproduce on dichtator from the repository root into a new directory:
+```bash
+MPLBACKEND=Agg OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 .venv/bin/python -B \
+  -m _david.code.conformer.analyze \
+  --source /home/kolarv/DrugEx/_david/output/conformer/mega_20261028 \
+  --output /home/kolarv/DrugEx/_david/output/YYYYMMDD_HHMM_conformer_analysis
+```
+Use `--render-only --output <existing-analysis-directory>` without `--source`
+to regenerate figures from saved tables. Review [analyze.py](analyze.py) for
+validation/aggregation and [visualization.py](../visualization.py) for the
+`_analysis_*` renderers, then [the test](../../tests/test_conformer_analysis.py).
+
+Evidence reused/refreshed from free Europe PMC full text: McNutt et al. 2023
+(linked above), conformer retrieval and pharmacophore ensemble-size results.
+They report heterogeneous responses hidden by average trends and effects of
+ligand flexibility; their task does not select our ranges or budgets. Search:
+ensemble size, rotatable bonds, flexibility, false positives. Measurements remain
+bound to `ff96921`; this selected change only analyzes and renders saved data.
 
 ## Historical single-molecule baseline
 
