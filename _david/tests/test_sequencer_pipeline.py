@@ -244,7 +244,7 @@ class TestPreparation(unittest.TestCase):
             (generator.max_conformers, generator.max_isomers, generator.timeout),
             (7, 8, 0),
         )
-        self.assertEqual(generator._create_fresh_etkdg().randomSeed, 0xC0FFEE)
+        self.assertEqual(generator._create_fresh_etkdg().randomSeed, 42)
 
     def test_candidate_generation_preserves_specified_identity(self):
         env = create_environment(
