@@ -2,6 +2,13 @@
 
 **2026-10-28 latest direction: fixed-budget drug-panel pruning study proposed.**
 Read the [current study proposal and decision review](../../output/20261028_drug_pruning_proposal/STUDY_PLAN.md).
+Latest clarification: the requested difference is RMSD separation of conformers.
+Recommend replacing the pruning-only proposal with a 36-combination **joint
+calibration**: reference requests 50/100; candidate requests 10/20/40; reference
+RMSD 0.5/1.25 Å; candidate additional post-minimization pruning off/0.5/1.25 Å.
+Stereo caps remain eight/four. These are proposed comparison levels, not a new
+production default or a launched study. Calibration can recommend scoring
+settings; an RL comparison is needed later to establish learning effects.
 Selected budgets: candidates 20 requests/stereoisomer, stereo cap four;
 references 50 requests/stereoisomer, stereo cap eight. The user selected **all
 reference structures surviving the filters**, replacing a global cap of three
