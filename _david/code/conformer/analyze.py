@@ -297,12 +297,55 @@ def run(source, output):
     )
 
 
+def render_saved(output):
+    """Regenerate figures with separate rendering provenance; preserve saved tables."""
+    metadata = json.loads((output / "manifest.json").read_text())
+    inputs = {
+        p.name: sha256(p)
+        for p in output.iterdir()
+        if p.name.endswith((".csv", ".csv.gz"))
+    }
+    parents = pd.read_csv(output / "molecules.csv.gz")
+    summary = pd.read_csv(output / "stratified.csv")
+    cohort = pd.read_csv(output / "fixed_top_cohort.csv").molecule_id.tolist()
+    render_conformer_analysis(parents, summary, cohort, output, metadata)
+    assert inputs == {name: sha256(output / name) for name in inputs}
+    metadata["rendering"] = {
+        "revision": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip(),
+        "source_sha256": {
+            p: sha256(PROJECT_ROOT / p)
+            for p in (
+                "_david/code/conformer/analyze.py",
+                "_david/code/visualization.py",
+            )
+        },
+        "input_sha256": inputs,
+        "command": [
+            sys.executable,
+            "-m",
+            "_david.code.conformer.analyze",
+            *sys.argv[1:],
+        ],
+    }
+    metadata["sha256"].update({p.name: sha256(p) for p in output.glob("*.png")})
+    (output / "manifest.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    print(f"Rendered saved tables without changes: {output}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--source", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--render-only", action="store_true")
     args = parser.parse_args()
-    run(args.source.resolve(), args.output.resolve())
+    if args.render_only:
+        render_saved(args.output.resolve())
+    elif args.source:
+        run(args.source.resolve(), args.output.resolve())
+    else:
+        parser.error("Provide --source or use --render-only with saved analysis tables")
 
 
 if __name__ == "__main__":

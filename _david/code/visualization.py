@@ -292,13 +292,18 @@ def _analysis_finish(fig, output, filename, metadata, title, note=""):
         fontsize=15,
     )
     footer = (
-        "ROCS = TanimotoCombo / 2. Three seeds averaged per parent before summaries. "
-        "Groups use the prepared molecule's estimated isomer upper bound, not successful isomers. "
-        "Incomplete slow cases are excluded; timing may be biased downward. "
-        "Methods change query geometry; higher scores do not establish biological accuracy. "
-        + note
+        "ROCS = TanimotoCombo / 2; three seeds averaged per parent. "
+        "Groups are RDKit isomer upper bounds. Missing slow cases can bias time downward. "
+        "Higher scores do not establish biological accuracy. " + note
     )
-    fig.text(0.5, 0.006, fill(footer, 185), ha="center", va="bottom", fontsize=8)
+    fig.text(
+        0.5,
+        0.006,
+        fill(footer, int(fig.get_figwidth() * 9)),
+        ha="center",
+        va="bottom",
+        fontsize=8,
+    )
     fig.savefig(output / filename, dpi=160)
     plt.close(fig)
 
@@ -342,22 +347,30 @@ def _analysis_heatmaps(summary, output, metadata):
         if not count:
             continue
         caps = _analysis_caps(stratum, metadata["isomer_caps"])
+        shown = [0, 3] if stratum == "1" else list(range(4))
         fig, axes = plt.subplots(
-            len(metadata["methods"]), 4, figsize=(20, 21), squeeze=False
+            len(metadata["methods"]),
+            len(shown),
+            figsize=(12, 14) if stratum == "1" else (20, 21),
+            squeeze=False,
         )
         for method, record in enumerate(metadata["methods"]):
             subset = summary[(summary.stratum == stratum) & (summary.method == method)]
-            for column, metric in enumerate(metrics):
+            for column, metric_index in enumerate(shown):
+                metric = metrics[metric_index]
                 ax = axes[method, column]
                 grid = subset.pivot(
                     index="isomer_cap", columns="conformers", values=metric
                 ).reindex(index=caps, columns=metadata["conformers"])
                 im = ax.imshow(
-                    grid, aspect="auto", cmap=palettes[column], norm=norms[column]
+                    grid,
+                    aspect="auto",
+                    cmap=palettes[metric_index],
+                    norm=norms[metric_index],
                 )
                 for y, x in np.ndindex(grid.shape):
                     value = grid.iloc[y, x]
-                    rgba = palettes[column](norms[column](value))
+                    rgba = palettes[metric_index](norms[metric_index](value))
                     color = (
                         "black"
                         if np.dot(rgba[:3], [0.2126, 0.7152, 0.0722]) > 0.5
@@ -365,9 +378,9 @@ def _analysis_heatmaps(summary, output, metadata):
                     )
                     label = (
                         f"{value:.2f}"
-                        if column == 3
+                        if metric_index == 3
                         else f"{value:+.3f}"
-                        if column in [1, 2]
+                        if metric_index in [1, 2]
                         else f"{value:.3f}"
                     )
                     ax.text(
@@ -388,14 +401,21 @@ def _analysis_heatmaps(summary, output, metadata):
                     fontsize=9,
                 )
                 if method == 0:
-                    ax.set_title(labels[column], fontsize=11)
+                    ax.set_title(labels[metric_index], fontsize=11)
                 if method == len(metadata["methods"]) - 1:
                     ax.set_xlabel("Conformer attempts per enumerated isomer")
                 if method == 0:
-                    bar = fig.add_axes([0.067 + column * 0.24, 0.032, 0.18, 0.008])
+                    bar = fig.add_axes(
+                        [
+                            0.067 + column * 0.96 / len(shown),
+                            0.07,
+                            0.72 / len(shown),
+                            0.008,
+                        ]
+                    )
                     fig.colorbar(im, cax=bar, orientation="horizontal")
         fig.subplots_adjust(
-            left=0.065, right=0.99, top=0.94, bottom=0.075, hspace=0.55, wspace=0.24
+            left=0.065, right=0.99, top=0.94, bottom=0.12, hspace=0.55, wspace=0.24
         )
         slug = stratum.replace(">=", "ge").replace("-", "_")
         _analysis_finish(
@@ -440,7 +460,12 @@ def _analysis_tradeoffs(summary, output, metadata):
                     lw=1,
                 )
             if method == 1:
-                for row in frontier:
+                labelled = {
+                    r.conformers: r
+                    for r in frontier
+                    if r.conformers in [1, 10, 30, 100]
+                }
+                for row in labelled.values():
                     ax.plot(
                         [row.median_seconds, row.p95_seconds],
                         [row.mean_budget_gain, row.mean_budget_gain],
@@ -465,6 +490,14 @@ def _analysis_tradeoffs(summary, output, metadata):
         ax.axhline(0, color="grey", lw=0.7)
         ax.grid(alpha=0.2)
     handles, labels = axes.flat[0].get_legend_handles_labels()
+    panels = list(axes.flat)[: len(metadata["strata"])]
+    limits = [ax.get_xlim() for ax in panels]
+    gain_limit = max(float(summary.mean_budget_gain.max()), 0.001)
+    for ax in panels:
+        ax.set_xlim(min(x[0] for x in limits), max(x[1] for x in limits))
+        ax.set_ylim(
+            min(0, float(summary.mean_budget_gain.min())) - 0.005, gain_limit * 1.1
+        )
     axes.flat[-1].axis("off")
     axes.flat[-1].legend(handles, labels, loc="center", frameon=False, fontsize=10)
     axes.flat[-1].text(
@@ -594,7 +627,7 @@ def _analysis_diagnostics(summary, output, metadata):
         (
             axes[1, 0],
             "retained_fraction",
-            "Mean retained / embedded conformers",
+            "Mean retained / embedded (nonempty generations)",
             "viridis",
             (0, 1),
         ),
@@ -710,7 +743,7 @@ def _analysis_references(parents, output, metadata):
         axes[0, method].set_title(record["name"], fontsize=10)
         for ax in axes[:, method]:
             ax.grid(alpha=0.2)
-            ax.set_xticks(range(1, metadata["references"][str(method)]["count"] + 1))
+            ax.set_xticks(sorted(selected.actual_references.unique()))
         axes[1, method].set_xlabel("Actual reference count")
         axes[1, method].set_yscale("log")
     axes[0, 0].set_ylabel("Mean paired score gain vs reference 1")
