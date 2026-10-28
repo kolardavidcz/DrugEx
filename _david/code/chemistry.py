@@ -10,6 +10,10 @@ from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.MolStandardize import rdMolStandardize
+from rdkit.Chem.EnumerateStereoisomers import (
+    EnumerateStereoisomers,
+    StereoEnumerationOptions,
+)
 
 
 @dataclass(frozen=True)
@@ -34,7 +38,8 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
 
     def __init__(
         self,
-        random_seed: int = 0xC0FFEE,
+        random_seed: int = 42,
+        stereo_seed: int = 42,
         minimize_candidates: bool = False,
         optimization: Optimization | None = None,
         **kwargs,
@@ -47,6 +52,9 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         # The core silently clamps at 200; explicit thesis budgets must be honored.
         self.max_conformers = requested
         self.random_seed = random_seed
+        self.stereo_seed = stereo_seed
+        self.capture_records = False
+        self.last_records = []
         self.minimize_candidates = minimize_candidates
         self.optimization = optimization or Optimization()
         self.last_minimization_statuses: list[int] = []
@@ -58,7 +66,14 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         return params
 
     def _get_isomers(self, mol):
-        for index, iso in enumerate(super()._get_isomers(mol)):
+        options = StereoEnumerationOptions(
+            maxIsomers=self.max_isomers,
+            onlyUnassigned=True,
+            tryEmbedding=False,
+            rand=self.stereo_seed,
+            unique=True,
+        )
+        for index, iso in enumerate(EnumerateStereoisomers(mol, options)):
             # Count intended enumerated identities, not new tags inferred on SDF readback.
             iso.SetProp(
                 "EnumeratedIsomerSMILES", Chem.MolToSmiles(iso, isomericSmiles=True)
@@ -67,6 +82,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
             yield iso
 
     def genConformers(self, smiles_list, out_dir) -> str:
+        self.last_records = []
         path = super().genConformers(smiles_list, out_dir)
         self.last_minimization_statuses = []
         self.last_embedding_failures = 0
@@ -101,6 +117,13 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                     failures,
                     len(statuses),
                 )
+        if self.capture_records:
+            try:
+                self.last_records = [
+                    m for m in Chem.SDMolSupplier(path, removeHs=False) if m is not None
+                ]
+            except (OSError, ValueError):
+                self.last_records = []
         return path
 
 

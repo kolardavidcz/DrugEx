@@ -895,6 +895,72 @@ def render_sampling_plan(cases, output: Path):
     return frame
 
 
+def render_mini_recovery(frame: pd.DataFrame, output: Path, manifest: dict) -> None:
+    """Fixed-cohort reference-count × candidate-count panels; one input per cell."""
+    from matplotlib.colors import LogNorm, Normalize
+
+    keys = ["group", "cutoff", "method", "isomer_cap", "reference_cap", "candidate_attempts"]
+    if frame.duplicated(keys + ["molecule_id"]).any():
+        raise ValueError("Mini-study summaries require one observation per input/configuration")
+    summary = frame.groupby(keys, observed=True).agg(
+        inputs=("molecule_id", "size"), available=("available", "sum"),
+        mean_score=("score", "mean"), median_score=("score", "median"),
+        q10_score=("score", lambda x: x.quantile(0.1)),
+        mean_seconds=("seconds", "mean"), median_seconds=("seconds", "median"),
+        p95_seconds=("seconds", lambda x: x.quantile(0.95)),
+        mean_shape=("shape_tanimoto", "mean"), mean_color=("color_tanimoto", "mean"),
+        candidate_failures=("candidate_failure", "sum"),
+        reference_failures=("reference_failure", "sum"),
+        mean_usable_conformers=("usable_conformers", "mean"),
+        mean_actual_isomers=("actual_candidate_isomers", "mean"),
+        mean_reference_count=("actual_references", "mean"),
+    ).reset_index()
+    summary.to_csv(output / "summary.csv", index=False)
+    profiles = {
+        "mean": [("mean_score", "Mean normalized ROCS"), ("mean_seconds", "Mean component seconds")],
+        "median": [("median_score", "Median normalized ROCS"), ("median_seconds", "Median component seconds")],
+        "tails": [("q10_score", "10th-percentile ROCS"), ("p95_seconds", "95th-percentile component seconds")],
+        "components": [("mean_shape", "Mean winning shape"), ("mean_color", "Mean winning effective color")],
+    }
+    for group, cutoff in summary[["group", "cutoff"]].drop_duplicates().itertuples(index=False, name=None):
+        selected = summary[summary.group.eq(group) & summary.cutoff.eq(cutoff)]
+        for profile, metrics in profiles.items():
+            fig, axes = plt.subplots(6, 4, figsize=(23, 16), squeeze=False, layout="constrained")
+            for method, settings in enumerate(manifest["methods"]):
+                for metric_index, (metric, label) in enumerate(metrics):
+                    values = summary[metric].dropna()
+                    is_time = metric.endswith("seconds")
+                    positive = values[values > 0]
+                    norm = LogNorm(max(positive.min(), 1e-5), max(positive.max(), positive.min()*1.01)) if is_time and len(positive) else Normalize(0, 1)
+                    cmap = plt.get_cmap("magma" if is_time else "viridis").copy()
+                    cmap.set_bad("#eeeeee")
+                    for column, cap in enumerate(manifest["isomer_caps"]):
+                        ax = axes[method*2+metric_index, column]
+                        cells = selected[selected.method.eq(method) & selected.isomer_cap.eq(cap)]
+                        table = cells.pivot(index="reference_cap", columns="candidate_attempts", values=metric).reindex(index=manifest["reference_caps"], columns=manifest["candidate_attempts"])
+                        im = ax.imshow(table, aspect="auto", cmap=cmap, norm=norm)
+                        for y, x in np.ndindex(table.shape):
+                            value = table.iloc[y, x]
+                            cell = cells[cells.reference_cap.eq(table.index[y]) & cells.candidate_attempts.eq(table.columns[x])]
+                            coverage = f"{int(cell.available.iloc[0])}/{int(cell.inputs.iloc[0])}" if len(cell) else "0/0"
+                            text = "n/a" if not np.isfinite(value) else f"{value:.2f}" if is_time else f"{value:.3f}"
+                            ink = "black" if not np.isfinite(value) or np.dot(cmap(norm(value))[:3], [0.2126, 0.7152, 0.0722]) > 0.5 else "white"
+                            ax.text(x, y, f"{text}\n{coverage}", ha="center", va="center", color=ink, fontsize=7)
+                        ax.set_xticks(range(len(table.columns)), table.columns)
+                        ax.set_yticks(range(len(table.index)), [r or "all" for r in table.index])
+                        ax.set_title(f"{settings['name']} · candidate isomer cap {cap}", fontsize=9)
+                        if column == 0:
+                            ax.set_ylabel(f"{label}\nRetained references scored")
+                        if method == 2 and metric_index == 1:
+                            ax.set_xlabel("Conformer requests per candidate stereoisomer")
+                    fig.colorbar(im, ax=axes[method*2+metric_index, :], label=label, shrink=0.8, pad=0.01)
+            count = manifest["group_counts"][group]
+            fig.suptitle(f"Each input against its own references · retained-size group {group} · n={count} · RMSD {cutoff:g} Å\n{profile.capitalize()} · one best pair per input · stereo/candidate seed 42, reference geometry seed 43", fontsize=14)
+            fig.supxlabel("Cell second line = available / selected inputs. Candidate failures score 0; unavailable reference budgets are grey. Time sums measured shared components, not independent end-to-end runs. Both-empty color = 1.", fontsize=9)
+            fig.savefig(output / f"group_{group}_rmsd_{cutoff:g}_{profile}.png", dpi=140)
+            plt.close(fig)
+
+
 def render_self_recovery(frame: pd.DataFrame, output: Path, manifest: dict) -> None:
     """Self-recovery panels with explicit per-cell reference availability counts."""
     from matplotlib.colors import LogNorm, Normalize

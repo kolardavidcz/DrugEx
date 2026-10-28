@@ -10,7 +10,7 @@ from drugex.training.rewards import ParetoCrowdingDistance, RewardScheme, Weight
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
 from drugex.training.scorers.properties import Property
-from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
+from _david.code.rocs import ThesisROCSScorer as RDKitROCSScorer
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.ML.Cluster import Butina
@@ -35,7 +35,7 @@ class PrepareMolecule:
         num_conformers: int = 100,
         max_reference_conformers: int = 3,
         random_seed: int = 42,
-        rmsd_cutoff: float = 1.25,
+        rmsd_cutoff: float | None = 1.25,
         energy_window_kcal: float = 8.0,
         num_threads: int = 0,
         optimization: Optimization | None = None,
@@ -216,7 +216,15 @@ class PrepareMolecule:
         remaining_cids = [c.GetId() for c in mol_h.GetConformers()]
         mol_h.SetIntProp("EnergyWindowConformers", len(remaining_cids))
         max_ensemble_size = self.max_reference_conformers
-        if len(remaining_cids) > 1:
+        if self.rmsd_cutoff is None:
+            curated = (
+                sorted(remaining_cids, key=energies.get)
+                if energies is not None
+                else remaining_cids
+            )
+            mol_h.SetIntProp("ReferenceClusters", len(curated))
+            curated = curated[:max_ensemble_size]
+        elif len(remaining_cids) > 1:
             mol_no_h = Chem.RemoveHs(mol_h)
             n_confs = len(remaining_cids)
             rms_matrix: list[float] = [
@@ -265,7 +273,7 @@ def create_rocs_scorer(
     conformer_threads: int = 0,
     n_jobs: int | None = None,
     max_isomers: int = 4,
-    random_seed: int = 0xC0FFEE,
+    random_seed: int = 42,
     minimize_candidates: bool = False,
     optimization: Optimization | None = None,
 ) -> RDKitROCSScorer:
@@ -448,6 +456,7 @@ def create_environment(
         conformer_threads=active_threads,
         max_isomers=cfg.max_isomers,
         minimize_candidates=cfg.minimize_candidates,
+        random_seed=cfg.random_seed,
     )
     # Map raw TanimotoCombo [0, 2] linearly into [0, 1] desirability
     rocs_scorer.setModifier(

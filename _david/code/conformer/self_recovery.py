@@ -1,14 +1,14 @@
-"""Checkpointed self-recovery: each input has its own independent reference pool.
+"""Fixed-budget self-recovery on saved inputs; no RNN training.
 
-No RNN training. Reference and candidate counts are independent experimental
-axes around the shared AQME-style sampling plan. All settings are recorded.
+Each input has independent reference geometries. The two RMSD selections reuse
+one saved pool. Groups depend only on the two optimized reference profiles.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections import Counter, deque
-from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
+from collections import Counter
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
@@ -25,26 +25,32 @@ import time
 import numpy as np
 import pandas as pd
 from rdkit import Chem, rdBase
-from rdkit.Chem import rdMolAlign, rdShapeAlign
 
-from drugex.training.scorers import rocs_rdkit as public_rocs
-from _david.code.chemistry import check_identity, optimize_conformers
+from _david.code.chemistry import (
+    CandidateConformerGenerator,
+    Optimization,
+    check_identity,
+    optimize_conformers,
+)
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
-from _david.code.conformer.mega import METHODS, SEEDS, prepared_molecule
-from _david.code.conformer.sampling import plan_sampling, deduplicate_reference
+from _david.code.conformer.mega import prepared_molecule
+from _david.code.conformer.sampling import deduplicate_reference
 from _david.code.environment import PrepareMolecule, create_rocs_scorer
-from _david.code.visualization import render_self_recovery, render_sampling_plan
+from _david.code.rocs import score_pair, has_color
+from _david.code.visualization import render_mini_recovery
 
-
-SCALES = (0.5, 1.0, 2.0)
-ISOMER_CAPS = (1, 3, 5, 10, 25)
+METHODS = (Optimization("none"), Optimization("MMFF94"), Optimization("MMFF94s", 78.4))
+ATTEMPTS = (1, 5, 10, 15, 20, 25, 30, 50)
+ISOMER_CAPS = (1, 2, 4, 8)
 REFERENCE_CAPS = (1, 2, 4, 8, 0)
+CUTOFFS = (1.25, 0.5)
 SOURCE_PATHS = (
     "_david/code/conformer/self_recovery.py",
     "_david/code/conformer/sampling.py",
     "_david/code/conformer/mega.py",
     "_david/code/chemistry.py",
     "_david/code/environment.py",
+    "_david/code/rocs.py",
     "_david/code/config.py",
     "_david/code/visualization.py",
     "drugex/training/scorers/conformer_generators.py",
@@ -62,393 +68,310 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
-def checkpoint_name(job):
-    if job["kind"] == "reference":
-        return f"r_{job['molecule_id']:04d}_{job['method']}_{job['scale_index']}_{job['variant']:02d}"
-    return f"c_{job['molecule_id']:04d}_{job['seed']}_{job['scale_index']}_{job['effective_cap']}"
-
-
-def score_pair(candidate, reference):
-    """Expose both components at the SAME winning combo pose; replay-checked below.
-
-    Reuses the public scorer's canonical frame and four proper-rotation starts.
-    Calling shape-only and color-only scorers separately would optimize different
-    poses and would not decompose the measured combo score.
-    """
-    ref = Chem.Mol(reference)
-    probe = Chem.Mol(candidate)
-    public_rocs._canonicalize_conformer_inplace(ref, -1)
-    public_rocs._canonicalize_conformer_inplace(probe, -1)
-    best = (0.0, 0.0, 0.0)
-    for signs in public_rocs._AXIS_SIGN_FLIPS:
-        aligned = public_rocs._flip_conformer(probe, -1, signs)
-        try:
-            shape, color = rdShapeAlign.AlignMol(
-                ref, aligned, useColors=True, opt_param=0.5
-            )
-        except (RuntimeError, ValueError):
-            continue
-        combo = (shape + color) / 2
-        if combo > best[0]:
-            best = (combo, shape, color)
-    return best
-
-
-def outside_scope(case):
-    if case["heavy_atoms"] > 45:
-        return "training_size_filter: more than 45 heavy atoms"
-    if case["rotatable_bonds"] > 15:
-        return "training_rotor_filter: more than 15 rotatable bonds"
+def reference_group(counts):
+    """Use optimized profiles only; fixed membership across both RMSD panels."""
+    largest = max(counts, default=0)
+    if largest <= 0:
+        return ""
+    for limit, label in [(4, "1-4"), (8, "5-8"), (12, "9-12")]:
+        if largest <= limit:
+            return label
     return ""
 
 
-def reference_job(job, case, output):
+def stem(case):
+    return f"r_{case['molecule_id']:04d}"
+
+
+def reference_job(case, output):
+    """Save pre-compression pools and index selections; never share candidate coordinates."""
     directory = Path(output) / "checkpoints"
-    stem = checkpoint_name(job)
-    path = directory / f"{stem}.sdf"
-    smiles = case["reference_isomers"][job["variant"]]
-    result = dict(job, isomer_smiles=smiles, count=0, error="", seconds=0.0)
-    start = time.perf_counter()
+    result = dict(case, profiles=[], group="", grouping_max=0, error="")
     try:
-        if outside_scope(case):
-            raise ValueError(outside_scope(case))
-        preparer = PrepareMolecule(
-            num_conformers=case["attempts"][job["scale_index"]],
-            max_reference_conformers=25,
-            random_seed=42,
-            num_threads=1,
-            rmsd_cutoff=1.25,
-            energy_window_kcal=8.0,
-            optimization=METHODS[job["method"]],
+        mol = prepared_molecule(case["smiles"])
+        generator = CandidateConformerGenerator(
+            max_isomers=4,
+            max_heavy_atoms=45,
+            max_rotatable_bonds=15,
+            show_progress=False,
+            stereo_seed=42,
         )
-        with tempfile.TemporaryDirectory() as temporary:
-            sdf = preparer.generate_reference_conformers(
-                Chem.MolFromSmiles(smiles), Path(temporary) / "pool.sdf"
-            )
-            records = list(Chem.SDMolSupplier(str(sdf), removeHs=False))
-        if not records or any(m is None for m in records):
-            raise ValueError("No valid reference conformers")
-        for record in records:
-            record.SetProp("EnumeratedIsomerSMILES", smiles)
-            record.SetIntProp("ReferenceVariant", job["variant"])
-            check_identity(record, Chem.MolFromSmiles(smiles))
+        if generator._filter_mol(case["smiles"], Chem.MolFromSmiles(case["smiles"])):
+            raise ValueError("Outside the training size/rotor domain")
+        isomers = list(generator._get_isomers(mol))
         result.update(
-            embedded=records[0].GetIntProp("EmbeddedConformers"),
-            converged=records[0].GetIntProp("ConvergedConformers")
-            if METHODS[job["method"]].method != "none"
-            else None,
-            energy_filtered=records[0].GetIntProp("EnergyWindowConformers"),
-            before_final_dedup=len(records),
+            prepared_smiles=Chem.MolToSmiles(mol), enumerated_isomers=len(isomers)
         )
-        records = deduplicate_reference(records, threshold=1.25)
-        result["preparation_seconds"] = time.perf_counter() - start
-        with Chem.SDWriter(str(path)) as writer:
+        embedded, embedding_info = [], []
+        for iso in isomers:
+            started = time.perf_counter()
+            with tempfile.TemporaryDirectory() as temporary:
+                path = PrepareMolecule(
+                    num_conformers=50,
+                    max_reference_conformers=50,
+                    random_seed=43,
+                    rmsd_cutoff=None,
+                    num_threads=1,
+                    optimization=Optimization("none"),
+                ).generate_reference_conformers(iso, Path(temporary) / "raw.sdf")
+                records = list(Chem.SDMolSupplier(str(path), removeHs=False))
             for record in records:
-                control = (
-                    public_rocs._score_single_reference(
-                        Chem.Mol(record), Chem.Mol(record), "TanimotoCombo", True
-                    )
-                    / 2
+                record.SetProp(
+                    "EnumeratedIsomerSMILES", iso.GetProp("EnumeratedIsomerSMILES")
                 )
-                if not np.isclose(control, 1, atol=1e-5):
-                    raise ValueError(f"Exact self-control failed: {control}")
-                writer.write(record)
-        result.update(
-            count=len(records),
-            sdf_sha256=digest(path),
-            exact_self_controls=len(records),
-        )
+                check_identity(record, iso)
+            embedded.append(records)
+            embedding_info.append(
+                dict(count=len(records), seconds=time.perf_counter() - started)
+            )
+        result["embedding"] = embedding_info
+        for method, settings in enumerate(METHODS):
+            started = time.perf_counter()
+            pools, status_counts = [], Counter()
+            for records in embedded:
+                if settings.method == "none":
+                    usable = records
+                else:
+                    usable, statuses = optimize_conformers(records, settings)
+                    status_counts.update(statuses)
+                    usable.sort(key=lambda m: m.GetDoubleProp("Energy_kcal_mol"))
+                    if usable:
+                        lowest = usable[0].GetDoubleProp("Energy_kcal_mol")
+                        usable = [
+                            m
+                            for m in usable
+                            if m.GetDoubleProp("Energy_kcal_mol") - lowest <= 8
+                        ]
+                pools.append(usable)
+            pool = [m for records in pools for m in records]
+            identity_to_index = {id(m): i for i, m in enumerate(pool)}
+            optimization_seconds = time.perf_counter() - started
+            selections, pruning_seconds = {}, {}
+            for cutoff in CUTOFFS:
+                tick = time.perf_counter()
+                kept = [
+                    deduplicate_reference(records, threshold=cutoff)
+                    for records in pools
+                ]
+                balanced = [
+                    records[i]
+                    for i in range(max(map(len, kept), default=0))
+                    for records in kept
+                    if i < len(records)
+                ]
+                selections[str(cutoff)] = [identity_to_index[id(m)] for m in balanced]
+                pruning_seconds[str(cutoff)] = time.perf_counter() - tick
+            sdf = directory / f"{stem(case)}_{method}.sdf"
+            with Chem.SDWriter(str(sdf)) as writer:
+                for m in pool:
+                    control, shape, color = score_pair(m, m)
+                    if not np.isclose(control, 1, atol=1e-5):
+                        raise ValueError(
+                            f"Exact self-control failed: {control}, {shape}, {color}"
+                        )
+                    writer.write(m)
+            result["profiles"].append(
+                dict(
+                    method=method,
+                    count=len(pool),
+                    selections=selections,
+                    status_counts=dict(status_counts),
+                    pruning_seconds=pruning_seconds,
+                    seconds=time.perf_counter() - started,
+                    optimization_seconds=optimization_seconds,
+                    sdf_sha256=digest(sdf),
+                    exact_self_controls=len(pool),
+                )
+            )
+        counts = [
+            len(p["selections"][str(c)])
+            for p in result["profiles"][1:]
+            for c in CUTOFFS
+        ]
+        result["grouping_max"] = max(counts, default=0)
+        result["group"] = reference_group(counts)
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
-        if path.exists():
-            path.unlink()
-    result["seconds"] = time.perf_counter() - start
-    atomic_json(directory / f"{stem}.json", result)
+    atomic_json(directory / f"{stem(case)}.json", result)
     return result
 
 
-def reference_pool(case, method, scale_index, output):
-    """Round-robin priority preserves variant coverage before adding more basins."""
-    pools, seconds = [], 0.0
-    for variant in range(len(case["reference_isomers"])):
-        job = dict(
-            kind="reference",
-            molecule_id=case["molecule_id"],
-            method=method,
-            scale_index=scale_index,
-            variant=variant,
-        )
-        stem = checkpoint_name(job)
-        info = json.loads((Path(output) / "checkpoints" / f"{stem}.json").read_text())
-        seconds += info.get("preparation_seconds", info["seconds"])
-        pools.append(
-            list(
-                Chem.SDMolSupplier(
-                    str(Path(output) / "checkpoints" / f"{stem}.sdf"), removeHs=False
-                )
-            )
-            if info["count"]
-            else []
-        )
-    # Each variant contributes its first representative before any contributes a second.
-    pool = [
-        records[i]
-        for i in range(max(map(len, pools), default=0))
-        for records in pools
-        if i < len(records)
+def candidate_jobs(case):
+    """Alias only caps that enumerate the entire known set; keep requested axes."""
+    aliases = {}
+    for cap in ISOMER_CAPS:
+        aliases.setdefault(min(cap, case["stereo_upper_bound"]), []).append(cap)
+    return [
+        dict(molecule_id=case["molecule_id"], attempts=c, cap=cap, aliases=requested)
+        for c, (cap, requested) in itertools.product(ATTEMPTS, aliases.items())
     ]
-    return pool[:25], seconds
 
 
-def candidate_job(job, case, output):
-    start = time.perf_counter()
-    records, generation_error = [], outside_scope(case)
-    attempts = case["attempts"][job["scale_index"]]
+def candidate_stem(job):
+    return f"c_{job['molecule_id']:04d}_{job['attempts']}_{job['cap']}"
+
+
+def candidate_job(job, output):
+    directory = Path(output) / "checkpoints"
+    case = json.loads((directory / f"r_{job['molecule_id']:04d}.json").read_text())
+    tick = time.perf_counter()
+    generator = CandidateConformerGenerator(
+        max_conformers=job["attempts"],
+        max_isomers=job["cap"],
+        random_seed=42,
+        stereo_seed=42,
+        max_heavy_atoms=45,
+        max_rotatable_bonds=15,
+        num_threads=1,
+        timeout=0,
+        show_progress=False,
+    )
+    records, error = [], ""
     try:
-        if generation_error:
-            raise ValueError(generation_error)
-        reference_for_generator, _ = reference_pool(case, 0, 1, output)
-        if not reference_for_generator:
-            raise ValueError("No target reference could be prepared")
-        scorer = create_rocs_scorer(
-            reference_for_generator[:1],
-            max_conformers=attempts,
-            max_isomers=job["effective_cap"],
-            timeout=0,
-            conformer_threads=1,
-            n_jobs=1,
-            random_seed=job["seed"],
-        )
         with tempfile.TemporaryDirectory() as temporary:
-            sdf = scorer.conformer_generator.genConformers([case["smiles"]], temporary)
-            records = list(Chem.SDMolSupplier(sdf, removeHs=False))
-        if not records or any(m is None for m in records):
-            raise ValueError("No valid candidate conformers")
-        for record in records:
-            check_identity(
-                record, Chem.MolFromSmiles(record.GetProp("EnumeratedIsomerSMILES"))
-            )
-    except Exception as exc:
-        generation_error = f"{type(exc).__name__}: {exc}"
-        records = []
-    generation_seconds = time.perf_counter() - start
-    actual_isomers = len({m.GetProp("EnumeratedIsomerSMILES") for m in records})
+            path = generator.genConformers([case["smiles"]], temporary)
+            records = list(Chem.SDMolSupplier(str(path), removeHs=False))
+        records = [m for m in records if m is not None]
+        for m in records:
+            check_identity(m, Chem.MolFromSmiles(m.GetProp("EnumeratedIsomerSMILES")))
+    except (OSError, ValueError, RuntimeError) as exc:
+        records, error = [], f"{type(exc).__name__}: {exc}"
+    generation_seconds = time.perf_counter() - tick
     rows = []
     for method, settings in enumerate(METHODS):
-        start = time.perf_counter()
-        method_error = generation_error
-        try:
-            optimized, statuses = (
-                (records, [0] * len(records))
-                if settings.method == "none"
-                else optimize_conformers(records, settings)
-            )
-        except Exception as exc:
-            optimized, statuses = [], [-1] * len(records)
-            method_error = f"{type(exc).__name__}: {exc}"
-        optimization_seconds = (
-            0.0 if settings.method == "none" else time.perf_counter() - start
+        tick = time.perf_counter()
+        usable, statuses = (
+            (records, []) if method == 0 else optimize_conformers(records, settings)
         )
-        for reference_scale in range(len(SCALES)):
-            references, preparation_seconds = reference_pool(
-                case, method, reference_scale, output
+        optimization_seconds = time.perf_counter() - tick if method else 0.0
+        profile = case["profiles"][method]
+        references = (
+            list(
+                Chem.SDMolSupplier(
+                    str(directory / f"r_{job['molecule_id']:04d}_{method}.sdf"),
+                    removeHs=False,
+                )
             )
-            scores = np.zeros((len(optimized), len(references)))
-            shapes, colors, timings = (np.zeros_like(scores) for _ in range(3))
-            for i, candidate in enumerate(optimized):
-                for j, reference in enumerate(references):
-                    start = time.perf_counter()
-                    scores[i, j], shapes[i, j], colors[i, j] = score_pair(
-                        candidate, reference
-                    )
-                    timings[i, j] = time.perf_counter() - start
-            for reference_cap in REFERENCE_CAPS:
-                count = min(reference_cap or len(references), len(references))
-                available = bool(references) and (
-                    reference_cap == 0 or reference_cap <= len(references)
-                )
-                score, shape, color, winner, reference_winner, rmsd = (
-                    0.0,
-                    0.0,
-                    0.0,
-                    "",
-                    "",
-                    np.nan,
-                )
-                if optimized and count:
-                    i, j = np.unravel_index(
-                        scores[:, :count].argmax(), scores[:, :count].shape
-                    )
-                    score, shape, color = scores[i, j], shapes[i, j], colors[i, j]
-                    winner = optimized[i].GetProp("EnumeratedIsomerSMILES")
-                    reference_winner = references[j].GetProp("EnumeratedIsomerSMILES")
-                    if winner == reference_winner:
-                        rmsd = rdMolAlign.GetBestRMS(
-                            Chem.RemoveHs(Chem.Mol(optimized[i])),
-                            Chem.RemoveHs(Chem.Mol(references[j])),
-                        )
-                for requested_cap in job["requested_caps"]:
+            if profile["count"]
+            else []
+        )
+        needed = sorted(
+            set(i for indices in profile["selections"].values() for i in indices)
+        )
+        columns = {index: j for j, index in enumerate(needed)}
+        scores = np.zeros((len(usable), len(needed), 3))
+        timings = np.zeros(scores.shape[:2])
+        for i, candidate in enumerate(usable):
+            for j, index in enumerate(needed):
+                tick = time.perf_counter()
+                scores[i, j] = score_pair(candidate, references[index])
+                timings[i, j] = time.perf_counter() - tick
+        for cutoff in CUTOFFS:
+            selection = profile["selections"][str(cutoff)]
+            for cap in REFERENCE_CAPS:
+                available = bool(selection) and (cap == 0 or cap <= len(selection))
+                indices = selection[: cap or len(selection)] if available else []
+                selected_columns = [columns[i] for i in indices]
+                score, shape, color = (0.0, 0.0, 0.0) if available else (np.nan,) * 3
+                candidate_winner = reference_winner = ""
+                adjusted = False
+                if usable and indices:
+                    values = scores[:, selected_columns, 0]
+                    i, j = np.unravel_index(values.argmax(), values.shape)
+                    score, shape, color = scores[i, selected_columns[j]]
+                    c, r = usable[i], references[indices[j]]
+                    candidate_winner = c.GetProp("EnumeratedIsomerSMILES")
+                    reference_winner = r.GetProp("EnumeratedIsomerSMILES")
+                    adjusted = not has_color(c) and not has_color(r)
+                for requested in job["aliases"]:
                     rows.append(
                         dict(
                             molecule_id=case["molecule_id"],
-                            category=case["category"],
+                            group=case["group"],
                             method=method,
-                            seed=job["seed"],
-                            candidate_scale=case["scales"][job["scale_index"]],
-                            candidate_attempts=attempts,
-                            isomer_cap=requested_cap,
-                            reference_scale=case["scales"][reference_scale],
-                            reference_attempts=case["attempts"][reference_scale],
-                            reference_cap=reference_cap,
-                            actual_references=count if available else 0,
+                            cutoff=cutoff,
+                            candidate_attempts=job["attempts"],
+                            isomer_cap=requested,
+                            reference_cap=cap,
                             available=available,
-                            score=score if available else np.nan,
-                            shape_tanimoto=shape if available else np.nan,
-                            color_tanimoto=color if available else np.nan,
-                            seconds=generation_seconds
-                            + optimization_seconds
-                            + timings[:, :count].sum()
-                            if available
-                            else np.nan,
-                            reference_seconds=preparation_seconds,
+                            score=score,
+                            shape_tanimoto=shape,
+                            color_tanimoto=color,
+                            both_colorless=adjusted,
+                            raw_color_tanimoto=0.0 if adjusted else color,
+                            candidate_conformers=len(records),
+                            usable_conformers=len(usable),
+                            actual_candidate_isomers=len(
+                                {m.GetProp("EnumeratedIsomerSMILES") for m in usable}
+                            ),
+                            actual_references=len(indices),
+                            reference_pool_count=len(selection),
+                            failed_conformers=sum(s != 0 for s in statuses),
+                            candidate_failure=available and not usable,
+                            reference_failure=not selection,
                             generation_seconds=generation_seconds,
                             optimization_seconds=optimization_seconds,
-                            overlay_seconds=timings[:, :count].sum(),
-                            candidate_conformers=len(records),
-                            usable_conformers=len(optimized),
-                            failed_conformers=sum(s != 0 for s in statuses),
-                            actual_isomers=actual_isomers,
-                            enumerated_reference_isomers=len(case["reference_isomers"]),
-                            actual_reference_isomers=len(
-                                {
-                                    m.GetProp("EnumeratedIsomerSMILES")
-                                    for m in references[:count]
-                                }
-                            )
+                            overlay_seconds=float(timings[:, selected_columns].sum()),
+                            seconds=generation_seconds
+                            + optimization_seconds
+                            + float(timings[:, selected_columns].sum())
                             if available
-                            else 0,
-                            failure=not optimized or not references,
-                            error=method_error,
-                            winning_candidate_isomer=winner,
+                            else np.nan,
+                            reference_seconds=sum(
+                                r["seconds"] for r in case["embedding"]
+                            )
+                            + profile["optimization_seconds"]
+                            + profile["pruning_seconds"][str(cutoff)],
+                            error=error,
+                            winning_candidate_isomer=candidate_winner,
                             winning_reference_isomer=reference_winner,
-                            same_identity_winner=bool(winner)
-                            and winner == reference_winner,
-                            winner_symmetry_rmsd=rmsd,
                         )
                     )
-    target = Path(output) / "checkpoints" / f"{checkpoint_name(job)}.csv.gz"
+    target = directory / f"{candidate_stem(job)}.csv.gz"
     temporary = target.with_suffix(".tmp")
     pd.DataFrame(rows).to_csv(temporary, index=False, compression="gzip")
     temporary.replace(target)
-    return dict(job, rows=len(rows), sha256=digest(target))
+    return job["molecule_id"]
 
 
-def execute(job, case, output):
-    return (
-        reference_job(job, case, output)
-        if job["kind"] == "reference"
-        else candidate_job(job, case, output)
-    )
-
-
-def candidate_jobs(case):
-    aliases = {}
-    for cap in ISOMER_CAPS:
-        aliases.setdefault(min(cap, case["isomer_upper_bound"]), []).append(cap)
-    return [
-        dict(
-            kind="candidate",
-            molecule_id=case["molecule_id"],
-            seed=seed,
-            scale_index=scale,
-            effective_cap=cap,
-            requested_caps=requested,
-        )
-        for seed, scale, (cap, requested) in itertools.product(
-            SEEDS, range(3), aliases.items()
-        )
-    ]
-
-
-def make_cases(panel, scales=SCALES):
-    cases = []
-    for row in panel.to_dict("records"):
-        mol = prepared_molecule(row["smiles"])
-        plan = plan_sampling(mol)
-        cases.append(
-            row
-            | asdict(plan)
-            | dict(
-                reference_isomers=list(plan.reference_isomers),
-                attempts=[plan.attempts(f) for f in scales],
-                scales=list(scales),
-                category=plan.category,
-                heavy_atoms=mol.GetNumHeavyAtoms(),
-                prepared_smiles=Chem.MolToSmiles(mol),
-            )
-        )
-    return cases
+def run_phase(executor, jobs, function, output, manifest, key):
+    futures = {executor.submit(function, job, str(output)): job for job in jobs}
+    remaining = Counter(j["molecule_id"] for j in jobs)
+    for future in as_completed(futures):
+        result = future.result()
+        if key == "candidate":
+            remaining[result] -= 1
+            if remaining[result] == 0:
+                manifest["completed_molecules"].append(result)
+        manifest["progress"][key] += 1
+        manifest["updated_utc"] = datetime.now(timezone.utc).isoformat()
+        atomic_json(output / "manifest.json", manifest)
+        print(json.dumps(manifest["progress"]), flush=True)
 
 
 def run(args):
     output = args.output.resolve()
-    if args.plan_only:
-        output.mkdir(parents=True, exist_ok=False)
-        panel = (
-            pd.read_csv(args.panel)
-            if args.panel
-            else pd.DataFrame([dict(molecule_id=0, smiles=DEFAULT_MOLECULE)])
-        )
-        cases = make_cases(panel, args.scales)
-        render_sampling_plan(cases, output)
-        atomic_json(
-            output / "manifest.json",
-            dict(
-                state="planning_only",
-                source_panel=str(args.panel),
-                source_panel_sha256=digest(args.panel) if args.panel else None,
-                source_sha256={p: digest(PROJECT_ROOT / p) for p in SOURCE_PATHS},
-                git_revision=subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"], text=True
-                ).strip(),
-                command=[
-                    sys.executable,
-                    "-m",
-                    "_david.code.conformer.self_recovery",
-                    *sys.argv[1:],
-                ],
-                meaning="Input-property budget audit only; no embedding, optimization or ROCS scoring",
-            ),
-        )
-        return
     if args.render_only:
         manifest = json.loads((output / "manifest.json").read_text())
         before = digest(output / "data.csv.gz")
-        render_self_recovery(pd.read_csv(output / "data.csv.gz"), output, manifest)
-        if before != digest(output / "data.csv.gz"):
-            raise ValueError("Rendering changed measurements")
+        render_mini_recovery(pd.read_csv(output / "data.csv.gz"), output, manifest)
+        assert before == digest(output / "data.csv.gz")
         manifest["rendering"] = dict(
-            git_revision=subprocess.check_output(
+            revision=subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], text=True
             ).strip(),
-            measurement_sha256=before,
             source_sha256={p: digest(PROJECT_ROOT / p) for p in SOURCE_PATHS},
         )
-        manifest["sha256"] = {
-            p.name: digest(p)
-            for p in output.iterdir()
-            if p.is_file() and p.name != "manifest.json"
-        }
         atomic_json(output / "manifest.json", manifest)
         return
     output.mkdir(parents=True, exist_ok=args.resume)
     directory = output / "checkpoints"
     directory.mkdir(exist_ok=True)
     hashes = {p: digest(PROJECT_ROOT / p) for p in SOURCE_PATHS}
-    manifest_path = output / "manifest.json"
+    path = output / "manifest.json"
     if args.resume:
-        manifest = json.loads(manifest_path.read_text())
-        if manifest["source_sha256"] != hashes:
+        manifest = json.loads(path.read_text())
+        if hashes != manifest["source_sha256"]:
             raise ValueError("Resume requires the exact measured source")
         cases = json.loads((output / "panel.json").read_text())
     else:
@@ -459,10 +382,23 @@ def run(args):
         )
         if args.ids:
             panel = panel[panel.molecule_id.isin(args.ids)]
-        cases = make_cases(panel, args.scales)
+        cases = []
+        from rdkit.Chem.EnumerateStereoisomers import GetStereoisomerCount
+
+        for row in panel.to_dict("records"):
+            mol = prepared_molecule(row["smiles"])
+            cases.append(
+                dict(
+                    molecule_id=int(row["molecule_id"]),
+                    smiles=row["smiles"],
+                    stereo_upper_bound=int(GetStereoisomerCount(mol)),
+                )
+            )
+        if not cases:
+            raise ValueError("Empty input panel")
         atomic_json(output / "panel.json", cases)
         manifest = dict(
-            state="running",
+            state="reference_preparation",
             host=socket.gethostname(),
             git_revision=subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], text=True
@@ -470,126 +406,123 @@ def run(args):
             source_sha256=hashes,
             rdkit=rdBase.rdkitVersion,
             panel_size=len(cases),
-            panel_input=str(args.panel),
+            panel_path=str(args.panel),
             panel_sha256=digest(args.panel) if args.panel else None,
+            methods=[asdict(m) | dict(name=m.name) for m in METHODS],
+            cutoffs=CUTOFFS,
+            candidate_attempts=ATTEMPTS,
+            isomer_caps=ISOMER_CAPS,
+            reference_caps=REFERENCE_CAPS,
+            reference_attempts=50,
+            reference_isomer_cap=4,
+            stereo_seed=42,
+            candidate_geometry_seed=42,
+            reference_geometry_seed=43,
+            color_policy="Both empty native color sets -> 1; exactly one empty -> native 0; otherwise native",
+            grouping="Max retained structures across optimized methods and BOTH cutoffs; unminimized profile excluded from grouping; fixed 1-4/5-8/9-12 groups; >12 excluded",
+            score="One max of (shape+effective_color)/2 over permitted pairs per input; no seed averaging",
+            timing="Sum of instrumented generation, optimization, selected overlay wall seconds from shared work; NOT independent end-to-end cell runtime; reference preparation separate",
+            retry="Reference embedding may retry 50 requests with random coordinates; at most 50 per call, not a hard total across retries",
+            workers=args.workers,
             command=[
                 sys.executable,
                 "-m",
                 "_david.code.conformer.self_recovery",
                 *sys.argv[1:],
             ],
-            scales=args.scales,
-            isomer_caps=ISOMER_CAPS,
-            reference_caps=REFERENCE_CAPS,
-            methods=[asdict(m) | {"name": m.name} for m in METHODS],
-            candidate_seeds=SEEDS,
-            reference_seed=42,
-            clustering_rmsd=1.25,
-            energy_window=8.0,
-            reference_limit=25,
-            isomer_limit=25,
-            workers=args.workers,
-            definition="Each parent vs its own independently generated reference pool; best shape+color / 2",
-            selection="Reference variants are round-robin balanced; clustering only within a specified stereoisomer",
-            timing="Decomposed instrumented wall seconds; reference cost separate; all attempted work charged, not just the winner",
-            warning="AQME-style budgets are a heuristic under test. 0.9 is a recovery hypothesis, not biological accuracy.",
-            progress={},
-            completed_molecules=[],
+            progress=dict(reference=0, candidate=0),
         )
-    by_id = {c["molecule_id"]: c for c in cases}
-    references, pending_references = [], Counter()
-    ready = deque()
-    for case in cases:
-        for method, scale, variant in itertools.product(
-            range(len(METHODS)), range(3), range(len(case["reference_isomers"]))
-        ):
-            job = dict(
-                kind="reference",
-                molecule_id=case["molecule_id"],
-                method=method,
-                scale_index=scale,
-                variant=variant,
-            )
-            if not (directory / f"{checkpoint_name(job)}.json").exists():
-                references.append(job)
-                pending_references[case["molecule_id"]] += 1
-        if not pending_references[case["molecule_id"]]:
-            ready.extend(candidate_jobs(case))
-    np.random.default_rng(42).shuffle(references)
-    pending = deque(references)
-    counts = Counter(
-        reference=sum(1 for _ in directory.glob("r_*.json")),
-        candidate=sum(1 for _ in directory.glob("c_*.csv.gz")),
-    )
-    manifest["progress"] = dict(counts)
-    atomic_json(manifest_path, manifest)
-    with ProcessPoolExecutor(
-        max_workers=args.workers, mp_context=multiprocessing.get_context("spawn")
-    ) as executor:
-        futures = {}
-        while pending or ready or futures:
-            while (ready or pending) and len(futures) < args.workers * 2:
-                job = ready.popleft() if ready else pending.popleft()
-                if (
-                    job["kind"] == "candidate"
-                    and (directory / f"{checkpoint_name(job)}.csv.gz").exists()
-                ):
-                    continue
-                futures[
-                    executor.submit(
-                        execute, job, by_id[job["molecule_id"]], str(output)
+    atomic_json(path, manifest)
+    try:
+        with ProcessPoolExecutor(
+            max_workers=args.workers, mp_context=multiprocessing.get_context("spawn")
+        ) as executor:
+            jobs = [c for c in cases if not (directory / f"{stem(c)}.json").exists()]
+            manifest["progress"]["reference"] = len(cases) - len(jobs)
+            run_phase(executor, jobs, reference_job, output, manifest, "reference")
+            prepared = [
+                json.loads((directory / f"{stem(c)}.json").read_text()) for c in cases
+            ]
+            cohort = pd.DataFrame(
+                [
+                    dict(
+                        molecule_id=c["molecule_id"],
+                        group=c["group"],
+                        grouping_max=c["grouping_max"],
+                        error=c["error"],
                     )
-                ] = job
-            if not futures:
-                break
-            completed, _ = wait(futures, return_when=FIRST_COMPLETED)
-            for future in completed:
-                job = futures.pop(future)
-                future.result()
-                counts[job["kind"]] += 1
-                if job["kind"] == "reference":
-                    pending_references[job["molecule_id"]] -= 1
-                    if pending_references[job["molecule_id"]] == 0:
-                        ready.extend(candidate_jobs(by_id[job["molecule_id"]]))
-                manifest["progress"] = dict(counts)
-                manifest["updated_utc"] = datetime.now(timezone.utc).isoformat()
-                atomic_json(manifest_path, manifest)
-                print(
-                    json.dumps(dict(job=checkpoint_name(job), progress=dict(counts))),
-                    flush=True,
-                )
-    paths = sorted(directory.glob("c_*.csv.gz"))
-    frame = pd.concat((pd.read_csv(p) for p in paths), ignore_index=True)
-    keys = [
-        "molecule_id",
-        "method",
-        "seed",
-        "candidate_scale",
-        "isomer_cap",
-        "reference_scale",
-        "reference_cap",
-    ]
-    if frame.duplicated(keys).any() or len(frame) != len(cases) * len(
-        METHODS
-    ) * 3 * 3 * len(SEEDS) * len(ISOMER_CAPS) * len(REFERENCE_CAPS):
-        raise ValueError("Incomplete or duplicate self-recovery grid")
-    frame.to_csv(output / "data.csv.gz", index=False, compression="gzip")
-    manifest.update(
-        state="rendering",
-        measurement_rows=len(frame),
-        completed_molecules=sorted(by_id),
-    )
-    atomic_json(manifest_path, manifest)
-    render_self_recovery(frame, output, manifest)
-    if hashes != {p: digest(PROJECT_ROOT / p) for p in SOURCE_PATHS}:
-        raise ValueError("Source changed during measurement")
-    manifest["state"] = "complete"
-    manifest["sha256"] = {
-        p.name: digest(p)
-        for p in output.iterdir()
-        if p.is_file() and p != manifest_path
-    }
-    atomic_json(manifest_path, manifest)
+                    for c in prepared
+                ]
+            )
+            cohort.to_csv(output / "cohort.csv", index=False)
+            selected = [c for c in prepared if c["group"] and not c["error"]]
+            manifest.update(
+                state="candidate_scoring",
+                selected_inputs=len(selected),
+                group_counts=dict(Counter(c["group"] for c in selected)),
+                excluded_inputs=len(cases) - len(selected),
+            )
+            all_jobs = [j for c in selected for j in candidate_jobs(c)]
+            jobs = [
+                j
+                for j in all_jobs
+                if not (directory / f"{candidate_stem(j)}.csv.gz").exists()
+            ]
+            manifest["progress"]["candidate"] = len(all_jobs) - len(jobs)
+            manifest["expected_candidate_jobs"] = len(all_jobs)
+            unfinished = {j["molecule_id"] for j in jobs}
+            manifest["completed_molecules"] = [
+                c["molecule_id"] for c in selected if c["molecule_id"] not in unfinished
+            ]
+            atomic_json(path, manifest)
+            run_phase(executor, jobs, candidate_job, output, manifest, "candidate")
+        if not selected:
+            raise ValueError(
+                "No inputs in selected reference-size groups; inspect cohort.csv"
+            )
+        frame = pd.concat(
+            [pd.read_csv(p) for p in sorted(directory.glob("c_*.csv.gz"))],
+            ignore_index=True,
+        )
+        keys = [
+            "molecule_id",
+            "method",
+            "cutoff",
+            "candidate_attempts",
+            "isomer_cap",
+            "reference_cap",
+        ]
+        expected = (
+            len(selected)
+            * len(METHODS)
+            * len(CUTOFFS)
+            * len(ATTEMPTS)
+            * len(ISOMER_CAPS)
+            * len(REFERENCE_CAPS)
+        )
+        if len(frame) != expected or frame.duplicated(keys).any():
+            raise ValueError("Incomplete or duplicated measurement grid")
+        if not np.allclose(
+            frame.score,
+            (frame.shape_tanimoto + frame.color_tanimoto) / 2,
+            equal_nan=True,
+        ):
+            raise ValueError("Component reduction mismatch")
+        frame.to_csv(output / "data.csv.gz", index=False, compression="gzip")
+        manifest.update(state="rendering", measurement_rows=len(frame))
+        atomic_json(path, manifest)
+        render_mini_recovery(frame, output, manifest)
+        if hashes != {p: digest(PROJECT_ROOT / p) for p in SOURCE_PATHS}:
+            raise ValueError("Source changed during measurements")
+        manifest["state"] = "complete"
+        manifest["sha256"] = {
+            p.name: digest(p) for p in output.iterdir() if p.is_file() and p != path
+        }
+        atomic_json(path, manifest)
+    except Exception as exc:
+        manifest.update(state="failed", error=f"{type(exc).__name__}: {exc}")
+        atomic_json(path, manifest)
+        raise
 
 
 def main():
@@ -597,11 +530,9 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--panel", type=Path)
     parser.add_argument("--ids", type=int, nargs="+")
-    parser.add_argument("--workers", type=int, default=16)
-    parser.add_argument("--scales", type=float, nargs=3, default=SCALES)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--render-only", action="store_true")
-    parser.add_argument("--plan-only", action="store_true")
     run(parser.parse_args())
 
 
