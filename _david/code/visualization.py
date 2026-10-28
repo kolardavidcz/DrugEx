@@ -293,6 +293,7 @@ def _analysis_finish(fig, output, filename, metadata, title, note=""):
     )
     footer = (
         "ROCS = TanimotoCombo / 2; three seeds averaged per parent. "
+        "Preparation failures are assigned score zero. "
         "Groups are RDKit isomer upper bounds. Missing slow cases can bias time downward. "
         "Higher scores do not establish biological accuracy. " + note
     )
@@ -337,7 +338,7 @@ def _analysis_heatmaps(summary, output, metadata):
     ]
     metrics = ["mean_score", "mean_isomer_gain", "median_isomer_gain", "mean_seconds"]
     labels = [
-        "Mean absolute ROCS",
+        "Mean ROCS (failures=0)",
         "Mean paired gain vs cap 1",
         "Median paired gain vs cap 1",
         "Mean seconds (log color)",
@@ -424,7 +425,7 @@ def _analysis_heatmaps(summary, output, metadata):
             f"isomers_{slug}.png",
             metadata,
             f"Isomer-upper-bound range {stratum} · n={count} · all available references",
-            "Shared color scales across groups. Gains pair the same parent/method/conformer budget. Redundant cap aliases are hidden.",
+            "Shared color scales. Gains pair the same parent/method/conformer budget and include failure recovery; success-only gains are in sampling_diagnostics.png. Redundant cap aliases are hidden.",
         )
 
 
