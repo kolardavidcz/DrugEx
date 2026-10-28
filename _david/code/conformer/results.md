@@ -19,20 +19,31 @@ the reference cap remains four. The wider grid is deferred.
 Use one candidate search with the RL seed 0xC0FFEE, independent reference seed
 42, the maximum over all permitted reference/candidate geometry pairs per
 parent, then summarize across parents. No three-seed averaging or formal
-hypothesis test is requested. Category counts now mean distinct enumerated
-reference stereo identities still represented after filtering, not retained
-conformer counts. With the four-isomer cap, only groups 1/2/3–4 can be nonempty.
+hypothesis test is requested. Latest grouping counts retained distinct 3D
+reference structures after filtering, not unique stereo identities. The user
+merged the mini-study into two groups: maximum reference-structure count across
+methods is 1–4 or 5–8. More than eight is outside this mini-study; report exclusions.
 Record before/after counts and reference/candidate failures; do not select
 parents by score or omit failed candidate generation from the mean.
 
 Terminology confirmed with the user: an input molecule is one SMILES entry in
-the approximately 512-input panel (previously called a parent). Fully specified
-EGCG with three retained conformers belongs to category 1. RMSD pruning within
-each stereo identity retains at least one representative of every nonempty
-identity; tightening the cutoff changes conformer counts, not stereo enumeration.
-More reference stereo identities mean a broader bounded search, not necessarily
-more noise or lower ROCS. Report group sizes, score spread, failures and stereo
-truncation flags rather than treating the category number as a noise metric.
+the approximately 512-input panel (previously called a parent). The user's latest
+correction places EGCG with three retained conformers in the 3–4 structure band,
+and therefore Group 1 after merging to 1–4/5–8. It remains chemically one
+stereoisomer. Fix group membership across method/budget comparisons; do not
+silently regroup every heatmap or claim that larger groups imply more noise.
+Record stereo identities, structure counts and truncation separately.
+
+**Pre-launch audit:** [STUDY_AUDIT.md](../../output/20261028_1520_self_recovery/STUDY_AUDIT.md).
+Two concrete issues were verified. (1) Identical ethane vs itself and identical
+butane vs itself each give shape=1, color=0, normalized combo=0.5; the existing
+prototype wrongly rejects references whose exact-self score is not 1. (2) Using
+reference stereo seed42 and candidate stereo seed0xC0FFEE with caps4/4 gives no
+shared enumerated identity for six of the 512 saved inputs, before embedding.
+At candidate caps1/2/8, the corresponding counts are 31/31/1. These are metadata
+checks, not ROCS performance measurements. A shared stereo-enumeration seed,
+independent geometry seeds and feature-aware exact-self controls are recommended
+before implementing/restarting the revised study; no reward change is selected.
 
 Cutoff evidence refreshed: the reviewed McNutt full text explicitly includes
 0.5 Å filtering (Figures 8–9), supporting a comparator rather than an optimum.
