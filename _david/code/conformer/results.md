@@ -1,91 +1,55 @@
 # Conformer study: status and evidence
 
-**2026-10-28 current checkpoint: smaller fixed-budget self-recovery design; RMSD decision pending.**
-The old molecule-versus-EGCG job was stopped at the user's request, with all 508
-completed checkpoints preserved and its manifest marked `cancelled_superseded`.
-It must not be resumed as the requested self-recovery experiment. Every parent
-in the corrected test needs its own independent reference ensemble.
+**2026-10-28 current checkpoint: native-scoring mini-study running.**
 
-Start with [READ_ME_FIRST.md](../../output/20261028_1520_self_recovery/READ_ME_FIRST.md)
-for the current score, scope, filtering and counts; read
-[RMSD_DECISION.md](../../output/20261028_1520_self_recovery/RMSD_DECISION.md)
-for the proposed reference-compression comparison and supporting evidence.
-The user superseded the adaptive plan: no AQME in the current test; cap attempts
-at 50 per stereoisomer and enumerate at most four isomers. Compare three profiles:
-no minimization, MMFF94 ε1 and MMFF94 ε78.4. The user selected the same MMFF94
-variant for both dielectric conditions. Candidate isomer caps are now 1/2/4/8;
-the reference cap remains four. The wider grid is deferred.
+Read the compact [current report](../../output/20261028_1753_native_self_recovery/REPORT.md)
+for selected settings, measured EGCG controls, limitations, reproduction and
+code-review pointers. The old cross-molecule run and the later color-override
+panel are cancelled/superseded; their saved data must not be mixed with this run.
 
-Use one candidate search with the RL seed 0xC0FFEE, independent reference seed
-42, the maximum over all permitted reference/candidate geometry pairs per
-parent, then summarize across parents. No three-seed averaging or formal
-hypothesis test is requested. Latest grouping counts retained distinct 3D
-reference structures after filtering, not unique stereo identities. The user
-merged the mini-study into two groups: maximum reference-structure count across
-methods is 1–4 or 5–8. More than eight is outside this mini-study; report exclusions.
-Record before/after counts and reference/candidate failures; do not select
-parents by score or omit failed candidate generation from the mean.
+Selected protocol: each input against its own independent reference ensemble;
+no minimization, MMFF94 ε1 and MMFF94s ε78.4; reference RMSD selections 1.25/0.5 Å
+from the same saved pools; reference requests 50 per stereoisomer, stereo cap 4;
+candidate requests 1/5/10/15/20/ 25/30/50 and stereo caps 1/2/4/8. Stereo seed 42 on
+both sides, candidate geometry seed 42 and independent reference geometry seed 43.
+One maximum over permitted pairs per input, then summaries across inputs; no
+AQME budgets, seed averaging, formal hypothesis test or RL training.
 
-Terminology confirmed with the user: an input molecule is one SMILES entry in
-the approximately 512-input panel (previously called a parent). The user's latest
-correction places EGCG with three retained conformers in the 3–4 structure band,
-and therefore Group 1 after merging to 1–4/5–8. It remains chemically one
-stereoisomer. Fix group membership across method/budget comparisons; do not
-silently regroup every heatmap or claim that larger groups imply more noise.
-Record stereo identities, structure counts and truncation separately.
+The native color/combo score is unchanged. Colorless prepared reference inputs
+are excluded by feature presence **before any ROCS alignment**, with reasons
+recorded in cohort.csv. This is an operational scope restriction, not proof of
+drug-likeness. Candidate generation failures remain zero-score observations for
+eligible inputs. Do not select by high scores or silently omit failures.
 
-**Pre-launch audit:** [STUDY_AUDIT.md](../../output/20261028_1520_self_recovery/STUDY_AUDIT.md).
-Two concrete issues were verified. (1) Identical ethane vs itself and identical
-butane vs itself each give shape=1, color=0, normalized combo=0.5; the existing
-prototype wrongly rejects references whose exact-self score is not 1. (2) Using
-reference stereo seed42 and candidate stereo seed0xC0FFEE with caps4/4 gives no
-shared enumerated identity for six of the 512 saved inputs, before embedding.
-At candidate caps1/2/8, the corresponding counts are 31/31/1. These are metadata
-checks, not ROCS performance measurements. A shared stereo-enumeration seed,
-independent geometry seeds and feature-aware exact-self controls are recommended
-before implementing/restarting the revised study; no reward change is selected.
+Groups count distinct retained reference structures (conformers and permitted
+stereo identities), not merely stereoisomers. Use the maximum count across the
+two optimized methods and BOTH cutoffs; exclude the unminimized profile from
+this grouping calculation. Fixed ranges 1–4/5–8/9–12; more than 12 is outside this
+mini-study and must be reported. Fixed membership applies across all figures.
 
-Cutoff evidence refreshed: the reviewed McNutt full text explicitly includes
-0.5 Å filtering (Figures 8–9), supporting a comparator rather than an optimum.
-The native RDKit 2026.03.6 ETKDGv3 default pruneRmsThresh is -1.0, verified by
-runtime inspection; 0.35 Å is our reference code's explicit setting, while RL
-candidate embedding explicitly uses 0.5 Å. Do not conflate embedding-time
-pruning with later post-minimization reference compression.
+Source: clean immutable **95d0d60**, /home/kolarv/.cache/drugex-native-95d0d60.
+All **22** regression tests passed (3.644 s) and scoped Ruff passed there. The new
+EGCG pilot completed 960 rows; six representative native public-scorer replays
+matched within 1.2e-16. Exact settings, source hashes, test command and replay
+values are in [its manifest](../../output/20261028_1753_native_self_recovery/egcg_pilot/manifest.json).
+EGCG at 50 reference / 25 candidate requests retained 8 usable candidates and scored:
+none 0.8838/0.9332, MMFF94 0.9571/0.9571, MMFF94s ε78.4 0.9989/0.9989 for cutoffs
+1.25/0.5 Å. These are single-input controls, not panel-wide conclusions.
 
-The existing corrected pilot completed on clean source dfb40c1: 17 tests and
-seven public-scorer replay checks passed. See the measured
-[EGCG pilot](../../output/20261028_1520_self_recovery/EGCG_PILOT.md) and its
-[manifest](../../output/20261028_1520_self_recovery/egcg_validation/manifest.json).
-Extracting only candidate seed 0xC0FFEE at 50 reference / 25 candidate attempts,
-all retained references and one fully specified isomer gives 0.9431403168
-unminimized on both sides, 0.9999999932 for matched MMFF94 ε1, and 0.9999999819
-for matched MMFF94s ε78.4. These are existing saved measurements, not a new run,
-and do not establish recovery across other parents.
+The panel job is tmux **drugex-native-512**, eight one-thread workers.
+Output: /home/kolarv/DrugEx/_david/output/20261028_1753_native_self_recovery/panel.
+Read manifest.json for phase/progress/completed_molecules, and the enclosing
+panel.exit_code plus panel.log for process completion. Validate 960 rows per
+selected input, the 512-row cohort/exclusion ledger, available-reference masks,
+component reductions, hashes and representative public-scorer replay before
+final delivery. Add verification to the EXISTING manifest after the writer exits;
+mirror results locally and inspect figures. Do not resume any superseded source.
 
-The corrected larger scan has not restarted. The native scheduler remains
-paused at a four-hour interval. A small audit of reference pruning is proposed
-before launch: same saved pool, no additional pruning versus 0.5/1.25 Å,
-with cross-isomer compression evaluated separately. No cutoff change or
-cross-isomer policy has yet been selected. The old AQME explanation is retained
-as a deferred proposal, not the current protocol.
-
-Implementation is under `conformer/sampling.py` and `conformer/self_recovery.py`.
-The archived `determine_ensemble_parameters` function was found in the preserved
-snapshot: it varied clustering cutoff and capped retained references at three;
-it did not estimate initial isomer/conformer attempts. Do not revive that cap or
-its unverified citation as an adaptive sampling policy.
-
-The implemented adaptive prototype uses 1.25 Å heavy-atom GetBestRMS within each
-stereoisomer, with a final spacing check after Butina representatives. It still
-has the superseded seven-profile, three-seed, adaptive matrix and must not be
-launched as the new smaller study. The new cutoff policy remains open; cross-isomer
-compression is a potentially useful approximation, not chemical equivalence.
-Candidate counts retain enumeration identities separately from SDF
-readback tags. Explicit candidate budgets above 200 are no longer silently
-clamped by the thesis adapter; the core remains unchanged. Production defaults,
-including candidate minimization OFF, are unchanged. Any revised runner must
-pass relevant validation before launch. A concurrent native environment.py
-argument-order edit belongs to the user and must be preserved.
+Keep the four-hour scheduler quiet while progress is normal; finish the current
+study when complete and pause the monitor. The proposed existing-drug panel is
+a later complementary study, not a replacement or extra experiment authorized
+for this run. Production candidate minimization remains OFF by default. The
+native user's environment.py argument-order edit must remain preserved.
 
 ## Superseded cross-molecule experiment — retained evidence
 
