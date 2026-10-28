@@ -111,8 +111,9 @@ class SequenceRNNOptimizer:
         gpu: int | str | None = "auto",
         agent_path: Path | str | None = None,
         vocab_path: Path | str | None = None,
+        cpu_ratio: float = 0.90,
     ) -> None:
-        HardwareManager.init_runtime_environment(ratio=0.90)
+        HardwareManager.init_runtime_environment(ratio=cpu_ratio)
         self.models_dir = Path(models_dir)
         self.models_dir.mkdir(parents=True, exist_ok=True)
         self.device, self.use_gpus = HardwareManager.get_device_and_gpus(

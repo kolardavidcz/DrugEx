@@ -12,7 +12,19 @@ class HardwareManager:
     @classmethod
     def get_safe_parallel_jobs(cls, ratio: float = 0.90, cap: int | None = None) -> int:
         """Calculate parallel worker allocation dynamically based on host logical core capacity."""
-        total = os.cpu_count() or 1
+        if not 0 < ratio <= 1:
+            raise ValueError("CPU ratio must be in (0, 1]")
+        total = (
+            len(os.sched_getaffinity(0))
+            if hasattr(os, "sched_getaffinity")
+            else (os.cpu_count() or 1)
+        )
+        # A scheduler may allocate fewer CPUs than the host's affinity exposes.
+        nodefile = os.environ.get("PBS_NODEFILE")
+        if os.environ.get("PBS_JOBID") and nodefile:
+            with open(nodefile) as handle:
+                allocated = sum(bool(line.strip()) for line in handle)
+            total = min(total, max(1, allocated))
         jobs = max(1, int(total * ratio))
         return max(1, min(cap, jobs)) if cap is not None else jobs
 

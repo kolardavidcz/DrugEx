@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
+import hashlib
+import json
+import os
+import platform
+import random
+import socket
 import sys
 import time
 from pathlib import Path
@@ -12,7 +19,7 @@ from drugex.logs import logger
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.generators import SequenceRNN
 from drugex.training.monitors import FileMonitor
-from rdkit import Chem
+from rdkit import Chem, rdBase
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -47,10 +54,17 @@ class MoleculePipeline:
             self.paths = RunPaths.resolve()
 
         self.preparer: PrepareMolecule = PrepareMolecule(
-            num_conformers=100,
+            num_conformers=self.config.reference_attempts,
             max_reference_conformers=self.config.max_reference_conformers,
-            random_seed=self.config.random_seed,
+            random_seed=(
+                self.config.random_seed
+                if self.config.reference_random_seed is None
+                else self.config.reference_random_seed
+            ),
+            rmsd_cutoff=self.config.reference_rmsd_cutoff,
             energy_window_kcal=self.config.energy_window_kcal,
+            num_threads=self.config.conformer_threads,
+            optimization=self.config.optimization,
         )
 
     @staticmethod
@@ -89,6 +103,53 @@ class MoleculePipeline:
         return df
 
     def run(self, molecule: str | Path = DEFAULT_MOLECULE) -> Path:
+        """Record the actual configuration and execution outcome beside run data."""
+        if self.config.training_seed is not None:
+            random.seed(self.config.training_seed)
+            np.random.seed(self.config.training_seed)
+            torch.manual_seed(self.config.training_seed)
+        sources = sorted(Path(__file__).parent.glob("*.py"))
+        manifest = dict(
+            state="running",
+            query=str(molecule),
+            config=asdict(self.config),
+            host=socket.gethostname(),
+            pbs_job_id=os.environ.get("PBS_JOBID"),
+            source_revision=os.environ.get("DRUGEX_SOURCE_REVISION"),
+            source_sha256={
+                str(p.relative_to(PROJECT_ROOT)): hashlib.sha256(
+                    p.read_bytes()
+                ).hexdigest()
+                for p in sources
+            },
+            versions=dict(
+                python=platform.python_version(),
+                rdkit=rdBase.rdkitVersion,
+                torch=torch.__version__,
+            ),
+            training_seed=self.config.training_seed,
+            determinism="Seeded RNGs when requested; deterministic GPU kernels are not enforced",
+        )
+        target = self.paths.root / "manifest.json"
+        target.write_text(json.dumps(manifest, indent=2, default=str) + "\n")
+        started = time.perf_counter()
+        try:
+            result = self._run(molecule)
+            manifest["state"] = "complete"
+            return result
+        except Exception as exc:
+            manifest.update(state="failed", error=f"{type(exc).__name__}: {exc}")
+            raise
+        finally:
+            manifest["elapsed_seconds"] = time.perf_counter() - started
+            ref = self.paths.raw_data_dir / "query_molecule_3d.sdf"
+            if ref.exists():
+                manifest["reference_sha256"] = hashlib.sha256(
+                    ref.read_bytes()
+                ).hexdigest()
+            target.write_text(json.dumps(manifest, indent=2, default=str) + "\n")
+
+    def _run(self, molecule: str | Path) -> Path:
         """Execute end-to-end multi-objective SequenceRNN RL exploration and lead prioritization."""
         self.paths.create_directories()
 
@@ -112,6 +173,7 @@ class MoleculePipeline:
             gpu=self.config.gpu,
             agent_path=self.config.agent_path,
             vocab_path=self.config.vocab_path,
+            cpu_ratio=self.config.cpu_ratio,
         )
         agent, prior, voc = optimizer.load_models()
         env = create_environment(ref_sdf, config=self.config)
@@ -212,7 +274,7 @@ class MoleculePipeline:
         return self.paths.root
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments for standalone execution."""
     parser = argparse.ArgumentParser(
         description="DrugEx SequenceRNN De Novo Drug Design Pipeline"
@@ -273,8 +335,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--minimize-candidates",
         action="store_true",
-        help="Apply MMFF94 after candidate ETKDG generation (default: off)",
+        help="Minimize candidates with the selected optimization profile (default: off)",
     )
+    defaults = PipelineConfig()
+    parser.add_argument("--conformers", type=int, default=defaults.max_conformers)
+    parser.add_argument("--isomers", type=int, default=defaults.max_isomers)
+    parser.add_argument(
+        "--reference-conformers", type=int, default=defaults.max_reference_conformers
+    )
+    parser.add_argument(
+        "--reference-attempts", type=int, default=defaults.reference_attempts
+    )
+    parser.add_argument(
+        "--reference-rmsd", type=float, default=defaults.reference_rmsd_cutoff
+    )
+    parser.add_argument(
+        "--reference-seed", type=int, default=defaults.reference_random_seed
+    )
+    parser.add_argument("--seed", type=int, default=defaults.random_seed)
+    parser.add_argument("--training-seed", type=int, default=defaults.training_seed)
+    parser.add_argument(
+        "--optimization", choices=["MMFF94", "MMFF94s", "UFF"], default=None
+    )
+    parser.add_argument("--dielectric", type=float, default=1.0)
+    parser.add_argument(
+        "--conformer-threads", type=int, default=defaults.conformer_threads
+    )
+    parser.add_argument("--min-epochs", type=int, default=defaults.min_epochs)
+    parser.add_argument("--patience", type=int, default=defaults.patience)
+    parser.add_argument("--agent-path", type=Path, default=None)
+    parser.add_argument("--vocab-path", type=Path, default=None)
     parser.add_argument(
         "--cpu-ratio",
         type=float,
@@ -293,12 +383,16 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MOLECULE,
         help="Target reference SMILES / SDF path",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-if __name__ == "__main__":
-    args = parse_args()
-    cfg = PipelineConfig(
+def config_from_args(args: argparse.Namespace) -> PipelineConfig:
+    """Keep CLI-to-configuration translation inspectable and usable by preflight."""
+    from _david.code.chemistry import Optimization
+
+    if args.dielectric != 1.0 and args.optimization not in {"MMFF94", "MMFF94s"}:
+        raise ValueError("A dielectric override requires an explicit MMFF profile")
+    return PipelineConfig(
         epochs=args.epochs,
         n_samples=args.samples,
         n_eval_samples=args.eval_samples,
@@ -311,6 +405,27 @@ if __name__ == "__main__":
         score_variant=args.score_variant,
         minimize_candidates=args.minimize_candidates,
         cpu_ratio=args.cpu_ratio,
+        max_conformers=args.conformers,
+        max_isomers=args.isomers,
+        max_reference_conformers=args.reference_conformers,
+        reference_attempts=args.reference_attempts,
+        reference_rmsd_cutoff=args.reference_rmsd,
+        reference_random_seed=args.reference_seed,
+        random_seed=args.seed,
+        training_seed=args.training_seed,
+        optimization=Optimization(args.optimization, args.dielectric)
+        if args.optimization
+        else None,
+        conformer_threads=args.conformer_threads,
+        min_epochs=args.min_epochs,
+        patience=args.patience,
+        agent_path=args.agent_path,
+        vocab_path=args.vocab_path,
     )
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    cfg = config_from_args(args)
     pipe = MoleculePipeline(config=cfg, output_dir=args.output_dir)
     pipe.run(molecule=args.molecule)

@@ -33,6 +33,25 @@ class Optimization:
         return f"{self.method} eps={self.dielectric:g} {model}"
 
 
+def enumerate_stereoisomers(mol, *, limit: int, seed: int = 42):
+    """Share seeded, identity-labelled enumeration without changing assigned stereo."""
+    if limit < 1:
+        raise ValueError("Stereoisomer limit must be positive")
+    options = StereoEnumerationOptions(
+        maxIsomers=limit,
+        onlyUnassigned=True,
+        tryEmbedding=False,
+        rand=seed,
+        unique=True,
+    )
+    for index, iso in enumerate(EnumerateStereoisomers(mol, options)):
+        iso.SetProp(
+            "EnumeratedIsomerSMILES", Chem.MolToSmiles(iso, isomericSmiles=True)
+        )
+        iso.SetIntProp("EnumeratedIsomerIndex", index)
+        yield iso
+
+
 class CandidateConformerGenerator(RDKitConformerGenerator):
     """DrugEx ETKDG with a selectable seed and optional MMFF94 post-minimization."""
 
@@ -64,20 +83,9 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         return params
 
     def _get_isomers(self, mol):
-        options = StereoEnumerationOptions(
-            maxIsomers=self.max_isomers,
-            onlyUnassigned=True,
-            tryEmbedding=False,
-            rand=self.stereo_seed,
-            unique=True,
+        yield from enumerate_stereoisomers(
+            mol, limit=self.max_isomers, seed=self.stereo_seed
         )
-        for index, iso in enumerate(EnumerateStereoisomers(mol, options)):
-            # Count intended enumerated identities, not new tags inferred on SDF readback.
-            iso.SetProp(
-                "EnumeratedIsomerSMILES", Chem.MolToSmiles(iso, isomericSmiles=True)
-            )
-            iso.SetIntProp("EnumeratedIsomerIndex", index)
-            yield iso
 
     def genConformers(self, smiles_list, out_dir) -> str:
         path = super().genConformers(smiles_list, out_dir)

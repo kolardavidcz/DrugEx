@@ -1,85 +1,58 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# MetaCentrum PBS Pro Job Script: DrugEx 3D De Novo Design Pipeline
-# Usage: qsub -v EXP_NAME="run_name",EXP_ARGS="--epochs 100 ..." job_template.sh
-# ==============================================================================
-
+# Submit through grid.py: arguments live in a JSON spec, never an eval string.
 #PBS -N drugex_run
-#PBS -l select=1:ncpus=16:mem=32gb:ngpus=1:gpu_cap=cuda80:scratch_local=15gb
+#PBS -l select=1:ncpus=16:mem=32gb:ngpus=1:gpu_cap=compute_80:scratch_local=15gb
 #PBS -l walltime=12:00:00
 #PBS -j oe
-#PBS -m ae
 
 set -euo pipefail
+: "${PBS_JOBID:?Run this script as a PBS job}"
+: "${SCRATCHDIR:?PBS scratch allocation is required}"
+: "${STORAGE_DIR:?Persistent project directory is required}"
+: "${RUN_SPEC:?A saved JSON run specification is required}"
 
-echo "========================================================================"
-echo "Job started on: $(hostname) at $(date)"
-echo "Job ID: $PBS_JOBID"
-echo "Scratch Directory: $SCRATCHDIR"
-echo "CUDA Devices: ${CUDA_VISIBLE_DEVICES:-'Not set'}"
-echo "========================================================================"
-
-# Trap clean-up and copy results on exit
-STORAGE_DIR="/storage/praha1/home/$USER/DrugEx"
-RESULTS_DIR="$STORAGE_DIR/_david/output"
+# Prepare and validate this environment before submitting a research run.
+PYTHON="$STORAGE_DIR/.venv/bin/python"
+test -x "$PYTHON" || { echo "Missing validated environment: $PYTHON" >&2; exit 1; }
+EXP_NAME=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$RUN_SPEC")
+SOURCE_DIR=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["source"])' "$RUN_SPEC")
+export DRUGEX_SOURCE_REVISION
+DRUGEX_SOURCE_REVISION=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$RUN_SPEC")
+OUT_DIR="$SCRATCHDIR/output"
+RESULTS_DIR="$STORAGE_DIR/_david/output/$EXP_NAME"
 
 cleanup() {
-    echo "Job finalizing at $(date). Transferring results..."
-    if [ -d "$SCRATCHDIR/output" ]; then
-        mkdir -p "$RESULTS_DIR"
-        cp -r "$SCRATCHDIR/output/"* "$RESULTS_DIR/" || true
-        echo "Results successfully transferred to $RESULTS_DIR"
+    local status=$?
+    trap - EXIT
+    if test -d "$OUT_DIR"; then
+        if ! mkdir -p "$RESULTS_DIR" || ! rsync -a "$OUT_DIR/" "$RESULTS_DIR/"; then
+            echo "Result transfer failed; retaining scratch at $SCRATCHDIR" >&2
+            exit 1
+        fi
     fi
     clean_scratch
+    exit "$status"
 }
-trap 'cleanup' EXIT
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
-# 1. Prepare fast local scratch execution space
-cd "$SCRATCHDIR"
-mkdir -p "$SCRATCHDIR/DrugEx"
-mkdir -p "$SCRATCHDIR/output"
-
-echo "Syncing DrugEx codebase and pretrained weights from persistent storage..."
-rsync -a --exclude='.git' --exclude='_david/output' "$STORAGE_DIR/" "$SCRATCHDIR/DrugEx/"
-
+mkdir -p "$OUT_DIR" "$SCRATCHDIR/DrugEx"
+rsync -a "$SOURCE_DIR/" "$SCRATCHDIR/DrugEx/"
 cd "$SCRATCHDIR/DrugEx"
+export MPLBACKEND=Agg OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+export DRUGEX_MP_CONTEXT=forkserver
+cp "$RUN_SPEC" "$OUT_DIR/submission.json"
 
-# 2. Environment modules and Python
-echo "Loading environment modules..."
-module load python/3.10-gcc || module load python || true
-module load cuda/12.2 || module load cuda || true
+"$PYTHON" - "$RUN_SPEC" "$OUT_DIR" <<'PY' 2>&1 | tee "$OUT_DIR/execution.log"
+import json
+import subprocess
+import sys
 
-# Check or install standalone uv
-export PATH="$HOME/.local/bin:$PATH"
-if ! command -v uv &> /dev/null; then
-    echo "Installing uv package manager..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
-fi
-
-# Ensure virtualenv exists in scratch
-echo "Synchronizing virtual environment..."
-uv venv .venv --python 3.10
-source .venv/bin/activate
-uv pip install -e .
-uv pip install scipy seaborn ruff
-
-# 3. Hardware check
-nvidia-smi || true
-lscpu | head -n 20 || true
-
-# 4. Execute DrugEx pipeline
-EXP_NAME="${EXP_NAME:-drugex_experiment}"
-EXP_ARGS="${EXP_ARGS:- --epochs 100 --samples 500 --eval-samples 1000}"
-
-echo "Starting Experiment: $EXP_NAME"
-echo "Arguments: $EXP_ARGS"
-
-OUT_DIR="$SCRATCHDIR/output/$EXP_NAME"
-mkdir -p "$OUT_DIR"
-
-python -u _david/code/pipeline.py \
-    --output-dir "$OUT_DIR" \
-    $EXP_ARGS 2>&1 | tee "$OUT_DIR/execution.log"
-
-echo "Experiment completed successfully at $(date)!"
+with open(sys.argv[1]) as handle:
+    spec = json.load(handle)
+subprocess.run(
+    [sys.executable, "-u", "-m", "_david.code.pipeline", "--output-dir", sys.argv[2], *spec["args"]],
+    check=True,
+)
+PY

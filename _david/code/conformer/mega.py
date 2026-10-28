@@ -431,6 +431,7 @@ def run(args):
                 for p in (
                     "_david/code/conformer/mega.py",
                     "_david/code/visualization.py",
+                    "_david/code/conformer/visualization.py",
                 )
             },
         }
@@ -450,7 +451,9 @@ def run(args):
         "_david/code/conformer/mega.py",
         "_david/code/chemistry.py",
         "_david/code/environment.py",
+        "_david/code/reference.py",
         "_david/code/visualization.py",
+        "_david/code/conformer/visualization.py",
         "drugex/training/scorers/conformer_generators.py",
         "drugex/training/scorers/rocs_rdkit.py",
     ]

@@ -9,11 +9,9 @@ import math
 
 from rdkit import Chem
 from rdkit.Chem import Lipinski, rdMolAlign
-from rdkit.Chem.EnumerateStereoisomers import (
-    EnumerateStereoisomers,
-    GetStereoisomerCount,
-    StereoEnumerationOptions,
-)
+from rdkit.Chem.EnumerateStereoisomers import GetStereoisomerCount
+
+from _david.code.chemistry import enumerate_stereoisomers
 
 
 @dataclass(frozen=True)
@@ -45,13 +43,25 @@ class SamplingPlan:
     def truncated(self):
         return self.isomer_upper_bound > self.isomer_limit
 
+    @property
+    def total_conformer_attempts(self):
+        """Requested initial work, not retained reference structures or stereo coverage."""
+        return len(self.reference_isomers) * self.conformers_per_isomer
+
+    @property
+    def conformer_budget_capped(self):
+        baseline = (
+            30 * (self.rotatable_bonds + self.oh_nh_count + self.saturated_rings) or 10
+        )
+        return self.conformers_per_isomer < baseline
+
     def attempts(self, factor=1.0):
         if not math.isfinite(factor) or factor <= 0:
             raise ValueError("Sampling factor must be finite and positive")
         return max(1, math.ceil(self.conformers_per_isomer * factor))
 
 
-def plan_sampling(mol, *, isomer_limit=25, enumeration_seed=42):
+def plan_sampling(mol, *, isomer_limit=25, enumeration_seed=42, conformer_limit=250):
     """AQME mid-style organic-molecule recipe plus bounded RDKit stereo enumeration.
 
     AQME's published code counts 3*(rotors + OH/NH + saturated rings), then
@@ -64,21 +74,18 @@ def plan_sampling(mol, *, isomer_limit=25, enumeration_seed=42):
         raise ValueError("A nonempty prepared molecule is required")
     if not 1 <= isomer_limit <= 25:
         raise ValueError("The selected study supports an isomer ceiling of 1–25")
+    if not isinstance(conformer_limit, int) or not 1 <= conformer_limit <= 1000:
+        raise ValueError("Conformer ceiling must be an integer from 1 to 1000")
     rotors = int(Lipinski.NumRotatableBonds(mol))
     donors = int(Lipinski.NHOHCount(mol))
     rings = int(Lipinski.NumSaturatedRings(mol))
     complexity = 3 * (rotors + donors + rings)
-    attempts = min(250, complexity * 10 if complexity else 10)
-    options = StereoEnumerationOptions(
-        onlyUnassigned=True,
-        unique=True,
-        maxIsomers=isomer_limit,
-        rand=enumeration_seed,
-        tryEmbedding=False,
-    )
+    attempts = min(conformer_limit, complexity * 10 if complexity else 10)
     isomers = tuple(
         Chem.MolToSmiles(iso, isomericSmiles=True)
-        for iso in EnumerateStereoisomers(mol, options=options)
+        for iso in enumerate_stereoisomers(
+            mol, limit=isomer_limit, seed=enumeration_seed
+        )
     )
     if not isomers:
         raise ValueError("Stereo enumeration produced no identities")

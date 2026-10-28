@@ -1,5 +1,15 @@
 # Conformer study: status and evidence
 
+**2026-10-28 follow-up: RL launch on hold; pipeline refactoring under review.**
+Read the dated [pipeline/reference plan](../../output/20261028_rl_preparation/PLAN.md)
+for the scientific interpretation, exact preset proposal, adaptive-planner limits,
+code-review order and MetaCentrum access blocker. No RL/PBS job has been submitted.
+At MMFF94s ε78.4/C20/I4/0.5 Å/all retained references, 135/139 selected inputs
+reach 0.95; four fall below it (minimum 0.777589). This is not a universal
+guarantee or evidence for exactly three references. The user's latest steering
+keeps epoch runs on hold. Defaults remain unchanged; the new explicit profile
+configuration is optional. Historical measurements remain bound to 95d0d60.
+
 **2026-10-28: native-scoring mini-study completed and verified.**
 
 Read the compact [current report](../../output/20261028_1753_native_self_recovery/REPORT.md)

@@ -318,6 +318,7 @@ def run(source, output):
             for p in (
                 "_david/code/conformer/analyze.py",
                 "_david/code/visualization.py",
+                "_david/code/conformer/visualization.py",
             )
         },
         "definitions": {
@@ -374,6 +375,7 @@ def render_saved(output):
             for p in (
                 "_david/code/conformer/analyze.py",
                 "_david/code/visualization.py",
+                "_david/code/conformer/visualization.py",
             )
         },
         "input_sha256": inputs,

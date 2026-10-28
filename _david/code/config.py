@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from _david.code.chemistry import Optimization
 from _david.code.schema import std
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
@@ -58,13 +59,26 @@ class PipelineConfig:
     # 3D Conformer & Chemistry Settings
     max_conformers: int = 30
     max_isomers: int = 4  # Independent cap; enumerate only unresolved stereochemistry.
-    minimize_candidates: bool = False  # Optional MMFF94 after ETKDG; reference minimization is separate.
+    minimize_candidates: bool = (
+        False  # Optional MMFF94 after ETKDG; reference minimization is separate.
+    )
+    optimization: Optimization | None = (
+        None  # Explicit profile shared by both paths when selected.
+    )
+    reference_attempts: int = 100
+    reference_rmsd_cutoff: float = 1.25
+    reference_random_seed: int | None = None  # None preserves the configured seed.
     max_reference_conformers: int = (
         3  # Hawkins low-energy basin ensemble size #^[3, all]
     )
     energy_window_kcal: float = 8.0  # ^ also try insted of vacume with 8.0 kcal, try water, humen-like envirument
-    timeout_seconds: int = 0  # 0 = unlimited execution time (only limited by max_conformers)
+    timeout_seconds: int = (
+        0  # 0 = unlimited execution time (only limited by max_conformers)
+    )
     random_seed: int = 42
+    training_seed: int | None = (
+        None  # Optional Python/NumPy/Torch seed; recorded per run.
+    )
 
     # Hardware & Multiprocessing (Authoritative 0.90 CPU allocation)
     gpu: int | str = "auto"
