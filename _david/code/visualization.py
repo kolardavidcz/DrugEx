@@ -416,7 +416,12 @@ def _analysis_heatmaps(summary, output, metadata):
                     )
                     fig.colorbar(im, cax=bar, orientation="horizontal")
         fig.subplots_adjust(
-            left=0.065, right=0.99, top=0.94, bottom=0.12, hspace=0.55, wspace=0.24
+            left=0.065,
+            right=0.99,
+            top=0.90 if stratum == "1" else 0.94,
+            bottom=0.12,
+            hspace=0.55,
+            wspace=0.24,
         )
         slug = stratum.replace(">=", "ge").replace("-", "_")
         _analysis_finish(
