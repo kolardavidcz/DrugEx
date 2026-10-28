@@ -12,9 +12,9 @@ for the current score, scope, filtering and counts; read
 for the proposed reference-compression comparison and supporting evidence.
 The user superseded the adaptive plan: no AQME in the current test; cap attempts
 at 50 per stereoisomer and enumerate at most four isomers. Compare three profiles:
-no minimization, ordinary MMFF94 and high-dielectric MMFF. The last profile's
-variant is pending: retain the previous MMFF94s ε78.4 condition or use MMFF94
-on both sides of the dielectric comparison. The wider grid is deferred.
+no minimization, MMFF94 ε1 and MMFF94 ε78.4. The user selected the same MMFF94
+variant for both dielectric conditions. Candidate isomer caps are now 1/2/4/8;
+the reference cap remains four. The wider grid is deferred.
 
 Use one candidate search with the RL seed 0xC0FFEE, independent reference seed
 42, the maximum over all permitted reference/candidate geometry pairs per
@@ -24,6 +24,22 @@ reference stereo identities still represented after filtering, not retained
 conformer counts. With the four-isomer cap, only groups 1/2/3–4 can be nonempty.
 Record before/after counts and reference/candidate failures; do not select
 parents by score or omit failed candidate generation from the mean.
+
+Terminology confirmed with the user: an input molecule is one SMILES entry in
+the approximately 512-input panel (previously called a parent). Fully specified
+EGCG with three retained conformers belongs to category 1. RMSD pruning within
+each stereo identity retains at least one representative of every nonempty
+identity; tightening the cutoff changes conformer counts, not stereo enumeration.
+More reference stereo identities mean a broader bounded search, not necessarily
+more noise or lower ROCS. Report group sizes, score spread, failures and stereo
+truncation flags rather than treating the category number as a noise metric.
+
+Cutoff evidence refreshed: the reviewed McNutt full text explicitly includes
+0.5 Å filtering (Figures 8–9), supporting a comparator rather than an optimum.
+The native RDKit 2026.03.6 ETKDGv3 default pruneRmsThresh is -1.0, verified by
+runtime inspection; 0.35 Å is our reference code's explicit setting, while RL
+candidate embedding explicitly uses 0.5 Å. Do not conflate embedding-time
+pruning with later post-minimization reference compression.
 
 The existing corrected pilot completed on clean source dfb40c1: 17 tests and
 seven public-scorer replay checks passed. See the measured
