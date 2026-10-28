@@ -261,8 +261,13 @@ def render_mega_study(summary: pd.DataFrame, output: Path, manifest: dict) -> No
         for i, label in enumerate((first_label, second_label)):
             bar = fig.add_axes([0.965, 0.56 if i == 0 else 0.12, 0.008, 0.30])
             fig.colorbar(images[i], cax=bar).set_label(label, fontsize=9)
+        status = (
+            f"PROVISIONAL {manifest['panel_size']}/{manifest['planned_panel_size']} completed | "
+            if manifest.get("state") == "provisional"
+            else ""
+        )
         fig.suptitle(
-            f"{filename.upper()} | fixed query vs {manifest['panel_size']} different generated molecules\n"
+            f"{status}{filename.upper()} | fixed query vs {manifest['panel_size']} different generated molecules\n"
             "Each tile: reference count × candidate conformer attempts; no RNN training",
             fontsize=14,
         )

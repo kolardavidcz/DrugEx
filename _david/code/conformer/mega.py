@@ -316,8 +316,84 @@ def summarize(frame, panel_size):
     return result
 
 
+def render_partial(output):
+    """Render a fixed snapshot of atomic parent checkpoints without changing the run."""
+    manifest = json.loads((output / "manifest.json").read_text())
+    paths = sorted((output / "parts").glob("*.csv.gz"))
+    if not paths:
+        raise ValueError(
+            "No completed parent checkpoints; use --render-only for a finished run"
+        )
+    columns = [
+        "molecule_id",
+        "method",
+        "seed",
+        "conformers",
+        "isomer_cap",
+        "reference_cap",
+        "score",
+        "seconds",
+        "failure",
+        "available",
+    ]
+    hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+    frame = pd.concat(
+        (pd.read_csv(p, usecols=columns) for p in paths), ignore_index=True
+    )
+    ids = sorted(frame.molecule_id.unique().tolist())
+    keys = columns[:6]
+    expected = (
+        len(manifest["methods"])
+        * len(manifest["seeds"])
+        * len(manifest["conformers"])
+        * len(manifest["isomer_caps"])
+        * len(manifest["reference_caps"])
+    )
+    if (
+        set(ids) != {int(p.name.split(".")[0]) for p in paths}
+        or frame.duplicated(keys).any()
+        or not frame.groupby("molecule_id").size().eq(expected).all()
+    ):
+        raise ValueError("Incomplete or duplicate parent grids in preview snapshot")
+    panel = pd.read_csv(output / "panel.csv")
+    if not set(ids).issubset(set(panel.molecule_id)):
+        raise ValueError("Checkpoint molecule IDs do not belong to the panel")
+    preview = output / f"preview_{len(ids)}"
+    preview.mkdir(exist_ok=True)
+    summary = summarize(frame, len(ids))
+    summary.to_csv(preview / "summary.csv", index=False)
+    panel[panel.molecule_id.isin(ids)].to_csv(preview / "panel.csv", index=False)
+    manifest.update(
+        state="provisional",
+        planned_panel_size=manifest["panel_size"],
+        panel_size=len(ids),
+        completed_molecules=ids,
+        missing_molecules=sorted(set(panel.molecule_id) - set(ids)),
+        measurement_rows=len(frame),
+        preview_source=str(output),
+        checkpoint_sha256=hashes,
+        rendering_source_sha256={
+            p: hashlib.sha256((PROJECT_ROOT / p).read_bytes()).hexdigest()
+            for p in ("_david/code/conformer/mega.py", "_david/code/visualization.py")
+        },
+    )
+    render_mega_study(summary, preview, manifest)
+    manifest["preview_sha256"] = {
+        p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in preview.iterdir()
+        if p.is_file() and p.name != "manifest.json"
+    }
+    (preview / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(
+        f"Provisional preview: {len(ids)}/{len(panel)} parents, {len(frame)} rows; {preview}"
+    )
+
+
 def run(args):
     output = args.output.resolve()
+    if args.render_partial:
+        render_partial(output)
+        return
     if args.render_only:
         manifest = json.loads((output / "manifest.json").read_text())
         if manifest["state"] != "complete":
@@ -551,9 +627,11 @@ def main():
     parser.add_argument("--reference-attempts", type=int, default=1000)
     parser.add_argument("--smiles", default=DEFAULT_MOLECULE)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--render-only", action="store_true")
+    rendering = parser.add_mutually_exclusive_group()
+    rendering.add_argument("--render-only", action="store_true")
+    rendering.add_argument("--render-partial", action="store_true")
     args = parser.parse_args()
-    if not (args.resume or args.render_only) and not args.inputs:
+    if not (args.resume or args.render_only or args.render_partial) and not args.inputs:
         parser.error("Provide saved evaluation CSVs with --inputs")
     run(args)
 
