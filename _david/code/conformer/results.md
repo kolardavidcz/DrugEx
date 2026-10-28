@@ -1,31 +1,37 @@
 # Conformer study: status and evidence
 
-**2026-10-28: joint drug-panel calibration authorized and implemented.**
-Read the [current calibration report](../../output/20261028_joint_calibration/REPORT.md)
-for the grid, scope, preparation correction and review order. The drug panel is
-frozen: 512 DrugCentral structures linked to approval IDs, selected before
-convergence or scores. Test 36 combinations: reference requests 50/100;
-candidate requests 10/20/40; reference post-minimization RMSD 0.5/1.25 Å;
-candidate additional pruning off/0.5/1.25 Å. MMFF94s ε78.4 stays fixed;
-reference/candidate stereo caps remain eight/four. All surviving references are
-retained. Each input is compared only with its own independent reference ensemble.
+**2026-10-28: retained-reference comparison restored; workspace consolidated.**
+Read the [current report](../../output/20261028_2145_joint_calibration/REPORT.md)
+and [retained-reference pilot figure](../../output/20261028_2145_joint_calibration/pilot_reference_caps.png).
+All active source is in the main checkout's `_david/code/`. The current run is
+`_david/output/20261028_2145_joint_calibration/`: report/figures/progress at root,
+measurements and intermediate data in `raw_data/`, execution logs in `logs/`.
+All 17 DrugEx execution worktrees in the lab `.cache` were removed after auditing
+and preserving provenance. Local WSL edits are synchronized to the main lab
+checkout through the private remote; computation uses explicit SSH commands.
 
-The first 16-drug diagnostic found default tautomer preparation removing assigned
-stereo. The thesis adapter now preserves stereo during enumeration and explicitly
-rejects selected chemical states that still lose assigned stereo; 13/512 inputs
-trigger that descriptor check. Keep those failures in the ledger, not a hidden
-exclusion. Frozen corrected source **6e25c8b** passed **31 tests** and scoped Ruff
-on dichtator. The corrected 16-input pilot completed, with all six public-scorer
-replays passing; baseline mean 0.99135, 15/16 reaching 0.95. The full 512-input,
-18,432-row run is measuring with 33 single-thread workers. Execution:
-`tmux drugex-joint-verified`, output `_david/output/20261028_joint_calibration/full_verified`.
-The pilot's 32 complete generation-to-score replays also passed within 1.12e−16.
-At the working preset, candidate post-pruning 0.5 Å reduced mean actual call time
-from 2.880 to 2.612 s with unchanged displayed mean ROCS (16 inputs; concurrent
-lab load). This is a pilot timing result, not an RL epoch speedup.
-Candidate minimization remains OFF by default; this is an explicit study profile.
-No RL epochs have started. No historical measurements were changed. The candidate
-stereo cap is provisional; this fixed-cap grid does not establish its optimum.
+The main repeated-cost axis is retained reference structures, **1/2/4/8/all**.
+Preparation requests 50/100 measure a separate one-time effort. The new analysis
+uses saved pair matrices, with candidate-score-blind round-robin selection across
+stereo identities. Raw data preserve all original preparation/pruning conditions;
+the main figure fixes the selected 50-request, 0.5 Å reference preparation.
+
+Validated 16-input pilot, candidate C20/I4/pruning off: reference caps 1/2/4/8/all
+have mean ROCS **0.9168/0.9329/0.9600/0.9727/0.9913**, reaching 0.95 on
+**10/11/12/14/15 of 16 inputs**. Shared-component seconds are
+**1.051/1.126/1.271/1.561/2.884**. This supports eight retained structures as a
+quality-first candidate for wider validation, not a universal selected default.
+
+The full panel remains **incomplete: 509/512 complete checkpoints**. Tretinoin
+and lutein report E/Z identity errors; umeclidinium is still computing. Six
+completed inputs also contain reference identity-error messages, including five
+possible explicit-H representation mismatches; inspect these before full-panel
+conclusions. Invalid-conformer filtering is a research decision under discussion.
+No failed input is silently removed. New progress handling records worker errors
+immediately instead of hiding them during pool shutdown. Main-checkout source
+passed **33 tests**; original numerical measurement functions are unchanged by
+relocation. Original source 6e25c8b and per-input hashes remain in run provenance.
+Candidate minimization stays OFF by default. No RL training has started.
 
 **2026-10-28 follow-up: RL launch on hold; pipeline refactoring under review.**
 Read the dated [pipeline/reference plan](../../output/20261028_rl_preparation/PLAN.md)
@@ -71,7 +77,7 @@ two optimized methods and BOTH cutoffs; exclude the unminimized profile from
 this grouping calculation. Fixed ranges 1–4/5–8/9–12; more than 12 is outside this
 mini-study and must be reported. Fixed membership applies across all figures.
 
-Source: clean immutable **95d0d60**, /home/kolarv/.cache/drugex-native-95d0d60.
+Historical measurement source: Git revision **95d0d60**. Its cached execution checkout was removed during workspace consolidation; reproduce from Git, not an old execution path.
 All **22** regression tests passed (3.644 s) and scoped Ruff passed there. The new
 EGCG pilot completed 960 rows; six representative native public-scorer replays
 matched within 1.2e-16. Exact settings, source hashes, test command and replay

@@ -4,8 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 output=${1:?Pass the absolute experiment directory}
 workers=${2:-3}
-mkdir -p "$output/logs" "$output/raw_data/tmp"
+mkdir -p "$output/logs" "$output/raw_data/tmp" "$output/raw_data/tool_cache/matplotlib"
 export TMPDIR="$output/raw_data/tmp"
+export XDG_CACHE_HOME="$output/raw_data/tool_cache"
+export MPLCONFIGDIR="$output/raw_data/tool_cache/matplotlib"
 export PYTHONDONTWRITEBYTECODE=1
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 trap 'code=$?; echo "$code" > "$output/logs/exit_code"' EXIT

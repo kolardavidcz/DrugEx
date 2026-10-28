@@ -10,6 +10,7 @@ from rdkit.Chem import AllChem
 from rdkit.ML.Cluster import Butina
 
 from _david.code.chemistry import (
+    IDENTITY_REJECTED,
     Optimization,
     check_identity,
     optimize_conformers,
@@ -79,6 +80,8 @@ class PrepareMolecule:
         self.energy_window_kcal = energy_window_kcal
         self.num_threads = num_threads
         self.optimization = optimization
+        self.last_optimization_statuses: list[int] = []
+        self.last_identity_rejections: list[str] = []
 
     def standardize(self, smiles: str) -> str:
         """Standardize input chemical structure into canonical SMILES representation."""
@@ -186,13 +189,23 @@ class PrepareMolecule:
         """Embed, minimize, energy-filter and cluster a reference ensemble."""
         target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
         target_path.parent.mkdir(parents=True, exist_ok=True)
+        self.last_optimization_statuses = []
+        self.last_identity_rejections = []
 
         mol, is_3d = self.load_molecule(query)
         if is_3d:
+            written = 0
             with Chem.SDWriter(str(target_path)) as writer:
                 for conf in mol.GetConformers():
-                    check_identity(Chem.Mol(mol, confId=conf.GetId()), mol)
+                    try:
+                        check_identity(Chem.Mol(mol, confId=conf.GetId()), mol)
+                    except ValueError as exc:
+                        self.last_identity_rejections.append(str(exc))
+                        continue
                     writer.write(mol, confId=conf.GetId())
+                    written += 1
+            if not written:
+                raise RuntimeError("No identity-valid reference conformers survived")
             return target_path
 
         mol_h = Chem.AddHs(mol)
@@ -221,7 +234,9 @@ class PrepareMolecule:
             )
         elif self.optimization.method != "none":
             records = [Chem.Mol(mol_h, confId=cid) for cid in conf_ids]
-            optimized, _ = optimize_conformers(records, self.optimization)
+            optimized, self.last_optimization_statuses = optimize_conformers(
+                records, self.optimization
+            )
             if not optimized:
                 raise RuntimeError(
                     f"No reference converged with {self.optimization.name}"
@@ -235,6 +250,22 @@ class PrepareMolecule:
             mol_h.SetIntProp("EmbeddedConformers", len(conf_ids))
         else:
             mol_h.SetProp("ForceField", "none")
+        for conf in list(mol_h.GetConformers()):
+            cid = conf.GetId()
+            try:
+                check_identity(Chem.Mol(mol_h, confId=cid), mol)
+            except ValueError as exc:
+                self.last_identity_rejections.append(str(exc))
+                mol_h.RemoveConformer(cid)
+                if energies is not None:
+                    energies.pop(cid, None)
+        if not mol_h.GetNumConformers():
+            raise RuntimeError("No identity-valid reference conformers survived")
+        mol_h.SetIntProp(
+            "IdentityRejectedConformers",
+            self.last_optimization_statuses.count(IDENTITY_REJECTED)
+            + len(self.last_identity_rejections),
+        )
         mol_h.SetIntProp(
             "ConvergedConformers", len(energies) if energies is not None else 0
         )

@@ -4,7 +4,7 @@ import unittest
 import tempfile
 from pathlib import Path
 from concurrent.futures import Future
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import numpy as np
 from rdkit import Chem
@@ -13,14 +13,90 @@ from rdkit.Chem import AllChem
 from _david.code.reference import select_conformers
 from _david.code.chemistry import (
     CandidateConformerGenerator,
+    IDENTITY_REJECTED,
+    Optimization,
+    check_identity,
+    optimize_conformers,
     prepare_candidate_molecule,
 )
+from _david.code.reference import PrepareMolecule
 from _david.code.conformer.calibrate import summarize, collect_jobs
 from _david.code.conformer.reference_caps import balanced_reference_order
 import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    @staticmethod
+    def geometry(smiles):
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        if AllChem.EmbedMolecule(mol, randomSeed=42) != 0:
+            raise RuntimeError("Fixture embedding failed")
+        return mol
+
+    def test_identity_normalizes_ordinary_hydrogen_but_preserves_stereo_and_isotopes(
+        self,
+    ):
+        expected = Chem.MolFromSmiles("CN(CC(=O)O)C(=N)N")
+        check_identity(Chem.MolFromSmiles("[H]/N=C(/N)N(C)CC(=O)O"), expected)
+        with self.assertRaises(ValueError):
+            check_identity(
+                Chem.MolFromSmiles("F/C=C\\F"), Chem.MolFromSmiles("F/C=C/F")
+            )
+        with self.assertRaises(ValueError):
+            check_identity(Chem.MolFromSmiles("CO"), Chem.MolFromSmiles("[2H]CO"))
+
+    def test_one_minimization_stereo_failure_keeps_the_other_conformer(self):
+        valid = self.geometry("F/C=C/F")
+        invalid = Chem.Mol(valid)
+        invalid.SetBoolProp("fixture_flip", True)
+        wrong_positions = self.geometry("F/C=C\\F").GetConformer().GetPositions()
+
+        def field(mol, props):
+            result = Mock()
+
+            def minimize(**kwargs):
+                if mol.HasProp("fixture_flip"):
+                    for index, point in enumerate(wrong_positions):
+                        mol.GetConformer().SetAtomPosition(index, point)
+                return 0
+
+            result.Minimize.side_effect = minimize
+            result.CalcEnergy.return_value = 1.0
+            return result
+
+        with patch(
+            "_david.code.chemistry.AllChem.MMFFGetMoleculeForceField", side_effect=field
+        ):
+            accepted, statuses = optimize_conformers([invalid, valid], Optimization())
+        self.assertEqual(statuses, [IDENTITY_REJECTED, 0])
+        self.assertEqual(len(accepted), 1)
+        check_identity(accepted[0], valid)
+
+    def test_reference_filters_each_bad_embedding_instead_of_its_stereoisomer(self):
+        valid, invalid = self.geometry("F/C=C/F"), self.geometry("F/C=C\\F")
+
+        def embed(mol, **kwargs):
+            for fixture in [valid, invalid]:
+                mol.AddConformer(fixture.GetConformer(), assignId=True)
+            return [0, 1]
+
+        preparer = PrepareMolecule(
+            num_conformers=2, rmsd_cutoff=None, optimization=Optimization("none")
+        )
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch(
+                "_david.code.reference.AllChem.EmbedMultipleConfs", side_effect=embed
+            ),
+        ):
+            path = preparer.generate_reference_conformers(
+                Chem.MolFromSmiles("F/C=C/F"), Path(directory) / "reference.sdf"
+            )
+            records = list(Chem.SDMolSupplier(str(path), removeHs=False))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(len(preparer.last_identity_rejections), 1)
+        self.assertEqual(records[0].GetIntProp("IdentityRejectedConformers"), 1)
+
     def test_reference_cap_cycles_identities_without_looking_at_candidate_scores(self):
         records = [Chem.MolFromSmiles("CCO") for _ in range(4)]
         for mol, identity in zip(records, ["first", "first", "second", "second"]):

@@ -27,6 +27,7 @@ import pandas as pd
 from rdkit import Chem, rdBase
 
 from _david.code.chemistry import (
+    IDENTITY_REJECTED,
     CandidateConformerGenerator,
     Optimization,
     check_identity,
@@ -82,16 +83,18 @@ def reference_pool(smiles, attempts, directory):
         )
     isomers = list(enumerate_stereoisomers(mol, limit=8, seed=42))
     pool, errors, embedded, converged = [], [], 0, 0
+    statuses, rejected_identity = Counter(), 0
     for index, iso in enumerate(isomers):
+        preparer = PrepareMolecule(
+            num_conformers=attempts,
+            max_reference_conformers=attempts,
+            random_seed=43,
+            rmsd_cutoff=None,
+            num_threads=1,
+            optimization=PROFILE,
+        )
         try:
-            path = PrepareMolecule(
-                num_conformers=attempts,
-                max_reference_conformers=attempts,
-                random_seed=43,
-                rmsd_cutoff=None,
-                num_threads=1,
-                optimization=PROFILE,
-            ).generate_reference_conformers(
+            path = preparer.generate_reference_conformers(
                 iso, directory / f"reference_{attempts}_{index}.sdf"
             )
             records = list(Chem.SDMolSupplier(str(path), removeHs=False))
@@ -107,6 +110,11 @@ def reference_pool(smiles, attempts, directory):
             pool.extend(records)
         except (OSError, ValueError, RuntimeError) as exc:
             errors.append(f"isomer {index}: {type(exc).__name__}: {exc}")
+        finally:
+            statuses.update(map(str, preparer.last_optimization_statuses))
+            rejected_identity += preparer.last_optimization_statuses.count(
+                IDENTITY_REJECTED
+            ) + len(preparer.last_identity_rejections)
     info = dict(
         seconds=time.perf_counter() - started,
         enumerated_isomers=len(isomers),
@@ -114,6 +122,8 @@ def reference_pool(smiles, attempts, directory):
         converged_successful_identities=converged,
         failed_identities=len(errors),
         errors=errors,
+        optimization_statuses=dict(statuses),
+        identity_rejected=rejected_identity,
     )
     save_sdf(directory / f"reference_{attempts}_pool.sdf", pool)
     return pool, info
@@ -143,10 +153,7 @@ def candidate_pool(smiles, attempts, directory):
                 records = list(Chem.SDMolSupplier(str(path), removeHs=False))
             if any(m is None for m in records):
                 raise ValueError("Invalid candidate SDF record")
-            for record in records:
-                check_identity(
-                    record, Chem.MolFromSmiles(record.GetProp("EnumeratedIsomerSMILES"))
-                )
+            # The shared RL generator already rejects invalid embedded identities.
     except (OSError, ValueError, RuntimeError) as exc:
         errors.append(f"{type(exc).__name__}: {exc}")
         records = []
@@ -161,6 +168,9 @@ def candidate_pool(smiles, attempts, directory):
         optimization_statuses=dict(Counter(map(str, statuses))),
         errors=errors,
         enumerated_isomers=enumerated_isomers,
+        embedded_identity_rejected=len(generator.last_identity_rejections),
+        embedded_identity_rejection_reasons=generator.last_identity_rejections,
+        minimized_identity_rejected=statuses.count(IDENTITY_REJECTED),
     )
     save_sdf(directory / f"candidate_{attempts}_pool.sdf", usable)
     return usable, info
@@ -241,6 +251,15 @@ def measure_case(case, output):
                             "enumerated_isomers"
                         ],
                         enumerated_candidate_isomers=info["enumerated_isomers"],
+                        reference_identity_rejected=ref_info[ref_attempts].get(
+                            "identity_rejected", 0
+                        ),
+                        candidate_embedding_identity_rejected=info[
+                            "embedded_identity_rejected"
+                        ],
+                        candidate_minimization_identity_rejected=info[
+                            "minimized_identity_rejected"
+                        ],
                         generation_seconds=info["generation_seconds"],
                         optimization_seconds=info["optimization_seconds"],
                         candidate_pruning_seconds=candidate_times[candidate_cutoff],
