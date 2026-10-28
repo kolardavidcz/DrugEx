@@ -2,6 +2,9 @@
 
 import unittest
 import tempfile
+from pathlib import Path
+from concurrent.futures import Future
+from unittest.mock import Mock
 
 import numpy as np
 from rdkit import Chem
@@ -12,11 +15,32 @@ from _david.code.chemistry import (
     CandidateConformerGenerator,
     prepare_candidate_molecule,
 )
-from _david.code.conformer.calibrate import summarize
+from _david.code.conformer.calibrate import summarize, collect_jobs
 import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_worker_error_does_not_hide_later_completed_inputs(self):
+        failed, completed = Future(), Future()
+        failed.set_exception(ValueError("inspect this input"))
+        completed.set_result(2)
+        executor = Mock()
+        executor.submit.side_effect = [failed, completed]
+        manifest = dict(state="measuring", completed_molecules=[], total_molecules=2)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "raw_data"
+            output.mkdir()
+            errors = collect_jobs(
+                executor, [{"molecule_id": 1}, {"molecule_id": 2}], output, manifest
+            )
+            self.assertEqual(manifest["completed_molecules"], [2])
+            self.assertIn("1", errors)
+            self.assertTrue((Path(directory) / "progress.json").exists())
+            self.assertIn(
+                "inspect this input",
+                (Path(directory) / "logs/input_1.error.log").read_text(),
+            )
+
     def test_incompatible_tautomer_stereo_fails_explicitly(self):
         with self.assertRaisesRegex(ValueError, "loses assigned stereochemistry"):
             prepare_candidate_molecule("C/C(O)=C/C")

@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 
 import numpy as np
 import pandas as pd
@@ -306,13 +307,58 @@ def summarize(frame):
     return pd.DataFrame(rows)
 
 
+def result_root(output):
+    return output.parent if output.name == "raw_data" else output
+
+
+def save_progress(output, manifest):
+    """Keep the full provenance and a small user-facing progress file together."""
+    atomic_json(output / "manifest.json", manifest)
+    atomic_json(
+        result_root(output) / "progress.json",
+        dict(
+            state=manifest["state"],
+            completed=len(manifest["completed_molecules"]),
+            total=manifest["total_molecules"],
+            errors=manifest.get("job_errors", {}),
+            updated_utc=datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+
+
+def collect_jobs(executor, jobs, output, manifest):
+    """Record errors immediately; executor shutdown must not hide a failed job."""
+    futures = {executor.submit(measure_case, case, str(output)): case for case in jobs}
+    errors = {}
+    logs = result_root(output) / "logs"
+    logs.mkdir(exist_ok=True)
+    for future in as_completed(futures):
+        case = futures[future]
+        try:
+            manifest["completed_molecules"].append(future.result())
+        except Exception as exc:
+            key = str(case["molecule_id"])
+            errors[key] = f"{type(exc).__name__}: {exc}"
+            (logs / f"input_{key}.error.log").write_text(traceback.format_exc())
+        manifest["job_errors"] = errors
+        manifest["state"] = "measuring_with_errors" if errors else "measuring"
+        save_progress(output, manifest)
+        print(
+            f"{len(manifest['completed_molecules'])}/{manifest['total_molecules']} complete; {len(errors)} errors",
+            flush=True,
+        )
+    return errors
+
+
 def run(args):
     output = args.output.resolve()
     hashes = {p: digest(PROJECT_ROOT / p) for p in SOURCES}
     if args.render_only:
         from _david.code.conformer.visualization import render_joint_calibration
 
-        render_joint_calibration(pd.read_csv(output / "summary.csv"), output)
+        render_joint_calibration(
+            pd.read_csv(output / "summary.csv"), result_root(output)
+        )
         return
     output.mkdir(parents=True, exist_ok=args.resume)
     (output / "checkpoints").mkdir(exist_ok=True)
@@ -369,7 +415,7 @@ def run(args):
                 *sys.argv[1:],
             ],
         )
-    atomic_json(path, manifest)
+    save_progress(output, manifest)
     try:
         complete = [
             int(i)
@@ -378,19 +424,16 @@ def run(args):
         ]
         jobs = [c for c in panel.to_dict("records") if c["molecule_id"] not in complete]
         manifest.update(state="measuring", completed_molecules=complete)
-        atomic_json(path, manifest)
+        save_progress(output, manifest)
         with ProcessPoolExecutor(
-            max_workers=args.workers, mp_context=multiprocessing.get_context("spawn")
+            max_workers=min(args.workers, max(1, len(jobs))),
+            mp_context=multiprocessing.get_context("spawn"),
         ) as executor:
-            futures = [executor.submit(measure_case, c, str(output)) for c in jobs]
-            for future in as_completed(futures):
-                manifest["completed_molecules"].append(future.result())
-                manifest["updated_utc"] = datetime.now(timezone.utc).isoformat()
-                atomic_json(path, manifest)
-                print(
-                    f"{len(manifest['completed_molecules'])}/{len(panel)} inputs complete",
-                    flush=True,
-                )
+            errors = collect_jobs(executor, jobs, output, manifest)
+        if errors:
+            raise RuntimeError(
+                f"Unfinished input jobs: {errors}; see logs/input_*.error.log"
+            )
         frame = pd.concat(
             [
                 pd.read_csv(output / "checkpoints" / str(i) / "rows.csv")
@@ -413,7 +456,7 @@ def run(args):
         summary.to_csv(output / "summary.csv", index=False)
         from _david.code.conformer.visualization import render_joint_calibration
 
-        render_joint_calibration(summary, output)
+        render_joint_calibration(summary, result_root(output))
         manifest.update(
             state="complete",
             measurement_rows=len(frame),
@@ -421,10 +464,10 @@ def run(args):
                 p.name: digest(p) for p in output.iterdir() if p.is_file() and p != path
             },
         )
-        atomic_json(path, manifest)
+        save_progress(output, manifest)
     except Exception as exc:
         manifest.update(state="failed", error=f"{type(exc).__name__}: {exc}")
-        atomic_json(path, manifest)
+        save_progress(output, manifest)
         raise
 
 

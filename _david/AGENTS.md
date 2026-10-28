@@ -80,19 +80,27 @@ action lists or settings.
 - `code/schema.py`, `code/utils.py`: score columns and runtime configuration.
 - `code/visualization.py`: analysis and figures; `tests/`: executable assertions.
 - `code/conformer/`: conformer study and maintained results; generated evidence
-  belongs under `output/conformer/`, separate from source.
+  belongs under `output/YYYYMMDD_HHMM_short_description/`, separate from source.
+  Put the report and final figures at the experiment root, measurements and
+  intermediate data in `raw_data/`, and execution logs in `logs/`.
 - `legacy/`: fragment-conditioned historical comparisons; `output/`: generated
   artifacts. Ignored data/checkpoints are not transferred by Git.
 
-Default to local WSL `/home/kolar/DrugEx` for editing and small checks, and
-`/home/kolarv/DrugEx` for compute through SSH alias `dichtator`. Follow the personal
-`drugex-dichtator` skill. In a native SSH chat, work directly in that checkout.
+Edit in local WSL `/home/kolar/DrugEx`; execute computation with explicit SSH
+commands in `/home/kolarv/DrugEx` through alias `dichtator`. All thesis source
+must remain in the main checkout's `_david/code/`, and all generated work under
+`_david/output/`. Do not create execution worktrees, source copies or experiment
+data in `.cache`, another checkout, or another home-directory path. Preserve
+provenance with Git revisions, source hashes and archived source under the
+experiment's `raw_data/`; check relevant hashes before and after computation.
+Set temporary directories inside the experiment's `raw_data/` as well.
+Follow the personal `drugex-dichtator` skill within these project constraints.
 Inspect both hosts before synchronization and preserve unrelated/user edits.
 Commit only task files and synchronize through private `dichtator`; never push
 to GitHub `origin` or force push. Do not commit credentials, checkpoints or bulky
 output. Use LF endings and the existing remote `.venv`.
 
-Validate the relevant source, including import origins for isolated checkouts.
+Validate the relevant source, including imports from the main checkout.
 Record host, revision/dirty state, exact command and result for substantive
 validation. When relevant source is dirty or concurrent edits are possible,
 compare its hashes before claiming remote validation. Reuse existing experiment
