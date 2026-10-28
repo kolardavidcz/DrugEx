@@ -1,19 +1,46 @@
 # Conformer study: status and evidence
 
-**2026-10-28 current checkpoint: corrected self-recovery implementation and sampling-policy review.**
+**2026-10-28 current checkpoint: smaller fixed-budget self-recovery design; RMSD decision pending.**
 The old molecule-versus-EGCG job was stopped at the user's request, with all 508
 completed checkpoints preserved and its manifest marked `cancelled_superseded`.
 It must not be resumed as the requested self-recovery experiment. Every parent
 in the corrected test needs its own independent reference ensemble.
 
-Start with the requested readable explanations:
-[READ_ME_FIRST.md](../../output/20261028_1520_self_recovery/READ_ME_FIRST.md) and
-[AQME_SUMMARY.md](../../output/20261028_1520_self_recovery/AQME_SUMMARY.md).
-The user selected an AQME-style baseline and categories 1/2/3–4/5–8/9–25 based
-on enumerated reference stereoisomers, then raised a comparability concern.
-A fixed-budget control alongside adaptation is proposed and awaiting steering;
-the corrected full scan has not restarted. The native scheduler is paused with
-updated self-recovery instructions and a four-hour interval, not the old run.
+Start with [READ_ME_FIRST.md](../../output/20261028_1520_self_recovery/READ_ME_FIRST.md)
+for the current score, scope, filtering and counts; read
+[RMSD_DECISION.md](../../output/20261028_1520_self_recovery/RMSD_DECISION.md)
+for the proposed reference-compression comparison and supporting evidence.
+The user superseded the adaptive plan: no AQME in the current test; cap attempts
+at 50 per stereoisomer and enumerate at most four isomers. Compare three profiles:
+no minimization, ordinary MMFF94 and high-dielectric MMFF. The last profile's
+variant is pending: retain the previous MMFF94s ε78.4 condition or use MMFF94
+on both sides of the dielectric comparison. The wider grid is deferred.
+
+Use one candidate search with the RL seed 0xC0FFEE, independent reference seed
+42, the maximum over all permitted reference/candidate geometry pairs per
+parent, then summarize across parents. No three-seed averaging or formal
+hypothesis test is requested. Category counts now mean distinct enumerated
+reference stereo identities still represented after filtering, not retained
+conformer counts. With the four-isomer cap, only groups 1/2/3–4 can be nonempty.
+Record before/after counts and reference/candidate failures; do not select
+parents by score or omit failed candidate generation from the mean.
+
+The existing corrected pilot completed on clean source dfb40c1: 17 tests and
+seven public-scorer replay checks passed. See the measured
+[EGCG pilot](../../output/20261028_1520_self_recovery/EGCG_PILOT.md) and its
+[manifest](../../output/20261028_1520_self_recovery/egcg_validation/manifest.json).
+Extracting only candidate seed 0xC0FFEE at 50 reference / 25 candidate attempts,
+all retained references and one fully specified isomer gives 0.9431403168
+unminimized on both sides, 0.9999999932 for matched MMFF94 ε1, and 0.9999999819
+for matched MMFF94s ε78.4. These are existing saved measurements, not a new run,
+and do not establish recovery across other parents.
+
+The corrected larger scan has not restarted. The native scheduler remains
+paused at a four-hour interval. A small audit of reference pruning is proposed
+before launch: same saved pool, no additional pruning versus 0.5/1.25 Å,
+with cross-isomer compression evaluated separately. No cutoff change or
+cross-isomer policy has yet been selected. The old AQME explanation is retained
+as a deferred proposal, not the current protocol.
 
 Implementation is under `conformer/sampling.py` and `conformer/self_recovery.py`.
 The archived `determine_ensemble_parameters` function was found in the preserved
@@ -21,15 +48,16 @@ snapshot: it varied clustering cutoff and capped retained references at three;
 it did not estimate initial isomer/conformer attempts. Do not revive that cap or
 its unverified citation as an adaptive sampling policy.
 
-The selected reference deduplication uses 1.25 Å heavy-atom GetBestRMS within each
-stereoisomer only, with a final spacing check after Butina representatives.
-This threshold is a study setting, not a universal RDKit default. Specified
-stereo remains fixed; unspecified stereo is enumerated up to the selected limit
-of 25. Candidate counts now retain enumeration identities separately from SDF
+The implemented adaptive prototype uses 1.25 Å heavy-atom GetBestRMS within each
+stereoisomer, with a final spacing check after Butina representatives. It still
+has the superseded seven-profile, three-seed, adaptive matrix and must not be
+launched as the new smaller study. The new cutoff policy remains open; cross-isomer
+compression is a potentially useful approximation, not chemical equivalence.
+Candidate counts retain enumeration identities separately from SDF
 readback tags. Explicit candidate budgets above 200 are no longer silently
 clamped by the thesis adapter; the core remains unchanged. Production defaults,
-including candidate minimization OFF, are unchanged. New prototype validation
-must pass before any measurement launch. A concurrent native environment.py
+including candidate minimization OFF, are unchanged. Any revised runner must
+pass relevant validation before launch. A concurrent native environment.py
 argument-order edit belongs to the user and must be preserved.
 
 ## Superseded cross-molecule experiment — retained evidence
