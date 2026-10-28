@@ -105,7 +105,7 @@ def derive_input(job):
     return output
 
 
-def render(summary, root):
+def render(summary, root, name):
     """Fix the selected preparation budget to isolate retained-count effects."""
     selected = summary[
         summary.reference_attempts.eq(50) & summary.reference_rmsd.eq(0.5)
@@ -164,18 +164,18 @@ def render(summary, root):
             )
         fig.colorbar(image, ax=ax, shrink=0.8)
     fig.suptitle(
-        "Retained references vs candidate search · same-input self-recovery\n"
+        f"Retained references vs candidate search · {int(selected.inputs.iloc[0])} inputs · same-input self-recovery\n"
         "Reference preparation fixed: 50 requests/stereoisomer, cap 8 identities, 0.5 Å pruning\n"
         "MMFF94s ε=78.4 · failures retained · shared component timing; not RL epoch time",
         fontsize=14,
     )
-    fig.savefig(root / "reference_caps.png", dpi=160)
-    fig.savefig(root / "reference_caps.svg")
+    fig.savefig(root / f"{name}.png", dpi=160)
+    fig.savefig(root / f"{name}.svg")
     plt.close(fig)
 
 
-def run(root, workers):
-    raw = root / "raw_data"
+def run(root, workers, data=None, name="reference_caps"):
+    raw = data or root / "raw_data"
     manifest = json.loads((raw / "manifest.json").read_text())
     if manifest["state"] != "complete" or "validation" not in manifest:
         raise ValueError("Finish and validate the original measurements first")
@@ -204,7 +204,7 @@ def run(root, workers):
         ignore_index=True,
     )
     summary.to_csv(raw / "reference_caps_summary.csv", index=False)
-    render(summary, root)
+    render(summary, root, name)
     manifest["retained_reference_analysis"] = dict(
         source_data_sha256=digest(raw / "data.csv.gz"),
         script_sha256=digest(__file__),
@@ -221,5 +221,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument(
+        "--data",
+        type=Path,
+        help="Validated measurement directory; default: OUTPUT/raw_data",
+    )
+    parser.add_argument("--name", default="reference_caps", help="Figure filename stem")
     args = parser.parse_args()
-    run(args.output, args.workers)
+    run(args.output, args.workers, args.data, args.name)
