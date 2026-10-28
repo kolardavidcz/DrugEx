@@ -104,6 +104,14 @@ compare the same parent/method/C against cap 1. Group 1 has zero such gain and
 omits redundant gain panels. Score/time frontiers compare budgets within each
 method; methods have different query geometries. MMFF94 time bars span median
 to 95th percentile across parent seed-average times, not confidence intervals.
+Molecule categories depend only on the recorded isomer bound. Conformer attempts
+remain a varied budget (1/5/10/15/20/30/50/100) in every category, including group 1.
+For each parent and seed, the score is the maximum over usable candidate
+conformers/isomers and selected reference conformers, matching training's
+best-match aggregation. It is never the mean of the candidate conformer scores.
+Only afterward are the three seed maxima averaged for that parent, followed by
+category mean/median/quantiles across parents. Requested attempts may yield fewer
+conformers because of pruning or failures; realized counts remain separate data.
 Preparation failures score zero in overall summaries. The success-only diagnostic
 requires all three seeds to succeed at both caps and reports its smaller denominator.
 At MMFF94/C100 in group 5–8, cap-30 minus cap-1 gain is 0.096466 mean, 0.024601
