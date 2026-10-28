@@ -17,6 +17,10 @@ import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_incompatible_tautomer_stereo_fails_explicitly(self):
+        with self.assertRaisesRegex(ValueError, "loses assigned stereochemistry"):
+            prepare_candidate_molecule("C/C(O)=C/C")
+
     def test_preparation_does_not_erase_assigned_amino_acid_stereo(self):
         smiles = "CC(=O)N[C@@H](Cc1ccc(O)cc1)C(=O)O"
         original = Chem.MolFromSmiles(smiles)

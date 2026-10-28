@@ -27,6 +27,9 @@ def prepare_candidate_molecule(smiles, *, canonicalize_tautomer=True, protonate=
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise ValueError(f"Invalid candidate SMILES: {smiles!r}")
+    assigned_before = sum(
+        str(s.specified) == "Specified" for s in Chem.FindPotentialStereo(mol)
+    )
     if canonicalize_tautomer:
         enumerator = rdMolStandardize.TautomerEnumerator()
         enumerator.SetRemoveSp3Stereo(False)
@@ -38,6 +41,11 @@ def prepare_candidate_molecule(smiles, *, canonicalize_tautomer=True, protonate=
         )
         if parsed is not None:
             mol = parsed
+    assigned_after = sum(
+        str(s.specified) == "Specified" for s in Chem.FindPotentialStereo(mol)
+    )
+    if assigned_after < assigned_before:
+        raise ValueError("Selected chemical state loses assigned stereochemistry")
     return mol
 
 
@@ -124,11 +132,17 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                 mol = Chem.MolFromSmiles(smiles)
                 if mol is None or self._filter_mol(smiles, mol):
                     continue
-                mol = prepare_candidate_molecule(
-                    smiles,
-                    canonicalize_tautomer=self.canonicalize_tautomer,
-                    protonate=self.protonate,
-                )
+                try:
+                    mol = prepare_candidate_molecule(
+                        smiles,
+                        canonicalize_tautomer=self.canonicalize_tautomer,
+                        protonate=self.protonate,
+                    )
+                except (ValueError, RuntimeError) as exc:
+                    logging.getLogger(__name__).warning(
+                        "%s: preparation failed: %s", smiles, exc
+                    )
+                    continue
                 for iso_index, iso in enumerate(self._get_isomers(mol)):
                     iso = Chem.AddHs(iso)
                     iso.SetProp("_Name", f"mol_{index}+{iso_index}")

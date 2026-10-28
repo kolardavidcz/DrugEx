@@ -68,7 +68,17 @@ def save_sdf(path, records):
 def reference_pool(smiles, attempts, directory):
     """The production reference preparer per identity; retain all energy survivors."""
     started = time.perf_counter()
-    mol = prepared_molecule(smiles)
+    try:
+        mol = prepared_molecule(smiles)
+    except (ValueError, RuntimeError) as exc:
+        return [], dict(
+            seconds=time.perf_counter() - started,
+            enumerated_isomers=0,
+            embedded_successful_identities=0,
+            converged_successful_identities=0,
+            failed_identities=1,
+            errors=[str(exc)],
+        )
     isomers = list(enumerate_stereoisomers(mol, limit=8, seed=42))
     pool, errors, embedded, converged = [], [], 0, 0
     for index, iso in enumerate(isomers):
@@ -121,8 +131,11 @@ def candidate_pool(smiles, attempts, directory):
         timeout=0,
         show_progress=False,
     )
-    errors, records = [], []
+    errors, records, enumerated_isomers = [], [], 0
     try:
+        enumerated_isomers = len(
+            list(generator._get_isomers(prepared_molecule(smiles)))
+        )
         with tempfile.TemporaryDirectory() as temporary:
             path = generator.genConformers([smiles], temporary)
             if Path(path).stat().st_size:
@@ -146,7 +159,7 @@ def candidate_pool(smiles, attempts, directory):
         usable=len(usable),
         optimization_statuses=dict(Counter(map(str, statuses))),
         errors=errors,
-        enumerated_isomers=len(list(generator._get_isomers(prepared_molecule(smiles)))),
+        enumerated_isomers=enumerated_isomers,
     )
     save_sdf(directory / f"candidate_{attempts}_pool.sdf", usable)
     return usable, info
@@ -245,9 +258,13 @@ def measure_case(case, output):
     temporary = directory / "rows.tmp"
     frame.to_csv(temporary, index=False)
     temporary.replace(directory / "rows.csv")
+    try:
+        prepared_smiles = Chem.MolToSmiles(prepared_molecule(case["smiles"]))
+    except (ValueError, RuntimeError):
+        prepared_smiles = ""
     details = dict(
         case=case,
-        prepared_smiles=Chem.MolToSmiles(prepared_molecule(case["smiles"])),
+        prepared_smiles=prepared_smiles,
         reference=ref_info,
         candidate=candidate_info,
         pair_matrix_shapes=pair_counts,
