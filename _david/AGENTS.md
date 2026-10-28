@@ -59,6 +59,9 @@ Use consistent terms for an input molecule, stereoisomer, conformer, embedding
 request and retained reference. Explain the practical difference between similar
 technical names before asking for a choice; do not infer a method change from
 a spelling variation when an existing choice is already recorded.
+Lead method discussions with one evidence-based recommendation and its reasons.
+Ask for a choice when a material scientific trade-off needs the user's judgment;
+do not hand back a list of unexplained technical options.
 
 This file is the single source of current project instructions.
 [code/conformer/results.md](code/conformer/results.md) is the single maintained findings/limitations/decision
