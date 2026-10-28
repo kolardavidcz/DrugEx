@@ -15,6 +15,7 @@ import multiprocessing
 from pathlib import Path
 import shutil
 import subprocess
+import traceback
 
 import pandas as pd
 
@@ -86,7 +87,17 @@ def run(root, workers):
     ) as pool:
         futures = {pool.submit(measure_case, case, str(raw)): case for case in jobs}
         for future in as_completed(futures):
-            molecule_id = future.result()
+            molecule_id = futures[future]["molecule_id"]
+            try:
+                future.result()
+            except Exception as exc:
+                plan.setdefault("errors", {})[str(molecule_id)] = str(exc)
+                plan["state"] = "running_with_errors"
+                (root / "logs" / f"repair_{molecule_id}.error.log").write_text(
+                    traceback.format_exc()
+                )
+                atomic_json(plan_path, plan)
+                continue
             path = raw / "checkpoints" / str(molecule_id) / "complete.json"
             checkpoint = json.loads(path.read_text())
             checkpoint["identity_repair_source"] = dict(
@@ -110,11 +121,11 @@ def run(root, workers):
             )
     if hashes != {p: digest(PROJECT_ROOT / p) for p in SOURCES}:
         raise ValueError("Source changed during identity repairs")
-    plan["state"] = "complete"
+    plan["state"] = "failed" if plan.get("errors") else "complete"
     atomic_json(plan_path, plan)
     atomic_json(
         root / "repair_progress.json",
-        dict(completed=len(plan["completed"]), total=len(targets), state="complete"),
+        dict(completed=len(plan["completed"]), total=len(targets), state=plan["state"]),
     )
 
 

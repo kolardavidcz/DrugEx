@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 from rdkit import Chem
 
+from _david.code.chemistry import check_identity
+
 from _david.code.conformer.calibrate import KEYS, PROFILE, save_sdf
 from _david.code.conformer.self_recovery import atomic_json, digest
 from _david.code.environment import create_rocs_scorer
@@ -121,12 +123,23 @@ def validate(output: Path, replays: int = 6):
         raise ValueError("Invalid score or silently missing observation")
     panel = pd.read_csv(output / "panel.csv")
     smiles_by_id = panel.set_index("molecule_id").smiles.to_dict()
+    identity_checked = 0
     for case in panel.to_dict("records"):
         directory = output / "checkpoints" / str(case["molecule_id"])
         detail = json.loads((directory / "complete.json").read_text())
         for filename, expected in detail["files_sha256"].items():
             if digest(directory / filename) != expected:
                 raise ValueError(f"Changed checkpoint: {directory / filename}")
+        for pool in directory.glob("*_pool.sdf"):
+            if not pool.stat().st_size:
+                continue
+            for record in Chem.SDMolSupplier(str(pool), removeHs=False):
+                if record is None:
+                    raise ValueError(f"Invalid saved geometry: {pool}")
+                check_identity(
+                    record, Chem.MolFromSmiles(record.GetProp("EnumeratedIsomerSMILES"))
+                )
+                identity_checked += 1
     replay_results = []
     valid = frame[
         ~frame.color_excluded & ~frame.reference_failure & ~frame.candidate_failure
@@ -189,6 +202,7 @@ def validate(output: Path, replays: int = 6):
         unique_complete_grids=True,
         component_reduction=True,
         checkpoint_hashes=True,
+        accepted_geometry_identity_checks=identity_checked,
         public_scorer_replays=replay_results,
         validation_script_sha256=digest(__file__),
     )
