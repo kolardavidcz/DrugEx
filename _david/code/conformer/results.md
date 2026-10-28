@@ -21,6 +21,24 @@ best-over-isomer scoring as a search over prepared forms, not activity evidence.
 
 ## Active execution checkpoint
 
+- **2026-10-28 provisional preview:** [mean score/time](../../output/conformer/mega_20261028/preview_508/mega_mean.png),
+  [median](../../output/conformer/mega_20261028/preview_508/mega_median.png),
+  [tails](../../output/conformer/mega_20261028/preview_508/mega_tails.png), and
+  [failure/ranking stability](../../output/conformer/mega_20261028/preview_508/mega_reliability.png).
+  These use 508 complete parent grids (2,133,600 rows), averaging three seeds
+  per parent before aggregation. Missing parents: 51, 61, 226, 446. Their unusually
+  slow generation makes this an incomplete subset; timing summaries may be biased
+  downward. Do not treat the preview as the completed study or select production
+  settings from it. Saved [summary](../../output/conformer/mega_20261028/preview_508/summary.csv)
+  and [preview manifest](../../output/conformer/mega_20261028/preview_508/manifest.json)
+  record included IDs, checkpoint hashes and rendering source hashes. Local copies
+  match all preview artifact hashes. Preview rendering passed scoped Ruff checks
+  on dichtator at `98afd83`, checked unique grid keys and 4,200 rows per parent,
+  and left the running measurement source/data unchanged. Reproduce from existing
+  checkpoints with `.venv/bin/python -B -m _david.code.conformer.mega --render-partial
+  --output /home/kolarv/DrugEx/_david/output/conformer/mega_20261028`;
+  this writes a separate `preview_<completed-count>/` directory. It does not run
+  conformer generation or validate final public-scorer replay.
 - Measurement source: clean committed `ff96921`, isolated at
   `/home/kolarv/.cache/drugex-mega-ff96921` on dichtator.
 - Persistent job: tmux `drugex-mega-512`; 16 one-thread workers, no RL epochs.
