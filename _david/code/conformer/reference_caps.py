@@ -68,6 +68,8 @@ def derive_input(job):
         indices = checkpoint["reference_selections"][str(r)][str(row["reference_rmsd"])]
         order = balanced_reference_order(refs[r], indices)
         ci = masks[key]
+        if len(ci) != row["actual_candidates"]:
+            raise ValueError("Reconstructed candidate mask differs from saved counts")
         for cap in REFERENCE_CAPS:
             ri = order[:cap] if cap else order
             best, winner = (0.0, 0.0, 0.0), (-1, -1)
@@ -94,7 +96,7 @@ def derive_input(job):
                 ),
             )
             if cap == 0 and not np.isclose(
-                record["score"], row["score"], atol=1e-8, equal_nan=True
+                record["score"], row["score"], atol=1e-8, rtol=0, equal_nan=True
             ):
                 raise ValueError(
                     "All-reference replay differs from the original result"
