@@ -441,6 +441,13 @@ def _analysis_tradeoffs(summary, output, metadata):
                 )
             if method == 1:
                 for row in frontier:
+                    ax.plot(
+                        [row.median_seconds, row.p95_seconds],
+                        [row.mean_budget_gain, row.mean_budget_gain],
+                        color=colors(method),
+                        alpha=0.2,
+                        lw=3,
+                    )
                     ax.annotate(
                         f"{row.conformers}/{row.isomer_cap}",
                         (row.mean_seconds, row.mean_budget_gain),
@@ -463,7 +470,7 @@ def _analysis_tradeoffs(summary, output, metadata):
     axes.flat[-1].text(
         0.05,
         0.08,
-        "Each point: C / isomer-cap setting\nLines: within-method nondominated choices\nMMFF94 labels: C / isomer cap\nAll available references",
+        "Each point: C / isomer-cap setting\nLines: within-method nondominated choices\nMMFF94 labels: C / isomer cap\nMMFF94 bars: median–95th percentile time\nAll available references",
         transform=axes.flat[-1].transAxes,
     )
     fig.subplots_adjust(top=0.88, bottom=0.12, hspace=0.4, wspace=0.28)
@@ -652,8 +659,8 @@ def _analysis_diagnostics(summary, output, metadata):
         )
     axes[0, 2].set(
         xlabel="Requested isomer cap",
-        ylabel="Mean successfully represented isomers",
-        title="Generation yield · C100",
+        ylabel="Mean distinct SDF-readback identities",
+        title="Recorded identity counts · C100 · may exceed cap",
     )
     axes[1, 2].set(
         xlabel="Conformer attempts per enumerated isomer",
@@ -670,7 +677,7 @@ def _analysis_diagnostics(summary, output, metadata):
         "sampling_diagnostics.png",
         metadata,
         "Failures, successful comparisons, sampling yield and seed variation",
-        "Heatmaps: C100/I30/all. Yield precedes force-field minimization and is shared across methods. SD is not a confidence interval.",
+        "Heatmaps: C100/I30/all. Recorded identity counts are not validated enumeration counts; see identity_count_warnings.csv. SD is not a confidence interval.",
     )
 
 

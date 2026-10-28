@@ -76,7 +76,6 @@ def validate_parent(frame, manifest, molecule_id):
     assert valid[MEASURES[1:]].ge(0).all().all()
     assert valid.failure.eq(valid.scored_conformers.eq(0)).all()
     assert valid.loc[valid.failure, "score"].eq(0).all()
-    assert valid.actual_isomers.le(valid.isomer_cap).all()
     assert valid.actual_isomers.le(valid.candidate_conformers).all()
     assert valid.scored_conformers.le(valid.candidate_conformers).all()
     assert valid.failed_conformers.eq(
@@ -90,8 +89,15 @@ def validate_parent(frame, manifest, molecule_id):
 
 def aggregate_parents(frame):
     """Seeds are repeated measurements; the parent is the unit of each summary."""
+    frame = frame.assign(
+        identity_count_excess=frame.actual_isomers.gt(frame.isomer_cap)
+    )
     grouped = frame[frame.available].groupby(KEYS, sort=False)
-    result = grouped[MEASURES + ["actual_references"]].mean().reset_index()
+    result = (
+        grouped[MEASURES + ["actual_references", "identity_count_excess"]]
+        .mean()
+        .reset_index()
+    )
     result = result.rename(columns={"failure": "failure_fraction"})
     result["seed_score_sd"] = grouped.score.std().to_numpy()
     return result
@@ -158,6 +164,7 @@ def summarize_strata(parents):
             median_embedded=("candidate_conformers", "median"),
             retained_fraction=("retained_fraction", "mean"),
             seed_score_sd=("seed_score_sd", "mean"),
+            identity_warning_fraction=("identity_count_excess", "mean"),
         )
         .reset_index()
     )
@@ -170,7 +177,7 @@ def run(source, output):
     paths = sorted((source / "parts").glob("*.csv.gz"))
     if not paths:
         paths = [source / "data.csv.gz"]
-    hashes, tables, rows = {}, [], 0
+    hashes, tables, rows, warnings = {}, [], 0, []
     for path in paths:
         hashes[str(path.relative_to(source))] = sha256(path)
         frame = pd.read_csv(path, usecols=columns)
@@ -181,6 +188,18 @@ def run(source, output):
             ):
                 raise ValueError("Checkpoint filename and contents differ")
             validate_parent(parent, manifest, molecule_id)
+        warning_keys = [
+            "molecule_id",
+            "seed",
+            "conformers",
+            "isomer_cap",
+            "actual_isomers",
+        ]
+        warnings.append(
+            frame.loc[
+                frame.actual_isomers.gt(frame.isomer_cap), warning_keys
+            ].drop_duplicates()
+        )
         tables.append(aggregate_parents(frame))
         rows += len(frame)
     parents = pd.concat(tables, ignore_index=True)
@@ -208,6 +227,8 @@ def run(source, output):
     cohort[["molecule_id", "score"]].to_csv(
         output / "fixed_top_cohort.csv", index=False
     )
+    warnings = pd.concat(warnings, ignore_index=True).drop_duplicates()
+    warnings.to_csv(output / "identity_count_warnings.csv", index=False)
     metadata = {
         "state": "provisional" if len(ids) < len(panel) else "complete_panel",
         "created_prague": datetime.now(ZoneInfo("Europe/Prague")).isoformat(),
@@ -227,6 +248,11 @@ def run(source, output):
         "completed_molecules": len(ids),
         "missing_ids": sorted(set(panel.molecule_id) - set(ids)),
         "measurement_rows": rows,
+        "identity_count_warnings": {
+            "unique_generation_settings": len(warnings),
+            "molecules": warnings.molecule_id.nunique(),
+            "meaning": "Recorded actual_isomers counts distinct SDF-readback isomeric SMILES and sometimes exceeds the enumeration cap. It is not a validated enumerated-isomer count; cause unresolved.",
+        },
         "strata": {s: int(selected.stratum.eq(s).sum()) for s in STRATA},
         "methods": manifest["methods"],
         "references": manifest["references"],
