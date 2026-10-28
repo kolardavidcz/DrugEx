@@ -321,38 +321,72 @@ def _analysis_caps(stratum, caps):
     return selected
 
 
-def _analysis_heatmaps(summary, output, metadata):
+def _analysis_heatmaps(summary, output, metadata, profile="mean"):
     from matplotlib.colors import LogNorm, Normalize, TwoSlopeNorm
 
     change = max(
         summary[["mean_isomer_gain", "median_isomer_gain"]].abs().max().max(), 0.001
     )
-    positive_time = summary.mean_seconds[summary.mean_seconds > 0]
-    norms = [
-        Normalize(0, 1),
-        TwoSlopeNorm(0, -change, change),
-        TwoSlopeNorm(0, -change, change),
-        LogNorm(
-            positive_time.min(), max(positive_time.max(), positive_time.min() * 1.01)
+    profiles = {
+        "mean": (
+            ["mean_score", "mean_isomer_gain", "median_isomer_gain", "mean_seconds"],
+            [
+                "Mean ROCS (failures=0)",
+                "Mean paired gain vs cap 1",
+                "Median paired gain vs cap 1",
+                "Mean seconds (log color)",
+            ],
         ),
-    ]
-    metrics = ["mean_score", "mean_isomer_gain", "median_isomer_gain", "mean_seconds"]
-    labels = [
-        "Mean ROCS (failures=0)",
-        "Mean paired gain vs cap 1",
-        "Median paired gain vs cap 1",
-        "Mean seconds (log color)",
-    ]
-    palettes = [plt.get_cmap(name) for name in ["viridis", "RdBu_r", "RdBu_r", "magma"]]
+        "median": (
+            ["median_score", "median_seconds"],
+            ["Median ROCS (failures=0)", "Median seconds (log color)"],
+        ),
+        "tails": (
+            ["q10_score", "p95_seconds"],
+            ["10th-percentile ROCS", "95th-percentile seconds (log color)"],
+        ),
+        "reliability": (
+            ["failure_fraction", "top5_overlap"],
+            ["Preparation failure fraction", "Ranking overlap (not ROCS)"],
+        ),
+    }
+    metrics, labels = profiles[profile]
+    norms, palettes = [], []
+    for metric in metrics:
+        if metric.endswith("seconds"):
+            positive = summary.loc[summary[metric] > 0, metric]
+            norms.append(
+                LogNorm(positive.min(), max(positive.max(), positive.min() * 1.01))
+            )
+            palette = "magma"
+        elif "gain" in metric:
+            norms.append(TwoSlopeNorm(0, -change, change))
+            palette = "RdBu_r"
+        else:
+            norms.append(Normalize(0, 1))
+            palette = (
+                "Reds"
+                if metric == "failure_fraction"
+                else "Greens"
+                if metric == "top5_overlap"
+                else "viridis"
+            )
+        cmap = plt.get_cmap(palette).copy()
+        cmap.set_bad("#dddddd")
+        palettes.append(cmap)
     for stratum, count in metadata["strata"].items():
         if not count:
             continue
         caps = _analysis_caps(stratum, metadata["isomer_caps"])
-        shown = [0, 3] if stratum == "1" else list(range(4))
+        shown = (
+            [0, 3]
+            if profile == "mean" and stratum == "1"
+            else list(range(len(metrics)))
+        )
         fig, axes = plt.subplots(
             len(metadata["methods"]),
             len(shown),
-            figsize=(12, 14) if stratum == "1" else (20, 21),
+            figsize=(12, 14) if len(shown) == 2 else (20, 21),
             squeeze=False,
         )
         for method, record in enumerate(metadata["methods"]):
@@ -374,14 +408,17 @@ def _analysis_heatmaps(summary, output, metadata):
                     rgba = palettes[metric_index](norms[metric_index](value))
                     color = (
                         "black"
-                        if np.dot(rgba[:3], [0.2126, 0.7152, 0.0722]) > 0.5
+                        if not np.isfinite(value)
+                        or np.dot(rgba[:3], [0.2126, 0.7152, 0.0722]) > 0.5
                         else "white"
                     )
                     label = (
-                        f"{value:.2f}"
-                        if metric_index == 3
+                        "n/a"
+                        if not np.isfinite(value)
+                        else f"{value:.2f}"
+                        if metric.endswith("seconds")
                         else f"{value:+.3f}"
-                        if metric_index in [1, 2]
+                        if "gain" in metric
                         else f"{value:.3f}"
                     )
                     ax.text(
@@ -397,12 +434,17 @@ def _analysis_heatmaps(summary, output, metadata):
                     [str(c) if c < 30 else "≤30" for c in caps],
                     fontsize=8,
                 )
+                method_label = record["name"].replace(" eps=", "\nε=")
                 ax.set_ylabel(
-                    f"{record['name']}\nIsomer cap" if column == 0 else "Isomer cap",
+                    f"{method_label}\nIsomer cap" if column == 0 else "Isomer cap",
                     fontsize=9,
                 )
                 if method == 0:
-                    ax.set_title(labels[metric_index], fontsize=11)
+                    label = labels[metric_index]
+                    if metric == "top5_overlap":
+                        k = int(subset.top_k.iloc[0])
+                        label = f"Top-{k} ranking overlap (not ROCS)"
+                    ax.set_title(label, fontsize=11)
                 if method == len(metadata["methods"]) - 1:
                     ax.set_xlabel("Conformer attempts per enumerated isomer")
                 if method == 0:
@@ -418,7 +460,7 @@ def _analysis_heatmaps(summary, output, metadata):
         fig.subplots_adjust(
             left=0.065,
             right=0.99,
-            top=0.90 if stratum == "1" else 0.94,
+            top=0.90 if len(shown) == 2 else 0.94,
             bottom=0.12,
             hspace=0.55,
             wspace=0.24,
@@ -427,10 +469,15 @@ def _analysis_heatmaps(summary, output, metadata):
         _analysis_finish(
             fig,
             output,
-            f"isomers_{slug}.png",
+            f"isomers_{slug}{'' if profile == 'mean' else '_' + profile}.png",
             metadata,
-            f"Isomer-upper-bound range {stratum} · n={count} · all available references",
-            "Shared color scales. Gains pair the same parent/method/conformer budget and include failure recovery; success-only gains are in sampling_diagnostics.png. Redundant cap aliases are hidden.",
+            f"{profile.upper()} · Isomer-upper-bound range {stratum} · n={count} · all available references",
+            "Shared scales; redundant cap aliases hidden. "
+            + (
+                "Ranking overlap compares each method with its C100/I30 anchor within this category. At that anchor it is 1 by construction. Small categories track only one molecule."
+                if profile == "reliability"
+                else "Overall gains include failure recovery; success-only gains are in sampling_diagnostics.png. Quantiles describe parent seed averages, not confidence intervals."
+            ),
         )
 
 
@@ -772,7 +819,8 @@ def _analysis_references(parents, output, metadata):
 
 def render_conformer_analysis(parents, summary, cohort_ids, output, metadata):
     """Render the selected stratified analysis from saved parent-level tables."""
-    _analysis_heatmaps(summary, output, metadata)
+    for profile in ("mean", "median", "tails", "reliability"):
+        _analysis_heatmaps(summary, output, metadata, profile)
     _analysis_tradeoffs(summary, output, metadata)
     _analysis_distributions(parents, cohort_ids, output, metadata)
     _analysis_diagnostics(summary, output, metadata)

@@ -10,10 +10,38 @@ from _david.code.conformer.analyze import (
     aggregate_parents,
     prepare_analysis,
     summarize_strata,
+    supplementary_metrics,
 )
 
 
 class TestConformerAnalysis(unittest.TestCase):
+    def test_ranking_overlap_uses_fixed_anchor_within_each_stratum(self):
+        rows = []
+        for cap, scores in [(1, [0.8, 0.6, 0.7, 0]), (30, [0.7, 0.9, 0.8, 0])]:
+            for mid, score in enumerate(scores):
+                rows.append(
+                    dict(
+                        molecule_id=mid,
+                        stratum="1" if mid < 3 else "2",
+                        method=1,
+                        conformers=1,
+                        isomer_cap=cap,
+                        reference_cap=0,
+                        score=score,
+                    )
+                )
+        parents = pd.DataFrame(rows)
+        keys = ["stratum", "method", "conformers", "isomer_cap"]
+        summary = parents.groupby(keys).score.mean().rename("mean_score").reset_index()
+        result = supplementary_metrics(parents, summary)
+        small = result[(result.stratum == "1") & (result.isomer_cap == 1)].iloc[0]
+        anchor = result[(result.stratum == "1") & (result.isomer_cap == 30)].iloc[0]
+        self.assertEqual(small.top_k, 1)
+        self.assertEqual(small.top5_overlap, 0)
+        self.assertEqual(anchor.top5_overlap, 1)
+        self.assertAlmostEqual(small.q10_score, 0.62)
+        self.assertTrue(result[result.stratum == "2"].top5_overlap.isna().all())
+
     def test_seed_averages_precede_pairing_and_strata_include_boundaries(self):
         bounds = [1, 2, 3, 4, 5, 8, 9]
         panel = pd.DataFrame({"molecule_id": range(7), "isomer_upper_bound": bounds})

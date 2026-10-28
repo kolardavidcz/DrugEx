@@ -170,6 +170,59 @@ def summarize_strata(parents):
     )
 
 
+def supplementary_metrics(parents, summary):
+    """Lower-tail scores and within-stratum ranking overlap of parent seed means."""
+    keys = ["stratum", "method", "conformers", "isomer_cap"]
+    available = parents[parents.reference_cap.eq(0)]
+    tails = (
+        available.groupby(keys).score.quantile(0.1).rename("q10_score").reset_index()
+    )
+    result = summary.merge(tails, on=keys, validate="one_to_one")
+    anchors, sizes = {}, available.groupby("stratum").molecule_id.nunique()
+    maximum = available[
+        available.conformers.eq(available.conformers.max())
+        & available.isomer_cap.eq(available.isomer_cap.max())
+    ]
+    for key, group in maximum.groupby(["stratum", "method"]):
+        k = int(np.ceil(0.05 * sizes[key[0]]))
+        ranked = group[group.score > 0].sort_values(
+            ["score", "molecule_id"], ascending=[False, True]
+        )
+        anchors[key] = set(ranked.head(k).molecule_id) if len(ranked) >= k else set()
+    overlap = {}
+    for key, group in available.groupby(keys):
+        k = int(np.ceil(0.05 * sizes[key[0]]))
+        anchor = anchors.get(key[:2], set())
+        ranked = group[group.score > 0].sort_values(
+            ["score", "molecule_id"], ascending=[False, True]
+        )
+        overlap[key] = (
+            len(set(ranked.head(k).molecule_id) & anchor) / k if anchor else np.nan
+        )
+    result["top5_overlap"] = [
+        overlap[tuple(row)] for row in result[keys].itertuples(index=False, name=None)
+    ]
+    result["top_k"] = result.stratum.map(lambda s: int(np.ceil(0.05 * sizes[s])))
+    return result
+
+
+def save_supplementary_metrics(parents, summary, output, metadata):
+    extra = supplementary_metrics(parents, summary)
+    path = output / "additional_metrics.csv"
+    if path.exists():
+        pd.testing.assert_frame_equal(
+            pd.read_csv(path), extra, check_exact=False, rtol=1e-10, atol=1e-12
+        )
+    else:
+        extra.to_csv(path, index=False)
+    metadata["definitions"]["stratified_ranking_overlap"] = (
+        "Within each isomer-bound stratum and method: overlap/k with the C100/I30/all anchor; "
+        "k=ceil(5% of stratum parents), excluding zero-score selections; undefined if anchor has fewer than k positive scores. "
+        "Largest-budget overlap is 1 by construction. This is ranking stability, not ROCS or biological accuracy."
+    )
+    return extra
+
+
 def run(source, output):
     manifest = json.loads((source / "manifest.json").read_text())
     panel = pd.read_csv(source / "panel.csv")
@@ -280,8 +333,9 @@ def run(source, output):
         },
         "validation": "Complete unique grids, reference masks/counts, normalized score bounds, failure/count invariants and decomposed time checked before aggregation",
     }
+    extra = save_supplementary_metrics(parents, summary, output, metadata)
     render_conformer_analysis(
-        parents, summary, cohort.molecule_id.tolist(), output, metadata
+        parents, extra, cohort.molecule_id.tolist(), output, metadata
     )
     metadata["sha256"] = {p.name: sha256(p) for p in output.iterdir() if p.is_file()}
     (output / "manifest.json").write_text(json.dumps(metadata, indent=2) + "\n")
@@ -308,7 +362,8 @@ def render_saved(output):
     parents = pd.read_csv(output / "molecules.csv.gz")
     summary = pd.read_csv(output / "stratified.csv")
     cohort = pd.read_csv(output / "fixed_top_cohort.csv").molecule_id.tolist()
-    render_conformer_analysis(parents, summary, cohort, output, metadata)
+    extra = save_supplementary_metrics(parents, summary, output, metadata)
+    render_conformer_analysis(parents, extra, cohort, output, metadata)
     assert inputs == {name: sha256(output / name) for name in inputs}
     metadata["rendering"] = {
         "revision": subprocess.check_output(
@@ -330,6 +385,9 @@ def render_saved(output):
         ],
     }
     metadata["sha256"].update({p.name: sha256(p) for p in output.glob("*.png")})
+    metadata["sha256"]["additional_metrics.csv"] = sha256(
+        output / "additional_metrics.csv"
+    )
     (output / "manifest.json").write_text(json.dumps(metadata, indent=2) + "\n")
     print(f"Rendered saved tables without changes: {output}")
 
