@@ -60,6 +60,11 @@ request and retained reference. Explain the practical difference between similar
 technical names before asking for a choice; do not infer a method change from
 a spelling variation when an existing choice is already recorded.
 Lead method discussions with one evidence-based recommendation and its reasons.
+Before proposing a parameter grid, identify the deployed quantity and how often
+its cost is paid. Reference preparation is a one-time cost; retained reference
+count controls repeated alignment work. Embedding requests are not a substitute
+for the retained count. Reuse saved measurements before launching more geometry
+generation, and explain what a comparison can actually decide.
 Ask for a choice when a material scientific trade-off needs the user's judgment;
 do not hand back a list of unexplained technical options.
 

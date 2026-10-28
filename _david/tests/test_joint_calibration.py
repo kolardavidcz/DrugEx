@@ -16,10 +16,18 @@ from _david.code.chemistry import (
     prepare_candidate_molecule,
 )
 from _david.code.conformer.calibrate import summarize, collect_jobs
+from _david.code.conformer.reference_caps import balanced_reference_order
 import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_reference_cap_cycles_identities_without_looking_at_candidate_scores(self):
+        records = [Chem.MolFromSmiles("CCO") for _ in range(4)]
+        for mol, identity in zip(records, ["first", "first", "second", "second"]):
+            mol.SetProp("EnumeratedIsomerSMILES", identity)
+        self.assertEqual(balanced_reference_order(records, [0, 1, 2, 3]), [0, 2, 1, 3])
+        self.assertEqual(balanced_reference_order(records, []), [])
+
     def test_worker_error_does_not_hide_later_completed_inputs(self):
         failed, completed = Future(), Future()
         failed.set_exception(ValueError("inspect this input"))
