@@ -55,6 +55,10 @@ When a consequential result or method remains unclear to the user, provide a
 readable Markdown explanation with a concrete molecular comparison, a diagram or
 table when useful, and a clear distinction between measured facts and hypotheses.
 Keep results.md as the maintained entry point and link requested dated artifacts.
+Use consistent terms for an input molecule, stereoisomer, conformer, embedding
+request and retained reference. Explain the practical difference between similar
+technical names before asking for a choice; do not infer a method change from
+a spelling variation when an existing choice is already recorded.
 
 This file is the single source of current project instructions.
 [code/conformer/results.md](code/conformer/results.md) is the single maintained findings/limitations/decision

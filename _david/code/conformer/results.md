@@ -1,5 +1,20 @@
 # Conformer study: status and evidence
 
+**2026-10-28 latest direction: fixed-budget drug-panel pruning study proposed.**
+Read the [current study proposal and decision review](../../output/20261028_drug_pruning_proposal/STUDY_PLAN.md).
+Selected budgets: candidates 20 requests/stereoisomer, stereo cap four;
+references 50 requests/stereoisomer, stereo cap eight. The user selected **all
+reference structures surviving the filters**, replacing a global cap of three
+for this study. Keep the previous MMFF94s ε78.4 model; native/bioactive pose
+accuracy is an assumption outside this thesis's validation scope.
+For EGCG, a same-geometry ε78.4 control gave identical MMFF94/MMFF94s coordinates
+and energies; the published variant differences concern certain nitrogen systems.
+The RMSD grid and drug panel remain proposed, not launched. Public DrugCentral
+source inspection found 1,859 FDA IDs with structures in its offered 2021
+snapshot, with 472 missing joins to the newer approval list. Preserve that
+coverage limitation. RL training remains on hold; AQME/time-only policies are
+not the current study direction. No existing measurements were altered.
+
 **2026-10-28 follow-up: RL launch on hold; pipeline refactoring under review.**
 Read the dated [pipeline/reference plan](../../output/20261028_rl_preparation/PLAN.md)
 for the scientific interpretation, exact preset proposal, adaptive-planner limits,
