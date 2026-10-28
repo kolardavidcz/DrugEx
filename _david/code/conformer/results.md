@@ -1,6 +1,6 @@
 # Conformer study: status and evidence
 
-**2026-10-28 current checkpoint: native-scoring mini-study running.**
+**2026-10-28: native-scoring mini-study completed and verified.**
 
 Read the compact [current report](../../output/20261028_1753_native_self_recovery/REPORT.md)
 for selected settings, measured EGCG controls, limitations, reproduction and
@@ -36,17 +36,35 @@ EGCG at 50 reference / 25 candidate requests retained 8 usable candidates and sc
 none 0.8838/0.9332, MMFF94 0.9571/0.9571, MMFF94s ε78.4 0.9989/0.9989 for cutoffs
 1.25/0.5 Å. These are single-input controls, not panel-wide conclusions.
 
-The panel job is tmux **drugex-native-512**, eight one-thread workers.
-Output: /home/kolarv/DrugEx/_david/output/20261028_1753_native_self_recovery/panel.
-Read manifest.json for phase/progress/completed_molecules, and the enclosing
-panel.exit_code plus panel.log for process completion. Validate 960 rows per
-selected input, the 512-row cohort/exclusion ledger, available-reference masks,
-component reductions, hashes and representative public-scorer replay before
-final delivery. Add verification to the EXISTING manifest after the writer exits;
-mirror results locally and inspect figures. Do not resume any superseded source.
+The panel finished successfully with **eight** one-thread workers; it was already
+complete when the requested CPU increase was checked. No restart or allocation
+change was needed. All 512 reference preparations were accounted for; selected
+groups contain **61/40/38 inputs** (1–4/5–8/9–12), **139 total**. Exclusions:
+345 above the selected reference-count range and 28 preparation failures
+(14 embedding, five domain-filter, nine identity-check failures). No colorless
+exclusions occurred in this panel; no candidate failures occurred in the selected
+grid. The scope is 139/512 inputs, not a claim about the excluded inputs.
 
-Keep the four-hour scheduler quiet while progress is normal; finish the current
-study when complete and pause the monitor. The proposed existing-drug panel is
+Output on both hosts: _david/output/20261028_1753_native_self_recovery/panel.
+All **133,440** rows form complete unique 960-cell grids. Independent checks
+passed reference masks/counts, same-pose component and timing reductions,
+2,880 summary rows, source/output hashes and 1,454 reference SDF hashes.
+Eighteen representative native PUBLIC-scorer replays spanning three groups,
+three methods and two cutoffs matched within 1.12e-16. Evidence and inherited
+22-test/pilot validation are appended to the existing panel manifest. Native
+numeric overshoot is retained: combo max 1.00000361, shape max 1.00000899;
+verification tolerance 1e-5. All 24 PNGs are mirrored locally with root data and
+cohort; full reference SDFs remain on dichtator, with replay examples local.
+
+At candidate C25/I4/all retained references, equal-input panel mean ROCS is
+**0.9692/0.9890/0.9893** (none/MMFF94/MMFF94s ε78.4) at 1.25 Å, versus
+**0.9872/0.9953/0.9961** at 0.5 Å. For MMFF94/0.5 Å, C5/10/25/50 means are
+0.9925/0.9946/0.9953/0.9963; corresponding mean component seconds are
+0.258/0.349/0.547/0.806. These are descriptive best-pair results for the restricted
+cohort, not full ensemble coverage, an established optimal budget or RL benefit.
+Read the report for all figures, denominators, caveats and review order.
+
+The completion monitor can now be paused. The proposed existing-drug panel is
 a later complementary study, not a replacement or extra experiment authorized
 for this run. Production candidate minimization remains OFF by default. The
 native user's environment.py argument-order edit must remain preserved.
