@@ -956,7 +956,7 @@ def render_mini_recovery(frame: pd.DataFrame, output: Path, manifest: dict) -> N
                     fig.colorbar(im, ax=axes[method*2+metric_index, :], label=label, shrink=0.8, pad=0.01)
             count = manifest["group_counts"][group]
             fig.suptitle(f"Each input against its own references · retained-size group {group} · n={count} · RMSD {cutoff:g} Å\n{profile.capitalize()} · one best pair per input · stereo/candidate seed 42, reference geometry seed 43", fontsize=14)
-            fig.supxlabel("Cell second line = available / selected inputs. Candidate failures score 0; unavailable reference budgets are grey. Time sums measured shared components, not independent end-to-end runs. Both-empty color = 1.", fontsize=9)
+            fig.supxlabel("Cell second line = available / selected inputs. Candidate failures score 0; unavailable reference budgets are grey. Times sum measured shared components, not independent end-to-end runs. Native ROCS; colorless inputs excluded before scoring.", fontsize=9)
             fig.savefig(output / f"group_{group}_rmsd_{cutoff:g}_{profile}.png", dpi=140)
             plt.close(fig)
 

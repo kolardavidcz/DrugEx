@@ -53,8 +53,6 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         self.max_conformers = requested
         self.random_seed = random_seed
         self.stereo_seed = stereo_seed
-        self.capture_records = False
-        self.last_records = []
         self.minimize_candidates = minimize_candidates
         self.optimization = optimization or Optimization()
         self.last_minimization_statuses: list[int] = []
@@ -82,7 +80,6 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
             yield iso
 
     def genConformers(self, smiles_list, out_dir) -> str:
-        self.last_records = []
         path = super().genConformers(smiles_list, out_dir)
         self.last_minimization_statuses = []
         self.last_embedding_failures = 0
@@ -117,13 +114,6 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                     failures,
                     len(statuses),
                 )
-        if self.capture_records:
-            try:
-                self.last_records = [
-                    m for m in Chem.SDMolSupplier(path, removeHs=False) if m is not None
-                ]
-            except (OSError, ValueError):
-                self.last_records = []
         return path
 
 

@@ -86,7 +86,9 @@ def stem(case):
 def reference_job(case, output):
     """Save pre-compression pools and index selections; never share candidate coordinates."""
     directory = Path(output) / "checkpoints"
-    result = dict(case, profiles=[], group="", grouping_max=0, error="")
+    result = dict(
+        case, profiles=[], group="", grouping_max=0, error="", exclusion_reason=""
+    )
     try:
         mol = prepared_molecule(case["smiles"])
         generator = CandidateConformerGenerator(
@@ -122,9 +124,21 @@ def reference_job(case, output):
                 check_identity(record, iso)
             embedded.append(records)
             embedding_info.append(
-                dict(count=len(records), seconds=time.perf_counter() - started)
+                dict(
+                    count=len(records),
+                    seconds=time.perf_counter() - started,
+                    native_color_present=has_color(records[0]),
+                )
             )
         result["embedding"] = embedding_info
+        if not all(item["native_color_present"] for item in embedding_info):
+            result["exclusion_reason"] = (
+                "no_native_color_features"
+                if not any(item["native_color_present"] for item in embedding_info)
+                else "mixed_native_color_availability"
+            )
+            atomic_json(directory / f"{stem(case)}.json", result)
+            return result
         for method, settings in enumerate(METHODS):
             started = time.perf_counter()
             pools, status_counts = [], Counter()
@@ -190,8 +204,15 @@ def reference_job(case, output):
         ]
         result["grouping_max"] = max(counts, default=0)
         result["group"] = reference_group(counts)
+        if not result["group"]:
+            result["exclusion_reason"] = (
+                "optimized_reference_count_gt12"
+                if result["grouping_max"] > 12
+                else "no_usable_optimized_references"
+            )
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
+        result["exclusion_reason"] = "reference_preparation_error"
     atomic_json(directory / f"{stem(case)}.json", result)
     return result
 
@@ -274,7 +295,6 @@ def candidate_job(job, output):
                 selected_columns = [columns[i] for i in indices]
                 score, shape, color = (0.0, 0.0, 0.0) if available else (np.nan,) * 3
                 candidate_winner = reference_winner = ""
-                adjusted = False
                 if usable and indices:
                     values = scores[:, selected_columns, 0]
                     i, j = np.unravel_index(values.argmax(), values.shape)
@@ -282,7 +302,6 @@ def candidate_job(job, output):
                     c, r = usable[i], references[indices[j]]
                     candidate_winner = c.GetProp("EnumeratedIsomerSMILES")
                     reference_winner = r.GetProp("EnumeratedIsomerSMILES")
-                    adjusted = not has_color(c) and not has_color(r)
                 for requested in job["aliases"]:
                     rows.append(
                         dict(
@@ -297,8 +316,6 @@ def candidate_job(job, output):
                             score=score,
                             shape_tanimoto=shape,
                             color_tanimoto=color,
-                            both_colorless=adjusted,
-                            raw_color_tanimoto=0.0 if adjusted else color,
                             candidate_conformers=len(records),
                             usable_conformers=len(usable),
                             actual_candidate_isomers=len(
@@ -418,7 +435,7 @@ def run(args):
             stereo_seed=42,
             candidate_geometry_seed=42,
             reference_geometry_seed=43,
-            color_policy="Both empty native color sets -> 1; exactly one empty -> native 0; otherwise native",
+            color_policy="Unmodified native RDKit color and combo; inputs with absent native reference color features excluded before scoring",
             grouping="Max retained structures across optimized methods and BOTH cutoffs; unminimized profile excluded from grouping; fixed 1-4/5-8/9-12 groups; >12 excluded",
             score="One max of (shape+effective_color)/2 over permitted pairs per input; no seed averaging",
             timing="Sum of instrumented generation, optimization, selected overlay wall seconds from shared work; NOT independent end-to-end cell runtime; reference preparation separate",
@@ -450,6 +467,7 @@ def run(args):
                         group=c["group"],
                         grouping_max=c["grouping_max"],
                         error=c["error"],
+                        exclusion_reason=c["exclusion_reason"],
                     )
                     for c in prepared
                 ]
@@ -461,6 +479,13 @@ def run(args):
                 selected_inputs=len(selected),
                 group_counts=dict(Counter(c["group"] for c in selected)),
                 excluded_inputs=len(cases) - len(selected),
+                exclusion_counts=dict(
+                    Counter(
+                        c["exclusion_reason"]
+                        for c in prepared
+                        if not c["group"] or c["error"]
+                    )
+                ),
             )
             all_jobs = [j for c in selected for j in candidate_jobs(c)]
             jobs = [

@@ -10,7 +10,7 @@ from drugex.training.rewards import ParetoCrowdingDistance, RewardScheme, Weight
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
 from drugex.training.scorers.properties import Property
-from _david.code.rocs import ThesisROCSScorer as RDKitROCSScorer
+from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.ML.Cluster import Butina

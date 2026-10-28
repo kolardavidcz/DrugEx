@@ -2,13 +2,15 @@
 
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from drugex.training.scorers.rocs_rdkit import _score_single_reference
 from _david.code.chemistry import CandidateConformerGenerator
-from _david.code.conformer.self_recovery import reference_group
+from _david.code.conformer.self_recovery import reference_group, reference_job
 from _david.code.environment import create_rocs_scorer
 from _david.code.rocs import has_color, score_pair
 
@@ -21,13 +23,13 @@ def embedded(smiles):
 
 
 class TestThesisROCS(unittest.TestCase):
-    def test_empty_empty_is_one_but_one_empty_and_zero_overlap_stay_zero(self):
+    def test_native_empty_color_behavior_is_preserved(self):
         ethane, butane = embedded("CC"), embedded("CCCC")
         ethanol, benzene = embedded("CCO"), embedded("c1ccccc1")
         for mol in [ethane, butane]:
             self.assertFalse(has_color(mol))
-            self.assertAlmostEqual(score_pair(mol, mol)[0], 1, places=6)
-            self.assertAlmostEqual(score_pair(mol, mol)[2], 1, places=6)
+            self.assertAlmostEqual(score_pair(mol, mol)[0], 0.5, places=6)
+            self.assertAlmostEqual(score_pair(mol, mol)[2], 0, places=6)
             self.assertAlmostEqual(
                 _score_single_reference(mol, mol, "TanimotoCombo", True) / 2,
                 0.5,
@@ -39,7 +41,7 @@ class TestThesisROCS(unittest.TestCase):
         self.assertEqual(score_pair(ethanol, benzene)[2], 0)
         self.assertAlmostEqual(score_pair(ethanol, ethanol)[0], 1, places=6)
 
-    def test_parallel_and_sequential_rl_factory_match_corrected_pair_maximum(self):
+    def test_parallel_and_sequential_rl_factory_match_native_pair_maximum(self):
         references = [embedded("CC"), embedded("CCO")]
         for jobs in [1, 2]:
             scorer = create_rocs_scorer(
@@ -58,7 +60,22 @@ class TestThesisROCS(unittest.TestCase):
             actual = scorer.getScores(["CC", "CC"])
             self.assertAlmostEqual(actual[0, 0], expected, places=10)
             self.assertAlmostEqual(actual[1, 0], expected, places=10)
-            self.assertEqual(scorer.conformer_generator.last_records, [])
+
+    def test_colorless_input_is_excluded_before_any_overlay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "checkpoints").mkdir()
+            with patch(
+                "_david.code.conformer.self_recovery.score_pair",
+                side_effect=AssertionError("Eligibility must precede ROCS"),
+            ):
+                result = reference_job(
+                    dict(molecule_id=0, smiles="CC", stereo_upper_bound=1), directory
+                )
+            self.assertEqual(result["exclusion_reason"], "no_native_color_features")
+            self.assertEqual(result["group"], "")
+            self.assertEqual(result["error"], "")
+            self.assertEqual(result["profiles"], [])
+            self.assertFalse(result["embedding"][0]["native_color_present"])
 
     def test_stereo_search_is_shared_while_geometry_seeds_are_independent(self):
         mol = Chem.MolFromSmiles("Br" + "[CH](Cl)" * 5 + "F")
