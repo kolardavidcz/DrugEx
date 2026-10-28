@@ -1,6 +1,40 @@
 # Conformer study: status and evidence
 
-**2026-10-28: mega benchmark implementation in progress.** The user selected a
+**2026-10-28 current checkpoint: corrected self-recovery implementation and sampling-policy review.**
+The old molecule-versus-EGCG job was stopped at the user's request, with all 508
+completed checkpoints preserved and its manifest marked `cancelled_superseded`.
+It must not be resumed as the requested self-recovery experiment. Every parent
+in the corrected test needs its own independent reference ensemble.
+
+Start with the requested readable explanations:
+[READ_ME_FIRST.md](../../output/20261028_1520_self_recovery/READ_ME_FIRST.md) and
+[AQME_SUMMARY.md](../../output/20261028_1520_self_recovery/AQME_SUMMARY.md).
+The user selected an AQME-style baseline and categories 1/2/3–4/5–8/9–25 based
+on enumerated reference stereoisomers, then raised a comparability concern.
+A fixed-budget control alongside adaptation is proposed and awaiting steering;
+the corrected full scan has not restarted. The native scheduler is paused with
+updated self-recovery instructions and a four-hour interval, not the old run.
+
+Implementation is under `conformer/sampling.py` and `conformer/self_recovery.py`.
+The archived `determine_ensemble_parameters` function was found in the preserved
+snapshot: it varied clustering cutoff and capped retained references at three;
+it did not estimate initial isomer/conformer attempts. Do not revive that cap or
+its unverified citation as an adaptive sampling policy.
+
+The selected reference deduplication uses 1.25 Å heavy-atom GetBestRMS within each
+stereoisomer only, with a final spacing check after Butina representatives.
+This threshold is a study setting, not a universal RDKit default. Specified
+stereo remains fixed; unspecified stereo is enumerated up to the selected limit
+of 25. Candidate counts now retain enumeration identities separately from SDF
+readback tags. Explicit candidate budgets above 200 are no longer silently
+clamped by the thesis adapter; the core remains unchanged. Production defaults,
+including candidate minimization OFF, are unchanged. New prototype validation
+must pass before any measurement launch. A concurrent native environment.py
+argument-order edit belongs to the user and must be preserved.
+
+## Superseded cross-molecule experiment — retained evidence
+
+The user previously selected a
 fixed generated-molecule scoring test, not RNN training. The new matrix compares
 seven matched reference/candidate preparation methods on 512 randomly selected
 valid, unique molecules from saved RNN evaluations, with three embedding seeds.
@@ -19,7 +53,7 @@ Their docking/pharmacophore results do not establish DrugEx RL benefit or the
 best parameters here. The new study keeps specified input stereo and labels
 best-over-isomer scoring as a search over prepared forms, not activity evidence.
 
-## Active execution checkpoint
+## Superseded execution checkpoint — do not resume
 
 - **2026-10-28 provisional preview:** [mean score/time](../../output/conformer/mega_20261028/preview_508/mega_mean.png),
   [median](../../output/conformer/mega_20261028/preview_508/mega_median.png),

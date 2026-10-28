@@ -827,6 +827,296 @@ def render_conformer_analysis(parents, summary, cohort_ids, output, metadata):
     _analysis_references(parents, output, metadata)
 
 
+def render_self_recovery(frame: pd.DataFrame, output: Path, manifest: dict) -> None:
+    """Self-recovery panels with explicit per-cell reference availability counts."""
+    from matplotlib.colors import LogNorm, Normalize
+
+    frame = frame.assign(category=frame.category.astype(str))
+
+    keys = [
+        "category",
+        "method",
+        "reference_scale",
+        "candidate_scale",
+        "isomer_cap",
+        "reference_cap",
+    ]
+    parents = (
+        frame.groupby(keys + ["molecule_id"], observed=True)
+        .agg(
+            score=("score", "mean"),
+            seconds=("seconds", "mean"),
+            available=("available", "first"),
+            failure=("failure", "mean"),
+            reference_seconds=("reference_seconds", "mean"),
+            candidate_attempts=("candidate_attempts", "first"),
+            reference_attempts=("reference_attempts", "first"),
+            actual_references=("actual_references", "first"),
+            actual_isomers=("actual_isomers", "mean"),
+            candidate_conformers=("candidate_conformers", "mean"),
+            shape=("shape_tanimoto", "mean"),
+            color=("color_tanimoto", "mean"),
+        )
+        .reset_index()
+    )
+    parents["recovered"] = parents.score.ge(0.9).astype(float).where(parents.available)
+    summary = (
+        parents.groupby(keys, observed=True)
+        .agg(
+            attempted=("molecule_id", "size"),
+            available=("available", "sum"),
+            mean_score=("score", "mean"),
+            median_score=("score", "median"),
+            q10_score=("score", lambda x: x.quantile(0.1)),
+            mean_seconds=("seconds", "mean"),
+            median_seconds=("seconds", "median"),
+            p95_seconds=("seconds", lambda x: x.quantile(0.95)),
+            recovery_fraction=("recovered", "mean"),
+            failure_fraction=("failure", "mean"),
+            mean_reference_seconds=("reference_seconds", "mean"),
+            mean_actual_references=("actual_references", "mean"),
+            mean_actual_isomers=("actual_isomers", "mean"),
+            mean_candidate_conformers=("candidate_conformers", "mean"),
+        )
+        .reset_index()
+    )
+    parents.to_csv(output / "parent_scores.csv.gz", index=False, compression="gzip")
+    summary.to_csv(output / "summary.csv", index=False)
+    profiles = {
+        "mean": ("mean_score", "mean_seconds", "Mean normalized ROCS", "Mean seconds"),
+        "median": (
+            "median_score",
+            "median_seconds",
+            "Median normalized ROCS",
+            "Median seconds",
+        ),
+        "tails": (
+            "q10_score",
+            "p95_seconds",
+            "10th-percentile ROCS",
+            "95th-percentile seconds",
+        ),
+        "reliability": (
+            "recovery_fraction",
+            "failure_fraction",
+            "Fraction reaching ≥0.9",
+            "Preparation failure fraction",
+        ),
+    }
+    scales = manifest["scales"]
+    reference_caps = manifest["reference_caps"]
+    for category in ["1", "2", "3-4", "5-8", "9-25"]:
+        selected = summary[summary.category.eq(category)]
+        if selected.empty:
+            continue
+        n = parents[parents.category.eq(category)].molecule_id.nunique()
+        bound = {"1": 1, "2": 2, "3-4": 4, "5-8": 8, "9-25": 25}[category]
+        caps = []
+        for cap in manifest["isomer_caps"]:
+            if not caps or min(cap, bound) > min(caps[-1], bound):
+                caps.append(cap)
+
+        def finish(fig, name, title, category=category, n=n):
+            fig.suptitle(
+                f"Each molecule against its OWN reference · category {category} · n={n}\n{title}",
+                fontsize=14,
+            )
+            note = (
+                "Categories count reference stereoisomers enumerated before 3D filtering. "
+                "Three seed maxima averaged per parent before summaries. n = available / attempted parents. "
+                "Reference preparation time is separate from candidate generation/optimization/overlay time. "
+                "ROCS = (shape + color Tanimoto) / 2. ≥0.9 is a self-recovery hypothesis, not biological accuracy."
+            )
+            fig.text(
+                0.5,
+                0.008,
+                fill(note, int(fig.get_figwidth() * 9)),
+                ha="center",
+                fontsize=8,
+            )
+            fig.savefig(output / name, dpi=160)
+            plt.close(fig)
+
+        for profile, (first, second, first_label, second_label) in profiles.items():
+            fig, axes = plt.subplots(
+                2 * len(manifest["methods"]),
+                len(caps),
+                figsize=(5 * len(caps) + 2, 28),
+                squeeze=False,
+            )
+            for method, record in enumerate(manifest["methods"]):
+                group = selected[
+                    selected.method.eq(method) & selected.reference_scale.eq(scales[1])
+                ]
+                for metric_index, (metric, label) in enumerate(
+                    [(first, first_label), (second, second_label)]
+                ):
+                    is_time = metric.endswith("seconds")
+                    values = summary[metric].dropna()
+                    positive = values[values > 0]
+                    norm = (
+                        LogNorm(
+                            max(positive.min(), 1e-5),
+                            max(positive.max(), positive.min() * 1.01),
+                        )
+                        if is_time and len(positive)
+                        else Normalize(0, 1)
+                    )
+                    palette = plt.get_cmap(
+                        "magma"
+                        if is_time
+                        else "Reds"
+                        if metric == "failure_fraction"
+                        else "viridis"
+                    ).copy()
+                    palette.set_bad("#dddddd")
+                    for column, cap in enumerate(caps):
+                        ax = axes[method * 2 + metric_index, column]
+                        cells = group[group.isomer_cap.eq(cap)]
+                        table = cells.pivot(
+                            index="reference_cap",
+                            columns="candidate_scale",
+                            values=metric,
+                        ).reindex(index=reference_caps, columns=scales)
+                        im = ax.imshow(table, aspect="auto", cmap=palette, norm=norm)
+                        for y, x in np.ndindex(table.shape):
+                            value = table.iloc[y, x]
+                            cell = cells[
+                                cells.reference_cap.eq(reference_caps[y])
+                                & cells.candidate_scale.eq(scales[x])
+                            ]
+                            available, attempted = (
+                                (
+                                    int(cell.available.iloc[0]),
+                                    int(cell.attempted.iloc[0]),
+                                )
+                                if len(cell)
+                                else (0, n)
+                            )
+                            text = (
+                                "n/a"
+                                if not np.isfinite(value)
+                                else f"{value:.2f}"
+                                if is_time
+                                else f"{value:.3f}"
+                            )
+                            color = (
+                                "black"
+                                if not np.isfinite(value)
+                                or np.dot(
+                                    palette(norm(value))[:3], [0.2126, 0.7152, 0.0722]
+                                )
+                                > 0.5
+                                else "white"
+                            )
+                            ax.text(
+                                x,
+                                y,
+                                f"{text}\nn={available}/{attempted}",
+                                ha="center",
+                                va="center",
+                                fontsize=6.5,
+                                color=color,
+                            )
+                        ax.set_xticks(range(3), [f"{s:g}×" for s in scales], fontsize=8)
+                        ax.set_yticks(
+                            range(len(reference_caps)),
+                            ["all≤25" if r == 0 else str(r) for r in reference_caps],
+                            fontsize=8,
+                        )
+                        if column == 0:
+                            ax.set_ylabel(
+                                f"{record['name'].replace(' eps=', chr(10) + 'ε=')}\n{label}\nRetained reference cap",
+                                fontsize=8,
+                            )
+                        if method == 0 and metric_index == 0:
+                            ax.set_title(f"Candidate isomer cap {cap}")
+                        if method == len(manifest["methods"]) - 1 and metric_index == 1:
+                            ax.set_xlabel(
+                                "Candidate conformer attempts / AQME-style baseline"
+                            )
+                    bar = (
+                        fig.add_axes(
+                            [0.93, 0.56 if metric_index == 0 else 0.14, 0.009, 0.28]
+                        )
+                        if method == 0
+                        else None
+                    )
+                    if bar is not None:
+                        fig.colorbar(im, cax=bar).set_label(label, fontsize=8)
+            fig.subplots_adjust(
+                left=0.14 if len(caps) == 1 else 0.08,
+                right=0.91,
+                top=0.94,
+                bottom=0.065,
+                hspace=0.65,
+                wspace=0.3,
+            )
+            finish(
+                fig,
+                f"category_{category.replace('-', '_')}_{profile}.png",
+                f"{profile.upper()} · reference initial attempts = {scales[1]:g}× its baseline",
+            )
+
+        fig, axes = plt.subplots(
+            len(manifest["methods"]), 2, figsize=(12, 18), squeeze=False
+        )
+        for method, record in enumerate(manifest["methods"]):
+            group = selected[
+                selected.method.eq(method)
+                & selected.isomer_cap.eq(max(manifest["isomer_caps"]))
+                & selected.reference_cap.eq(0)
+            ]
+            for column, metric in enumerate(["mean_score", "mean_seconds"]):
+                table = group.pivot(
+                    index="reference_scale", columns="candidate_scale", values=metric
+                ).reindex(index=scales, columns=scales)
+                ax = axes[method, column]
+                im = ax.imshow(
+                    table,
+                    aspect="auto",
+                    cmap="viridis" if column == 0 else "magma",
+                    vmin=0,
+                    vmax=1
+                    if column == 0
+                    else max(float(selected.mean_seconds.max()), 1e-5),
+                )
+                for y, x in np.ndindex(table.shape):
+                    ax.text(
+                        x,
+                        y,
+                        f"{table.iloc[y, x]:.3f}"
+                        if column == 0
+                        else f"{table.iloc[y, x]:.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        color="white" if im.norm(table.iloc[y, x]) < 0.6 else "black",
+                    )
+                ax.set_xticks(range(3), [f"{s:g}×" for s in scales])
+                ax.set_yticks(range(3), [f"{s:g}×" for s in scales])
+                ax.set_ylabel(
+                    f"{record['name'].replace(' eps=', chr(10) + 'ε=')}\nReference initial attempts",
+                    fontsize=8,
+                )
+                if method == 0:
+                    ax.set_title(
+                        "Mean normalized ROCS"
+                        if column == 0
+                        else "Mean candidate seconds"
+                    )
+                if method == len(manifest["methods"]) - 1:
+                    ax.set_xlabel("Candidate initial attempts")
+        fig.subplots_adjust(
+            left=0.15, right=0.97, top=0.91, bottom=0.085, hspace=0.65, wspace=0.45
+        )
+        finish(
+            fig,
+            f"category_{category.replace('-', '_')}_initial_effort.png",
+            "Reference versus candidate initial sampling · all≤25 references/isomers",
+        )
+
+
 def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure ROCS is [0, 2] TanimotoCombo and calculate physical properties if missing."""
     if df.empty:

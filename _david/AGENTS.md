@@ -34,6 +34,10 @@ is a labelled comparison, not evidence that training already uses it. Keep
 isomer and conformer limits independently configurable; coupling them is a
 proposal until selected. Report actual enumerated/embedded/retained counts.
 
+For self-recovery, every parent has its own independent reference ensemble.
+Different candidates scored against one common query answer a different question;
+make that comparison explicit before interpreting scores or launching a large run.
+
 ## Science and reporting
 
 Use [consult-literature](../.agents/skills/consult-literature/SKILL.md) before
@@ -46,6 +50,11 @@ Measure unfavorable outcomes as well as promising ones. Include relevant
 diagnostics in `code/visualization.py`. State score definitions and transformations
 explicitly; never infer their scale from observed maxima. Scoring/conformer
 experiments do not establish RNN training improvements.
+
+When a consequential result or method remains unclear to the user, provide a
+readable Markdown explanation with a concrete molecular comparison, a diagram or
+table when useful, and a clear distinction between measured facts and hypotheses.
+Keep results.md as the maintained entry point and link requested dated artifacts.
 
 This file is the single source of current project instructions.
 [code/conformer/results.md](code/conformer/results.md) is the single maintained findings/limitations/decision

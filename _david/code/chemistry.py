@@ -39,7 +39,13 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         optimization: Optimization | None = None,
         **kwargs,
     ) -> None:
+        requested = kwargs.get("max_conformers", 10)
+        if not isinstance(requested, int) or not 1 <= requested <= 1000:
+            raise ValueError("Conformer attempts must be an integer from 1 to 1000")
+        kwargs["max_conformers"] = min(requested, 200)
         super().__init__(**kwargs)
+        # The core silently clamps at 200; explicit thesis budgets must be honored.
+        self.max_conformers = requested
         self.random_seed = random_seed
         self.minimize_candidates = minimize_candidates
         self.optimization = optimization or Optimization()
@@ -50,6 +56,15 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         params = super()._create_fresh_etkdg()
         params.randomSeed = self.random_seed
         return params
+
+    def _get_isomers(self, mol):
+        for index, iso in enumerate(super()._get_isomers(mol)):
+            # Count intended enumerated identities, not new tags inferred on SDF readback.
+            iso.SetProp(
+                "EnumeratedIsomerSMILES", Chem.MolToSmiles(iso, isomericSmiles=True)
+            )
+            iso.SetIntProp("EnumeratedIsomerIndex", index)
+            yield iso
 
     def genConformers(self, smiles_list, out_dir) -> str:
         path = super().genConformers(smiles_list, out_dir)
