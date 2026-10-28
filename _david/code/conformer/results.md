@@ -165,6 +165,50 @@ ligand flexibility; their task does not select our ranges or budgets. Search:
 ensemble size, rotatable bonds, flexibility, false positives. Measurements remain
 bound to `ff96921`; this selected change only analyzes and renders saved data.
 
+## One-isomer-category audit — 2026-10-28
+
+Read-only analysis of the existing 293 upper-bound-one parents, with no new
+generation/scoring. Every parent is compared with the shared EGCG reference;
+**zero of the 293 has EGCG connectivity**. The 1,000-attempt deep preparation
+created the EGCG ensemble, not an independent reference for each parent.
+MMFF94 has three retained query conformers. All isomer-cap score aliases in this
+category agree exactly; candidate conformers are still maximized before seed
+averaging. The score is divided by two once, before storage, and plotted directly.
+
+MMFF94/all references, means over all parents after averaging three seeds:
+
+| Requested conformers | Mean score | Median score | Mean embedded count | Mean seconds |
+| --- | --- | --- | --- | --- |
+| 1 | 0.312815 | 0.317233 | 0.993 | 0.143 |
+| 10 | 0.332728 | 0.337417 | 7.412 | 0.508 |
+| 30 | 0.337885 | 0.341747 | 17.507 | 1.164 |
+| 100 | 0.341244 | 0.344548 | 41.896 | 3.024 |
+
+At C100 the 10th/90th percentiles are 0.297435/0.384890; maximum is 0.438530.
+Only parents 8 and 72 score zero, in all seeds. Their input sizes are 46 and 50
+heavy atoms, above the existing generator limit of 45: these are size-filter
+exclusions before embedding, not evidence of minimization nonconvergence. Raw
+rows record zero candidates and a subsequent empty-SDF file error. Excluding
+these two changes the mean only from 0.341244 to 0.343590, so failures do not
+explain the category's low average.
+
+The paired C30→C100 mean gain is 0.003360 (median 0.000748); 33/293 parents gain
+more than 0.01. This is diminishing average benefit for this different-molecule
+versus-EGCG task, not a universal conformer-budget recommendation. For context,
+the median parent has 25 heavy atoms and three oxygens, versus EGCG's 33/11.
+Parent 473 is the 9-heavy-atom triamine `NCCCNCCCN` and scores 0.198657; the
+median parent 10 scores 0.344548; parent 373 scores 0.438530. These are different
+chemical structures, not independent preparations of EGCG. Morgan radius-2/2048
+fingerprint Tanimoto to EGCG has median 0.090909 and maximum 0.169811; its
+Spearman association with C100 ROCS is only 0.028, so do not use this 2D measure
+as a quantitative explanation or validation of the 3D score.
+
+Conclusion: neither averaging conformers nor a large failed-parent fraction
+explains 0.34. This panel does not measure the same-identity self-recovery the
+user is questioning. Its low means alone neither prove a scorer bug nor validate
+the scorer. Separate winning-pose shape/color components were not saved, and the
+parent-46 SDF identity-count exception remains unresolved.
+
 ## Filtering and self-recovery proposal — not yet selected
 
 Keep the full attempted-parent dataset and failure ledger. Individual optimized
