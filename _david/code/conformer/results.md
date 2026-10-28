@@ -1,26 +1,27 @@
 # Conformer study: status and evidence
 
-**2026-10-28 latest direction: fixed-budget drug-panel pruning study proposed.**
-Read the [current study proposal and decision review](../../output/20261028_drug_pruning_proposal/STUDY_PLAN.md).
-Latest clarification: the requested difference is RMSD separation of conformers.
-Recommend replacing the pruning-only proposal with a 36-combination **joint
-calibration**: reference requests 50/100; candidate requests 10/20/40; reference
-RMSD 0.5/1.25 Å; candidate additional post-minimization pruning off/0.5/1.25 Å.
-Stereo caps remain eight/four. These are proposed comparison levels, not a new
-production default or a launched study. Calibration can recommend scoring
-settings; an RL comparison is needed later to establish learning effects.
-Selected budgets: candidates 20 requests/stereoisomer, stereo cap four;
-references 50 requests/stereoisomer, stereo cap eight. The user selected **all
-reference structures surviving the filters**, replacing a global cap of three
-for this study. Keep the previous MMFF94s ε78.4 model; native/bioactive pose
-accuracy is an assumption outside this thesis's validation scope.
-For EGCG, a same-geometry ε78.4 control gave identical MMFF94/MMFF94s coordinates
-and energies; the published variant differences concern certain nitrogen systems.
-The RMSD grid and drug panel remain proposed, not launched. Public DrugCentral
-source inspection found 1,859 FDA IDs with structures in its offered 2021
-snapshot, with 472 missing joins to the newer approval list. Preserve that
-coverage limitation. RL training remains on hold; AQME/time-only policies are
-not the current study direction. No existing measurements were altered.
+**2026-10-28: joint drug-panel calibration authorized and implemented.**
+Read the [current calibration report](../../output/20261028_joint_calibration/REPORT.md)
+for the grid, scope, preparation correction and review order. The drug panel is
+frozen: 512 DrugCentral structures linked to approval IDs, selected before
+convergence or scores. Test 36 combinations: reference requests 50/100;
+candidate requests 10/20/40; reference post-minimization RMSD 0.5/1.25 Å;
+candidate additional pruning off/0.5/1.25 Å. MMFF94s ε78.4 stays fixed;
+reference/candidate stereo caps remain eight/four. All surviving references are
+retained. Each input is compared only with its own independent reference ensemble.
+
+The first 16-drug diagnostic found default tautomer preparation removing assigned
+stereo. The thesis adapter now preserves stereo during enumeration and explicitly
+rejects selected chemical states that still lose assigned stereo; 13/512 inputs
+trigger that descriptor check. Keep those failures in the ledger, not a hidden
+exclusion. Frozen corrected source **6e25c8b** passed **31 tests** and scoped Ruff
+on dichtator. The corrected 16-input pilot completed, with all six public-scorer
+replays passing; baseline mean 0.99135, 15/16 reaching 0.95. The full 512-input,
+18,432-row run is measuring with 33 single-thread workers. Execution:
+`tmux drugex-joint-verified`, output `_david/output/20261028_joint_calibration/full_verified`.
+Candidate minimization remains OFF by default; this is an explicit study profile.
+No RL epochs have started. No historical measurements were changed. The candidate
+stereo cap is provisional; this fixed-cap grid does not establish its optimum.
 
 **2026-10-28 follow-up: RL launch on hold; pipeline refactoring under review.**
 Read the dated [pipeline/reference plan](../../output/20261028_rl_preparation/PLAN.md)

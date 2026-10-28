@@ -7,15 +7,100 @@ import json
 from pathlib import Path
 import tempfile
 import time
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 
 import numpy as np
 import pandas as pd
 from rdkit import Chem
 
-from _david.code.conformer.calibrate import KEYS, save_sdf
+from _david.code.conformer.calibrate import KEYS, PROFILE, save_sdf
 from _david.code.conformer.self_recovery import atomic_json, digest
 from _david.code.environment import create_rocs_scorer
 from _david.code.reference import select_conformers
+
+
+def timing_replay(job):
+    """Actually regenerate/minimize/prune/score one input through the RL factory."""
+    output, row, smiles = job
+    directory = Path(output) / "checkpoints" / str(int(row["molecule_id"]))
+    refs = list(
+        Chem.SDMolSupplier(str(directory / "reference_50_pool.sdf"), removeHs=False)
+    )
+    ri = select_conformers(refs, 0.5)
+    scorer = create_rocs_scorer(
+        [refs[i] for i in ri],
+        max_conformers=20,
+        max_isomers=4,
+        random_seed=42,
+        minimize_candidates=True,
+        optimization=PROFILE,
+        conformer_threads=1,
+        timeout=0,
+        n_jobs=1,
+    )
+    if row["candidate_rmsd"]:
+        generate = scorer.conformer_generator.genConformers
+
+        def generate_and_prune(smiles_list, out):
+            path = generate(smiles_list, out)
+            records = list(Chem.SDMolSupplier(path, removeHs=False))
+            kept = select_conformers(records, row["candidate_rmsd"])
+            save_sdf(path, [records[i] for i in kept])
+            return path
+
+        scorer.conformer_generator.genConformers = generate_and_prune
+    started = time.perf_counter()
+    actual = float(scorer.getScores([smiles])[0, 0]) / 2
+    seconds = time.perf_counter() - started
+    if abs(actual - row["score"]) > 1e-8:
+        raise ValueError(f"End-to-end replay changed score: {row['score']} -> {actual}")
+    return dict(
+        molecule_id=int(row["molecule_id"]),
+        candidate_rmsd=row["candidate_rmsd"],
+        measured_seconds=seconds,
+        component_estimate=row["seconds"],
+        score=actual,
+        expected=row["score"],
+    )
+
+
+def validate_end_to_end(output):
+    panel = pd.read_csv(output / "panel.csv").head(16)
+    frame = pd.read_csv(output / "data.csv.gz")
+    selected = frame[
+        frame.molecule_id.isin(panel.molecule_id)
+        & frame.reference_attempts.eq(50)
+        & frame.reference_rmsd.eq(0.5)
+        & frame.candidate_attempts.eq(20)
+        & frame.candidate_rmsd.isin([0, 0.5])
+        & ~frame.color_excluded
+        & ~frame.reference_failure
+        & ~frame.candidate_failure
+    ]
+    smiles = panel.set_index("molecule_id").smiles.to_dict()
+    jobs = [
+        (str(output), row, smiles[row["molecule_id"]])
+        for row in selected.to_dict("records")
+    ]
+    with ProcessPoolExecutor(
+        max_workers=8, mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
+        results = list(pool.map(timing_replay, jobs))
+    pd.DataFrame(results).to_csv(output / "end_to_end.csv", index=False)
+    manifest = json.loads((output / "manifest.json").read_text())
+    manifest["end_to_end_replay"] = dict(
+        rows=len(results),
+        selection="First 16 frozen panel IDs, working R50/C20/0.5-A reference preset; candidate post-pruning off vs 0.5 A. Unavailable inputs reported, never substituted.",
+        attempted_inputs=len(panel),
+        replayed_inputs=selected.molecule_id.nunique(),
+        score_tolerance=1e-8,
+        script_sha256=digest(__file__),
+        scope="Whole getScores wall time, including fresh generation/minimization/pruning/alignment, one input per call; fixed references constructed before timing. Not an RL batch or epoch benchmark.",
+        data_sha256=digest(output / "end_to_end.csv"),
+    )
+    atomic_json(output / "manifest.json", manifest)
+    print(json.dumps(manifest["end_to_end_replay"], indent=2))
 
 
 def validate(output: Path, replays: int = 6):
@@ -115,5 +200,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--replays", type=int, default=6)
+    parser.add_argument("--end-to-end", action="store_true")
     args = parser.parse_args()
     validate(args.output, args.replays)
+    if args.end_to_end:
+        validate_end_to_end(args.output)
