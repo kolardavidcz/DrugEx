@@ -19,6 +19,10 @@ on dichtator. The corrected 16-input pilot completed, with all six public-scorer
 replays passing; baseline mean 0.99135, 15/16 reaching 0.95. The full 512-input,
 18,432-row run is measuring with 33 single-thread workers. Execution:
 `tmux drugex-joint-verified`, output `_david/output/20261028_joint_calibration/full_verified`.
+The pilot's 32 complete generation-to-score replays also passed within 1.12e−16.
+At the working preset, candidate post-pruning 0.5 Å reduced mean actual call time
+from 2.880 to 2.612 s with unchanged displayed mean ROCS (16 inputs; concurrent
+lab load). This is a pilot timing result, not an RL epoch speedup.
 Candidate minimization remains OFF by default; this is an explicit study profile.
 No RL epochs have started. No historical measurements were changed. The candidate
 stereo cap is provisional; this fixed-cap grid does not establish its optimum.
