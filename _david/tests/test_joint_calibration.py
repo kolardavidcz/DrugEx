@@ -1,17 +1,40 @@
 """Scientific controls for the joint calibration and shared production pruner."""
 
 import unittest
+import tempfile
 
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from _david.code.reference import select_conformers
+from _david.code.chemistry import (
+    CandidateConformerGenerator,
+    prepare_candidate_molecule,
+)
 from _david.code.conformer.calibrate import summarize
 import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_preparation_does_not_erase_assigned_amino_acid_stereo(self):
+        smiles = "CC(=O)N[C@@H](Cc1ccc(O)cc1)C(=O)O"
+        original = Chem.MolFromSmiles(smiles)
+        prepared = prepare_candidate_molecule(smiles)
+        self.assertTrue(prepared.HasSubstructMatch(original, useChirality=True))
+        generator = CandidateConformerGenerator(max_isomers=4)
+        self.assertEqual(len(list(generator._get_isomers(prepared))), 1)
+        unresolved = prepare_candidate_molecule("CC(=O)NC(Cc1ccc(O)cc1)C(=O)O")
+        self.assertEqual(len(list(generator._get_isomers(unresolved))), 2)
+        with tempfile.TemporaryDirectory() as directory:
+            path = generator.genConformers([smiles], directory)
+            records = list(Chem.SDMolSupplier(path, removeHs=False))
+        self.assertTrue(records)
+        for record in records:
+            assigned = Chem.Mol(record)
+            Chem.AssignStereochemistryFrom3D(assigned, replaceExistingTags=True)
+            self.assertTrue(assigned.HasSubstructMatch(original, useChirality=True))
+
     def test_pruning_preserves_stereo_lowest_energy_and_coordinates(self):
         first = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)F"))
         other = Chem.AddHs(Chem.MolFromSmiles("C[C@@H](O)F"))

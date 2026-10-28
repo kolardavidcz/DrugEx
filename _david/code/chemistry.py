@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+from drugex.training.scorers import conformer_generators as core_preparation
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.MolStandardize import rdMolStandardize
@@ -14,6 +16,29 @@ from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
 )
+
+
+def prepare_candidate_molecule(smiles, *, canonicalize_tautomer=True, protonate=True):
+    """Training chemical state, preserving assigned stereo during tautomerization.
+
+    RDKit otherwise removes stereo from atoms/bonds touched by any enumerated
+    tautomer, even when the chosen tautomer still supports the original stereo.
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise ValueError(f"Invalid candidate SMILES: {smiles!r}")
+    if canonicalize_tautomer:
+        enumerator = rdMolStandardize.TautomerEnumerator()
+        enumerator.SetRemoveSp3Stereo(False)
+        enumerator.SetRemoveBondStereo(False)
+        mol = enumerator.Canonicalize(mol)
+    if protonate and core_preparation._rdkit_protonate_smiles is not None:
+        parsed = Chem.MolFromSmiles(
+            core_preparation._rdkit_protonate_smiles(Chem.MolToSmiles(mol))
+        )
+        if parsed is not None:
+            mol = parsed
+    return mol
 
 
 @dataclass(frozen=True)
@@ -88,7 +113,35 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         )
 
     def genConformers(self, smiles_list, out_dir) -> str:
-        path = super().genConformers(smiles_list, out_dir)
+        # Core has no preparation hook. Keep its filtering, ETKDG and SDF naming
+        # here while routing chemistry through the shared stereo-preserving step.
+        path = str(Path(out_dir) / "conformers.sdf")
+        params = self._create_fresh_etkdg()
+        with Chem.SDWriter(path) as writer:
+            for index, smiles in enumerate(smiles_list):
+                if not smiles:
+                    continue
+                mol = Chem.MolFromSmiles(smiles)
+                if mol is None or self._filter_mol(smiles, mol):
+                    continue
+                mol = prepare_candidate_molecule(
+                    smiles,
+                    canonicalize_tautomer=self.canonicalize_tautomer,
+                    protonate=self.protonate,
+                )
+                for iso_index, iso in enumerate(self._get_isomers(mol)):
+                    iso = Chem.AddHs(iso)
+                    iso.SetProp("_Name", f"mol_{index}+{iso_index}")
+                    try:
+                        conf_ids = AllChem.EmbedMultipleConfs(
+                            iso, numConfs=self.max_conformers, params=params
+                        )
+                        for conf_id in conf_ids:
+                            writer.write(iso, confId=conf_id)
+                    except (RuntimeError, ValueError) as exc:
+                        logging.getLogger(__name__).warning(
+                            "%s: conformer generation failed: %s", smiles, exc
+                        )
         self.last_minimization_statuses = []
         self.last_embedding_failures = 0
         try:

@@ -31,12 +31,14 @@ from _david.code.chemistry import (
     check_identity,
     enumerate_stereoisomers,
     optimize_conformers,
+    prepare_candidate_molecule,
 )
 from _david.code.config import PROJECT_ROOT
-from _david.code.conformer.mega import prepared_molecule
 from _david.code.conformer.self_recovery import atomic_json, digest, SOURCE_PATHS
 from _david.code.reference import PrepareMolecule, select_conformers
 from _david.code.rocs import has_color, score_pair
+
+prepared_molecule = prepare_candidate_molecule
 
 PROFILE = Optimization("MMFF94s", 78.4)
 REFERENCE_ATTEMPTS = (50, 100)

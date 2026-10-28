@@ -30,9 +30,13 @@ from rdkit import Chem, rdBase
 from rdkit.Chem import Lipinski
 from rdkit.Chem.EnumerateStereoisomers import GetStereoisomerCount
 
-from drugex.training.scorers import conformer_generators as core_preparation
 from drugex.training.scorers.rocs_rdkit import _score_single_reference
-from _david.code.chemistry import Optimization, check_identity, optimize_conformers
+from _david.code.chemistry import (
+    Optimization,
+    check_identity,
+    optimize_conformers,
+    prepare_candidate_molecule,
+)
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
 from _david.code.environment import PrepareMolecule, create_rocs_scorer
 from _david.code.visualization import render_mega_study
@@ -55,19 +59,8 @@ _REFS = {}
 
 
 def prepared_molecule(smiles):
-    """Audit the same tautomer/protonation operations used by the core generator."""
-    mol = Chem.MolFromSmiles(smiles)
-    try:
-        mol = core_preparation._RDKIT_TAUTOMER_ENUMERATOR.Canonicalize(mol)
-    except Exception:
-        pass  # Same fallback as the selected core generator; no new chemistry rule.
-    if core_preparation._rdkit_protonate_smiles is not None:
-        parsed = Chem.MolFromSmiles(
-            core_preparation._rdkit_protonate_smiles(Chem.MolToSmiles(mol))
-        )
-        if parsed is not None:
-            mol = parsed
-    return mol
+    """Compatibility name for the shared thesis candidate chemistry policy."""
+    return prepare_candidate_molecule(smiles)
 
 
 def build_panel(paths, size, seed):
