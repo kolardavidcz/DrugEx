@@ -64,6 +64,13 @@ At candidate C25/I4/all retained references, equal-input panel mean ROCS is
 cohort, not full ensemble coverage, an established optimal budget or RL benefit.
 Read the report for all figures, denominators, caveats and review order.
 
+Timing clarification: at the current C30/I4 budgets, candidate MMFF94 helper
+time averages 0.0940 s/input (median 0.0532, p95 0.2189); MMFF94s ε78.4 averages
+0.0933 s. Generation averages 0.3247 s. These are component measurements on
+the selected 139 inputs, **not measured RL epoch slowdowns**. Total-time method
+comparisons also change reference ensembles and cannot isolate the candidate
+switch. See the report's RL timing section; no new experiment was launched.
+
 The completion monitor can now be paused. The proposed existing-drug panel is
 a later complementary study, not a replacement or extra experiment authorized
 for this run. Production candidate minimization remains OFF by default. The
