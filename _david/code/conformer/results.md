@@ -87,6 +87,18 @@ The folder also contains `molecules.csv.gz` (seed-averaged parent measurements),
 `identity_count_warnings.csv`, and the manifest with source/output hashes,
 definitions, verification and separate rendering provenance. No extra report MD.
 
+The user also selected median, tail and reliability panels for every range.
+Use each `isomers_<range>_median.png`, `_tails.png`, and `_reliability.png` beside
+the original mean/gain image (24 images total including four companion figures).
+`additional_metrics.csv` holds the derived lower-tail and ranking values; the
+original five data tables remain unchanged. Tails are 10th-percentile ROCS and
+95th-percentile time across parent seed averages. Reliability compares each
+method's ranking with its C100/I30 anchor within that range, with
+k=ceil(0.05*n): 15/7/3/1/1 for ranges 1/2/3–4/5–8/9+. Anchor overlap is 1 by
+construction. The last two figures measure top-1 stability, not ROCS similarity
+or statistically established enrichment. Insufficient positive anchor scores
+produce unavailable overlap, not a fabricated perfect score.
+
 Heatmaps use all available references and shared scales. Paired isomer gains
 compare the same parent/method/C against cap 1. Group 1 has zero such gain and
 omits redundant gain panels. Score/time frontiers compare budgets within each
@@ -117,8 +129,9 @@ SMILES after SDF readback; this is not a validated enumeration count. The cause
 is unresolved. Preserve the measured values, flag them in the warnings CSV and
 label that curve as SDF-readback identities; do not silently clip it to the cap.
 
-Validation on dichtator: scoped Ruff and one targeted regression test passed
-(seed averaging, paired failure handling and range boundaries). Every included
+Validation on dichtator: scoped Ruff and two targeted regression tests passed
+(seed averaging, paired failure handling, range boundaries, lower-tail quantile,
+fixed within-stratum ranking anchor and unavailable ranking cases). Every included
 parent passed complete/unique grid, reference availability/count, score range,
 failure/count and decomposed-time checks, with the identity-count exception above.
 Independent Python statistics calculations checked all 1,400 summary cells and
@@ -143,6 +156,44 @@ They report heterogeneous responses hidden by average trends and effects of
 ligand flexibility; their task does not select our ranges or budgets. Search:
 ensemble size, rotatable bonds, flexibility, false positives. Measurements remain
 bound to `ff96921`; this selected change only analyzes and renders saved data.
+
+## Filtering and self-recovery proposal — not yet selected
+
+Keep the full attempted-parent dataset and failure ledger. Individual optimized
+conformers already require native convergence status 0; this does not establish a
+global minimum or biological plausibility. "None" has no force-field convergence
+criterion. Report preparation availability separately from conditional score
+quality. For a planned paired comparison, use the same successful-parent subset
+for both settings and report its denominator plus failure rates on the full panel;
+do not compare independently filtered method-specific populations as if matched.
+Restricting to supported chemistry by declared rules is defensible, but its scope
+and exclusions must be explicit. Selecting only high-scoring or universally easy
+cases after inspection would answer a biased, narrower question.
+
+A proposed next study addresses independent molecular self-recovery: a fixed,
+diverse panel including EGCG, each with a specified identity and frozen reference
+ensemble. Regenerate from isomeric SMILES with independent seeds and no reference
+coordinates as candidate input. Use known stereo first; an intentionally masked
+candidate-stereo challenge would be a separate labeled arm. Record reference
+preparation failures, candidate failures, normalized shape/color combo, its two
+components at the same winning pose, symmetry-aware heavy-atom RMSD and timing.
+An exact-copy control should score 1; independently regenerated conformers need
+not. Fixed targets isolate candidate preparation, while the existing matched
+reference/candidate methods compare whole protocols. Computational references
+measure recovery of those protocols; experimental conformers would support a
+different physical-recovery claim. No new study or dataset filtering is authorized
+or implemented by this proposal.
+
+Evidence consulted 2026-10-28: free full text of [High-Quality Conformer Generation
+with CONFORGE, 2023](https://pmc.ncbi.nlm.nih.gov/articles/PMC10498443/), sections
+Dataset Preparation, Processing Time Measurement and RMSD Calculation, and
+molecule-processing-failure tables. It converts reference structures to isomeric
+SMILES to avoid supplying reference coordinates, assesses best symmetry-aware
+heavy-atom RMSD, and separately reports failed molecules. Those benchmarks do not
+prescribe our ROCS thresholds or panel size. [RDKit force-field documentation](https://www.rdkit.org/docs/source/rdkit.Chem.rdForceFieldHelpers.html)
+defines status 0 as converged and status 1 as requiring more iterations; neither
+is an activity label. Search scope: conformer benchmark failures, exclusion,
+stereochemistry, independent reference RMSD. Current raw scores are unchanged.
 
 ## Historical single-molecule baseline
 
