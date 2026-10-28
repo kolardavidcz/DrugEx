@@ -285,6 +285,454 @@ def render_mega_study(summary: pd.DataFrame, output: Path, manifest: dict) -> No
         plt.close(fig)
 
 
+def _analysis_finish(fig, output, filename, metadata, title, note=""):
+    status = "PROVISIONAL" if metadata["state"] == "provisional" else "COMPLETE PANEL"
+    fig.suptitle(
+        f"{status} · {metadata['completed_molecules']}/{metadata['planned_molecules']} molecules\n{title}",
+        fontsize=15,
+    )
+    footer = (
+        "ROCS = TanimotoCombo / 2. Three seeds averaged per parent before summaries. "
+        "Groups use the prepared molecule's estimated isomer upper bound, not successful isomers. "
+        "Incomplete slow cases are excluded; timing may be biased downward. "
+        "Methods change query geometry; higher scores do not establish biological accuracy. "
+        + note
+    )
+    fig.text(0.5, 0.006, fill(footer, 185), ha="center", va="bottom", fontsize=8)
+    fig.savefig(output / filename, dpi=160)
+    plt.close(fig)
+
+
+def _analysis_caps(stratum, caps):
+    """Hide redundant cap aliases only when all molecules in a stratum share them."""
+    upper = {"1": 1, "2": 2, "3-4": 4, "5-8": 8}.get(stratum, np.inf)
+    selected, seen = [], set()
+    for cap in caps:
+        effective = min(cap, upper)
+        if effective not in seen:
+            selected.append(cap)
+            seen.add(effective)
+    return selected
+
+
+def _analysis_heatmaps(summary, output, metadata):
+    from matplotlib.colors import LogNorm, Normalize, TwoSlopeNorm
+
+    change = max(
+        summary[["mean_isomer_gain", "median_isomer_gain"]].abs().max().max(), 0.001
+    )
+    positive_time = summary.mean_seconds[summary.mean_seconds > 0]
+    norms = [
+        Normalize(0, 1),
+        TwoSlopeNorm(0, -change, change),
+        TwoSlopeNorm(0, -change, change),
+        LogNorm(
+            positive_time.min(), max(positive_time.max(), positive_time.min() * 1.01)
+        ),
+    ]
+    metrics = ["mean_score", "mean_isomer_gain", "median_isomer_gain", "mean_seconds"]
+    labels = [
+        "Mean absolute ROCS",
+        "Mean paired gain vs cap 1",
+        "Median paired gain vs cap 1",
+        "Mean seconds (log color)",
+    ]
+    palettes = [plt.get_cmap(name) for name in ["viridis", "RdBu_r", "RdBu_r", "magma"]]
+    for stratum, count in metadata["strata"].items():
+        if not count:
+            continue
+        caps = _analysis_caps(stratum, metadata["isomer_caps"])
+        fig, axes = plt.subplots(
+            len(metadata["methods"]), 4, figsize=(20, 21), squeeze=False
+        )
+        for method, record in enumerate(metadata["methods"]):
+            subset = summary[(summary.stratum == stratum) & (summary.method == method)]
+            for column, metric in enumerate(metrics):
+                ax = axes[method, column]
+                grid = subset.pivot(
+                    index="isomer_cap", columns="conformers", values=metric
+                ).reindex(index=caps, columns=metadata["conformers"])
+                im = ax.imshow(
+                    grid, aspect="auto", cmap=palettes[column], norm=norms[column]
+                )
+                for y, x in np.ndindex(grid.shape):
+                    value = grid.iloc[y, x]
+                    rgba = palettes[column](norms[column](value))
+                    color = (
+                        "black"
+                        if np.dot(rgba[:3], [0.2126, 0.7152, 0.0722]) > 0.5
+                        else "white"
+                    )
+                    label = (
+                        f"{value:.2f}"
+                        if column == 3
+                        else f"{value:+.3f}"
+                        if column in [1, 2]
+                        else f"{value:.3f}"
+                    )
+                    ax.text(
+                        x, y, label, ha="center", va="center", fontsize=8, color=color
+                    )
+                ax.set_xticks(
+                    range(len(metadata["conformers"])),
+                    metadata["conformers"],
+                    fontsize=8,
+                )
+                ax.set_yticks(
+                    range(len(caps)),
+                    [str(c) if c < 30 else "≤30" for c in caps],
+                    fontsize=8,
+                )
+                ax.set_ylabel(
+                    f"{record['name']}\nIsomer cap" if column == 0 else "Isomer cap",
+                    fontsize=9,
+                )
+                if method == 0:
+                    ax.set_title(labels[column], fontsize=11)
+                if method == len(metadata["methods"]) - 1:
+                    ax.set_xlabel("Conformer attempts per enumerated isomer")
+                if method == 0:
+                    bar = fig.add_axes([0.067 + column * 0.24, 0.032, 0.18, 0.008])
+                    fig.colorbar(im, cax=bar, orientation="horizontal")
+        fig.subplots_adjust(
+            left=0.065, right=0.99, top=0.94, bottom=0.075, hspace=0.55, wspace=0.24
+        )
+        slug = stratum.replace(">=", "ge").replace("-", "_")
+        _analysis_finish(
+            fig,
+            output,
+            f"isomers_{slug}.png",
+            metadata,
+            f"Isomer-upper-bound range {stratum} · n={count} · all available references",
+            "Shared color scales across groups. Gains pair the same parent/method/conformer budget. Redundant cap aliases are hidden.",
+        )
+
+
+def _analysis_tradeoffs(summary, output, metadata):
+    fig, axes = plt.subplots(2, 3, figsize=(19, 11))
+    colors = plt.get_cmap("tab10")
+    for ax, (stratum, count) in zip(axes.flat, metadata["strata"].items()):
+        subset = summary[
+            (summary.stratum == stratum)
+            & summary.isomer_cap.isin(_analysis_caps(stratum, metadata["isomer_caps"]))
+        ]
+        for method, record in enumerate(metadata["methods"]):
+            points = subset[subset.method == method].sort_values("mean_seconds")
+            ax.scatter(
+                points.mean_seconds,
+                points.mean_budget_gain,
+                color=colors(method),
+                s=23,
+                alpha=0.45,
+                label=record["name"],
+            )
+            best = -np.inf
+            frontier = []
+            for row in points.itertuples():
+                if row.mean_budget_gain > best:
+                    frontier.append(row)
+                    best = row.mean_budget_gain
+            if frontier:
+                ax.plot(
+                    [r.mean_seconds for r in frontier],
+                    [r.mean_budget_gain for r in frontier],
+                    color=colors(method),
+                    lw=1,
+                )
+            if method == 1:
+                for row in frontier:
+                    ax.annotate(
+                        f"{row.conformers}/{row.isomer_cap}",
+                        (row.mean_seconds, row.mean_budget_gain),
+                        xytext=(3, 4),
+                        textcoords="offset points",
+                        fontsize=7,
+                        color=colors(method),
+                    )
+        ax.set(
+            xscale="log",
+            xlabel="Mean seconds per molecule",
+            ylabel="Mean paired score gain vs C1 / I1",
+            title=f"Isomer bound {stratum} · n={count}",
+        )
+        ax.axhline(0, color="grey", lw=0.7)
+        ax.grid(alpha=0.2)
+    handles, labels = axes.flat[0].get_legend_handles_labels()
+    axes.flat[-1].axis("off")
+    axes.flat[-1].legend(handles, labels, loc="center", frameon=False, fontsize=10)
+    axes.flat[-1].text(
+        0.05,
+        0.08,
+        "Each point: C / isomer-cap setting\nLines: within-method nondominated choices\nMMFF94 labels: C / isomer cap\nAll available references",
+        transform=axes.flat[-1].transAxes,
+    )
+    fig.subplots_adjust(top=0.88, bottom=0.12, hspace=0.4, wspace=0.28)
+    _analysis_finish(
+        fig,
+        output,
+        "score_time.png",
+        metadata,
+        "Score gain versus computation cost",
+        "Frontiers are descriptive within each method, not evidence for a biologically optimal force field.",
+    )
+
+
+def _analysis_distributions(parents, cohort_ids, output, metadata):
+    all_refs = parents[parents.reference_cap.eq(0)]
+    mmff = all_refs[all_refs.method.eq(1)]
+    maximum_cap = max(metadata["isomer_caps"])
+    fig, axes = plt.subplots(2, 2, figsize=(16, 11))
+    for c, i in [(1, 1), (10, 3), (30, 10), (100, 30)]:
+        values = (
+            mmff[mmff.conformers.eq(c) & mmff.isomer_cap.eq(i)]
+            .score.sort_values()
+            .to_numpy()
+        )
+        axes[0, 0].step(
+            values,
+            np.arange(1, len(values) + 1) / len(values),
+            where="post",
+            label=f"C={c}, I={i}",
+        )
+    axes[0, 0].set(
+        xlabel="Normalized ROCS",
+        ylabel="Fraction of molecules ≤ score",
+        xlim=(0, 1),
+        title="MMFF94: complete score distributions",
+    )
+    axes[0, 0].legend()
+    full_cap = mmff[mmff.isomer_cap.eq(maximum_cap)]
+    for quantile in [0.5, 0.9, 0.95]:
+        values = full_cap.groupby("conformers").score.quantile(quantile)
+        axes[0, 1].plot(
+            values.index, values, "o-", label=f"Percentile {100 * quantile:g}"
+        )
+    axes[0, 1].set(
+        xlabel="Conformer attempts",
+        ylabel="Normalized ROCS",
+        ylim=(0, 1),
+        title="MMFF94 / I≤30: upper-score response",
+    )
+    axes[0, 1].legend()
+    cohort = all_refs[
+        all_refs.molecule_id.isin(cohort_ids) & all_refs.isomer_cap.eq(maximum_cap)
+    ]
+    for method, record in enumerate(metadata["methods"]):
+        values = cohort[cohort.method.eq(method)].groupby("conformers").score.mean()
+        axes[1, 0].plot(values.index, values, "o-", label=record["name"], ms=3)
+    axes[1, 0].set(
+        xlabel="Conformer attempts",
+        ylabel="Mean normalized ROCS",
+        ylim=(0, 1),
+        title=f"Same {len(cohort_ids)} high-score molecules in every curve · I≤30",
+    )
+    axes[1, 0].legend(fontsize=7)
+    anchor = mmff[mmff.conformers.eq(100) & mmff.isomer_cap.eq(30)][
+        ["molecule_id", "score", "stratum"]
+    ].rename(columns={"score": "anchor"})
+    smaller = mmff[mmff.conformers.eq(10) & mmff.isomer_cap.eq(3)][
+        ["molecule_id", "score"]
+    ]
+    paired = anchor.merge(smaller, on="molecule_id", validate="one_to_one")
+    for stratum, count in metadata["strata"].items():
+        points = paired[paired.stratum.eq(stratum)]
+        axes[1, 1].scatter(
+            points.anchor, points.score, s=13, alpha=0.6, label=f"{stratum} (n={count})"
+        )
+    axes[1, 1].plot([0, 1], [0, 1], "--", color="grey", lw=1)
+    axes[1, 1].set(
+        xlabel="MMFF94: C100 / I30 score",
+        ylabel="MMFF94: C10 / I3 score",
+        xlim=(0, 1),
+        ylim=(0, 1),
+        title="Individual molecules: smaller versus larger budget",
+    )
+    axes[1, 1].legend(fontsize=8)
+    for ax in axes.flat:
+        ax.grid(alpha=0.2)
+    fig.subplots_adjust(top=0.88, bottom=0.12, hspace=0.36, wspace=0.24)
+    _analysis_finish(
+        fig,
+        output,
+        "score_distributions.png",
+        metadata,
+        "Absolute scores and a fixed high-score cohort",
+        "Cohort chosen once by MMFF94/C100/I30/all on these measurements; exploratory selection, not an independent validation set.",
+    )
+
+
+def _analysis_diagnostics(summary, output, metadata):
+    largest = summary[
+        summary.conformers.eq(max(metadata["conformers"]))
+        & summary.isomer_cap.eq(max(metadata["isomer_caps"]))
+    ]
+    strata = list(metadata["strata"])
+    names = [m["name"] for m in metadata["methods"]]
+    fig, axes = plt.subplots(2, 3, figsize=(21, 12))
+    heatmaps = [
+        (
+            axes[0, 0],
+            "failure_fraction",
+            "Preparation failure fraction",
+            "Reds",
+            (0, 1),
+        ),
+        (
+            axes[0, 1],
+            "successful_pair_gain",
+            "Mean isomer gain: successful pairs only",
+            "RdBu_r",
+            None,
+        ),
+        (
+            axes[1, 0],
+            "retained_fraction",
+            "Mean retained / embedded conformers",
+            "viridis",
+            (0, 1),
+        ),
+        (
+            axes[1, 1],
+            "seed_score_sd",
+            "Mean within-parent score SD across seeds",
+            "magma",
+            None,
+        ),
+    ]
+    for ax, metric, title, palette, limits in heatmaps:
+        grid = largest.pivot(index="method", columns="stratum", values=metric).reindex(
+            index=range(len(names)), columns=strata
+        )
+        lower, upper = limits or (
+            (-max(grid.abs().max().max(), 0.001), max(grid.abs().max().max(), 0.001))
+            if metric == "successful_pair_gain"
+            else (0, max(grid.max().max(), 0.001))
+        )
+        im = ax.imshow(grid, aspect="auto", cmap=palette, vmin=lower, vmax=upper)
+        ax.set_xticks(
+            range(len(strata)),
+            [f"{s}\nn={metadata['strata'][s]}" for s in strata],
+            fontsize=8,
+        )
+        ax.set_yticks(range(len(names)), names, fontsize=8)
+        ax.set_title(title, fontsize=11)
+        for y, x in np.ndindex(grid.shape):
+            value = grid.iloc[y, x]
+            rgba = im.cmap(im.norm(value))
+            color = (
+                "black" if np.dot(rgba[:3], [0.2126, 0.7152, 0.0722]) > 0.5 else "white"
+            )
+            label = "n/a" if not np.isfinite(value) else f"{value:.3f}"
+            if metric == "successful_pair_gain":
+                n = largest[
+                    (largest.method == y) & (largest.stratum == strata[x])
+                ].successful_pairs
+                label += f"\n(n={int(n.iloc[0])})" if len(n) else ""
+            ax.text(x, y, label, ha="center", va="center", fontsize=7, color=color)
+        fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    generated = summary[summary.method.eq(0)]
+    for stratum, count in metadata["strata"].items():
+        selected = generated[
+            (generated.stratum == stratum) & generated.conformers.eq(100)
+        ]
+        axes[0, 2].plot(
+            selected.isomer_cap,
+            selected.mean_isomers,
+            "o-",
+            label=f"{stratum}, n={count}",
+        )
+        selected = generated[
+            (generated.stratum == stratum) & generated.isomer_cap.eq(30)
+        ]
+        axes[1, 2].plot(
+            selected.conformers,
+            selected.median_embedded,
+            "o-",
+            label=f"{stratum}, n={count}",
+        )
+    axes[0, 2].set(
+        xlabel="Requested isomer cap",
+        ylabel="Mean successfully represented isomers",
+        title="Generation yield · C100",
+    )
+    axes[1, 2].set(
+        xlabel="Conformer attempts per enumerated isomer",
+        ylabel="Median total embedded conformers",
+        title="Total generated across isomers · I≤30",
+    )
+    for ax in [axes[0, 2], axes[1, 2]]:
+        ax.grid(alpha=0.2)
+        ax.legend(fontsize=8)
+    fig.subplots_adjust(top=0.88, bottom=0.12, hspace=0.4, wspace=0.65)
+    _analysis_finish(
+        fig,
+        output,
+        "sampling_diagnostics.png",
+        metadata,
+        "Failures, successful comparisons, sampling yield and seed variation",
+        "Heatmaps: C100/I30/all. Yield precedes force-field minimization and is shared across methods. SD is not a confidence interval.",
+    )
+
+
+def _analysis_references(parents, output, metadata):
+    fig, axes = plt.subplots(
+        2, len(metadata["methods"]), figsize=(24, 8), squeeze=False
+    )
+    for method, record in enumerate(metadata["methods"]):
+        selected = parents[parents.method.eq(method) & parents.isomer_cap.eq(30)]
+        for c in [1, 10, 30, 100]:
+            points = selected[selected.conformers.eq(c)]
+            reference_one = points[points.reference_cap.eq(1)][
+                ["molecule_id", "score"]
+            ].rename(columns={"score": "reference_one"})
+            paired = points.merge(
+                reference_one, on="molecule_id", validate="many_to_one"
+            )
+            paired["reference_gain"] = paired.score - paired.reference_one
+            # "All" may duplicate an explicit cap; each actual count is plotted once.
+            paired = paired.sort_values("reference_cap").drop_duplicates(
+                ["molecule_id", "actual_references"]
+            )
+            table = paired.groupby("actual_references")[
+                ["reference_gain", "seconds"]
+            ].mean()
+            axes[0, method].plot(
+                table.index, table.reference_gain, "o-", label=f"C={c}"
+            )
+            axes[1, method].plot(table.index, table.seconds, "o-")
+        axes[0, method].set_title(record["name"], fontsize=10)
+        for ax in axes[:, method]:
+            ax.grid(alpha=0.2)
+            ax.set_xticks(range(1, metadata["references"][str(method)]["count"] + 1))
+        axes[1, method].set_xlabel("Actual reference count")
+        axes[1, method].set_yscale("log")
+    axes[0, 0].set_ylabel("Mean paired score gain vs reference 1")
+    axes[1, 0].set_ylabel("Mean seconds (log)")
+    axes[0, -1].legend(fontsize=8)
+    for row in range(2):
+        limits = [ax.get_ylim() for ax in axes[row]]
+        for ax in axes[row]:
+            ax.set_ylim(min(lim[0] for lim in limits), max(lim[1] for lim in limits))
+    fig.subplots_adjust(top=0.84, bottom=0.16, hspace=0.22, wspace=0.32)
+    _analysis_finish(
+        fig,
+        output,
+        "reference_effects.png",
+        metadata,
+        "Reference-count effects · all completed molecules · isomer cap ≤30",
+        "Only measured distinct reference counts appear; unavailable counts remain absent. Each method has its own query conformers.",
+    )
+
+
+def render_conformer_analysis(parents, summary, cohort_ids, output, metadata):
+    """Render the selected stratified analysis from saved parent-level tables."""
+    _analysis_heatmaps(summary, output, metadata)
+    _analysis_tradeoffs(summary, output, metadata)
+    _analysis_distributions(parents, cohort_ids, output, metadata)
+    _analysis_diagnostics(summary, output, metadata)
+    _analysis_references(parents, output, metadata)
+
+
 def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure ROCS is [0, 2] TanimotoCombo and calculate physical properties if missing."""
     if df.empty:
