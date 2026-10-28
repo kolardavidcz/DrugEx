@@ -10,6 +10,49 @@ import numpy as np
 import pandas as pd
 
 
+def render_joint_calibration(summary: pd.DataFrame, output: Path) -> None:
+    """One readable score/time sheet for the 36-cell joint calibration."""
+    reference_keys = [(n, r) for n in (50, 100) for r in (0.5, 1.25)]
+    candidate_keys = [(n, r) for n in (10, 20, 40) for r in (0.0, 0.5, 1.25)]
+    lookup = summary.set_index([
+        "reference_attempts", "reference_rmsd", "candidate_attempts", "candidate_rmsd"
+    ])
+    fig, axes = plt.subplots(3, 2, figsize=(20, 14), constrained_layout=True)
+    metrics = [("mean", "Mean native normalized ROCS", "viridis", (0.8, 1)),
+               ("median", "Median native normalized ROCS", "viridis", (0.8, 1)),
+               ("p05", "Lower tail: fifth percentile ROCS", "viridis", (0, 1)),
+               ("fraction_ge_095", "Fraction of inputs reaching ROCS ≥ 0.95", "viridis", (0, 1)),
+               ("seconds", "Mean candidate generation + minimization + pruning + alignment (s)", "magma_r", None),
+               ("reference_seconds", "Mean one-time reference preparation (s)", "magma_r", None)]
+    for ax, (metric, title, cmap, limits) in zip(axes.flat, metrics):
+        values = np.array([[lookup.loc[(rn, rr, cn, cr), metric]
+                            for cn, cr in candidate_keys] for rn, rr in reference_keys])
+        image = ax.imshow(values, aspect="auto", cmap=cmap,
+                          vmin=limits[0] if limits else None,
+                          vmax=limits[1] if limits else None)
+        ax.set_xticks(range(len(candidate_keys)),
+                      [f"C{n}\n{'off' if r == 0 else str(r) + ' Å'}" for n, r in candidate_keys])
+        ax.set_yticks(range(len(reference_keys)), [f"R{n} / {r} Å" for n, r in reference_keys])
+        ax.set_xlabel("Candidate requests per stereoisomer / additional RMSD pruning")
+        ax.set_ylabel("Reference requests per stereoisomer / RMSD pruning")
+        ax.set_title(title, fontsize=12)
+        for i, j in np.ndindex(values.shape):
+            val = values[i, j]
+            rgba = image.cmap(image.norm(val)) if np.isfinite(val) else (1, 1, 1, 1)
+            luminance = 0.2126 * rgba[0] + 0.7152 * rgba[1] + 0.0722 * rgba[2]
+            ax.text(j, i, f"{val:.3f}", ha="center", va="center",
+                    color="black" if luminance > 0.48 else "white", fontsize=9)
+        fig.colorbar(image, ax=ax, shrink=0.8)
+    inputs = int(summary.inputs.iloc[0])
+    excluded = int(summary.color_excluded.iloc[0])
+    fig.suptitle(f"Same-drug self-recovery · {inputs} inputs ({excluded} color exclusions) · MMFF94s ε=78.4\n"
+                 "Reference stereo cap 8; candidate cap 4 · independent geometry seeds 43/42 · failures retained as zero\n"
+                 "One best pair per input; shared component timing, not RL latency", fontsize=15)
+    fig.savefig(output / "calibration.png", dpi=160)
+    fig.savefig(output / "calibration.svg")
+    plt.close(fig)
+
+
 def render_conformer_study(frame: pd.DataFrame, output: Path) -> None:
     """Two rows for preparation methods; score/time occupy separate columns."""
     frame = frame.copy()

@@ -18,6 +18,47 @@ from _david.code.chemistry import (
 from _david.code.config import DEFAULT_MOLECULE
 
 
+def select_conformers(records: list[Chem.Mol], cutoff: float | None) -> list[int]:
+    """Butina representatives within each stereo identity, without moving coordinates.
+
+    Choose the lowest-energy member when energies are present. Return indices so
+    studies can reuse saved geometries and measure pruning independently.
+    """
+    groups: dict[str, list[int]] = {}
+    for index, record in enumerate(records):
+        identity = Chem.MolToSmiles(Chem.RemoveHs(record), isomericSmiles=True)
+        groups.setdefault(identity, []).append(index)
+    selected = []
+    for indices in groups.values():
+
+        def energy(i):
+            return records[i].GetDoubleProp("Energy_kcal_mol")
+
+        have_energy = all(records[i].HasProp("Energy_kcal_mol") for i in indices)
+        if cutoff is None or len(indices) < 2:
+            kept = indices.copy()
+        else:
+            heavy = [Chem.RemoveHs(records[i]) for i in indices]
+            distances = [
+                float(AllChem.GetBestRMS(Chem.Mol(heavy[i]), heavy[j]))
+                for i in range(len(indices))
+                for j in range(i)
+            ]
+            clusters = Butina.ClusterData(
+                distances, len(indices), distThresh=cutoff, isDistData=True
+            )
+            kept = [
+                min((indices[i] for i in cluster), key=energy)
+                if have_energy
+                else indices[cluster[0]]
+                for cluster in clusters
+            ]
+        if have_energy:
+            kept.sort(key=energy)
+        selected.extend(kept)
+    return selected
+
+
 class PrepareMolecule:
     """Standardizes input chemical queries and generates 3D reference conformer ensembles."""
 
@@ -206,43 +247,15 @@ class PrepareMolecule:
                     del energies[cid]
         remaining_cids = [c.GetId() for c in mol_h.GetConformers()]
         mol_h.SetIntProp("EnergyWindowConformers", len(remaining_cids))
-        max_ensemble_size = self.max_reference_conformers
-        if self.rmsd_cutoff is None:
-            curated = (
-                sorted(remaining_cids, key=energies.get)
-                if energies is not None
-                else remaining_cids
-            )
-            mol_h.SetIntProp("ReferenceClusters", len(curated))
-            curated = curated[:max_ensemble_size]
-        elif len(remaining_cids) > 1:
-            mol_no_h = Chem.RemoveHs(mol_h)
-            n_confs = len(remaining_cids)
-            rms_matrix: list[float] = [
-                float(
-                    AllChem.GetBestRMS(
-                        mol_no_h, mol_no_h, remaining_cids[i], remaining_cids[j]
-                    )
-                )
-                for i in range(n_confs)
-                for j in range(i)
-            ]
-            clusters = Butina.ClusterData(
-                rms_matrix, n_confs, distThresh=self.rmsd_cutoff, isDistData=True
-            )
-            mol_h.SetIntProp("ReferenceClusters", len(clusters))
-            curated = [
-                min([remaining_cids[idx] for idx in cl], key=energies.get)
-                if energies is not None
-                else remaining_cids[cl[0]]
-                for cl in clusters
-            ]
-            if energies is not None:
-                curated.sort(key=energies.get)
-            curated = curated[:max_ensemble_size]
-        else:
-            mol_h.SetIntProp("ReferenceClusters", len(remaining_cids))
-            curated = remaining_cids[:max_ensemble_size]
+        records = [Chem.Mol(mol_h, confId=cid) for cid in remaining_cids]
+        if energies is not None:
+            for record, cid in zip(records, remaining_cids):
+                record.SetDoubleProp("Energy_kcal_mol", energies[cid])
+        selection = select_conformers(records, self.rmsd_cutoff)
+        mol_h.SetIntProp("ReferenceClusters", len(selection))
+        curated = [
+            remaining_cids[i] for i in selection[: self.max_reference_conformers]
+        ]
 
         with Chem.SDWriter(str(target_path)) as writer:
             for i, cid in enumerate(curated):
