@@ -33,7 +33,7 @@ from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
 from _david.code.conformer.mega import METHODS, SEEDS, prepared_molecule
 from _david.code.conformer.sampling import plan_sampling, deduplicate_reference
 from _david.code.environment import PrepareMolecule, create_rocs_scorer
-from _david.code.visualization import render_self_recovery
+from _david.code.visualization import render_self_recovery, render_sampling_plan
 
 
 SCALES = (0.5, 1.0, 2.0)
@@ -392,6 +392,35 @@ def make_cases(panel, scales=SCALES):
 
 def run(args):
     output = args.output.resolve()
+    if args.plan_only:
+        output.mkdir(parents=True, exist_ok=False)
+        panel = (
+            pd.read_csv(args.panel)
+            if args.panel
+            else pd.DataFrame([dict(molecule_id=0, smiles=DEFAULT_MOLECULE)])
+        )
+        cases = make_cases(panel, args.scales)
+        render_sampling_plan(cases, output)
+        atomic_json(
+            output / "manifest.json",
+            dict(
+                state="planning_only",
+                source_panel=str(args.panel),
+                source_panel_sha256=digest(args.panel) if args.panel else None,
+                source_sha256={p: digest(PROJECT_ROOT / p) for p in SOURCE_PATHS},
+                git_revision=subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], text=True
+                ).strip(),
+                command=[
+                    sys.executable,
+                    "-m",
+                    "_david.code.conformer.self_recovery",
+                    *sys.argv[1:],
+                ],
+                meaning="Input-property budget audit only; no embedding, optimization or ROCS scoring",
+            ),
+        )
+        return
     if args.render_only:
         manifest = json.loads((output / "manifest.json").read_text())
         before = digest(output / "data.csv.gz")
@@ -572,6 +601,7 @@ def main():
     parser.add_argument("--scales", type=float, nargs=3, default=SCALES)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--render-only", action="store_true")
+    parser.add_argument("--plan-only", action="store_true")
     run(parser.parse_args())
 
 

@@ -827,6 +827,74 @@ def render_conformer_analysis(parents, summary, cohort_ids, output, metadata):
     _analysis_references(parents, output, metadata)
 
 
+def render_sampling_plan(cases, output: Path):
+    """Show heterogeneous planned effort without generating conformers or scores."""
+    rows = [
+        dict(
+            molecule_id=c["molecule_id"],
+            smiles=c["smiles"],
+            category=c["category"],
+            rotatable_bonds=c["rotatable_bonds"],
+            oh_nh_count=c["oh_nh_count"],
+            saturated_rings=c["saturated_rings"],
+            isomer_upper_bound=c["isomer_upper_bound"],
+            reference_isomers=len(c["reference_isomers"]),
+            baseline_attempts=c["conformers_per_isomer"],
+            half_attempts=c["attempts"][0],
+            double_attempts=c["attempts"][2],
+        )
+        for c in cases
+    ]
+    frame = pd.DataFrame(rows)
+    frame.to_csv(output / "sampling_plans.csv", index=False)
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    categories = ["1", "2", "3-4", "5-8", "9-25"]
+    groups = [frame[frame.category.eq(c)] for c in categories]
+    axes[0].boxplot(
+        [g.baseline_attempts for g in groups],
+        tick_labels=[f"{c}\nn={len(g)}" for c, g in zip(categories, groups)],
+        whis=(0, 100),
+    )
+    for count in [25, 50, 100]:
+        axes[0].axhline(count, lw=1, ls="--", label=f"Fixed {count}")
+    axes[0].set(
+        xlabel="Enumerated reference stereoisomer category",
+        ylabel="Planned conformer attempts per stereoisomer",
+        title="Same adaptive recipe, different search effort",
+    )
+    axes[0].legend()
+    points = axes[1].scatter(
+        frame.rotatable_bonds,
+        frame.baseline_attempts,
+        c=frame.oh_nh_count + frame.saturated_rings,
+        s=35,
+        alpha=0.5,
+        cmap="viridis",
+    )
+    axes[1].set(
+        xlabel="Rotatable bonds",
+        ylabel="Planned conformer attempts per stereoisomer",
+        title="OH/NH and saturated rings also change the budget",
+    )
+    fig.colorbar(points, ax=axes[1]).set_label("NH/OH count + saturated rings")
+    for ax in axes:
+        ax.grid(alpha=0.2)
+    fig.suptitle(
+        f"SAMPLING PLAN ONLY · {len(frame)} parents · no conformer generation or ROCS measurement"
+    )
+    fig.text(
+        0.5,
+        0.02,
+        "AQME-style mid heuristic: min(250, 30 × (rotors + NH/OH + saturated rings)); featureless inputs receive 10.\nBox whiskers show the full planned range, not confidence intervals. Higher budgets are not established as equally accurate across molecules.",
+        ha="center",
+        fontsize=9,
+    )
+    fig.subplots_adjust(top=0.84, bottom=0.23, wspace=0.3)
+    fig.savefig(output / "sampling_budget_plan.png", dpi=180)
+    plt.close(fig)
+    return frame
+
+
 def render_self_recovery(frame: pd.DataFrame, output: Path, manifest: dict) -> None:
     """Self-recovery panels with explicit per-cell reference availability counts."""
     from matplotlib.colors import LogNorm, Normalize
