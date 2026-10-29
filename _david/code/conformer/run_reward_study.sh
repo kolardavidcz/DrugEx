@@ -19,6 +19,18 @@ if [[ "$mode" == pilot ]]; then
 fi
 if [[ "$mode" != full ]]; then echo "Use pilot or full" >&2; exit 2; fi
 
+.venv/bin/python - <<'PY'
+from pathlib import Path
+import tarfile
+from _david.code.conformer.reward_calibration import SOURCES
+archive=Path('_david/output/20261029_0250_reward_calibration/raw_data/provenance/measurement_source.tar.gz')
+archive.parent.mkdir(parents=True,exist_ok=True)
+if not archive.exists():
+    with tarfile.open(archive,'w:gz') as handle:
+        for source in SOURCES:
+            handle.add(source,arcname=source)
+PY
+
 # One bounded sample of free CPU and available RAM, with room for other users.
 workers="${DRUGEX_STUDY_WORKERS:-$(.venv/bin/python - <<'PY'
 from pathlib import Path
