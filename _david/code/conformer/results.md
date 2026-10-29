@@ -1,5 +1,14 @@
 # Conformer study: status and evidence
 
+**2026-10-29 (Argon Architectural Refactoring & Root-Cause Resolution):**
+All 25 sprawling, partially duplicated conformer scripts and hardcoded shell wrappers (`conformer_experiment.py`, `study.py`, `repair_identities.py`, `seed_control.py`, `reference_caps.py`, `validate_calibration.py`, `whole_call_scorer.py`, `validate_reward_calibration.py`, `query_calibration.py`, `reward_analysis.py`, `resume_calibration.sh`, `run_cost_audit.sh`, `run_reward_study.sh`) have been consolidated into a clean 12-module package (`_david/code/conformer/`) and promoted into core `_david/code/`:
+1. **Multiprocessing Float32 Coordinate Truncation Fixed (`chemistry.py`)**: Enabled `Chem.PropertyPickleOptions.CoordsAsDouble` globally via `enable_double_precision_mol_pickling()`. Previously, pickling `Chem.Mol` across worker queues truncated 3D coordinates from `float64` to `float32` (`~2.9e-5 Å` error), causing parallel (`n_jobs > 1`) vs. serial (`n_jobs = 1`) ROCS score divergence (e.g., ID 732 diverging by `0.069` when a secondary alignment seed shifted local optima).
+2. **ETKDGv3 `maxIterations` In-Place Mutation Fixed (`chemistry.py`)**: `CandidateConformerGenerator.genConformers` now instantiates a fresh `AllChem.ETKDGv3()` parameter object per stereoisomer rather than once per batch, preventing RDKit's C++ embedder from mutating `params.maxIterations` (`0 -> 90` on small first molecules) and starving larger subsequent molecules in the batch.
+3. **Disjoint Conformer RNG Streams (`chemistry.py`, `pipeline.py`, `reference_bank.py`)**: Promoted `DEFAULT_REFERENCE_SEED = 104729`, `DEFAULT_CANDIDATE_SEED = 42`, and `verify_disjoint_conformer_seeds()` into `chemistry.py` and `pipeline.py`, preventing `base_seed * (conf_idx + 1)` collisions (`43 * 42 = 1806 = 42 * 43`).
+4. **Stereo-Balanced & Shape+Color Farthest-First Reference Selection (`reference.py`, `config.py`, `pipeline.py`)**: Promoted `balanced_reference_order`, `diverse_order`, `max_reference_isomers`, and `selection_mode: Literal["rmsd", "diverse"]` into `PrepareMolecule` and `PipelineConfig`, solving both polar-rotamer loss under heavy-atom Butina RMSD pruning and stereoisomer starvation under small reference caps $K$.
+5. **Persistent Worker Pool (`rocs.py`)**: Promoted `WholeCallScorer` and `NAMED_OPTIMIZATION_METHODS` into `_david/code/rocs.py`.
+6. **Explicit Physical ROCS Unscaling (`pipeline.py`, `visualization.py`)**: `MoleculePipeline` now records `Raw_ROCS` explicitly alongside desirability-transformed `ROCS`, and `unscale_to_physical_metrics` uses `Raw_ROCS` (or explicit `rocs_is_normalized`) rather than a fragile `max <= 1.0001` heuristic.
+
 **2026-10-29: stereochemistry proposal under discussion; new runs on hold.**
 The user proposed stereo-unspecified EGCG/drug-panel inputs. No chemistry policy
 or source input was changed. A metadata-only RDKit audit of the frozen panel

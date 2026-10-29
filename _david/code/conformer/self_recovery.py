@@ -35,6 +35,7 @@ from _david.code.chemistry import (
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
 from _david.code.conformer.mega import prepared_molecule
 from _david.code.conformer.sampling import deduplicate_reference
+from _david.code.conformer.utils import atomic_json, digest, save_sdf
 from _david.code.environment import PrepareMolecule, create_rocs_scorer
 from _david.code.rocs import score_pair, has_color
 from _david.code.visualization import render_mini_recovery
@@ -58,16 +59,6 @@ SOURCE_PATHS = (
     "drugex/training/scorers/conformer_generators.py",
     "drugex/training/scorers/rocs_rdkit.py",
 )
-
-
-def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-def atomic_json(path, value):
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(value, indent=2) + "\n")
-    temporary.replace(path)
 
 
 def reference_group(counts):

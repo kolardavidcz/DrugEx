@@ -69,14 +69,27 @@ The workspace strictly enforces a clean separation of concerns. **DrugEx core re
 │   ├── AGENTS.md              # Authoritative project instructions & working agreement
 │   ├── in_molecule.txt        # Input SMILES query (default: EGCG)
 │   ├── code/                  # Main Python source package
-│   │   ├── chemistry.py       # Candidate conformer generation & isomer enumeration
-│   │   ├── config.py          # Paths, model checkpoints, environment settings
-│   │   ├── conformer/         # Standalone conformer physics & calibration package
+│   │   ├── chemistry.py       # Double-precision pickling, disjoint seeds, ETKDGv3 & MMFF94s/UFF
+│   │   ├── config.py          # Paths, model checkpoints, environment & reference selection settings
+│   │   ├── conformer/         # Consolidated 12-module conformer calibration & benchmarking suite
+│   │   │   ├── __init__.py            # Public exports for sampling, reference banks, and utilities
+│   │   │   ├── calibrate.py           # Joint conformer-budget & Butina RMSD calibration runner
+│   │   │   ├── diagnostics.py         # Single-query 3D geometry & force-field diagnostics
+│   │   │   ├── drug_panel.py          # Curated 512-molecule ChEMBL drug panel builder
+│   │   │   ├── mega.py                # Multi-molecule parallel self-recovery & timing study
+│   │   │   ├── reference_bank.py      # R50/I8 disjoint-stream reference bank builder
+│   │   │   ├── results.md             # Chronological scientific log & calibration ledger
+│   │   │   ├── reward_calibration.py  # Unified 144-cell grid calibration, replay & query planner
+│   │   │   ├── rl_cost_probe.py       # Empirical per-epoch RL scoring latency profiler
+│   │   │   ├── sampling.py            # Complexity-aware conformer & isomer budget planner
+│   │   │   ├── self_recovery.py       # Single-query self-recovery curve evaluator
+│   │   │   ├── utils.py               # Shared SDF I/O, atomic JSON, SHA-256 & job collection
+│   │   │   └── visualization.py       # Publication plots for recovery, heatmaps, Pareto & RL cost
 │   │   ├── environment.py     # ROCS scorer factory & Harrington desirability reward
 │   │   ├── models.py          # DecayingSequenceExplorer & agent/prior loaders
 │   │   ├── pipeline.py        # RL training loop, epoch monitoring & evaluation
-│   │   ├── reference.py       # 3D reference molecule preparation & dielectric minimization
-│   │   ├── rocs.py            # ROCS Gaussian shape/color overlay bindings
+│   │   ├── reference.py       # 3D reference preparation, Butina RMSD & diverse_order selection
+│   │   ├── rocs.py            # ROCS Gaussian overlay bindings & WholeCallScorer worker pool
 │   │   ├── schema.py          # Data schemas and standard score column keys
 │   │   ├── utils.py           # HardwareManager, GPU allocation & logging
 │   │   └── visualization.py   # Publication-grade diagnostics and distribution plots

@@ -23,16 +23,30 @@ from _david.code.conformer.visualization import (
 )
 
 
-def unscale_to_physical_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """Ensure ROCS is [0, 2] TanimotoCombo and calculate physical properties if missing."""
+def unscale_to_physical_metrics(
+    df: pd.DataFrame,
+    *,
+    rocs_is_normalized: bool | None = None,
+) -> pd.DataFrame:
+    """Ensure ROCS is on the physical [0, 2] TanimotoCombo scale and compute missing 2D descriptors.
+
+    Uses the explicit ``Raw_ROCS`` column when recorded by ``MoleculePipeline``, or
+    ``rocs_is_normalized`` when specified, falling back to legacy range detection only
+    for older TSV outputs that lack explicit scale provenance.
+    """
     if df.empty:
         return df.copy()
 
     df_out = df.copy()
-    if std.ROCS in df_out.columns:
+    if "Raw_ROCS" in df_out.columns and rocs_is_normalized is None:
+        df_out[std.ROCS] = df_out["Raw_ROCS"]
+    elif std.ROCS in df_out.columns:
         vals = df_out[std.ROCS].dropna()
-        if not vals.empty and vals.max() <= 1.0001:
-            df_out[std.ROCS] = df_out[std.ROCS] * 2.0
+        if not vals.empty:
+            if rocs_is_normalized is True or (
+                rocs_is_normalized is None and vals.max() <= 1.0001
+            ):
+                df_out[std.ROCS] = df_out[std.ROCS] * 2.0
 
     if std.SMILES in df_out.columns:
         mols = [

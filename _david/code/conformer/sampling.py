@@ -4,8 +4,12 @@ The AQME-style recipe is a baseline heuristic, not a proven DrugEx optimum.
 Counts are attempts per stereoisomer; they are not retained ensemble sizes.
 """
 
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
 import math
+from typing import Literal
 
 from rdkit import Chem
 from rdkit.Chem import Lipinski, rdMolAlign
@@ -16,6 +20,8 @@ from _david.code.chemistry import enumerate_stereoisomers
 
 @dataclass(frozen=True)
 class SamplingPlan:
+    """Planned conformer generation budget and stereoisomer coverage for one molecule."""
+
     rotatable_bonds: int
     oh_nh_count: int
     saturated_rings: int
@@ -25,51 +31,48 @@ class SamplingPlan:
     isomer_limit: int
 
     @property
-    def category(self):
+    def category(self) -> Literal["1", "2", "3-4", "5-8", "9-25"]:
         n = len(self.reference_isomers)
-        return (
-            "1"
-            if n == 1
-            else "2"
-            if n == 2
-            else "3-4"
-            if n <= 4
-            else "5-8"
-            if n <= 8
-            else "9-25"
-        )
+        if n == 1:
+            return "1"
+        if n == 2:
+            return "2"
+        if n <= 4:
+            return "3-4"
+        if n <= 8:
+            return "5-8"
+        return "9-25"
 
     @property
-    def truncated(self):
+    def truncated(self) -> bool:
         return self.isomer_upper_bound > self.isomer_limit
 
     @property
-    def total_conformer_attempts(self):
+    def total_conformer_attempts(self) -> int:
         """Requested initial work, not retained reference structures or stereo coverage."""
         return len(self.reference_isomers) * self.conformers_per_isomer
 
     @property
-    def conformer_budget_capped(self):
+    def conformer_budget_capped(self) -> bool:
         baseline = (
             30 * (self.rotatable_bonds + self.oh_nh_count + self.saturated_rings) or 10
         )
         return self.conformers_per_isomer < baseline
 
-    def attempts(self, factor=1.0):
+    def attempts(self, factor: float = 1.0) -> int:
         if not math.isfinite(factor) or factor <= 0:
             raise ValueError("Sampling factor must be finite and positive")
         return max(1, math.ceil(self.conformers_per_isomer * factor))
 
 
-def plan_sampling(mol, *, isomer_limit=25, enumeration_seed=42, conformer_limit=250):
-    """AQME mid-style organic-molecule recipe plus bounded RDKit stereo enumeration.
-
-    AQME's published code counts 3*(rotors + OH/NH + saturated rings), then
-    multiplies by 10 and caps at 250; featureless molecules receive 10 attempts.
-    We preserve assigned stereochemistry and enumerate only unresolved stereo.
-    The 25-isomer ceiling is the user's compute limit, not a literature optimum.
-    Call after the same tautomer/protonation preparation as candidate generation.
-    """
+def plan_sampling(
+    mol: Chem.Mol,
+    *,
+    isomer_limit: int = 25,
+    enumeration_seed: int = 42,
+    conformer_limit: int = 250,
+) -> SamplingPlan:
+    """Compute an AQME mid-style organic-molecule sampling budget with bounded stereo enumeration."""
     if mol is None or not mol.GetNumAtoms():
         raise ValueError("A nonempty prepared molecule is required")
     if not 1 <= isomer_limit <= 25:
@@ -100,19 +103,21 @@ def plan_sampling(mol, *, isomer_limit=25, enumeration_seed=42, conformer_limit=
     )
 
 
-def deduplicate_reference(records, *, threshold=1.25):
+def deduplicate_reference(
+    records: Sequence[Chem.Mol],
+    *,
+    threshold: float = 1.25,
+) -> list[Chem.Mol]:
     """Keep the given priority order, rejecting RMSD-near-duplicates of one isomer.
 
-    The existing reference preparer supplies energy-ordered Butina representatives.
-    Its lowest-energy representatives need not be mutually separated by the
-    clustering threshold. This final greedy pass enforces that spacing directly.
-    Alignment works on heavy-atom copies because GetBestRMS moves the probe.
+    Operates on heavy-atom copies so ``GetBestRMS`` never mutates input coordinates.
     Distinct enumerated stereo identities are never clustered together.
     """
     if not math.isfinite(threshold) or threshold <= 0:
         raise ValueError("RMSD threshold must be finite and positive")
-    kept, geometries = [], []
-    identity = None
+    kept: list[Chem.Mol] = []
+    geometries: list[Chem.Mol] = []
+    identity: str | None = None
     for record in records:
         heavy = Chem.RemoveHs(Chem.Mol(record))
         key = (

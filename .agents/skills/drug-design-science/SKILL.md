@@ -3,10 +3,10 @@ name: drug-design-science
 description: >-
   Unified scientific research and discovery meta-skill for RNN ligand-based de novo drug design (DrugEx).
   Orchestrates cheminformatics (ChEMBL, PubChem), structural target biology (PDB, UniProt, AlphaFold),
-  3D molecular visualization (Mol*, PyMOL), 3D conformer generation under dielectric solvation,
-  and academic literature retrieval (Europe PMC, arXiv, bioRxiv). Use whenever the user asks to
-  profile ligands, mine target actives, fetch co-crystal structures, analyze 3D conformers, or retrieve
-  thesis-relevant machine learning and pharmacology publications.
+  3D molecular visualization (Mol*, PyMOL), 3D conformer generation and ML time-vs-accuracy calibration,
+  and academic literature retrieval (Undermind MCP, Europe PMC, arXiv, bioRxiv, OpenAlex). Use whenever
+  the user asks to profile ligands, mine target actives, fetch co-crystal structures, analyze 3D conformers,
+  calibrate RL scoring budgets, or retrieve thesis-relevant machine learning and pharmacology publications.
 ---
 
 # Computational Drug Design & Cheminformatics Meta-Skill
@@ -52,17 +52,18 @@ python scripts/drug_design_suite.py literature --query "DrugEx de novo drug desi
 - **When to Use**: When mining known inhibitors ($IC_{50}, K_i \le 10\,\mu\text{M}$), generating training priors, or building benchmark test sets.
 - **Runbook**: [Bioactive Ligand Mining & Prior Dataset Runbook](./references/active_ligand_mining_runbook.md)
 
-### Pipeline C: 3D Conformer Generation & Dielectric Solvation
-- **Tools**: [`_david/code/conformer/`](file:///C:/Ubuntu/home/kolar/DrugEx/_david/code/conformer/), `pymol`
-- **When to Use**: When preparing 3D reference conformers for ROCS shape/color alignment or configuring candidate conformer pools during DrugEx RL training.
+### Pipeline C: 3D Conformer Generation & ML Time-vs-Accuracy Trade-Offs
+- **Tools**: [`_david/code/chemistry.py`](file:///home/kolar/DrugEx/_david/code/chemistry.py), [`_david/code/reference.py`](file:///home/kolar/DrugEx/_david/code/reference.py), [`_david/code/rocs.py`](file:///home/kolar/DrugEx/_david/code/rocs.py), [`_david/code/conformer/`](file:///home/kolar/DrugEx/_david/code/conformer/), `pymol`
+- **When to Use**: When preparing 3D reference conformers for ROCS shape/color alignment or calibrating candidate conformer budgets during DrugEx RL training.
 - **Runbook**: [3D Conformer & Pharmacophore Alignment Runbook](./references/conformer_and_alignment_runbook.md)
-- **Dielectric Golden Rule**: For polar ligands (e.g. EGCG with 8 OH groups), never use gas-phase vacuum ($\epsilon_r = 1.0$). Always use **MMFF94s with protein pocket dielectric ($\epsilon_r = 6.5$)** or **aqueous dielectric ($\epsilon_r = 78.4$)** with $K_{\mathrm{ref}} = 3$ and $K_{\mathrm{gen}} = 10$.
+- **ML Time-vs-Accuracy Principle (No Dogmatic Dielectric Rules)**:
+  - **Reference vs. Candidate Asymmetry**: Reference ensemble preparation ($K_{\mathrm{ref}}$) is a **one-time setup cost** (~1–5 s before training), whereas candidate conformer generation ($K_{\mathrm{gen}}$) runs **tens of thousands of times** inside the RL loop ($N_{\mathrm{epochs}} \times N_{\mathrm{samples}}$).
+  - **Force-Field Minimization Trade-Off**: Do not dogmatically mandate candidate MMFF94s minimization or specific dielectric constants ($\epsilon_r = 6.5$ or $78.4$) during RL without accounting for per-epoch latency. Unminimized ETKDGv3 (`minimize_candidates=False`) with $K_{\mathrm{ref}}=4, K_{\mathrm{gen}}=15$ achieves $\ge 0.955$ mean self-recovery on FDA drugs at ~3–5× higher throughput than candidate force-field minimization. Treat force-field variants and dielectric constants as empirical screening hyperparameters to be validated against wall-clock RL budget and downstream chemical quality.
 
-### Pipeline D: Literature Retrieval & Thesis Bibliography
-- **Tools**: [`scientific-literature`](../scientific-literature/SKILL.md) (Central Hub: Undermind MCP + Europe PMC + arXiv + bioRxiv + OpenAlex)
-- **When to Use**: When researching SOTA algorithms, benchmarking baseline models (DrugEx v1–v3, REINVENT), or exporting BibTeX citations.
-- **Tiered Strategy**: Uses **Undermind MCP** as primary for deep AI-driven literature exploration, automatically falling back to **Europe PMC / arXiv / OpenAlex** for routine lookups or when Undermind free limits are reached.
-- **Runbook**: [Academic Literature & SOTA Discovery Runbook](./references/literature_retrieval_runbook.md)
+### Pipeline D: Academic Literature, SOTA Discovery & Critical Triage
+- **Engines**: **Undermind MCP** (Tier 1 AI-agentic deep research) + **Europe PMC / PubMed / arXiv / bioRxiv / OpenAlex** (Tier 2 unmetered fallback).
+- **When to Use**: When researching frontier generative ML algorithms, benchmarking baseline models (DrugEx v1–v3, REINVENT), exporting BibTeX citations, or triaging published claims for ML training feasibility.
+- **Runbooks**: [Academic Literature & SOTA Discovery Runbook](./references/literature_retrieval_runbook.md) | [Undermind MCP Guide](./references/undermind.md)
 
 ---
 

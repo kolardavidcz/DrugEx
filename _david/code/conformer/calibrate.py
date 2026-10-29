@@ -36,7 +36,8 @@ from _david.code.chemistry import (
     prepare_candidate_molecule,
 )
 from _david.code.config import PROJECT_ROOT
-from _david.code.conformer.self_recovery import atomic_json, digest, SOURCE_PATHS
+from _david.code.conformer.self_recovery import SOURCE_PATHS
+from _david.code.conformer.utils import atomic_json, collect_jobs, digest, save_sdf
 from _david.code.reference import PrepareMolecule, select_conformers
 from _david.code.rocs import has_color, score_pair
 
@@ -59,12 +60,6 @@ SOURCES = (
     "_david/code/conformer/calibrate.py",
     "_david/code/conformer/drug_panel.py",
 )
-
-
-def save_sdf(path, records):
-    with Chem.SDWriter(str(path)) as writer:
-        for record in records:
-            writer.write(record)
 
 
 def reference_pool(smiles, attempts, directory):
@@ -343,30 +338,6 @@ def save_progress(output, manifest):
             updated_utc=datetime.now(timezone.utc).isoformat(),
         ),
     )
-
-
-def collect_jobs(executor, jobs, output, manifest):
-    """Record errors immediately; executor shutdown must not hide a failed job."""
-    futures = {executor.submit(measure_case, case, str(output)): case for case in jobs}
-    errors = {}
-    logs = result_root(output) / "logs"
-    logs.mkdir(exist_ok=True)
-    for future in as_completed(futures):
-        case = futures[future]
-        try:
-            manifest["completed_molecules"].append(future.result())
-        except Exception as exc:
-            key = str(case["molecule_id"])
-            errors[key] = f"{type(exc).__name__}: {exc}"
-            (logs / f"input_{key}.error.log").write_text(traceback.format_exc())
-        manifest["job_errors"] = errors
-        manifest["state"] = "measuring_with_errors" if errors else "measuring"
-        save_progress(output, manifest)
-        print(
-            f"{len(manifest['completed_molecules'])}/{manifest['total_molecules']} complete; {len(errors)} errors",
-            flush=True,
-        )
-    return errors
 
 
 def run(args):

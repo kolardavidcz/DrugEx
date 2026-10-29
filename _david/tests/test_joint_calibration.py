@@ -10,7 +10,11 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from _david.code.reference import select_conformers
+from _david.code.reference import (
+    PrepareMolecule,
+    balanced_reference_order,
+    select_conformers,
+)
 from _david.code.chemistry import (
     CandidateConformerGenerator,
     IDENTITY_REJECTED,
@@ -18,18 +22,21 @@ from _david.code.chemistry import (
     check_identity,
     optimize_conformers,
     prepare_candidate_molecule,
+    verify_disjoint_conformer_seeds,
 )
-from _david.code.reference import PrepareMolecule
 from _david.code.conformer.calibrate import summarize, collect_jobs
-from _david.code.conformer.reference_caps import balanced_reference_order
+from _david.code.conformer.reward_calibration import (
+    budget_order,
+    select_replay_cells,
+)
+from _david.code.rocs import WholeCallScorer
+from _david.code.schema import std
+from _david.code.visualization import unscale_to_physical_metrics
 import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
     def test_confirmation_replays_cover_methods_without_development_grid_cells(self):
-        from _david.code.conformer.validate_reward_calibration import (
-            select_replay_cells,
-        )
 
         rows = [
             dict(
@@ -57,10 +64,6 @@ class TestJointCalibration(unittest.TestCase):
         self.assertIn(99, selected.molecule_id.tolist())
 
     def test_development_replays_prefer_small_caps_before_cheaper_other_settings(self):
-        from _david.code.conformer.validate_reward_calibration import (
-            select_replay_cells,
-        )
-
         row = dict(molecule_id=1, method="uff", score=0.9)
         frame = pd.DataFrame(
             [
@@ -85,7 +88,6 @@ class TestJointCalibration(unittest.TestCase):
         self.assertEqual(selected.candidate_attempts.tolist(), [10])
 
     def test_whole_call_dispatch_matches_singletons_and_restores_duplicate_rows(self):
-        from _david.code.conformer.whole_call_scorer import WholeCallScorer
         from _david.code.environment import create_rocs_scorer
 
         reference = self.geometry("CCO")
@@ -115,8 +117,6 @@ class TestJointCalibration(unittest.TestCase):
                 parallel.close()
 
     def test_query_budget_order_uses_actual_reference_counts_without_redundancy(self):
-        from _david.code.conformer.query_calibration import budget_order
-
         frame = pd.DataFrame(
             [
                 dict(
@@ -393,6 +393,72 @@ class TestJointCalibration(unittest.TestCase):
         self.assertEqual(summary.scored_inputs, 2)
         self.assertEqual(summary.reference_failures, 1)
         self.assertEqual(summary.fraction_ge_095, 0.5)
+
+    def test_batch_conformer_generation_does_not_leak_max_iterations_across_molecules(
+        self,
+    ):
+        generator = CandidateConformerGenerator(max_conformers=2, max_isomers=1)
+        seen_max_iterations: list[int] = []
+        original_embed = AllChem.EmbedMultipleConfs
+
+        def spying_embed(mol, **kwargs):
+            params = kwargs["params"]
+            seen_max_iterations.append(int(params.maxIterations))
+            return original_embed(mol, **kwargs)
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch(
+                "_david.code.chemistry.AllChem.EmbedMultipleConfs",
+                side_effect=spying_embed,
+            ),
+        ):
+            generator.genConformers(["CCO", "CCCCCCCCCC"], directory)
+        self.assertEqual(seen_max_iterations, [0, 0])
+
+    def test_verify_disjoint_conformer_seeds_detects_collisions_and_overflow(self):
+        verify_disjoint_conformer_seeds(104729, 50, 42, 75)
+        with self.assertRaisesRegex(ValueError, "overlap"):
+            verify_disjoint_conformer_seeds(43, 50, 42, 75)
+        with self.assertRaisesRegex(ValueError, "32-bit"):
+            verify_disjoint_conformer_seeds(2**30, 4, 42, 10)
+
+    def test_diverse_reference_preparation_and_multi_isomer_support(self):
+        preparer = PrepareMolecule(
+            num_conformers=4,
+            max_reference_conformers=2,
+            max_reference_isomers=2,
+            selection_mode="diverse",
+            optimization=Optimization("none"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = preparer.generate_reference_conformers(
+                "CC(O)F", Path(directory) / "diverse_ref.sdf"
+            )
+            records = list(Chem.SDMolSupplier(str(path), removeHs=False))
+            loaded_mol, is_3d = preparer.load_molecule(path)
+        self.assertTrue(is_3d)
+        self.assertEqual(loaded_mol.GetNumConformers(), 2)
+        self.assertEqual(len(records), 2)
+        identities = {
+            rec.GetProp("EnumeratedIsomerSMILES")
+            for rec in records
+            if rec.HasProp("EnumeratedIsomerSMILES")
+        }
+        self.assertEqual(len(identities), 2)
+
+    def test_unscale_to_physical_metrics_prefers_explicit_raw_rocs(self):
+        df_with_raw = pd.DataFrame(
+            {std.SMILES: ["CCO"], std.ROCS: [0.4], "Raw_ROCS": [0.8]}
+        )
+        out = unscale_to_physical_metrics(df_with_raw)
+        self.assertAlmostEqual(float(out[std.ROCS].iloc[0]), 0.8)
+
+        df_already_raw = pd.DataFrame({std.SMILES: ["CCO"], std.ROCS: [0.85]})
+        out_raw = unscale_to_physical_metrics(
+            df_already_raw, rocs_is_normalized=False
+        )
+        self.assertAlmostEqual(float(out_raw[std.ROCS].iloc[0]), 0.85)
 
 
 if __name__ == "__main__":

@@ -1468,3 +1468,292 @@ def render_self_recovery(frame: pd.DataFrame, output: Path, manifest: dict) -> N
             f"category_{category.replace('-', '_')}_initial_effort.png",
             "Reference versus candidate initial sampling · all≤25 references/isomers",
         )
+
+
+def render_reward_heatmaps(
+    summary: pd.DataFrame,
+    output: Path,
+    *,
+    methods: dict[str, object],
+    labels: dict[str, str],
+    caps: tuple[int, ...] = (1, 2, 4, 8, 12, 0),
+    candidates: tuple[int, ...] = (5, 10, 15, 20, 35, 50),
+    warning: str = "",
+) -> None:
+    """Render 4x2 ROCS/latency heatmap sheets across force-field methods."""
+    from matplotlib.colors import LogNorm, TwoSlopeNorm
+
+    sheets = [
+        ("mean", "mean_seconds", "Mean ROCS / mean scoring time", "mean"),
+        ("median", "median_seconds", "Median ROCS / median scoring time", "median"),
+        ("p05", "p95_seconds", "Fifth-percentile ROCS / 95th-percentile scoring time", "p05"),
+        (
+            "fraction_ge_095",
+            "p95_seconds",
+            "Fraction reaching ROCS 0.95 / 95th-percentile scoring time",
+            "success",
+        ),
+    ]
+    for score_key, time_key, title, filename in sheets:
+        fig, axes = plt.subplots(4, 2, figsize=(18, 23))
+        fig.subplots_adjust(
+            left=0.075, right=0.96, bottom=0.04, top=0.91, hspace=0.40, wspace=0.30
+        )
+        vmax = max(float(summary[time_key].max()), 0.001)
+        vmin = max(float(summary.loc[summary[time_key].gt(0), time_key].min()), 0.001)
+        for row, method in enumerate(methods):
+            data = summary[summary.method.eq(method)].set_index(
+                ["reference_cap", "candidate_attempts"]
+            )
+            all_bank = data.loc[(0, candidates[0])]
+            bank_label = (
+                f"all-bank median {all_bank.median_references:g}; max {all_bank.max_references:g}"
+            )
+            for col, key in enumerate((score_key, time_key)):
+                ax = axes[row, col]
+                values = np.array(
+                    [
+                        [data.loc[(cap, count), key] for cap in caps]
+                        for count in candidates
+                    ]
+                )
+                if col == 0:
+                    if score_key in ("mean", "median"):
+                        lower = min(
+                            0.94, float(np.floor(summary[score_key].min() * 100) / 100)
+                        )
+                        image = ax.imshow(
+                            values,
+                            aspect="auto",
+                            cmap="RdYlGn",
+                            norm=TwoSlopeNorm(vmin=lower, vcenter=0.95, vmax=1.0001),
+                        )
+                    else:
+                        image = ax.imshow(
+                            values, aspect="auto", cmap="viridis", vmin=0, vmax=1
+                        )
+                else:
+                    image = ax.imshow(
+                        np.maximum(values, 0.001),
+                        aspect="auto",
+                        cmap="magma_r",
+                        norm=LogNorm(vmin=vmin, vmax=max(vmax, vmin * 1.01)),
+                    )
+                ax.set_xticks(range(len(caps)), ["all" if c == 0 else str(c) for c in caps])
+                ax.set_yticks(range(len(candidates)), [f"C{count}" for count in candidates])
+                ax.set_xlabel("Total reference-structure cap (at most)")
+                ax.set_ylabel("Candidate requests per stereoisomer")
+                ax.set_title(
+                    f"{labels[method]} · {'ROCS' if col == 0 else 'seconds'}\n{bank_label}",
+                    fontsize=12,
+                )
+                for i, j in np.ndindex(values.shape):
+                    value = values[i, j]
+                    rgba = image.cmap(image.norm(max(value, 0.001) if col else value))
+                    light = 0.2126 * rgba[0] + 0.7152 * rgba[1] + 0.0722 * rgba[2]
+                    label = (
+                        (
+                            f"{value:.0%}"
+                            if score_key == "fraction_ge_095"
+                            else f"{value:.4f}"
+                        )
+                        if col == 0
+                        else f"{value:.2f}"
+                    )
+                    ax.text(
+                        j,
+                        i,
+                        label,
+                        ha="center",
+                        va="center",
+                        fontsize=10,
+                        color="black" if light > 0.48 else "white",
+                    )
+                fig.colorbar(image, ax=ax, shrink=0.85)
+        n, scored = int(summary.inputs.iloc[0]), int(summary.scored_inputs.iloc[0])
+        fig.suptitle(
+            f"{warning}{title}\n{n} frozen development inputs · {scored} native-colour-eligible · preparation/scoring failures retained\n"
+            "R50/I8 · candidate I4 · reference-only energy/diversity selection · no RMSD or pH reassignment\n"
+            "Fresh public scoring calls, one worker per input; shared host · reference setup excluded · not RL epoch time",
+            fontsize=15,
+        )
+        fig.savefig(output / f"{filename}.png", dpi=170, bbox_inches="tight")
+        fig.savefig(output / f"{filename}.svg", bbox_inches="tight")
+        plt.close(fig)
+
+
+def render_reward_pareto(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+    output: Path,
+    *,
+    labels: dict[str, str],
+    keys: tuple[str, ...],
+    warning: str = "",
+) -> None:
+    """Render Pareto score-vs-time frontier and signed anchor gaps."""
+    dominated = []
+    for _, row in summary.iterrows():
+        other = (
+            summary.mean_seconds.le(row.mean_seconds)
+            & summary["mean"].ge(row["mean"])
+            & (
+                summary.mean_seconds.lt(row.mean_seconds)
+                | summary["mean"].gt(row["mean"])
+            )
+        )
+        dominated.append(bool(other.any()))
+    summary = summary.assign(pareto=~np.array(dominated))
+    summary.to_csv(output / "raw_data/development/pareto.csv", index=False)
+    anchor_attempts = int(frame.candidate_attempts.max())
+    anchor = frame[
+        frame.reference_cap.eq(0) & frame.candidate_attempts.eq(anchor_attempts)
+    ][["molecule_id", "method", "score"]]
+    paired = frame.merge(
+        anchor.rename(columns={"score": "anchor_score"}),
+        on=["molecule_id", "method"],
+        validate="many_to_one",
+    )
+    paired["score_gap"] = paired.anchor_score - paired.score
+    paired.to_csv(output / "raw_data/development/paired_anchor.csv.gz", index=False)
+    gaps = (
+        paired[~paired.color_excluded]
+        .groupby(list(keys[1:]))
+        .score_gap.agg(mean_gap="mean", p95_gap=lambda s: s.quantile(0.95))
+        .reset_index()
+    )
+    summary = summary.merge(gaps, on=list(keys[1:]))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
+    for method, group in summary.groupby("method"):
+        points = axes[0].scatter(
+            group.mean_seconds, group["mean"], s=30, alpha=0.65, label=labels[method]
+        )
+        color = points.get_facecolors()[0]
+        front = group[group.pareto].sort_values("mean_seconds")
+        axes[0].scatter(
+            front.mean_seconds,
+            front["mean"],
+            s=100,
+            facecolors="none",
+            edgecolors=[color],
+            linewidths=2,
+        )
+        for _, row in front.iterrows():
+            cap = "all" if row.reference_cap == 0 else str(int(row.reference_cap))
+            axes[0].annotate(
+                f"K{cap}/C{int(row.candidate_attempts)}",
+                (row.mean_seconds, row["mean"]),
+                xytext=(4, 4),
+                textcoords="offset points",
+                fontsize=8,
+            )
+        axes[1].scatter(
+            group.mean_seconds,
+            group.p95_gap,
+            s=30,
+            color=color,
+            alpha=0.65,
+            label=labels[method],
+        )
+    axes[0].axhline(
+        0.95,
+        color="black",
+        linestyle="--",
+        linewidth=1,
+        label="Chosen mean target 0.95",
+    )
+    axes[0].set_ylabel("Mean self-recovery ROCS")
+    axes[0].set_title("Observed score–time frontier; circles mark nondominated cells")
+    axes[1].set_ylabel(
+        f"95th-percentile signed score gap to same-method C{anchor_attempts}/all"
+    )
+    axes[1].set_title("Large-score-loss tail relative to a finite sampled anchor")
+    for ax in axes:
+        ax.set_xscale("log")
+        ax.set_xlabel("Mean measured per-input scoring seconds")
+        ax.grid(alpha=0.2)
+        ax.legend(fontsize=9)
+    fig.suptitle(
+        f"{warning}Development-panel trade-offs · lower time and lower score gap preferred\n"
+        "Reference/candidate methods matched; this is not biological accuracy or RL improvement",
+        fontsize=14,
+    )
+    fig.savefig(output / "pareto.png", dpi=170)
+    fig.savefig(output / "pareto.svg")
+    plt.close(fig)
+
+
+def render_rl_timing(output: Path, *, labels: dict[str, str]) -> None:
+    """Render the 5-epoch live RL cost attribution and fixed-batch replay comparison."""
+    import json
+
+    raw = output / "raw_data/rl_egcg"
+    path = raw / "manifest.json"
+    if not path.exists() or json.loads(path.read_text())["state"] != "complete":
+        return
+    epochs = pd.read_csv(raw / "epoch_timings.csv")
+    replay = pd.read_csv(raw / "batch_replays.csv")
+    fig, (left, right) = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
+    stages = [
+        (
+            "Generation + minimization",
+            epochs.generation_minimization_seconds,
+            "#31688e",
+        ),
+        (
+            "Alignment + scorer I/O/worker overhead",
+            epochs.rocs_seconds - epochs.generation_minimization_seconds,
+            "#35b779",
+        ),
+        (
+            "Other environment scoring",
+            epochs.environment_seconds - epochs.rocs_seconds,
+            "#d5812b",
+        ),
+        (
+            "RNN + optimizer + checkpoint/capture work",
+            epochs.epoch_seconds - epochs.environment_seconds,
+            "#8c6bb1",
+        ),
+    ]
+    bottom = np.zeros(len(epochs))
+    for label, values, color in stages:
+        left.bar(epochs.epoch, values, bottom=bottom, label=label, color=color)
+        bottom += values
+    left.set_xlabel(
+        "Actual RL epoch (200 requested training samples + native validation)"
+    )
+    left.set_ylabel("Wall seconds")
+    left.set_title("Measured epoch cost; reference/model setup excluded")
+    left.legend(fontsize=9)
+    bar_labels = []
+    for _, row in replay.iterrows():
+        cap = "all" if row.reference_cap == 0 else str(int(row.reference_cap))
+        bar_labels.append(
+            f"{labels[row.method]}\nK{cap}/C{int(row.candidate_attempts)}\n{row.engine}, pass{int(row['repeat']) + 1}"
+        )
+    per_input = replay.seconds / replay.inputs
+    bars = right.bar(range(len(replay)), per_input, color="#31688e")
+    right.bar_label(
+        bars,
+        labels=[
+            f"{t:.2f}s\nΔ {delta:+.3f}"
+            for t, delta in zip(per_input, replay.mean_change)
+        ],
+        padding=4,
+        fontsize=8,
+    )
+    right.set_xticks(range(len(replay)), bar_labels, rotation=35, ha="right", fontsize=8)
+    right.set_ylabel("Measured seconds per input row of the same frozen batch")
+    right.set_title("Same-first-batch replays; score changes are reported")
+    right.set_ylim(0, per_input.max() * 1.3)
+    fig.suptitle(
+        "Real five-epoch EGCG cost illustration · not an RL learning comparison\n"
+        "Baseline MMFF94s ε78.4, K4/C20/I4 · no RMSD/pH reassignment · model seed42\n"
+        "Whole-call prototype: fresh per-graph defaults and persistent workers; native batches can inherit first-graph iteration budget",
+        fontsize=13,
+    )
+    fig.savefig(output / "rl_timing.png", dpi=170)
+    fig.savefig(output / "rl_timing.svg")
+    plt.close(fig)
+

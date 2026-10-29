@@ -29,7 +29,7 @@ from _david.code.chemistry import (
     standardize_smiles,
 )
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
-from _david.code.conformer.self_recovery import atomic_json, digest
+from _david.code.conformer.utils import atomic_json, digest
 from _david.code.conformer.visualization import render_reference_counts
 from _david.code.environment import create_rocs_scorer
 from _david.code.reference import PrepareMolecule
@@ -60,15 +60,16 @@ def inspect_precision(source: Path, output: Path) -> None:
     )
     refs = list(Chem.SDMolSupplier(str(raw / "timing_query.sdf"), removeHs=False))
     original = Chem.GetDefaultPickleProperties()
+    default_flags = original & ~Chem.PropertyPickleOptions.CoordsAsDouble
     results = dict(molecule_id=732, reference_sha256=digest(raw / "timing_query.sdf"))
     try:
         for name, workers, flags in [
-            ("serial", 1, original),
-            ("parallel_default", 2, original),
+            ("serial", 1, default_flags),
+            ("parallel_default", 2, default_flags),
             (
                 "parallel_double",
                 2,
-                original | Chem.PropertyPickleOptions.CoordsAsDouble,
+                default_flags | Chem.PropertyPickleOptions.CoordsAsDouble,
             ),
         ]:
             Chem.SetDefaultPickleProperties(flags)

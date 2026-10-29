@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from _david.code.chemistry import Optimization
 from _david.code.schema import std
@@ -66,11 +67,13 @@ class PipelineConfig:
         None  # Explicit profile shared by both paths when selected.
     )
     reference_attempts: int = 100
-    reference_rmsd_cutoff: float = 1.25
-    reference_random_seed: int | None = None  # None preserves the configured seed.
+    reference_rmsd_cutoff: float | None = 1.25
+    reference_random_seed: int | None = None  # None uses disjoint DEFAULT_REFERENCE_SEED (104729).
     max_reference_conformers: int = (
         3  # Hawkins low-energy basin ensemble size #^[3, all]
     )
+    max_reference_isomers: int = 1
+    reference_selection_mode: Literal["rmsd", "diverse"] = "rmsd"
     energy_window_kcal: float = 8.0  # ^ also try insted of vacume with 8.0 kcal, try water, humen-like envirument
     timeout_seconds: int = (
         0  # 0 = unlimited execution time (only limited by max_conformers)

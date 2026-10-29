@@ -27,10 +27,10 @@ from drugex.training.monitors import FileMonitor
 from _david.code.chemistry import standardize_smiles
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT, PipelineConfig
 from _david.code.conformer.reference_bank import METHODS, prepare_banks, save_records
-from _david.code.conformer.self_recovery import atomic_json, digest
-from _david.code.conformer.whole_call_scorer import WholeCallScorer
+from _david.code.conformer.utils import atomic_json, digest
 from _david.code.environment import create_environment
 from _david.code.models import SequenceRNNOptimizer
+from _david.code.rocs import WholeCallScorer
 from _david.code.schema import std
 
 
@@ -182,7 +182,6 @@ def run(output: Path, workers: int, smoke=False):
     ] + [
         Path(__file__),
         PROJECT_ROOT / "_david/code/conformer/reference_bank.py",
-        PROJECT_ROOT / "_david/code/conformer/whole_call_scorer.py",
         PROJECT_ROOT / "drugex/training/explorers/sequence_explorer.py",
         PROJECT_ROOT / "drugex/training/scorers/rocs_rdkit.py",
         PROJECT_ROOT / "drugex/training/scorers/conformer_generators.py",

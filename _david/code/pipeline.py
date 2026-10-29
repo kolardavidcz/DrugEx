@@ -25,6 +25,7 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from _david.code.chemistry import DEFAULT_REFERENCE_SEED
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.environment import PrepareMolecule, create_environment
 from _david.code.models import SequenceRNNOptimizer
@@ -56,15 +57,18 @@ class MoleculePipeline:
         self.preparer: PrepareMolecule = PrepareMolecule(
             num_conformers=self.config.reference_attempts,
             max_reference_conformers=self.config.max_reference_conformers,
+            max_reference_isomers=self.config.max_reference_isomers,
             random_seed=(
-                self.config.random_seed
+                DEFAULT_REFERENCE_SEED
                 if self.config.reference_random_seed is None
                 else self.config.reference_random_seed
             ),
+            stereo_seed=self.config.random_seed,
             rmsd_cutoff=self.config.reference_rmsd_cutoff,
             energy_window_kcal=self.config.energy_window_kcal,
             num_threads=self.config.conformer_threads,
             optimization=self.config.optimization,
+            selection_mode=self.config.reference_selection_mode,
         )
 
     @staticmethod
@@ -90,6 +94,9 @@ class MoleculePipeline:
         df = pd.DataFrame({"SMILES": smiles_list})
         for col in scores_df.columns:
             df[col] = scores_df[col].values
+        if std.ROCS in df.columns and "Raw_ROCS" not in df.columns:
+            # DrugExEnvironment.getScores returns ClippedScore(0, 2) normalized to [0, 1].
+            df["Raw_ROCS"] = df[std.ROCS] * 2.0
 
         mols = [
             Chem.MolFromSmiles(s) if isinstance(s, str) and s else None
@@ -344,6 +351,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--reference-conformers", type=int, default=defaults.max_reference_conformers
     )
     parser.add_argument(
+        "--reference-isomers", type=int, default=defaults.max_reference_isomers
+    )
+    parser.add_argument(
+        "--reference-selection",
+        choices=["rmsd", "diverse"],
+        default=defaults.reference_selection_mode,
+    )
+    parser.add_argument(
         "--reference-attempts", type=int, default=defaults.reference_attempts
     )
     parser.add_argument(
@@ -408,6 +423,8 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         max_conformers=args.conformers,
         max_isomers=args.isomers,
         max_reference_conformers=args.reference_conformers,
+        max_reference_isomers=args.reference_isomers,
+        reference_selection_mode=args.reference_selection,
         reference_attempts=args.reference_attempts,
         reference_rmsd_cutoff=args.reference_rmsd,
         reference_random_seed=args.reference_seed,

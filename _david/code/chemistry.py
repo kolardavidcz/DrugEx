@@ -1,27 +1,81 @@
-"""Small thesis-local adaptations; DrugEx core remains unchanged."""
+"""Shared chemical standardization, stereoisomer enumeration, and 3D conformer physics."""
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 
-import numpy as np
-from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers import protonation as core_protonation
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
 )
+from rdkit.Chem.MolStandardize import rdMolStandardize
 
-IDENTITY_REJECTED = -2  # Thesis validation result, not a native force-field status.
+IDENTITY_REJECTED: int = -2  # Thesis validation result, not a native force-field status.
+DEFAULT_CANDIDATE_SEED: int = 42
+DEFAULT_REFERENCE_SEED: int = 104729
 
 
-def prepare_candidate_molecule(smiles, *, canonicalize_tautomer=True, protonate=False):
-    """Training chemical state, preserving assigned stereo during tautomerization.
+def enable_double_precision_mol_pickling() -> None:
+    """Ensure RDKit preserves float64 3D coordinates when pickling molecules across workers.
+
+    By default, RDKit serializes conformer coordinates in single precision (float32,
+    ~2.9e-5 Å rounding error), which can shift local Gaussian shape/color overlay optima
+    when reference or candidate conformers cross multiprocessing queues.
+    """
+    Chem.SetDefaultPickleProperties(
+        Chem.GetDefaultPickleProperties() | Chem.PropertyPickleOptions.CoordsAsDouble
+    )
+
+
+enable_double_precision_mol_pickling()
+
+
+def verify_disjoint_conformer_seeds(
+    seed_a: int,
+    count_a: int,
+    seed_b: int,
+    count_b: int,
+) -> None:
+    """Verify that two RDKit EmbedMultipleConfs RNG streams do not collide.
+
+    When ``enableSequentialRandomSeeds`` is False and ``randomSeed > 0``, RDKit's
+    C++ conformer embedder seeds conformer index ``i`` (0-based) with
+    ``effective_seed = base_seed * (i + 1)``. Two ensembles share identical conformer
+    RNG draws whenever ``seed_a * (i + 1) == seed_b * (j + 1)`` within their budgets.
+    """
+    if seed_a <= 0 or seed_b <= 0:
+        raise ValueError("Conformer random seeds must be positive integers")
+    if count_a < 1 or count_b < 1:
+        raise ValueError("Conformer attempt counts must be at least 1")
+    if seed_a * count_a >= 2**31 or seed_b * count_b >= 2**31:
+        raise ValueError(
+            "Seed * max_conformers exceeds 32-bit signed integer limit (2^31 - 1)"
+        )
+    stream_a = {seed_a * i for i in range(1, count_a + 1)}
+    stream_b = {seed_b * i for i in range(1, count_b + 1)}
+    overlap = stream_a & stream_b
+    if overlap:
+        sample = sorted(overlap)[:3]
+        raise ValueError(
+            f"Conformer RNG streams overlap ({len(overlap)} shared seeds, e.g. {sample})"
+        )
+
+
+def prepare_candidate_molecule(
+    smiles: str,
+    *,
+    canonicalize_tautomer: bool = True,
+    protonate: bool = False,
+) -> Chem.Mol:
+    """Prepare a candidate SMILES for 3D embedding while preserving assigned stereochemistry.
 
     pH reassignment is explicit: installing an optional dependency must not change
     an existing experiment's chemical states. When requested, it cannot fail open.
@@ -42,7 +96,9 @@ def prepare_candidate_molecule(smiles, *, canonicalize_tautomer=True, protonate=
     if protonate:
         # Same pH and first-variant policy as DrugEx, without its silent fallback.
         if not core_protonation._DIMORPHITE_AVAILABLE:
-            raise ImportError("pH preparation requires dimorphite_dl; refusing a silent no-op")
+            raise ImportError(
+                "pH preparation requires dimorphite_dl; refusing a silent no-op"
+            )
         variants = core_protonation.dimorphite_dl.protonate_smiles(
             Chem.MolToSmiles(mol), ph_min=7.4, ph_max=7.4, precision=0.0
         )
@@ -69,13 +125,19 @@ class Optimization:
 
     @property
     def name(self) -> str:
+        """Human-readable label describing the force-field and dielectric model."""
         if self.method in {"none", "UFF"}:
             return self.method
         model = "distance" if self.dielectric_model == 2 else "constant"
         return f"{self.method} eps={self.dielectric:g} {model}"
 
 
-def enumerate_stereoisomers(mol, *, limit: int, seed: int = 42):
+def enumerate_stereoisomers(
+    mol: Chem.Mol,
+    *,
+    limit: int,
+    seed: int = 42,
+) -> Iterator[Chem.Mol]:
     """Share seeded, identity-labelled enumeration without changing assigned stereo."""
     if limit < 1:
         raise ValueError("Stereoisomer limit must be positive")
@@ -95,17 +157,17 @@ def enumerate_stereoisomers(mol, *, limit: int, seed: int = 42):
 
 
 class CandidateConformerGenerator(RDKitConformerGenerator):
-    """DrugEx ETKDG with a selectable seed and optional MMFF94 post-minimization."""
+    """DrugEx ETKDG with a selectable seed, per-isomer parameter isolation, and optional minimization."""
 
     def __init__(
         self,
-        random_seed: int = 42,
+        random_seed: int = DEFAULT_CANDIDATE_SEED,
         stereo_seed: int = 42,
         minimize_candidates: bool = False,
         optimization: Optimization | None = None,
         embedding_rmsd: float | None = 0.5,
         protonate: bool = False,
-        **kwargs,
+        **kwargs: object,
     ) -> None:
         requested = kwargs.get("max_conformers", 10)
         if not isinstance(requested, int) or not 1 <= requested <= 1000:
@@ -114,38 +176,40 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         kwargs["protonate"] = protonate
         super().__init__(**kwargs)
         # The core silently clamps at 200; explicit thesis budgets must be honored.
-        self.max_conformers = requested
-        self.random_seed = random_seed
-        self.stereo_seed = stereo_seed
-        self.minimize_candidates = minimize_candidates
-        self.optimization = optimization or Optimization()
+        self.max_conformers: int = requested
+        self.random_seed: int = random_seed
+        self.stereo_seed: int = stereo_seed
+        self.minimize_candidates: bool = minimize_candidates
+        self.optimization: Optimization = optimization or Optimization()
         if embedding_rmsd is not None and embedding_rmsd < 0:
             raise ValueError("Embedding RMSD must be nonnegative or None")
-        self.embedding_rmsd = embedding_rmsd
+        self.embedding_rmsd: float | None = embedding_rmsd
         self.last_minimization_statuses: list[int] = []
         self.last_embedding_failures: int = 0
         self.last_identity_rejections: list[str] = []
 
-    def _create_fresh_etkdg(self):
+    def _create_fresh_etkdg(self) -> AllChem.EmbedParameters:
         params = super()._create_fresh_etkdg()
         params.randomSeed = self.random_seed
         params.enableSequentialRandomSeeds = False
-        params.pruneRmsThresh = -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
+        params.pruneRmsThresh = (
+            -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
+        )
         return params
 
-    def _get_isomers(self, mol):
+    def _get_isomers(self, mol: Chem.Mol) -> Iterator[Chem.Mol]:
         yield from enumerate_stereoisomers(
             mol, limit=self.max_isomers, seed=self.stereo_seed
         )
 
-    def genConformers(self, smiles_list, out_dir) -> str:
+    def genConformers(self, smiles_list: Sequence[str], out_dir: str | Path) -> str:
+        """Generate 3D conformers for a batch of SMILES and write valid geometries to an SDF."""
         # Core has no preparation hook. Keep its filtering, ETKDG and SDF naming
         # here while routing chemistry through the shared stereo-preserving step.
         self.last_minimization_statuses = []
         self.last_embedding_failures = 0
         self.last_identity_rejections = []
         path = str(Path(out_dir) / "conformers.sdf")
-        params = self._create_fresh_etkdg()
         with Chem.SDWriter(path) as writer:
             for index, smiles in enumerate(smiles_list):
                 if not smiles:
@@ -168,6 +232,8 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                     iso = Chem.AddHs(iso)
                     iso.SetProp("_Name", f"mol_{index}+{iso_index}")
                     try:
+                        # Fresh ETKDGv3 parameters per isomer prevent maxIterations leakage across batches.
+                        params = self._create_fresh_etkdg()
                         conf_ids = AllChem.EmbedMultipleConfs(
                             iso, numConfs=self.max_conformers, params=params
                         )
@@ -197,7 +263,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                     writer.write(mol)
         if self.minimize_candidates:
             minimized, statuses = optimize_conformers(valid, self.optimization)
-            #~ [Kim, Bolton & Bryant, 2013; doi:10.1186/1758-2946-5-1]
+            # ~ [Kim, Bolton & Bryant, 2013; doi:10.1186/1758-2946-5-1]
             # RMSD clustering can discard poses important to shape/colour overlap.
             # Keep converged candidates without additional RMSD clustering here;
             # embedding-stage pruning is separately controlled by embedding_rmsd.
@@ -218,14 +284,14 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
 
 
 def minimize_mmff94(
-    records: list[Chem.Mol], max_iterations: int = 1000
+    records: Sequence[Chem.Mol], max_iterations: int = 1000
 ) -> tuple[list[Chem.Mol], list[int]]:
     """Compatibility wrapper for the selected default MMFF94 condition."""
     return optimize_conformers(records, Optimization(max_iterations=max_iterations))
 
 
 def optimize_conformers(
-    records: list[Chem.Mol], settings: Optimization
+    records: Sequence[Chem.Mol], settings: Optimization
 ) -> tuple[list[Chem.Mol], list[int]]:
     """Minimize copies; retain only converged, identity-valid conformers.
 
@@ -238,7 +304,8 @@ def optimize_conformers(
     """
     if settings.method not in {"MMFF94", "MMFF94s", "UFF"}:
         raise ValueError(f"Unsupported optimization method: {settings.method}")
-    minimized, statuses = [], []
+    minimized: list[Chem.Mol] = []
+    statuses: list[int] = []
     for record in records:
         status = -1
         if record is not None and record.GetNumConformers():
@@ -341,9 +408,13 @@ def check_identity(mol: Chem.Mol, expected: Chem.Mol) -> str:
     return Chem.MolToSmiles(actual, isomericSmiles=True)
 
 
-def filter_conformer_identities(records, expected=None):
+def filter_conformer_identities(
+    records: Sequence[Chem.Mol],
+    expected: Chem.Mol | None = None,
+) -> tuple[list[Chem.Mol], list[str]]:
     """Keep valid 3D identities; return each rejection reason for accounting."""
-    accepted, rejected = [], []
+    accepted: list[Chem.Mol] = []
+    rejected: list[str] = []
     for record in records:
         target = expected
         if target is None:
