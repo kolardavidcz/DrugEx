@@ -1,0 +1,261 @@
+{
+  "kind": "Dated workflow-audit evidence, not an experiment manifest or current scientific decision record",
+  "observed_utc": "2026-10-29T13:09:09.905605+00:00",
+  "scope": "One main Antigravity research conversation, selected artifacts/configuration and current DrugEx state; not all conversations or a controlled model comparison",
+  "attribution_limit": "Provider/model attribution was not reliably established from the inspected metadata; later repository failures are not attributed to Gemini",
+  "conversation": {
+    "path": "/mnt/c/Users/kolar/.gemini/antigravity/conversations/3c0732c1-95a4-4444-ba73-318653568f70.db",
+    "conversation_id": "3c0732c1-95a4-4444-ba73-318653568f70",
+    "stored_steps": 17225,
+    "user_type_records": 319,
+    "direct_text_records": 318,
+    "extraction": "Read-only SQLite; direct user text from step_type 14, protobuf field path 19/3/1. Tool payloads, injected rules and assistant private reasoning were not exported."
+  },
+  "sources": {
+    "E1": {
+      "source": "Main conversation direct user messages",
+      "steps": [
+        {
+          "idx": 10623,
+          "text": "Thanks there needs to be bigger refacorization\n- i added #* notes for agent in all _david/ scripts\n- and #~ are reference to literature (evey non-trivial deision has to have them)\n- at current stange dont generate excesive docs string (keep it  1 line useful for agent (or non-at all at best)\n- there are a lot of @staticmethod where would be beter inicalization or using singleton\n- tried to code out all of parento generating - but cleaner solution would be to delete it (i defenetly couded out more code than ineeded in analysis.py and i think it sould be merged with vizualization\n- btw remove/refactor any test that would prevet clean-code etc. \nAt the end review whole _david/ codebase, if someting doesnt setisfy high-standarts repeat analysis + implement + improve with implementation knowlage (refactor + review cycle\n\n\n- synchronize the code localy to WSL - edit it there and any complicated test sould be done back in \n "
+        },
+        {
+          "idx": 11393,
+          "text": "btw dont take any previous text/.md files as relazibale as they have been made based on previous architecure, and could misslead cctualy truth (eg. 1 conclusing, while missing that cause of it all was bed hyperparamether)"
+        },
+        {
+          "idx": 14027,
+          "text": "I go to sleep, o this is once again autonomus run\n- For next runs you can test any hypothese (if you fant faster results lowering number of reference conformers might menagfully help - but we degrate on our current thesis/code line + we will get lower results (as there are more chances 1 of the conforemr matches our molecule and few=less chance) + and edit the code (like adding new features we want to test)\n- you can halp buld menagfull hypothesis. Its better to think and analyse for 10 minutes and then come with someting meangfull.\n\n\n\n\nStart thinking about the next step afther the run 14 finises\n\n\n But in 10:30 i need high-quality technicalreport of our state\n1) codebase state-pre output/overnight_runs/... runs - decisions etc.\n2) current results from all the testing runs etc. + code/architecure changes\nBoth for my preparation with thesis garant (so in this informative style)"
+        },
+        {
+          "idx": 14441,
+          "text": "Why did we go to \"beta: float = 0.05\" when we establest beta: = 0.3 was the best aproch?"
+        },
+        {
+          "idx": 14655,
+          "text": "you sould never commmt this secred data training we are duing to github - unstage it imediatly + find otehr wait to get to WSL (not public one)"
+        },
+        {
+          "idx": 15665,
+          "text": "Btw my notebook doesnt have nvidia gpu/cuda nore CPU for training (not even 2 epochs)"
+        },
+        {
+          "idx": 15776,
+          "text": "1) I think we can use more CPU (like 0.9 - make it new default)\n2) code is extrimply unreadable and un-elegant = bug prone (look up how previous code that we just rewrited was simple elegant and redable and use this high standart"
+        },
+        {
+          "idx": 16647,
+          "text": "1) btw i have both \"e-INFRA CZ\r and CESiD\" acces, aare there any more infos, taht would help deciding what are best cofigs for running?\n2) but wile we are waiting, we sould do one extra test on dichatator\n\"\"\"\nmanwhile we could make test about self similarity\n\nThe point\n- make all conformers that have lower then 8kcal/mol and are more then 1,25A apart\n+ make 3 variants 1 in MFF, UFF and one in MFF in whater and few mores MFF in humen-like envirument (for these me might turn off 8kcal/mol limit)\n- and test is againc increasing number of conformers we use for TomitoCombod\n\ncore: #reference conformers vs #generating/optimalization conformers\n- this is 3D graph\n- and make more variants of this - MFF,UFF,MFF(whater, more-human-like-variants) - tomitoCombo\n\nI VALUE that MFF(more-human-like-variants) would be based on literuature (google search)\n- only later afther test results we will coner-ourselfs with tversky_subshape (and its special setttings)\n\"\"\""
+        },
+        {
+          "idx": 16728,
+          "text": "So there is someting terrible wrong with the vizualization of MFF with humen like\n- 1) there are ROCS to 5.0 (while its only till 2.0)\n- also make it into same format taht i can with VS code extension look around\n\n\nps: set time to make configuration unlimited (so the only limiting factor is the number of conformers)"
+        },
+        {
+          "idx": 17083,
+          "text": "Grilling time for conformer\n- the test is benchmark how many conformers sould be put in paramther at the inicila optimalization and in final model training - so we know what hyperaparamthers for both of this are meangfull -so thats the whole point of code/conformer if its not refactor it to the ground"
+        },
+        {
+          "idx": 17120,
+          "text": "do it \"rug-design-science\" yess its primertly focused on EGCG, but we are aiming to make universal functioning scripts, yess install it globaly"
+        }
+      ]
+    },
+    "E2": {
+      "path": "/mnt/c/Users/kolar/.gemini/antigravity/brain/3c0732c1-95a4-4444-ba73-318653568f70/training_dynamics_audit_and_criterion_pathology.md",
+      "lines": [
+        10,
+        16
+      ],
+      "excerpt": "2. **Why Epoch 1 Was Picked as \"Best\"**:\n   - DrugEx defines $\\text{desired\\_ratio} = \\frac{\\sum_{m \\in \\text{unique}} \\mathbb{I}(m \\in \\text{Desired})}{N_{\\text{val}}}$.\n   - Because our environment thresholds ($\\tau = 0.25$) are easily satisfied by almost all generated structures, **$100\\%$ of generated molecules are classified as \"Desired\"**.\n   - As a mathematical consequence, **$\\text{desired\\_ratio} \\equiv \\text{unique\\_ratio}$** (the purple and yellow curves in the training plot are 100% identical).\n   - At Epoch 1, the untrained prior had maximum entropy/randomness ($59\\%$ unique molecules).\n   - As RL trained and sharpened the policy, the agent focused onto high-reward motifs, naturally generating duplicate high-scoring molecules ($32 - 44\\%$ unique molecules).\n   - Because $44\\% < 59\\%$, the monitor judged every trained epoch as \"worse\" than the random prior, triggered early stopping at Epoch 27 (patience = 25), and restored **Epoch 1** as the final checkpoint."
+    },
+    "E3": {
+      "path": "/mnt/c/Users/kolar/.gemini/antigravity/brain/3c0732c1-95a4-4444-ba73-318653568f70/training_dynamics_audit_and_criterion_pathology.md",
+      "lines": [
+        47,
+        59
+      ],
+      "excerpt": "| Epoch | Loss (Train) | Desired Ratio | Unique Ratio | **`avg_amean` (True Reward)** | Best Epoch (DrugEx) | Notes |\n| :---: | :---: | :---: | :---: | :---: | :---: | :--- |\n| **1** | 0.378 | **0.560** | **0.590** | 0.679 | **1** | **Prior with high entropy (randomness)** |\n| **2** | 0.382 | 0.450 | 0.460 | 0.700 | 1 | Reward rises ($+0.021$), unique drops |\n| **5** | 0.262 | 0.320 | 0.320 | 0.720 | 1 | Reward rises ($+0.041$), 100% molecules desired |\n| **8** | 0.162 | 0.220 | 0.220 | 0.731 | 1 | Reward rises ($+0.052$) |\n| **11** | 0.130 | 0.410 | 0.410 | 0.733 | 1 | Reward rises ($+0.054$) |\n| **16** | 0.104 | 0.320 | 0.320 | **0.734** | 1 | **TRUE PEAK AGENT (Best chemistry)** |\n| **20** | 0.070 | 0.480 | 0.480 | 0.708 | 1 | Strong policy convergence |\n| **27** | 0.046 | 0.440 | 0.440 | 0.718 | 1 | **Early stopping halts ($27 - 1 > 25$)** |\n\n> [!IMPORTANT]\n> Because `desired_ratio` never beat Epoch 1's random $0.56$, `PeakRecoveryMonitor` restored Epoch 1. The final 200 candidates evaluated in Stage 2 came from the **untrained prior**, not the optimized RL policy!"
+    },
+    "E4": {
+      "path": "/mnt/c/Users/kolar/.gemini/config/skills/drug-design-science/SKILL.md",
+      "sha256": "4d036f3bb5dbbe3f63f8a8ef065c348166ceb8d0e9f7eb21912464f7c7554779",
+      "matching_lines": [
+        {
+          "line": 47,
+          "text": "- **Sidecar Requirement**: Whenever loading or updating a 3D structure, always surface the one-click viewer pill:  "
+        },
+        {
+          "line": 59,
+          "text": "- **Dielectric Golden Rule**: For polar ligands (e.g. EGCG with 8 OH groups), never use gas-phase vacuum ($\\epsilon_r = 1.0$). Always use **MMFF94s with protein pocket dielectric ($\\epsilon_r = 6.5$)** or **aqueous dielectric ($\\epsilon_r = 78.4$)** with $K_{\\mathrm{ref}} = 3$ and $K_{\\mathrm{gen}} = 10$."
+        }
+      ]
+    },
+    "E5": {
+      "path": "/mnt/c/Users/kolar/.gemini/antigravity/brain/3c0732c1-95a4-4444-ba73-318653568f70/conformer_convergence_and_dielectric_study.md",
+      "lines": [
+        16,
+        20
+      ],
+      "excerpt": "1. **MMFF94s Vacuum** ($\\epsilon_r = 1.0$, $\\Delta E \\le 8.0\\text{ kcal/mol}$): Standard gas-phase baseline.\n2. **UFF Vacuum** (Universal Force Field, Rappe et al.): Alternative molecular mechanics formulation.\n3. **MMFF94s Protein Binding Pocket** ($\\epsilon_r = 6.5$, literature consensus): Replicating the electrostatic screening of partially solvent-exposed active sites (Warshel, Simonson, and NMR chemical shift perturbation studies).\n4. **MMFF94s Bulk Aqueous** ($\\epsilon_r = 78.4$, room temperature water): Simulating complete dielectric charge screening in physiological solution.\n5. **MMFF94s Distance-Dependent Dielectric** ($\\epsilon(r) = r \\cdot \\epsilon_0$): Classical Pickersgill / Mehler-Solmajer solvent screening model."
+    },
+    "E6": {
+      "path": "/home/kolar/DrugEx/.agents/skills/drug-design-science/references/legacy_audit.md",
+      "sha256": "c1e7ff5b27650f73fc7d15ea001e76b7c188a722da479540445d75d22c6652a0",
+      "matching_lines": [
+        {
+          "line": 14,
+          "text": "| Never use vacuum; use epsilon 6.5/78.4 and K_ref=3/K_gen=10 | No source/raw benchmark in the skill establishes this universal rule. [RDKit API](https://www.rdkit.org/docs/source/rdkit.ForceField.rdForceField.html) documents dielectric controls, not universal physiological parameters. Replaced prescriptions with consultation and validation requirements. |"
+        },
+        {
+          "line": 17,
+          "text": "| Codex can invoke Antigravity `/science` sidecars | No such capability is supplied by these repository files. Removed mandatory unavailable tool calls; use tools actually available. |"
+        }
+      ]
+    },
+    "E7": {
+      "path": "/home/kolar/DrugEx/_david/code/conformer/results.md",
+      "sha256": "1a7b9ce99b1d5be5e263e4c85420db5df228036ba83e17b3d06c5bc99aeaf44a",
+      "matching_lines": [
+        {
+          "line": 326,
+          "text": "## One-isomer-category audit — 2026-10-28"
+        },
+        {
+          "line": 330,
+          "text": "**zero of the 293 has EGCG connectivity**. The 1,000-attempt deep preparation"
+        },
+        {
+          "line": 365,
+          "text": "explains 0.34. This panel does not measure the same-identity self-recovery the"
+        }
+      ]
+    },
+    "E8": {
+      "path": "/home/kolar/DrugEx/_david/output/20261029_0250_reward_calibration/REPORT.md",
+      "lines": [
+        1,
+        20
+      ],
+      "excerpt": "# Superseded: reference/candidate seed overlap\n\n**Do not use this run to select conformer settings.** Its C50/C75 self-recovery\nresults contain deterministic reference/candidate RNG overlap.\n\nRDKit 2026.03.6, with sequential seeding off, uses\n`effective_seed = base_seed × (conformer_index + 1)`. Reference base43 and\ncandidate base42 therefore both use **1806**, at their 42nd and 43rd requests.\nThe saved podophyllotoxin C50 candidate contains an exact coordinate copy of a\nsaved unminimized reference. C20 does not contain that shared seeded geometry.\nThe abrupt perfect recovery at C50 was an artifact, not convergence evidence.\n\nThe code responsible is [RDKit's seed construction](https://github.com/rdkit/rdkit/blob/Release_2026_03_6/Code/GraphMol/DistGeomHelpers/Embedder.cpp#L1593-L1601).\nThe reproducible audit is `code/conformer/seed_control.py`; its per-input data\nand file hashes are in `raw_data/provenance/seed_overlap.csv` and `.json`.\nOriginal figures are archived; current figures explicitly mark supersession.\n\nAll molecular measurements finished: development128 ×144 cells and\nconfirmation384 ×6 shortlisted cells. Confirmation aggregation also found three\nnative numerical overshoots, maximum1.0000207; this is separate from the seed"
+    },
+    "E9": {
+      "path": "/mnt/c/Users/kolar/.gemini/config/AGENTS.md",
+      "sha256": "ae980897f3ffe44b6aff1cdca8a3c6d3fac57a385fe5bad858c49c7d53545642",
+      "matching_lines": [
+        {
+          "line": 2,
+          "text": "You are LLM model. You have limited baked in kwnolage (that could be extended by code analysis, testing runs, internet search) and limited context window (so only whay for presistent are extrimply detailed notes, huge context transformation files and tracking in witch git commit was this assompsion written) so its good to think in terms of what would menagfully benefit new co-worker."
+        },
+        {
+          "line": 5,
+          "text": "- **Zero Broken Tests & Lints**: Maintain zero tolerance for lint errors, test failures, or test flakiness. If encountered during work, fix them even if unrelated to the current task."
+        },
+        {
+          "line": 13,
+          "text": "- **Class-First Encapsulation**: Default to class oreinted desighn (even for single-use components)"
+        },
+        {
+          "line": 16,
+          "text": "- **Analyze and plan first**: Before implementing make a deep code-audit (eg. related code need refactoring) and plan for implementaion. "
+        },
+        {
+          "line": 19,
+          "text": "- **Read-Only Mode for Questions & Exploratory Queries**: Treat questions (e.g., starting with *\"would you\"*, *\"should we\"*, *\"what do you think\"*, *\"can we\"*, or asking for research/opinions) as read-only research requests. Inspect the codebase (or internet) and provide clear answers without editing any source files."
+        },
+        {
+          "line": 21,
+          "text": "- **Automatic Local Commits**: Upon task completion, stage and commit changes locally with a extrimply deatiled technical message and git push"
+        }
+      ]
+    },
+    "E10": {
+      "current_guidance": [
+        "/home/kolar/DrugEx/AGENTS.md",
+        "/home/kolar/DrugEx/_david/AGENTS.md",
+        "/home/kolar/DrugEx/.agents/skills/consult-literature/SKILL.md"
+      ],
+      "current_findings": "/home/kolar/DrugEx/_david/code/conformer/results.md",
+      "active_study_report": "/home/kolar/DrugEx/_david/output/20261029_1155_reward_calibration/REPORT.md"
+    }
+  },
+  "local": {
+    "host": "Swift-5",
+    "checkout": "/home/kolar/DrugEx",
+    "branch": {
+      "command": [
+        "git",
+        "branch",
+        "--show-current"
+      ],
+      "exit_code": 0,
+      "stdout": "main",
+      "stderr": ""
+    },
+    "head": {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "exit_code": 0,
+      "stdout": "4be9932e0cc136c523f56618f04f4a303c55b0e4",
+      "stderr": ""
+    },
+    "dirty_at_capture": {
+      "command": [
+        "git",
+        "status",
+        "--short"
+      ],
+      "exit_code": 0,
+      "stdout": "?? _david/onboarding/",
+      "stderr": ""
+    }
+  },
+  "remote": {
+    "command": [
+      "ssh",
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "ConnectTimeout=15",
+      "dichtator",
+      "date -u +%Y-%m-%dT%H:%M:%SZ; hostname; cd /home/kolarv/DrugEx && git branch --show-current && git rev-parse HEAD && git status --short; tmux list-sessions; cat _david/output/20261029_1155_reward_calibration/progress.json"
+    ],
+    "exit_code": 0,
+    "stdout": "2026-10-29T13:09:10Z\ndichtator\ncodex/drug-pruning-scope\n4be9932e0cc136c523f56618f04f4a303c55b0e4\n M _david/code/environment.py\n M _david/in_molecule.txt\n1: 1 windows (created Wed Oct 28 00:47:08 2026)\ndrugex-reward-independent: 1 windows (created Thu Oct 29 12:04:15 2026)\n{\n  \"phase\": \"confirmation\",\n  \"state\": \"measuring\",\n  \"completed\": 49,\n  \"total\": 384,\n  \"errors\": {},\n  \"updated_utc\": \"2026-10-29T13:09:06.200107+00:00\"\n}",
+    "stderr": ""
+  },
+  "canonical_source_hashes": {
+    "AGENTS.md": "0dfceb668cfd032b96d8983a633f40d52c6bef76fa64dfd13d6969665310d35e",
+    "_david/AGENTS.md": "ea057face386512f678502df5810debf7145221b71d1f01bc3af5ab3454faa29",
+    ".agents/skills/consult-literature/SKILL.md": "01f6a9ddca7efaff3f3063b1ab784b0ca2bd23bb7f20029b5d393179f6de99c3",
+    "_david/code/conformer/results.md": "1a7b9ce99b1d5be5e263e4c85420db5df228036ba83e17b3d06c5bc99aeaf44a"
+  },
+  "dependencies": {
+    "personal_skill_root": "/home/kolar/.agents/skills (links to /home/kolar/dotfiles/skills)",
+    "verified_personal_skills": [
+      "drugex-dichtator",
+      "literature-research",
+      "literature-search-europepmc",
+      "pubmed-database",
+      "literature-search-arxiv",
+      "literature-search-openalex"
+    ],
+    "ignored_inputs_verified_local": [
+      "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.pkg",
+      "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.vocab",
+      "_david/output/20261028_2145_joint_calibration/raw_data/panel.csv"
+    ],
+    "not_exported": [
+      "credentials",
+      "browser profiles",
+      "full conversation databases",
+      "checkpoints",
+      "bulk experimental output",
+      "pending scheduler state"
+    ]
+  },
+  "validation_limit": "Document/JSON/link checks only in this audit. Historical test counts and scientific results were not rerun. Live SSH access was verified; no scheduler delivery, receiving-harness behavior or model comparison was tested."
+}
