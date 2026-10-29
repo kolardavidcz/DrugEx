@@ -309,6 +309,9 @@ def run(output: Path, workers: int, smoke=False):
                         tick = time.perf_counter()
                         scores = replay_scorer(mols)[:, 0]
                         elapsed = time.perf_counter() - tick
+                        # Match DrugExEnvironment's post-scoring validity mask,
+                        # including syntactically valid but disallowed fragments.
+                        scores[recorded.Valid.eq(0).to_numpy()] = 0.0
                         original_scores = recorded[std.ROCS].to_numpy()
                         rows.append(
                             dict(
