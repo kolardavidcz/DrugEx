@@ -169,6 +169,21 @@
         }
       ]
     },
+    "E11": {
+      "source": "Recent post-switch Antigravity context, selectively inspected on 2026-10-29",
+      "path": "/mnt/c/Users/kolar/.gemini/antigravity/brain/3c0732c1-95a4-4444-ba73-318653568f70/.system_generated/logs/transcript.jsonl",
+      "pivot": {"step_index": 15339, "created_at": "2026-10-25T22:34:17Z"},
+      "implementation_approval": {"step_index": 15347, "created_at": "2026-10-25T22:42:03Z"},
+      "retained_context": [
+        "Replace Graph/fragment pipeline with unprompted supervisor-style SequenceRNN",
+        "Keep separate frozen prior, ROCS/SA/QED and a simple weighted-sum baseline",
+        "Later reward, exploration and Tversky comparisons were a historical roadmap, not new launch authorization",
+        "Inspect relevant DrugEx code before inventing notebook gates or replacement loaders",
+        "Prioritize meaningful visualizations, unfavorable outcomes and readable code"
+      ],
+      "current_code_cross_checks": ["_david/code/models.py", "_david/code/config.py", "_david/code/utils.py", "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT/Papyrus05.5_smiles_rnn_PT.vocab"],
+      "hardware_snapshot_limit": "A read-only live snapshot found two RTX PRO 4000 Blackwell GPUs, physical0 busy with another user's compute and physical1 idle. Availability must be rechecked at launch. Scheduled continuation was updated to select the available GPU and record CUDA_VISIBLE_DEVICES mapping; the running CPU calibration was not changed."
+    },
     "E10": {
       "current_guidance": [
         "/home/kolar/DrugEx/AGENTS.md",

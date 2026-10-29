@@ -53,6 +53,13 @@ question. Present a short, concrete brief in the existing experiment plan/report
 - A small relevant control/pilot, its measured cost, expected full-run cost and
   how success, failure and an inconclusive result will be recognized.
 
+The lab has two GPUs; inspect activity/process ownership as well as free VRAM and
+prefer an available idle GPU for the RNN. ROCS currently uses the CPU path. If a
+helper hardcodes logical GPU 0, select the physical device with
+`CUDA_VISIBLE_DEVICES` before Python starts and record the physical-to-logical
+mapping in existing run provenance. A nominal CPU ratio is not a measurement of
+free capacity or actual utilization; check the shared host before allocation.
+
 Proceed within explicit existing authorization. Ask only for a materially new
 scientific choice or missing required authorization. A typo, equivalent repair,
 or routine verification does not require a fresh scientific approval. A proposal,

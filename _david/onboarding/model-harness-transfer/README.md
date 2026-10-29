@@ -109,6 +109,17 @@ held-out tasks. No candidate has been evaluated with this package yet.
 
 ## Transfer status
 
+The recent Antigravity transcript was checked separately from the older history.
+The Graph-to-RNN steering is dated 25 October 2026 (step 15339), followed by
+implementation approval at step 15347. Retain unprompted Papyrus SequenceRNN,
+an independent frozen prior, ROCS/SA/QED and the simple weighted-sum baseline.
+Historical reward/epsilon/Tversky roadmaps are not current launch instructions.
+Old three-reference recipes do not supersede the ongoing calibration. The current
+checkpoint vocabulary has no `@`, `/` or `\` tokens: it cannot directly express
+those stereochemical annotations; downstream stereo preparation is a separate
+part of the scoring workflow. These observations were checked against current
+`models.py`, `config.py` and the local Papyrus vocabulary on 29 October.
+
 The handoff and review cases are ready locally. No target model was chosen and no
 settings, skills or conversations were installed elsewhere. The live lab checkout
 had an active independent-stream calibration and user edits to `environment.py`
