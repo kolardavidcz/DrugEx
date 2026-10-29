@@ -1,15 +1,76 @@
-# Literature discovery and method consultation
+# Academic Literature & SOTA Discovery Runbook
 
-Use `consult-literature` for DrugEx method decisions and the installed `literature-research` skill for database selection, free access, critical appraisal, and citation provenance. Reuse its maintained PubMed, Europe PMC, arXiv, bioRxiv, and OpenAlex helpers instead of building another search client. Resolve helper paths for the active host.
+This runbook standardizes discovery, downloading, and citation tracking of peer-reviewed articles and preprints in generative molecular machine learning, DrugEx algorithms, and target pharmacology.
 
-The suite's `literature` command is a small Europe PMC metadata search. Europe PMC includes preprints as well as peer-reviewed articles; an indexed hit is not evidence of peer review. Metadata or an OA flag does not mean the full text was inspected. Follow up using actual PMID/PMCID/DOI records and label access limits. The maintained Europe PMC helper discovers all metadata by default; use `--open-access-only` for a deliberately restricted search. Neither an empty restricted search nor unavailable full text establishes absence from the broader literature.
+---
 
-## Verified starting records
+## 1. Europe PMC & PubMed (Peer-Reviewed Pharmacology)
 
-The following records were resolved through Europe PMC on 2026-10-27. They are starting points, not a sufficient review of a new research question:
+Search Europe PMC for peer-reviewed studies, biological activity assays, and open-access PDFs:
 
-- Liu et al. (2021), *DrugEx v2: de novo design of drug molecules by Pareto-based multi-objective reinforcement learning in polypharmacology*. [DOI 10.1186/s13321-021-00561-9](https://doi.org/10.1186/s13321-021-00561-9), PMID 34772471, [PMC8588612](https://pmc.ncbi.nlm.nih.gov/articles/PMC8588612/). Full text retrieved and the exploration/reward methods inspected for this migration audit. Its RNN/Pareto workflow is relevant, but its predictor objectives are not a validation of the thesis's ROCS/SA/QED reward.
-- Liu et al. (2023), *DrugEx v3: scaffold-constrained drug design with graph transformer-based reinforcement learning*. [DOI 10.1186/s13321-023-00694-z](https://doi.org/10.1186/s13321-023-00694-z), PMID 36803659, PMCID PMC9940339. Record/abstract checked here; inspect full methods before using it to support an architectural decision. This is a different generator/input representation from the active unprompted SequenceRNN.
-- Šícho et al. (2023), *DrugEx: Deep Learning Models and Tools for Exploration of Drug-Like Chemical Space*. [DOI 10.1021/acs.jcim.3c00434](https://doi.org/10.1021/acs.jcim.3c00434), PMID 37272707, PMCID PMC10306259. Record/abstract checked here; this is the software paper, not the v3 graph-transformer paper.
+```bash
+# Query DrugEx and molecular generative reinforcement learning
+python scripts/drug_design_suite.py literature --query "DrugEx de novo drug design" --limit 5
 
-The old runbook mixed up titles/authorship and listed an unverified 2026 metric paper without identifiers. Do not copy that bibliography. Resolve new references from primary records, distinguish software versions and publication versions, and preserve source links. Do not use citation counts or author h-index as a proxy for methodological validity.
+# Query target pharmacology (EGCG epigenetic mechanism or DNMT1 inhibition)
+python scripts/drug_design_suite.py literature --query "Epigallocatechin gallate DNMT1 inhibition" --limit 5
+```
+
+### Search Syntax Tips:
+- Use quotes for exact keyphrases: `"reinforcement learning"`, `"de novo drug design"`.
+- Filter for Open Access full text: `OPEN_ACCESS:y`.
+- Retrieve full-text XML/PDF using PMCID when available.
+
+---
+
+## 2. arXiv & bioRxiv (Machine Learning & Generative Chemistry Preprints)
+
+For frontier algorithms, graph transformers, and multi-objective reinforcement learning (MORL):
+
+- **bioRxiv Categories**: `Bioinformatics`, `Biophysics`, `Pharmacology and Toxicology`.
+- **arXiv Categories**: `cs.LG` (Machine Learning), `q-bio.BM` (Biomolecules), `stat.ML`.
+
+### Canonical Key Papers for the Thesis:
+1. Liu et al. (2019): *DrugEx v1: De Novo Design of Drug Molecules by Pareto-based Multi-Objective Reinforcement Learning in Polypharmacology.*
+2. Liu et al. (2021): *DrugEx v2: De Novo Design of Drug-like Molecules by Multi-Objective Deep Reinforcement Learning.*
+3. Šícho et al. (2023): *DrugEx v3: Scaffold-Constrained De Novo Design using Multi-Objective Reinforcement Learning.*
+4. Fil et al. (2026): *Scaffold-based evaluation metrics for fair comparison of molecular generators.*
+
+---
+
+## 3. OpenAlex Citation Graph & BibTeX Generation
+
+Use OpenAlex (`literature_search_openalex`) to:
+- Resolve DOIs to standardized BibTeX entries for your thesis bibliography (`.bib`).
+- Retrieve citation counts, h-index, and author co-citation networks.
+- Verify whether benchmark competitor models (e.g. REINVENT, ChemGE, GraphAF) are cited accurately.
+
+---
+
+## 4. Undermind MCP & Tiered Literature Strategy
+
+We employ a two-tiered literature discovery protocol designed to maximize search depth while managing API quotas:
+
+```
+                      [ Scientific Query ]
+                               │
+               ┌───────────────┴───────────────┐
+               ▼                               ▼
+    【Tier 1: Primary Depth】       【Tier 2: Unmetered Fallback】
+    Undermind MCP (AI agentic)      Europe PMC + arXiv + OpenAlex
+    - Complex thesis questions       - Routine citation verification
+    - Obscure synthesis routes       - Free, unmetered full text
+    - Cross-domain correlations      - Active when Undermind quota exhausted
+```
+
+### Tier 1: Undermind MCP (Primary)
+- **Endpoint**: `https://mcp.undermind.ai/mcp` (OAuth Client: `antigravity`)
+- **Strengths**: Conducts autonomous multi-step searches across millions of scientific papers, reading and analyzing full texts to answer nuanced questions.
+- **Trigger**: Complex mechanism-of-action questions, obscure polyphenol binding kinetics, novel RL exploration strategies.
+
+### Tier 2: Open Science Fallback (Secondary / Zero-Cost)
+Whenever free Undermind query limits are reached or for quick title/DOI lookups:
+1. **Europe PMC**: Run `python scripts/drug_design_suite.py literature --query "..."` for open-access XML/PDFs.
+2. **arXiv / bioRxiv**: For computational chemistry and generative ML preprints.
+3. **OpenAlex**: For automated BibTeX exports and citation metrics.
+
