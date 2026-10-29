@@ -36,7 +36,10 @@ def heatmaps(summary: pd.DataFrame, output: Path, warning=""):
         ),
     ]
     for score_key, time_key, title, filename in sheets:
-        fig, axes = plt.subplots(4, 2, figsize=(18, 23), constrained_layout=True)
+        fig, axes = plt.subplots(4, 2, figsize=(18, 23))
+        fig.subplots_adjust(
+            left=0.075, right=0.96, bottom=0.04, top=0.91, hspace=0.40, wspace=0.30
+        )
         vmax = max(float(summary[time_key].max()), 0.001)
         vmin = max(float(summary.loc[summary[time_key].gt(0), time_key].min()), 0.001)
         for row, method in enumerate(METHODS):

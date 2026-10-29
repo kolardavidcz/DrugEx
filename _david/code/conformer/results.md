@@ -1,5 +1,16 @@
 # Conformer study: status and evidence
 
+**2026-10-29: corrected development grid validated; confirmation continues.**
+The [current report](../../output/20261029_1155_reward_calibration/REPORT.md)
+now links all four development score/time sheets. Verified 18,432 unique cells,
+184,015 saved-geometry identity checks and 12 public/component replays; maximum
+public difference 1.11e−16. Among 126 colour-eligible inputs, with five preparation
+failures retained as zero, MMFF94s ε78.4 K4/C20 averages 0.9101 at 1.88 s/input;
+all/C50 averages 0.9511 at 19.81 s/input. These are development measurements,
+not the final confirmed preset. The existing lab job is testing the frozen
+six-setting shortlist on the other 384 inputs. T3 took over continuation after
+the user paused the old Codex automation; no measurement source changed.
+
 **2026-10-29 update: expanded C50/C75 study superseded by an RNG-seed control.**
 RDKit's effective seeds multiply the base by the conformer ordinal: bases 43/42
 share 1806 at reference request 42/candidate request 43. Exact saved raw coordinate
