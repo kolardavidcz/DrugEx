@@ -32,6 +32,16 @@ def validate(output: Path, phase: str, replays: int = 12):
         raise ValueError("Measurement writer must finish before validation")
     if manifest["source_sha256"] != source_hashes():
         raise ValueError("Current measurement imports differ from recorded source")
+    reference_seed, candidate_seed = (
+        manifest["reference_geometry_seed"],
+        manifest["candidate_geometry_seed"],
+    )
+    if reference_seed * 50 >= 2**31 or candidate_seed * 75 >= 2**31:
+        raise ValueError("Seed-overlap proof does not cover integer-overflow seeding")
+    if {reference_seed * i for i in range(1, 51)} & {
+        candidate_seed * i for i in range(1, 76)
+    }:
+        raise ValueError("Reference and candidate conformer RNG streams overlap")
     frame = pd.read_csv(raw / "data.csv.gz")
     smiles_by_id = (
         pd.read_csv(raw / "panel.csv").set_index("molecule_id").smiles.to_dict()
@@ -131,6 +141,8 @@ def validate(output: Path, phase: str, replays: int = 12):
         geometry_identity_checks=geometry_checks,
         public_and_component_replays=len(replay_rows),
         score_tolerance=1e-8,
+        native_upper_bound_epsilon=1e-4,
+        disjoint_bounded_seed_streams=True,
         max_public_difference=max(
             (abs(row["public_replay"] - row["measured"]) for row in replay_rows),
             default=0.0,
