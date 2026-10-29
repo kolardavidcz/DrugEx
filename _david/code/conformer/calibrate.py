@@ -460,6 +460,14 @@ def run(args):
             ],
             ignore_index=True,
         )
+        for column in [
+            "reference_identity_rejected",
+            "candidate_embedding_identity_rejected",
+            "candidate_minimization_identity_rejected",
+        ]:
+            # Retained legacy checkpoints had no identity errors; their count is zero.
+            if column in frame:
+                frame[column] = frame[column].fillna(0).astype(int)
         if len(frame) != manifest["expected_rows"] or frame.duplicated(KEYS).any():
             raise ValueError("Incomplete or duplicated calibration grid")
         if not np.allclose(
