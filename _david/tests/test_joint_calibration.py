@@ -132,11 +132,11 @@ class TestJointCalibration(unittest.TestCase):
     def test_preparation_does_not_erase_assigned_amino_acid_stereo(self):
         smiles = "CC(=O)N[C@@H](Cc1ccc(O)cc1)C(=O)O"
         original = Chem.MolFromSmiles(smiles)
-        prepared = prepare_candidate_molecule(smiles)
+        prepared = prepare_candidate_molecule(smiles, protonate=False)
         self.assertTrue(prepared.HasSubstructMatch(original, useChirality=True))
         generator = CandidateConformerGenerator(max_isomers=4)
         self.assertEqual(len(list(generator._get_isomers(prepared))), 1)
-        unresolved = prepare_candidate_molecule("CC(=O)NC(Cc1ccc(O)cc1)C(=O)O")
+        unresolved = prepare_candidate_molecule("CC(=O)NC(Cc1ccc(O)cc1)C(=O)O", protonate=False)
         self.assertEqual(len(list(generator._get_isomers(unresolved))), 2)
         with tempfile.TemporaryDirectory() as directory:
             path = generator.genConformers([smiles], directory)
@@ -145,7 +145,23 @@ class TestJointCalibration(unittest.TestCase):
         for record in records:
             assigned = Chem.Mol(record)
             Chem.AssignStereochemistryFrom3D(assigned, replaceExistingTags=True)
-            self.assertTrue(assigned.HasSubstructMatch(original, useChirality=True))
+            check_identity(assigned, prepare_candidate_molecule(smiles))
+
+    def test_ph_preparation_cannot_silently_skip_missing_or_failed_dependency(self):
+        with patch("_david.code.chemistry.core_protonation._DIMORPHITE_AVAILABLE", False):
+            with self.assertRaisesRegex(ImportError, "requires dimorphite_dl"):
+                prepare_candidate_molecule("CCN")
+        with patch("_david.code.chemistry.core_protonation.dimorphite_dl.protonate_smiles", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "no valid chemical state"):
+                prepare_candidate_molecule("CCN")
+        prepared = prepare_candidate_molecule("CCN")
+        self.assertEqual(Chem.GetFormalCharge(prepared), 1)
+
+    def test_embedding_pruning_is_explicit_and_optional(self):
+        default = CandidateConformerGenerator()._create_fresh_etkdg()
+        unpruned = CandidateConformerGenerator(embedding_rmsd=None)._create_fresh_etkdg()
+        self.assertEqual(default.pruneRmsThresh, 0.5)
+        self.assertEqual(unpruned.pruneRmsThresh, -1)
 
     def test_pruning_preserves_stereo_lowest_energy_and_coordinates(self):
         first = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)F"))

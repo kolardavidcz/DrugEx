@@ -33,6 +33,7 @@ def create_rocs_scorer(
     random_seed: int = 42,
     minimize_candidates: bool = False,
     optimization: Optimization | None = None,
+    embedding_rmsd: float | None = 0.5,
 ) -> RDKitROCSScorer:
     """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
     ref_input = str(references) if isinstance(references, Path) else references
@@ -47,6 +48,7 @@ def create_rocs_scorer(
         random_seed=random_seed,
         minimize_candidates=minimize_candidates,
         optimization=optimization,
+        embedding_rmsd=embedding_rmsd,
     )
     safe_jobs = (
         n_jobs

@@ -10,6 +10,48 @@ import numpy as np
 import pandas as pd
 
 
+def render_reference_counts(frame: pd.DataFrame, output: Path) -> None:
+    """Counts through the reference filters, with zeros and long tails visible."""
+    stages = [("converged_valid_reported", "Converged + identity valid", "#31688e"),
+              ("energy_survivors", "After energy window", "#35b779"),
+              ("retained_rmsd_05", "After 0.5 Å RMSD", "#d5812b")]
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10), constrained_layout=True)
+    bins = [-.5, .5, 1.5, 3.5, 7.5, 15.5, 31.5, 63.5, 127.5, 255.5, 511.5, 1024.5]
+    for row, attempts in enumerate((50, 100)):
+        subset = frame[frame.attempts.eq(attempts)]
+        hist, ecdf = axes[row]
+        for metric, label, color in stages:
+            values = subset[metric].to_numpy()
+            hist.hist(values, bins=bins, histtype="step", linewidth=2, color=color, label=label)
+            ordered = np.sort(values)
+            ecdf.step(ordered, np.arange(1, len(ordered)+1)/len(ordered),
+                      where="post", linewidth=2, color=color, label=label)
+        converged = subset.converged_valid_reported
+        hist.text(.98, .95, f"All {len(subset)} inputs; zero outputs included\n"
+                  f"Converged count: median {converged.median():.0f}, mean {converged.mean():.1f}\n"
+                  f"95th percentile {converged.quantile(.95):.1f}; maximum {converged.max()}\n"
+                  f"Zero converged outputs: {converged.eq(0).sum()}",
+                  transform=hist.transAxes, ha="right", va="top", fontsize=10)
+        hist.set_ylabel("Number of input molecules")
+        ecdf.set_ylabel("Fraction of all input molecules")
+        ecdf.set_ylim(0, 1.02)
+        for ax in (hist, ecdf):
+            ax.set_xscale("symlog", linthresh=1)
+            ax.set_xticks([0, 1, 4, 16, 64, 256, 1024], ["0", "1", "4", "16", "64", "256", "1024"])
+            ax.set_xlim(-.5, 1024)
+            ax.set_xlabel("Conformers per input (summed across its stereoisomers)")
+            ax.set_title(f"{attempts} requests per stereoisomer · reference stereo cap 8")
+            ax.grid(alpha=.18)
+        ecdf.legend(loc="lower right")
+    fig.suptitle("Reference ensemble sizes in the completed 512-drug study\n"
+                 "Historical preparation; embedding RMSD 0.35 Å · MMFF94s ε=78.4 · energy window 8 kcal/mol\n"
+                 "Reported convergence precedes energy filtering; failed stereo preparations have incomplete intermediate counts",
+                 fontsize=14)
+    fig.savefig(output / "reference_counts.png", dpi=170)
+    fig.savefig(output / "reference_counts.svg")
+    plt.close(fig)
+
+
 def render_joint_calibration(summary: pd.DataFrame, output: Path) -> None:
     """One readable score/time sheet for the 36-cell joint calibration."""
     reference_keys = [(n, r) for n in (50, 100) for r in (0.5, 1.25)]

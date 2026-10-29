@@ -72,6 +72,7 @@ class PrepareMolecule:
         energy_window_kcal: float = 8.0,
         num_threads: int = 0,
         optimization: Optimization | None = None,
+        embedding_rmsd: float | None = 0.35,
     ) -> None:
         self.num_conformers = num_conformers
         self.max_reference_conformers = max_reference_conformers
@@ -80,6 +81,9 @@ class PrepareMolecule:
         self.energy_window_kcal = energy_window_kcal
         self.num_threads = num_threads
         self.optimization = optimization
+        if embedding_rmsd is not None and embedding_rmsd < 0:
+            raise ValueError("Embedding RMSD must be nonnegative or None")
+        self.embedding_rmsd = embedding_rmsd
         self.last_optimization_statuses: list[int] = []
         self.last_identity_rejections: list[str] = []
 
@@ -211,7 +215,7 @@ class PrepareMolecule:
         mol_h = Chem.AddHs(mol)
         params = AllChem.ETKDGv3()
         params.randomSeed = self.random_seed if random_seed is None else random_seed
-        params.pruneRmsThresh = 0.35
+        params.pruneRmsThresh = -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
         params.numThreads = self.num_threads
         attempts = self.num_conformers if num_conformers is None else num_conformers
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-from drugex.training.scorers import conformer_generators as core_preparation
+from drugex.training.scorers import protonation as core_protonation
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.MolStandardize import rdMolStandardize
@@ -37,12 +37,17 @@ def prepare_candidate_molecule(smiles, *, canonicalize_tautomer=True, protonate=
         enumerator.SetRemoveSp3Stereo(False)
         enumerator.SetRemoveBondStereo(False)
         mol = enumerator.Canonicalize(mol)
-    if protonate and core_preparation._rdkit_protonate_smiles is not None:
-        parsed = Chem.MolFromSmiles(
-            core_preparation._rdkit_protonate_smiles(Chem.MolToSmiles(mol))
+    if protonate:
+        # Same pH and first-variant policy as DrugEx, without its silent fallback.
+        if not core_protonation._DIMORPHITE_AVAILABLE:
+            raise ImportError("pH preparation requires dimorphite_dl; refusing a silent no-op")
+        variants = core_protonation.dimorphite_dl.protonate_smiles(
+            Chem.MolToSmiles(mol), ph_min=7.4, ph_max=7.4, precision=0.0
         )
-        if parsed is not None:
-            mol = parsed
+        parsed = Chem.MolFromSmiles(variants[0]) if variants else None
+        if parsed is None:
+            raise ValueError("pH-7.4 preparation returned no valid chemical state")
+        mol = parsed
     assigned_after = sum(
         str(s.specified) == "Specified" for s in Chem.FindPotentialStereo(mol)
     )
@@ -96,6 +101,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         stereo_seed: int = 42,
         minimize_candidates: bool = False,
         optimization: Optimization | None = None,
+        embedding_rmsd: float | None = 0.5,
         **kwargs,
     ) -> None:
         requested = kwargs.get("max_conformers", 10)
@@ -109,6 +115,9 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         self.stereo_seed = stereo_seed
         self.minimize_candidates = minimize_candidates
         self.optimization = optimization or Optimization()
+        if embedding_rmsd is not None and embedding_rmsd < 0:
+            raise ValueError("Embedding RMSD must be nonnegative or None")
+        self.embedding_rmsd = embedding_rmsd
         self.last_minimization_statuses: list[int] = []
         self.last_embedding_failures: int = 0
         self.last_identity_rejections: list[str] = []
@@ -116,6 +125,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
     def _create_fresh_etkdg(self):
         params = super()._create_fresh_etkdg()
         params.randomSeed = self.random_seed
+        params.pruneRmsThresh = -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
         return params
 
     def _get_isomers(self, mol):
@@ -182,6 +192,11 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                     writer.write(mol)
         if self.minimize_candidates:
             minimized, statuses = optimize_conformers(valid, self.optimization)
+            #~ Kim, Bolton & Bryant (2013), doi:10.1186/1758-2946-5-1:
+            # RMSD clustering can discard poses important to shape/colour overlap.
+            # Keep converged candidates without additional RMSD clustering here;
+            # embedding-stage pruning is separately controlled by embedding_rmsd.
+            # The paper supports this risk, not a universal speed/accuracy optimum.
             self.last_minimization_statuses = statuses
             with Chem.SDWriter(path) as writer:
                 for mol in minimized:
