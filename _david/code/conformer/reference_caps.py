@@ -25,6 +25,58 @@ from _david.code.reference import select_conformers
 REFERENCE_CAPS = (1, 2, 4, 8, 0)  # zero means all available references
 
 
+def reference_pruning_anchor(raw):
+    """Isolate reference pruning loss using the same saved candidate geometries."""
+    frame = pd.read_csv(raw / "data.csv.gz")
+    cells = frame[
+        frame.reference_attempts.eq(100)
+        & frame.reference_rmsd.eq(0.5)
+        & frame.candidate_attempts.isin([10, 40])
+        & frame.candidate_rmsd.eq(0)
+    ]
+    rows = []
+    for cell in cells.to_dict("records"):
+        path = (
+            raw
+            / "checkpoints"
+            / str(cell["molecule_id"])
+            / f"pairs_r100_c{cell['candidate_attempts']}.npz"
+        )
+        with np.load(path) as saved:
+            scores = saved["scores"]
+            best = scores[:, :, 0].max() if scores.size else 0.0
+            if cell["color_excluded"]:
+                best = np.nan
+            elif best < cell["score"] - 1e-8:
+                raise ValueError(
+                    "Unpruned reference anchor cannot score below its subset"
+                )
+            rows.append(
+                dict(
+                    molecule_id=cell["molecule_id"],
+                    name=cell["name"],
+                    candidate_attempts=cell["candidate_attempts"],
+                    score_pruned=cell["score"],
+                    score_unpruned=float(best),
+                    pruning_loss=float(best - cell["score"]),
+                    retained_references=cell["actual_references"],
+                    unpruned_references=scores.shape[1],
+                    color_excluded=cell["color_excluded"],
+                )
+            )
+    result = pd.DataFrame(rows)
+    result.to_csv(raw / "reference_pruning_anchor.csv", index=False)
+    manifest = json.loads((raw / "manifest.json").read_text())
+    manifest["reference_pruning_anchor"] = dict(
+        rows=len(result),
+        data_sha256=digest(raw / "reference_pruning_anchor.csv"),
+        script_sha256=digest(__file__),
+        scope="Same saved candidates against full reference energy survivors versus 0.5-A post-minimization pruning; embedding pruning and force field unchanged. No new alignments or exhaustive-coverage claim.",
+    )
+    atomic_json(raw / "manifest.json", manifest)
+    return result
+
+
 def balanced_reference_order(records, indices):
     """Take one energy-ordered representative per stereo identity each round."""
     groups = {}
