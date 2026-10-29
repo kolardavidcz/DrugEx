@@ -17,7 +17,7 @@ scored inputs at C10 lose more than 0.01 through this reference pruning.
 Recommend evaluating reference-only shape/colour-aware selection before freezing
 an RL preset; that method is proposed, not silently implemented.
 
-Best tested cost/mean baseline above 0.95: MMFF94s ε78.4, reference preparation
+Lowest-cost tested no-candidate-post-pruning baseline above 0.95: MMFF94s ε78.4, reference preparation
 100 requests/stereoisomer and stereo cap8, all post-filter references at RMSD0.5;
 candidate C10/I4, additional pruning off. Mean0.9551, 442/509 at least0.95;
 component mean3.460s versus R50/C20/all mean0.9552 at4.780s. Among496 prepared
