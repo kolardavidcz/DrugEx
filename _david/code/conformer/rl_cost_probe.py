@@ -251,6 +251,11 @@ def run(output: Path, workers: int, smoke=False):
         baseline=baseline,
         replay_presets=list(presets.values()),
         reference_preparation=preparation,
+        reference_files_sha256={
+            str(file.relative_to(raw)): digest(file)
+            for file in references.glob("*.sdf")
+        },
+        recommendation_sha256=digest(selected_path) if selected_path.exists() else None,
         model_load_seconds=load_seconds,
         source_sha256=source_hashes,
         actual_device=str(optimizer.device),
