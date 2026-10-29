@@ -1,5 +1,16 @@
 # Conformer study: status and evidence
 
+**2026-10-29 update: expanded C50/C75 study superseded by an RNG-seed control.**
+RDKit's effective seeds multiply the base by the conformer ordinal: bases43/42
+share1806 at reference request42/candidate request43. Exact saved raw coordinate
+reuse was verified. Do not use that expanded study's high-budget recovery or
+Pareto recommendation. See [the diagnostic](../../output/20261029_0250_reward_calibration/REPORT.md)
+and [the corrected independent-stream study](../../output/20261029_1155_reward_calibration/REPORT.md).
+The replacement keeps candidate42 and uses reference104729, with arithmetic and
+empirical overlap controls. Its full grid is128 development drugs ×144 cells;
+384 confirmation drugs check a development-selected shortlist. Fresh public calls
+measure latency; short RL pilots are cost illustrations, not learning comparisons.
+
 **2026-10-29: full drug-panel calibration completed and verified.**
 Read the [single maintained report](../../output/20261028_2145_joint_calibration/REPORT.md)
 and [final retained-reference figure](../../output/20261028_2145_joint_calibration/reference_caps.png).
