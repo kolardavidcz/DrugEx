@@ -1,21 +1,23 @@
 # Conformer study: status and evidence
 
 **2026-10-29 update: expanded C50/C75 study superseded by an RNG-seed control.**
-RDKit's effective seeds multiply the base by the conformer ordinal: bases43/42
-share1806 at reference request42/candidate request43. Exact saved raw coordinate
+RDKit's effective seeds multiply the base by the conformer ordinal: bases 43/42
+share 1806 at reference request 42/candidate request 43. Exact saved raw coordinate
 reuse was verified. Do not use that expanded study's high-budget recovery or
 Pareto recommendation. See [the diagnostic](../../output/20261029_0250_reward_calibration/REPORT.md)
 and [the corrected independent-stream study](../../output/20261029_1155_reward_calibration/REPORT.md).
-The replacement keeps candidate42 and uses reference104729, with arithmetic and
-empirical overlap controls. Its full grid is128 development drugs ×144 cells;
+The replacement keeps candidate seed 42 and uses reference seed 104729, with arithmetic and
+empirical overlap controls. Its full grid is 128 development drugs × 144 cells;
 384 confirmation drugs check a development-selected shortlist. Fresh public calls
 measure latency; short RL pilots are cost illustrations, not learning comparisons.
 
-The corrected pilot passed40 tests,72 cells,1131 saved-geometry identity checks and
-8 public/component replays (maximum difference1.12e−16). The parameter/batch
+The corrected pilot passed 40 tests, 72 cells, 1,131 saved-geometry identity checks and
+8 public/component replays (maximum difference 1.12e−16). The final software controls
+passed **42 tests in 4.342 seconds** on dichtator; the science measurement sources
+remain fixed while that run computes. The parameter/batch
 prototype adds a control against singleton public calls, including duplicate and
 invalid rows. RDKit mutates default `maxIterations` on its parameter object
-(observed0→90 for ethanol); reusing it across differently sized graphs can couple
+(observed 0→90 for ethanol); reusing it across differently sized graphs can couple
 a native batch to its first graph. The per-input calibration is unaffected.
 `whole_call_scorer.py` avoids that coupling and persists whole-call workers; it is
 a reviewable prototype, not a deployed default. `query_calibration.py` suggests

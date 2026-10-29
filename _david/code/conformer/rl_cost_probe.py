@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import random
 import socket
+import subprocess
+import sys
 import time
 
 import numpy as np
@@ -233,6 +235,17 @@ def run(output: Path, workers: int, smoke=False):
         if smoke
         else "Five-epoch cost illustration; not an RL learning comparison",
         host=socket.gethostname(),
+        git_revision=subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip(),
+        git_status=subprocess.check_output(["git", "status", "--short"], text=True),
+        command=[
+            sys.executable,
+            "-m",
+            "_david.code.conformer.rl_cost_probe",
+            *sys.argv[1:],
+        ],
+        working_directory=str(Path.cwd()),
         config=asdict(config),
         actual_alignment_workers=workers,
         baseline=baseline,
