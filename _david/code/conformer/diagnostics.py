@@ -114,8 +114,9 @@ def time_batches(source: Path, output: Path, batch_size: int, repeats: int) -> N
         for minimize, workers in settings[::1 if repeat % 2 == 0 else -1]:
             scorer = create_rocs_scorer(refs, max_conformers=20, max_isomers=4,
                                         minimize_candidates=minimize, optimization=profile,
-                                        embedding_rmsd=None, conformer_threads=1, n_jobs=workers)
+                                        conformer_threads=1, n_jobs=workers)
             generator = scorer.conformer_generator
+            generator.embedding_rmsd = None
             generate = generator.genConformers
             generation = {}
 
