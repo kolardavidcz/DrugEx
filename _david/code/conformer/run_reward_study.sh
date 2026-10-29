@@ -10,6 +10,7 @@ export TMPDIR="$run/raw_data/tmp" XDG_CACHE_HOME="$run/raw_data/tool_cache"
 export MPLCONFIGDIR="$XDG_CACHE_HOME/matplotlib"
 export DRUGEX_MP_CONTEXT=forkserver
 mkdir -p "$TMPDIR" "$MPLCONFIGDIR" "$run/logs"
+trap 'result=$?; printf "%s\n" "$result" > "$run/logs/${mode}_exit_code"' EXIT
 
 if [[ "$mode" == pilot ]]; then
   .venv/bin/python -m _david.code.conformer.reward_calibration \
