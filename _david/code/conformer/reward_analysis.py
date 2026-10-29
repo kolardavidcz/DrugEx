@@ -16,7 +16,7 @@ from _david.code.conformer.reward_calibration import CAPS, CANDIDATES, KEYS
 from _david.code.conformer.self_recovery import atomic_json, digest
 
 
-def heatmaps(summary: pd.DataFrame, output: Path):
+def heatmaps(summary: pd.DataFrame, output: Path, warning=""):
     """Identical grid/colour scales across methods; explicit actual all-bank counts."""
     sheets = [
         ("mean", "mean_seconds", "Mean ROCS / mean scoring time", "mean"),
@@ -101,7 +101,7 @@ def heatmaps(summary: pd.DataFrame, output: Path):
                 fig.colorbar(image, ax=ax, shrink=0.85)
         n, scored = int(summary.inputs.iloc[0]), int(summary.scored_inputs.iloc[0])
         fig.suptitle(
-            f"{title}\n{n} frozen development inputs · {scored} native-colour-eligible · preparation/scoring failures retained\n"
+            f"{warning}{title}\n{n} frozen development inputs · {scored} native-colour-eligible · preparation/scoring failures retained\n"
             "R50/I8 · candidate I4 · reference-only energy/diversity selection · no RMSD or pH reassignment\n"
             "Fresh public scoring calls, one worker per input; shared host · reference setup excluded · not RL epoch time",
             fontsize=15,
@@ -111,7 +111,7 @@ def heatmaps(summary: pd.DataFrame, output: Path):
         plt.close(fig)
 
 
-def pareto(frame, summary, output):
+def pareto(frame, summary, output, warning=""):
     """Descriptive frontier and signed gaps to each method's C75/all anchor."""
     dominated = []
     for _, row in summary.iterrows():
@@ -192,7 +192,7 @@ def pareto(frame, summary, output):
         ax.grid(alpha=0.2)
         ax.legend(fontsize=9)
     fig.suptitle(
-        "Development-panel trade-offs · lower time and lower score gap preferred\n"
+        f"{warning}Development-panel trade-offs · lower time and lower score gap preferred\n"
         "Reference/candidate methods matched; this is not biological accuracy or RL improvement",
         fontsize=14,
     )
@@ -205,8 +205,16 @@ def render(output):
     raw = output / "raw_data/development"
     summary = pd.read_csv(raw / "summary.csv")
     frame = pd.read_csv(raw / "data.csv.gz")
-    heatmaps(summary, output)
-    pareto(frame, summary, output)
+    status = json.loads((raw / "manifest.json").read_text()).get(
+        "scientific_status", ""
+    )
+    warning = (
+        "SUPERSEDED: reference/candidate RNG streams overlap — not valid for recommendations\n"
+        if status == "superseded_seed_overlap"
+        else ""
+    )
+    heatmaps(summary, output, warning)
+    pareto(frame, summary, output, warning)
     comparison = output / "raw_data/confirmation/summary.csv"
     if comparison.exists():
         confirmed = pd.read_csv(comparison).merge(
