@@ -1,8 +1,9 @@
-# DrugEx workflow transfer audit
+# DrugEx workflow transfer audit — T3 Code selected
 
-Prepared 29 October 2026. Scope: preserve the useful Antigravity workflow while
-making research judgment and execution portable. This package changes no method,
-runtime default, experiment, global guidance or harness configuration.
+Prepared 29 October 2026. Initial scope was a portable transfer. The user has now
+selected **T3 Code** for ongoing work; see [T3_CODE.md](T3_CODE.md) for the actual
+project registration, execution paths, continuation and existing-thread limitation.
+Scientific methods, inputs and runtime defaults are unchanged by this migration.
 
 Start a receiving agent with [HANDOFF.md](HANDOFF.md). Compare candidate agents
 using [review_cases.json](review_cases.json). Inspection sources and selected
@@ -120,11 +121,12 @@ those stereochemical annotations; downstream stereo preparation is a separate
 part of the scoring workflow. These observations were checked against current
 `models.py`, `config.py` and the local Papyrus vocabulary on 29 October.
 
-The handoff and review cases are ready locally. No target model was chosen and no
-settings, skills or conversations were installed elsewhere. The live lab checkout
-had an active independent-stream calibration and user edits to `environment.py`
-and `in_molecule.txt`; preserve them. The observation time and Git identities are
-recorded in the evidence file and must be refreshed before action.
+The handoff and review cases are available in the existing checkout. T3's DrugEx
+project is registered in local mode, with automatic pulling off; no new model or
+credential was selected. The original Codex automation was paused by the user and
+the native T3 continuation owns the existing task. The live lab checkout has the
+independent-stream calibration and user edits to `environment.py` and
+`in_molecule.txt`; preserve them. Dated observations must be refreshed before action.
 
 A Git clone carries the canonical guidance and project science skills, but not
 all personal literature/SSH skills, ignored measurements, SDFs or checkpoints.

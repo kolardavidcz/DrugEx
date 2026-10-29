@@ -1,5 +1,19 @@
 # Conformer study: status and evidence
 
+**2026-10-29: stereochemistry proposal under discussion; new runs on hold.**
+The user proposed stereo-unspecified EGCG/drug-panel inputs. No chemistry policy
+or source input was changed. A metadata-only RDKit audit of the frozen panel
+found 239/512 inputs with specified stereo; masking it increases their enumeration
+bounds, and 159 inputs yield eight distinct formal variants in capped enumeration.
+The specified EGCG input yields one identity, versus four after masking. Masking
+also merges the panel to 507 distinct stereo-unspecified structures, with two
+collision groups spanning development/confirmation. Counts precede chemical-state
+preparation and do not establish 3D feasibility or required conformer budgets.
+The [report](../../output/20261029_1155_reward_calibration/REPORT.md) records the
+evidence and recommendation to retain known reference stereo and consider a
+separate masked-candidate comparison. That comparison is proposed, not selected.
+The current calibration is preserved; the pending RL timing launch is held.
+
 **2026-10-29: corrected development grid validated; confirmation continues.**
 The [current report](../../output/20261029_1155_reward_calibration/REPORT.md)
 now links all four development score/time sheets. Verified 18,432 unique cells,
