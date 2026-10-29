@@ -61,7 +61,7 @@ def calibrate(study: Path, smiles: str, target: float = 0.95):
             and previous["target"] == target
         ):
             print(f"Existing query suggestion: {raw / 'suggestion.json'}")
-            return
+            return previous
         raise RuntimeError(
             "Query calibration with different settings already exists; preserve it and use a new study output"
         )
@@ -84,7 +84,7 @@ def calibrate(study: Path, smiles: str, target: float = 0.95):
     if not bank or preparation["color_excluded"]:
         result["status"] = "unsupported_reference"
         atomic_json(raw / "suggestion.json", result)
-        return
+        return result
     summary = pd.read_csv(study / "raw_data/development/summary.csv")
     checks = []
     for budget in budget_order(summary, method, len(bank)):
@@ -118,6 +118,7 @@ def calibrate(study: Path, smiles: str, target: float = 0.95):
             )
             break
     atomic_json(raw / "suggestion.json", result)
+    return result
 
 
 if __name__ == "__main__":
