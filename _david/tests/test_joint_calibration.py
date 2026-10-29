@@ -26,6 +26,36 @@ import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_whole_call_dispatch_matches_singletons_and_restores_duplicate_rows(self):
+        from _david.code.conformer.whole_call_scorer import WholeCallScorer
+        from _david.code.environment import create_rocs_scorer
+
+        reference = self.geometry("CCO")
+        inputs = [
+            Chem.MolFromSmiles("CCO"),
+            None,
+            Chem.MolFromSmiles("CCN"),
+            Chem.MolFromSmiles("CCO"),
+        ]
+        setting = dict(method="etkdg", candidate_attempts=10)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "reference.sdf"
+            with Chem.SDWriter(str(path)) as writer:
+                writer.write(reference)
+            original = create_rocs_scorer(
+                path, max_conformers=10, n_jobs=1, conformer_threads=1
+            )
+            original.conformer_generator.embedding_rmsd = None
+            expected = np.vstack([original.getScores([mol]) for mol in inputs])
+            parallel = WholeCallScorer(original, path, setting, workers=2)
+            try:
+                actual = parallel.getScores(inputs)
+                np.testing.assert_allclose(actual, expected, atol=1e-8, rtol=0)
+                self.assertEqual(actual[1, 0], 0)
+                self.assertEqual(actual[0, 0], actual[3, 0])
+            finally:
+                parallel.close()
+
     def test_query_budget_order_uses_actual_reference_counts_without_redundancy(self):
         from _david.code.conformer.query_calibration import budget_order
 

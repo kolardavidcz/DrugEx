@@ -26,6 +26,7 @@ from _david.code.chemistry import standardize_smiles
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT, PipelineConfig
 from _david.code.conformer.reference_bank import METHODS, prepare_banks, save_records
 from _david.code.conformer.self_recovery import atomic_json, digest
+from _david.code.conformer.whole_call_scorer import WholeCallScorer
 from _david.code.environment import create_environment
 from _david.code.models import SequenceRNNOptimizer
 from _david.code.schema import std
@@ -176,7 +177,14 @@ def run(output: Path, workers: int, smoke=False):
             "utils",
             "schema",
         )
-    ] + [Path(__file__), PROJECT_ROOT / "_david/code/conformer/reference_bank.py"]
+    ] + [
+        Path(__file__),
+        PROJECT_ROOT / "_david/code/conformer/reference_bank.py",
+        PROJECT_ROOT / "_david/code/conformer/whole_call_scorer.py",
+        PROJECT_ROOT / "drugex/training/explorers/sequence_explorer.py",
+        PROJECT_ROOT / "drugex/training/scorers/rocs_rdkit.py",
+        PROJECT_ROOT / "drugex/training/scorers/conformer_generators.py",
+    ]
     source_hashes = {str(file): digest(file) for file in source_files}
     model_started = time.perf_counter()
     agent, prior, _ = optimizer.load_models()
@@ -240,6 +248,7 @@ def run(output: Path, workers: int, smoke=False):
         coordinate_pickle_flags=int(Chem.GetDefaultPickleProperties()),
         note="Native RL fit includes its 10%-size validation sample each epoch. Reference/model setup excluded from epoch timing; capture I/O included in residual epoch work. GPU kernels are not forced deterministic.",
         replay_selection="First 64 rows of the first recorded training batch, selected before inspecting scores; all epoch batches remain saved. Replays test scoring cost/score changes, not independent learning.",
+        engine_note="Baseline native batching versus a persistent whole-call prototype. Singleton calls use per-graph RDKit defaults; native batches can inherit maxIterations from their first graph. Both timing and score changes are recorded; equivalence is not assumed.",
     )
     atomic_json(path, manifest)
     monitor = TimingMonitor(output, raw, totals)
@@ -263,48 +272,71 @@ def run(output: Path, workers: int, smoke=False):
         atomic_json(path, manifest)
         rows, molecule_rows = [], []
         for key, setting in presets.items():
-            replay_env, _ = configured_environment(ref_paths[key], setting, workers)
-            replay_scorer = replay_env.scorers[0]
-            for batch in sorted(batches.glob("batch_*.csv"))[:1]:
-                recorded = pd.read_csv(batch, keep_default_na=False).head(64)
-                mols = [
-                    Chem.MolFromSmiles(smi) if smi else None for smi in recorded.SMILES
-                ]
-                tick = time.perf_counter()
-                scores = replay_scorer(mols)[:, 0]
-                elapsed = time.perf_counter() - tick
-                original_scores = recorded[std.ROCS].to_numpy()
-                rows.append(
-                    dict(
-                        **setting,
-                        batch=batch.name,
-                        inputs=len(recorded),
-                        seconds=elapsed,
-                        mean_score=float(scores.mean()),
-                        mean_change=float((scores - original_scores).mean()),
-                        max_absolute_change=float(
-                            np.abs(scores - original_scores).max()
-                        ),
+            engines = (
+                ("native_batch", "whole_call")
+                if setting == baseline and not smoke
+                else ("native_batch",)
+            )
+            for engine in engines:
+                replay_env, _ = configured_environment(ref_paths[key], setting, workers)
+                replay_scorer = replay_env.scorers[0]
+                if engine == "whole_call":
+                    replay_scorer = WholeCallScorer(
+                        replay_scorer, ref_paths[key], setting, workers
                     )
-                )
-                pd.DataFrame(rows).to_csv(raw / "batch_replays.csv", index=False)
-                molecule_rows.extend(
-                    dict(
-                        **setting,
-                        batch=batch.name,
-                        index=index,
-                        smiles=smiles,
-                        baseline_rocs=float(old),
-                        replay_rocs=float(new),
-                        change=float(new - old),
-                    )
-                    for index, (smiles, old, new) in enumerate(
-                        zip(recorded.SMILES, original_scores, scores)
-                    )
-                )
-                pd.DataFrame(molecule_rows).to_csv(
-                    raw / "replay_scores.csv.gz", index=False
-                )
+                try:
+                    # Second baseline pass tests warm reuse without caching scores.
+                    for repeat in range(2 if setting == baseline and not smoke else 1):
+                        batch = sorted(batches.glob("batch_*.csv"))[0]
+                        recorded = pd.read_csv(batch, keep_default_na=False).head(64)
+                        mols = [
+                            Chem.MolFromSmiles(smi) if smi else None
+                            for smi in recorded.SMILES
+                        ]
+                        tick = time.perf_counter()
+                        scores = replay_scorer(mols)[:, 0]
+                        elapsed = time.perf_counter() - tick
+                        original_scores = recorded[std.ROCS].to_numpy()
+                        rows.append(
+                            dict(
+                                **setting,
+                                engine=engine,
+                                repeat=repeat,
+                                batch=batch.name,
+                                inputs=len(recorded),
+                                seconds=elapsed,
+                                mean_score=float(scores.mean()),
+                                mean_change=float((scores - original_scores).mean()),
+                                max_absolute_change=float(
+                                    np.abs(scores - original_scores).max()
+                                ),
+                            )
+                        )
+                        pd.DataFrame(rows).to_csv(
+                            raw / "batch_replays.csv", index=False
+                        )
+                        molecule_rows.extend(
+                            dict(
+                                **setting,
+                                engine=engine,
+                                repeat=repeat,
+                                batch=batch.name,
+                                index=index,
+                                smiles=smiles,
+                                baseline_rocs=float(old),
+                                replay_rocs=float(new),
+                                change=float(new - old),
+                            )
+                            for index, (smiles, old, new) in enumerate(
+                                zip(recorded.SMILES, original_scores, scores)
+                            )
+                        )
+                        pd.DataFrame(molecule_rows).to_csv(
+                            raw / "replay_scores.csv.gz", index=False
+                        )
+                finally:
+                    if engine == "whole_call":
+                        replay_scorer.close()
         if digest(package) != initial_hash:
             raise RuntimeError("Pretrained checkpoint changed during illustration")
         if source_hashes != {str(file): digest(file) for file in source_files}:

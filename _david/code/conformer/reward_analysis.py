@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, TwoSlopeNorm
 import numpy as np
 import pandas as pd
 
@@ -53,14 +53,20 @@ def heatmaps(summary: pd.DataFrame, output: Path, warning=""):
                     ]
                 )
                 if col == 0:
-                    limits = (0.9, 1) if score_key in ("mean", "median") else (0, 1)
-                    image = ax.imshow(
-                        values,
-                        aspect="auto",
-                        cmap="viridis",
-                        vmin=limits[0],
-                        vmax=limits[1],
-                    )
+                    if score_key in ("mean", "median"):
+                        lower = min(
+                            0.94, float(np.floor(summary[score_key].min() * 100) / 100)
+                        )
+                        image = ax.imshow(
+                            values,
+                            aspect="auto",
+                            cmap="RdYlGn",
+                            norm=TwoSlopeNorm(vmin=lower, vcenter=0.95, vmax=1.0001),
+                        )
+                    else:
+                        image = ax.imshow(
+                            values, aspect="auto", cmap="viridis", vmin=0, vmax=1
+                        )
                 else:
                     image = ax.imshow(
                         np.maximum(values, 0.001),
@@ -201,6 +207,78 @@ def pareto(frame, summary, output, warning=""):
     plt.close(fig)
 
 
+def render_rl_timing(output):
+    raw = output / "raw_data/rl_egcg"
+    path = raw / "manifest.json"
+    if not path.exists() or json.loads(path.read_text())["state"] != "complete":
+        return
+    epochs = pd.read_csv(raw / "epoch_timings.csv")
+    replay = pd.read_csv(raw / "batch_replays.csv")
+    fig, (left, right) = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
+    stages = [
+        (
+            "Generation + minimization",
+            epochs.generation_minimization_seconds,
+            "#31688e",
+        ),
+        (
+            "Alignment + scorer I/O/worker overhead",
+            epochs.rocs_seconds - epochs.generation_minimization_seconds,
+            "#35b779",
+        ),
+        (
+            "Other environment scoring",
+            epochs.environment_seconds - epochs.rocs_seconds,
+            "#d5812b",
+        ),
+        (
+            "RNN + optimizer + checkpoint/capture work",
+            epochs.epoch_seconds - epochs.environment_seconds,
+            "#8c6bb1",
+        ),
+    ]
+    bottom = np.zeros(len(epochs))
+    for label, values, color in stages:
+        left.bar(epochs.epoch, values, bottom=bottom, label=label, color=color)
+        bottom += values
+    left.set_xlabel(
+        "Actual RL epoch (200 requested training samples + native validation)"
+    )
+    left.set_ylabel("Wall seconds")
+    left.set_title("Measured epoch cost; reference/model setup excluded")
+    left.legend(fontsize=9)
+    labels = []
+    for _, row in replay.iterrows():
+        cap = "all" if row.reference_cap == 0 else str(int(row.reference_cap))
+        labels.append(
+            f"{LABELS[row.method]}\nK{cap}/C{int(row.candidate_attempts)}\n{row.engine}, pass{int(row['repeat']) + 1}"
+        )
+    per_input = replay.seconds / replay.inputs
+    bars = right.bar(range(len(replay)), per_input, color="#31688e")
+    right.bar_label(
+        bars,
+        labels=[
+            f"{time:.2f}s\nΔ {delta:+.3f}"
+            for time, delta in zip(per_input, replay.mean_change)
+        ],
+        padding=4,
+        fontsize=8,
+    )
+    right.set_xticks(range(len(replay)), labels, rotation=35, ha="right", fontsize=8)
+    right.set_ylabel("Measured seconds per input row of the same frozen batch")
+    right.set_title("Same-first-batch replays; score changes are reported")
+    right.set_ylim(0, per_input.max() * 1.3)
+    fig.suptitle(
+        "Real five-epoch EGCG cost illustration · not an RL learning comparison\n"
+        "Baseline MMFF94s ε78.4, K4/C20/I4 · no RMSD/pH reassignment · model seed42\n"
+        "Whole-call prototype: fresh per-graph defaults and persistent workers; native batches can inherit first-graph iteration budget",
+        fontsize=13,
+    )
+    fig.savefig(output / "rl_timing.png", dpi=170)
+    fig.savefig(output / "rl_timing.svg")
+    plt.close(fig)
+
+
 def render(output):
     raw = output / "raw_data/development"
     summary = pd.read_csv(raw / "summary.csv")
@@ -215,6 +293,7 @@ def render(output):
     )
     heatmaps(summary, output, warning)
     pareto(frame, summary, output, warning)
+    render_rl_timing(output)
     comparison = output / "raw_data/confirmation/summary.csv"
     if comparison.exists():
         confirmed = pd.read_csv(comparison).merge(
