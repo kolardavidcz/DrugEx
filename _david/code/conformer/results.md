@@ -1,37 +1,43 @@
 # Conformer study: status and evidence
 
-**2026-10-28: retained-reference comparison restored; workspace consolidated.**
-Read the [current report](../../output/20261028_2145_joint_calibration/REPORT.md)
-and [retained-reference pilot figure](../../output/20261028_2145_joint_calibration/pilot_reference_caps.png).
-All active source is in the main checkout's `_david/code/`. The current run is
-`_david/output/20261028_2145_joint_calibration/`: report/figures/progress at root,
-measurements and intermediate data in `raw_data/`, execution logs in `logs/`.
-All 17 DrugEx execution worktrees in the lab `.cache` were removed after auditing
-and preserving provenance. Local WSL edits are synchronized to the main lab
-checkout through the private remote; computation uses explicit SSH commands.
+**2026-10-29: full drug-panel calibration completed and verified.**
+Read the [single maintained report](../../output/20261028_2145_joint_calibration/REPORT.md)
+and [final retained-reference figure](../../output/20261028_2145_joint_calibration/reference_caps.png).
+All 512 inputs are accounted for: 509 scored, three native-colourless exclusions,
+13 preparation failures retained as zero. Verified 18,432 measurement rows,
+92,160 retained-cap reductions, 68,347 saved-geometry identity checks, 12 public
+replays and 48 complete factory calls; maximum replay difference 1.12e−16.
+Main-checkout validation passed 36 tests, scoped Ruff and shell syntax checks.
 
-The main repeated-cost axis is retained reference structures, **1/2/4/8/all**.
-Preparation requests 50/100 measure a separate one-time effort. The new analysis
-uses saved pair matrices, with candidate-score-blind round-robin selection across
-stereo identities. Raw data preserve all original preparation/pruning conditions;
-the main figure fixes the selected 50-request, 0.5 Å reference preparation.
+**Main methodological finding:** 0.5 Å reference RMSD pruning can lose important
+ROCS colour matches. Fosfomycin scores 0.7085 with one pruned reference versus
+1.0000 with its three saved unpruned references, using the same candidates.
+Increasing candidate requests 10→40 did not repair this example. Twenty-four
+scored inputs at C10 lose more than 0.01 through this reference pruning.
+Recommend evaluating reference-only shape/colour-aware selection before freezing
+an RL preset; that method is proposed, not silently implemented.
 
-Validated 16-input pilot, candidate C20/I4/pruning off: reference caps 1/2/4/8/all
-have mean ROCS **0.9168/0.9329/0.9600/0.9727/0.9913**, reaching 0.95 on
-**10/11/12/14/15 of 16 inputs**. Shared-component seconds are
-**1.051/1.126/1.271/1.561/2.884**. This supports eight retained structures as a
-quality-first candidate for wider validation, not a universal selected default.
+Best tested cost/mean baseline above 0.95: MMFF94s ε78.4, reference preparation
+100 requests/stereoisomer and stereo cap8, all post-filter references at RMSD0.5;
+candidate C10/I4, additional pruning off. Mean0.9551, 442/509 at least0.95;
+component mean3.460s versus R50/C20/all mean0.9552 at4.780s. Among496 prepared
+inputs its mean is0.9802; primary results still include13 zero-score failures.
+No universal small fixed reference bank or optimal stereo cap4 is established.
 
-The full panel remains **incomplete: 509/512 complete checkpoints**. Tretinoin
-and lutein report E/Z identity errors; umeclidinium is still computing. Six
-completed inputs also contain reference identity-error messages, including five
-possible explicit-H representation mismatches; inspect these before full-panel
-conclusions. Invalid-conformer filtering is a research decision under discussion.
-No failed input is silently removed. New progress handling records worker errors
-immediately instead of hiding them during pool shutdown. Main-checkout source
-passed **33 tests**; original numerical measurement functions are unchanged by
-relocation. Original source 6e25c8b and per-input hashes remain in run provenance.
-Candidate minimization stays OFF by default. No RL training has started.
+User-selected validity policy is now shared by reference/RL paths: reject only
+invalid conformers, preserve valid siblings and the input, count identity rejects
+separately (−2). Seven reference and five candidate identity rejections occurred
+across budgets. Eight affected inputs were recomputed;504 unchanged checkpoints
+were retained with explicit source/provenance. Hydrogen normalization preserves
+E/Z and isotope checks. Pentazocine's failed stereo embeddings caused the long
+tail (41/85min reference preparation; C20 generation94s); it was not dropped.
+
+All active code is in the main checkout's `_david/code/`. Run artifacts are under
+`_david/output/20261028_2145_joint_calibration/`, with report/figure/progress at
+root, data/provenance in `raw_data/`, logs in `logs/`. All17 cached worktrees were
+removed. Native user edits were preserved. Candidate minimization remains OFF
+by default; no RL training has been launched. Historical evidence below is not
+an instruction to restore old methods or removed execution paths.
 
 **2026-10-28 follow-up: RL launch on hold; pipeline refactoring under review.**
 Read the dated [pipeline/reference plan](../../output/20261028_rl_preparation/PLAN.md)
