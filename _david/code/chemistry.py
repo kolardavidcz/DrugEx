@@ -129,6 +129,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
     def _create_fresh_etkdg(self):
         params = super()._create_fresh_etkdg()
         params.randomSeed = self.random_seed
+        params.enableSequentialRandomSeeds = False
         params.pruneRmsThresh = -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
         return params
 

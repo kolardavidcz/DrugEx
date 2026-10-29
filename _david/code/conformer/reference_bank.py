@@ -35,6 +35,12 @@ LABELS = {
     "mmff_high_dielectric": "MMFF94s ε=78.4",
 }
 
+# RDKit 2026.03's default uses effective_seed = base_seed * (conformer_index+1).
+# Bases 43/42 collide at 43*42 = 42*43. This fixed prime exceeds 42*75, while
+# 104729*50 remains below signed-int overflow: the bounded streams are disjoint.
+REFERENCE_SEED = 104729
+CANDIDATE_SEED = 42
+
 
 def save_records(path: Path, records: list) -> None:
     with Chem.SDWriter(str(path)) as writer:
@@ -96,7 +102,7 @@ def diverse_order(records: list, prefix: int = 12, similarity=score_pair) -> lis
 
 
 def prepare_banks(smiles: str, output: Path, methods=tuple(METHODS)):
-    """Share R50/I8 seed43 embeddings; optimize/filter independently per method."""
+    """Share R50/I8 disjoint-stream embeddings; optimize/filter per method."""
     started = time.perf_counter()
     pools = {method: [] for method in methods}
     info = {
@@ -119,7 +125,7 @@ def prepare_banks(smiles: str, output: Path, methods=tuple(METHODS)):
         preparer = PrepareMolecule(
             num_conformers=50,
             max_reference_conformers=50,
-            random_seed=43,
+            random_seed=REFERENCE_SEED,
             num_threads=1,
             rmsd_cutoff=None,
             embedding_rmsd=None,

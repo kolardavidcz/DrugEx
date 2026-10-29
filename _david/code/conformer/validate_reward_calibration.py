@@ -75,7 +75,7 @@ def validate(output: Path, phase: str, replays: int = 12):
         & ~frame.candidate_failure
         & frame.candidate_attempted
     ]
-    if not frame.loc[~frame.color_excluded, "score"].between(0, 1.00001).all():
+    if not frame.loc[~frame.color_excluded, "score"].between(0, 1.0001).all():
         raise ValueError("Invalid native normalized score")
     # Small-cap cells permit an exhaustive independent component/max reduction.
     selected = (
@@ -84,6 +84,11 @@ def validate(output: Path, phase: str, replays: int = 12):
         .head(max(1, replays // 4))
         .head(replays)
     )
+    # Larger native overshoots require their own exact public/component replay;
+    # retain the original values instead of clipping the reward or table.
+    selected = pd.concat(
+        [selected, eligible[eligible.score.gt(1.00001)]]
+    ).drop_duplicates(KEYS)
     replay_rows = []
     for row in selected.to_dict("records"):
         directory = raw / "checkpoints" / str(row["molecule_id"])

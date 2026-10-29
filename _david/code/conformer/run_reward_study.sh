@@ -2,7 +2,7 @@
 # Main-checkout execution only; no source worktrees or home-directory scratch.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
-run="$PWD/_david/output/20261029_0250_reward_calibration"
+run="${DRUGEX_STUDY_OUTPUT:-$PWD/_david/output/20261029_1155_reward_calibration}"
 panel="$PWD/_david/output/20261028_2145_joint_calibration/raw_data/panel.csv"
 mode="${1:-pilot}"
 export PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
@@ -15,7 +15,7 @@ trap 'result=$?; printf "%s\n" "$result" > "$run/logs/${mode}_exit_code"' EXIT
 if [[ "$mode" == pilot ]]; then
   .venv/bin/python -m _david.code.conformer.reward_calibration \
     --panel "$panel" --output "$run" --phase pilot --limit 2 \
-    --candidates 10,20 --caps 1,4 --workers 2
+    --candidates 10,20,50 --caps 1,4,0 --workers 2
   exit 0
 fi
 if [[ "$mode" != full ]]; then echo "Use pilot or full" >&2; exit 2; fi
@@ -24,7 +24,8 @@ if [[ "$mode" != full ]]; then echo "Use pilot or full" >&2; exit 2; fi
 from pathlib import Path
 import tarfile
 from _david.code.conformer.reward_calibration import SOURCES
-archive=Path('_david/output/20261029_0250_reward_calibration/raw_data/provenance/measurement_source.tar.gz')
+import os
+archive=Path(os.environ['TMPDIR']).parent/'provenance/measurement_source.tar.gz'
 archive.parent.mkdir(parents=True,exist_ok=True)
 if not archive.exists():
     with tarfile.open(archive,'w:gz') as handle:

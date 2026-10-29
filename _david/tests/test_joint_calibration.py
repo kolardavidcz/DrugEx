@@ -26,11 +26,38 @@ import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_reference_and_candidate_embedding_streams_do_not_overlap(self):
+        from _david.code.conformer.reference_bank import REFERENCE_SEED, CANDIDATE_SEED
+
+        self.assertEqual(
+            set(43 * i for i in range(1, 51)) & set(42 * i for i in range(1, 76)),
+            {1806},
+        )
+        self.assertFalse(
+            set(REFERENCE_SEED * i for i in range(1, 51))
+            & set(CANDIDATE_SEED * i for i in range(1, 76))
+        )
+        self.assertLess(REFERENCE_SEED * 50, 2**31)
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCCCO"))
+        positions = []
+        for seed, count in [(REFERENCE_SEED, 50), (CANDIDATE_SEED, 75)]:
+            params = AllChem.ETKDGv3()
+            params.randomSeed, params.pruneRmsThresh, params.numThreads = seed, -1, 1
+            params.enableSequentialRandomSeeds = False
+            copy = Chem.Mol(mol)
+            AllChem.EmbedMultipleConfs(copy, numConfs=count, params=params)
+            positions.append(
+                {conf.GetPositions().tobytes() for conf in copy.GetConformers()}
+            )
+        self.assertFalse(positions[0] & positions[1])
+
     def test_energy_seeded_diversity_protects_stereo_identities(self):
         from _david.code.conformer.reference_bank import diverse_order
 
         records = []
-        for index, (identity, energy) in enumerate([("A", 2.), ("A", 1.), ("A", 3.), ("B", 10.)]):
+        for index, (identity, energy) in enumerate(
+            [("A", 2.0), ("A", 1.0), ("A", 3.0), ("B", 10.0)]
+        ):
             mol = Chem.MolFromSmiles("CCO")
             mol.SetProp("EnumeratedIsomerSMILES", identity)
             mol.SetDoubleProp("Energy_kcal_mol", energy)
@@ -39,9 +66,11 @@ class TestJointCalibration(unittest.TestCase):
 
         def similarity(left, right):
             pair = {left.GetIntProp("FixtureIndex"), right.GetIntProp("FixtureIndex")}
-            return (0.2 if 2 in pair else 0.99, 0., 0.)
+            return (0.2 if 2 in pair else 0.99, 0.0, 0.0)
 
-        self.assertEqual(diverse_order(records, prefix=3, similarity=similarity), [1, 3, 2, 0])
+        self.assertEqual(
+            diverse_order(records, prefix=3, similarity=similarity), [1, 3, 2, 0]
+        )
         self.assertEqual(diverse_order([], similarity=similarity), [])
 
     @staticmethod
@@ -154,7 +183,9 @@ class TestJointCalibration(unittest.TestCase):
         self.assertTrue(prepared.HasSubstructMatch(original, useChirality=True))
         generator = CandidateConformerGenerator(max_isomers=4)
         self.assertEqual(len(list(generator._get_isomers(prepared))), 1)
-        unresolved = prepare_candidate_molecule("CC(=O)NC(Cc1ccc(O)cc1)C(=O)O", protonate=False)
+        unresolved = prepare_candidate_molecule(
+            "CC(=O)NC(Cc1ccc(O)cc1)C(=O)O", protonate=False
+        )
         self.assertEqual(len(list(generator._get_isomers(unresolved))), 2)
         with tempfile.TemporaryDirectory() as directory:
             path = generator.genConformers([smiles], directory)
@@ -166,10 +197,15 @@ class TestJointCalibration(unittest.TestCase):
             check_identity(assigned, prepare_candidate_molecule(smiles))
 
     def test_ph_preparation_cannot_silently_skip_missing_or_failed_dependency(self):
-        with patch("_david.code.chemistry.core_protonation._DIMORPHITE_AVAILABLE", False):
+        with patch(
+            "_david.code.chemistry.core_protonation._DIMORPHITE_AVAILABLE", False
+        ):
             with self.assertRaisesRegex(ImportError, "requires dimorphite_dl"):
                 prepare_candidate_molecule("CCN", protonate=True)
-        with patch("_david.code.chemistry.core_protonation.dimorphite_dl.protonate_smiles", return_value=[]):
+        with patch(
+            "_david.code.chemistry.core_protonation.dimorphite_dl.protonate_smiles",
+            return_value=[],
+        ):
             with self.assertRaisesRegex(ValueError, "no valid chemical state"):
                 prepare_candidate_molecule("CCN", protonate=True)
         prepared = prepare_candidate_molecule("CCN", protonate=True)
@@ -178,7 +214,9 @@ class TestJointCalibration(unittest.TestCase):
 
     def test_embedding_pruning_is_explicit_and_optional(self):
         default = CandidateConformerGenerator()._create_fresh_etkdg()
-        unpruned = CandidateConformerGenerator(embedding_rmsd=None)._create_fresh_etkdg()
+        unpruned = CandidateConformerGenerator(
+            embedding_rmsd=None
+        )._create_fresh_etkdg()
         self.assertEqual(default.pruneRmsThresh, 0.5)
         self.assertEqual(unpruned.pruneRmsThresh, -1)
 

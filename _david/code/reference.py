@@ -219,6 +219,7 @@ class PrepareMolecule:
         mol_h = Chem.AddHs(mol)
         params = AllChem.ETKDGv3()
         params.randomSeed = self.random_seed if random_seed is None else random_seed
+        params.enableSequentialRandomSeeds = False
         params.pruneRmsThresh = -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
         params.numThreads = self.num_threads
         params.timeout = self.embedding_timeout_seconds

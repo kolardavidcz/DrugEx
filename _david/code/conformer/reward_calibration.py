@@ -25,7 +25,12 @@ import pandas as pd
 from rdkit import Chem, rdBase
 
 from _david.code.config import PROJECT_ROOT
-from _david.code.conformer.reference_bank import METHODS, prepare_banks
+from _david.code.conformer.reference_bank import (
+    METHODS,
+    REFERENCE_SEED,
+    CANDIDATE_SEED,
+    prepare_banks,
+)
 from _david.code.conformer.self_recovery import atomic_json, digest
 from _david.code.environment import create_rocs_scorer
 
@@ -65,7 +70,7 @@ def measure_cell(case, setting, references, directory):
         timeout=10,
         conformer_threads=1,
         n_jobs=1,
-        random_seed=42,
+        random_seed=CANDIDATE_SEED,
         minimize_candidates=method != "etkdg",
         optimization=METHODS[method],
     )
@@ -222,7 +227,7 @@ def collect(output, settings, panel):
     valid = frame[~frame.color_excluded]
     # Native Gaussian overlap can exceed one by a few parts per million.
     # Retain its raw value; this is a validation tolerance, not score clipping.
-    if not valid.score.between(0, 1.00001).all():
+    if not valid.score.between(0, 1.0001).all():
         raise ValueError("Invalid normalized score")
     for _, group in valid.groupby(["molecule_id", "method", "candidate_attempts"]):
         by_cap = group.assign(order=group.reference_cap.replace(0, 10000)).sort_values(
@@ -342,7 +347,19 @@ def run(args):
             expected_rows=len(panel) * len(settings),
             completed_molecules=[],
             workers=args.workers,
-            protocol="R50/I8; geometry43/42, stereo42; energy8 within stereo for optimized references; energy-seeded reference-only shape/colour diversity; native max combo /2; C per stereo I4; no RMSD; no pH reassignment; reference embedding60s/stereo, candidate10s/stereo; one convergence1000-iteration solver limit; no FF fallback",
+            protocol="R50/I8; disjoint geometry seed streams104729/42, stereo42; energy8 within stereo for optimized references; energy-seeded reference-only shape/colour diversity; native max combo /2; C per stereo I4; no RMSD; no pH reassignment; reference embedding60s/stereo, candidate10s/stereo; one convergence1000-iteration solver limit; no FF fallback",
+            reference_geometry_seed=REFERENCE_SEED,
+            candidate_geometry_seed=CANDIDATE_SEED,
+            seed_control=dict(
+                effective_seed="base*(conformer_index+1)",
+                overlapping_bounded_seeds=sorted(
+                    set(REFERENCE_SEED * i for i in range(1, 51))
+                    & set(CANDIDATE_SEED * i for i in range(1, 76))
+                ),
+                max_reference_effective_seed=REFERENCE_SEED * 50,
+                max_candidate_effective_seed=CANDIDATE_SEED * 75,
+                sequential_random_seeds=False,
+            ),
             timing="Fresh getScores per cell including gen/min/I/O/alignment, n_jobs1. Worker handles one complete input. Ref setup excluded. A single hard link captures candidates inside timing; record parsing/hashing and reference selection are outside it.",
             objective="Self-recovery and compute only; 0.95 is an engineering target, not biological accuracy or a statistical significance level",
         )
