@@ -27,12 +27,15 @@ def timing_replay(job):
     output, row, smiles = job
     directory = Path(output) / "checkpoints" / str(int(row["molecule_id"]))
     refs = list(
-        Chem.SDMolSupplier(str(directory / "reference_50_pool.sdf"), removeHs=False)
+        Chem.SDMolSupplier(
+            str(directory / f"reference_{int(row['reference_attempts'])}_pool.sdf"),
+            removeHs=False,
+        )
     )
-    ri = select_conformers(refs, 0.5)
+    ri = select_conformers(refs, row["reference_rmsd"])
     scorer = create_rocs_scorer(
         [refs[i] for i in ri],
-        max_conformers=20,
+        max_conformers=int(row["candidate_attempts"]),
         max_isomers=4,
         random_seed=42,
         minimize_candidates=True,
@@ -60,6 +63,9 @@ def timing_replay(job):
     return dict(
         molecule_id=int(row["molecule_id"]),
         candidate_rmsd=row["candidate_rmsd"],
+        reference_attempts=row["reference_attempts"],
+        reference_rmsd=row["reference_rmsd"],
+        candidate_attempts=row["candidate_attempts"],
         measured_seconds=seconds,
         component_estimate=row["seconds"],
         score=actual,
@@ -70,12 +76,20 @@ def timing_replay(job):
 def validate_end_to_end(output):
     panel = pd.read_csv(output / "panel.csv").head(16)
     frame = pd.read_csv(output / "data.csv.gz")
-    selected = frame[
-        frame.molecule_id.isin(panel.molecule_id)
-        & frame.reference_attempts.eq(50)
-        & frame.reference_rmsd.eq(0.5)
+    baseline = (
+        frame.reference_attempts.eq(50)
         & frame.candidate_attempts.eq(20)
         & frame.candidate_rmsd.isin([0, 0.5])
+    )
+    shortlist = (
+        frame.reference_attempts.eq(100)
+        & frame.candidate_attempts.eq(10)
+        & frame.candidate_rmsd.eq(0)
+    )
+    selected = frame[
+        frame.molecule_id.isin(panel.molecule_id)
+        & frame.reference_rmsd.eq(0.5)
+        & (baseline | shortlist)
         & ~frame.color_excluded
         & ~frame.reference_failure
         & ~frame.candidate_failure
@@ -93,7 +107,7 @@ def validate_end_to_end(output):
     manifest = json.loads((output / "manifest.json").read_text())
     manifest["end_to_end_replay"] = dict(
         rows=len(results),
-        selection="First 16 frozen panel IDs, working R50/C20/0.5-A reference preset; candidate post-pruning off vs 0.5 A. Unavailable inputs reported, never substituted.",
+        selection="First 16 frozen panel IDs: R50/C20 with pruning off/0.5 A, and shortlisted R100/C10 with pruning off. Reference RMSD0.5 A. All retained references. Unavailable inputs reported, never substituted.",
         attempted_inputs=len(panel),
         replayed_inputs=selected.molecule_id.nunique(),
         score_tolerance=1e-8,
