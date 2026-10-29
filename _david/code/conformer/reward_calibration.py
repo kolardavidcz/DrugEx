@@ -220,7 +220,9 @@ def collect(output, settings, panel):
     if len(frame) != len(panel) * len(settings) or frame.duplicated(KEYS).any():
         raise ValueError("Incomplete or duplicated grid")
     valid = frame[~frame.color_excluded]
-    if not valid.score.between(0, 1.000001).all():
+    # Native Gaussian overlap can exceed one by a few parts per million.
+    # Retain its raw value; this is a validation tolerance, not score clipping.
+    if not valid.score.between(0, 1.00001).all():
         raise ValueError("Invalid normalized score")
     for _, group in valid.groupby(["molecule_id", "method", "candidate_attempts"]):
         by_cap = group.assign(order=group.reference_cap.replace(0, 10000)).sort_values(
@@ -386,7 +388,12 @@ def run(args):
         manifest["state"] = "failed"
         save_progress(root, raw, manifest)
         raise RuntimeError(errors)
-    frame, summary = collect(raw, settings, panel)
+    try:
+        frame, summary = collect(raw, settings, panel)
+    except Exception as exc:
+        manifest.update(state="failed", postprocessing_error=str(exc))
+        save_progress(root, raw, manifest)
+        raise
     if not args.settings:
         atomic_json(raw / "shortlist.json", shortlist(summary))
     manifest.update(
