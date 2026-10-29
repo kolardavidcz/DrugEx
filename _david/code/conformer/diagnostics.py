@@ -13,6 +13,7 @@ import json
 import multiprocessing
 from pathlib import Path
 import platform
+import pickle
 import socket
 import subprocess
 import time
@@ -20,8 +21,13 @@ import time
 import numpy as np
 import pandas as pd
 from rdkit import Chem, rdBase
+from rdkit.Chem import AllChem
 
-from _david.code.chemistry import Optimization, prepare_candidate_molecule, standardize_smiles
+from _david.code.chemistry import (
+    Optimization,
+    prepare_candidate_molecule,
+    standardize_smiles,
+)
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
 from _david.code.conformer.self_recovery import atomic_json, digest
 from _david.code.conformer.visualization import render_reference_counts
@@ -32,13 +38,116 @@ from _david.code.reference import PrepareMolecule
 def score_chunk(job):
     """Parallelize complete public calls, with no nested alignment processes."""
     reference, smiles, minimize, protonate = job
-    scorer = create_rocs_scorer(Path(reference), max_conformers=20, max_isomers=4,
-                                minimize_candidates=minimize,
-                                optimization=Optimization("MMFF94s", 78.4),
-                                conformer_threads=1, n_jobs=1)
+    scorer = create_rocs_scorer(
+        Path(reference),
+        max_conformers=20,
+        max_isomers=4,
+        minimize_candidates=minimize,
+        optimization=Optimization("MMFF94s", 78.4),
+        conformer_threads=1,
+        n_jobs=1,
+    )
     scorer.conformer_generator.embedding_rmsd = None
     scorer.conformer_generator.protonate = protonate
     return (scorer.getScores(smiles)[:, 0] / 2).tolist()
+
+
+def inspect_precision(source: Path, output: Path) -> None:
+    """Reproduce coordinate transport loss and its score effect on frozen ID732."""
+    raw = output / "raw_data"
+    smiles = (
+        pd.read_csv(source / "panel.csv").set_index("molecule_id").loc[732, "smiles"]
+    )
+    refs = list(Chem.SDMolSupplier(str(raw / "timing_query.sdf"), removeHs=False))
+    original = Chem.GetDefaultPickleProperties()
+    results = dict(molecule_id=732, reference_sha256=digest(raw / "timing_query.sdf"))
+    try:
+        for name, workers, flags in [
+            ("serial", 1, original),
+            ("parallel_default", 2, original),
+            (
+                "parallel_double",
+                2,
+                original | Chem.PropertyPickleOptions.CoordsAsDouble,
+            ),
+        ]:
+            Chem.SetDefaultPickleProperties(flags)
+            restored = pickle.loads(pickle.dumps(refs[0]))
+            results[name + "_coordinate_error"] = float(
+                np.abs(
+                    refs[0].GetConformer().GetPositions()
+                    - restored.GetConformer().GetPositions()
+                ).max()
+            )
+            scorer = create_rocs_scorer(
+                refs, max_conformers=20, n_jobs=workers, conformer_threads=1
+            )
+            scorer.conformer_generator.embedding_rmsd = None
+            results[name] = float(scorer.getScores([smiles])[0, 0] / 2)
+    finally:
+        Chem.SetDefaultPickleProperties(original)
+    if abs(results["serial"] - results["parallel_double"]) > 1e-8:
+        raise ValueError("Double-precision transport did not restore score parity")
+    atomic_json(raw / "precision_control.json", results)
+    print(json.dumps(results, indent=2))
+
+
+def inspect_preparation(source: Path, output: Path) -> None:
+    """Save the chemical-state control that precedes any new conformer study."""
+    from drugex.molecules.converters.standardizers import DefaultStandardizer
+
+    rows = []
+    controls = [
+        ("EGCG", DEFAULT_MOLECULE),
+        ("phenol", "Oc1ccccc1"),
+        ("ethylamine", "CCN"),
+        ("acetic acid", "CC(=O)O"),
+    ]
+    for name, smiles in controls:
+        cleaned = standardize_smiles(smiles)
+        native = DefaultStandardizer()(smiles)
+        unchanged = prepare_candidate_molecule(cleaned, protonate=False)
+        predicted = prepare_candidate_molecule(cleaned, protonate=True)
+        rows.append(
+            dict(
+                name=name,
+                input_smiles=smiles,
+                drugex_cleaned_smiles=native,
+                stereo_preserving_cleaned_smiles=cleaned,
+                no_ph_smiles=Chem.MolToSmiles(unchanged),
+                no_ph_charge=Chem.GetFormalCharge(unchanged),
+                ph74_smiles=Chem.MolToSmiles(predicted),
+                ph74_charge=Chem.GetFormalCharge(predicted),
+                dimorphite_dl=version("dimorphite_dl"),
+            )
+        )
+    pd.DataFrame(rows).to_csv(
+        output / "raw_data/chemical_state_controls.csv", index=False
+    )
+    print(
+        pd.DataFrame(rows)[["name", "no_ph_charge", "ph74_charge"]].to_string(
+            index=False
+        )
+    )
+    audit = []
+    for case in pd.read_csv(source / "panel.csv").to_dict("records"):
+        row = dict(molecule_id=case["molecule_id"], name=case["name"])
+        cleaned = standardize_smiles(case["source_smiles"])
+        row["matches_frozen_standardization"] = cleaned == case["smiles"]
+        row["native_nonisomeric_smiles"] = DefaultStandardizer()(case["source_smiles"])
+        try:
+            mol = prepare_candidate_molecule(cleaned, protonate=False)
+            row.update(
+                prepared_smiles=Chem.MolToSmiles(mol),
+                charge=Chem.GetFormalCharge(mol),
+                mmff_supported=AllChem.MMFFHasAllMoleculeParams(Chem.AddHs(mol)),
+                uff_supported=AllChem.UFFHasAllMoleculeParams(Chem.AddHs(mol)),
+                error="",
+            )
+        except (ValueError, RuntimeError) as exc:
+            row["error"] = str(exc)
+        audit.append(row)
+    pd.DataFrame(audit).to_csv(output / "raw_data/preparation_audit.csv", index=False)
 
 
 def inspect_counts(source: Path, output: Path) -> None:
@@ -49,46 +158,75 @@ def inspect_counts(source: Path, output: Path) -> None:
         hashes[str(path.relative_to(source))] = digest(path)
         for attempts, info in checkpoint["reference"].items():
             pool = path.parent / f"reference_{attempts}_pool.sdf"
-            count = len(Chem.SDMolSupplier(str(pool), removeHs=False)) if pool.exists() and pool.stat().st_size else 0
+            count = (
+                len(Chem.SDMolSupplier(str(pool), removeHs=False))
+                if pool.exists() and pool.stat().st_size
+                else 0
+            )
             selections = checkpoint["reference_selections"][attempts]
-            rows.append(dict(
-                molecule_id=checkpoint["case"]["molecule_id"],
-                name=checkpoint["case"]["name"], attempts=int(attempts),
-                enumerated_isomers=info["enumerated_isomers"],
-                embedded_reported=info["embedded_successful_identities"],
-                converged_valid_reported=info["converged_successful_identities"],
-                energy_survivors=count,
-                retained_rmsd_05=len(selections["0.5"]),
-                retained_rmsd_125=len(selections["1.25"]),
-                failed_stereo_preparations=info["failed_identities"],
-                color_excluded=checkpoint["color_excluded"],
-            ))
+            rows.append(
+                dict(
+                    molecule_id=checkpoint["case"]["molecule_id"],
+                    name=checkpoint["case"]["name"],
+                    attempts=int(attempts),
+                    enumerated_isomers=info["enumerated_isomers"],
+                    embedded_reported=info["embedded_successful_identities"],
+                    converged_valid_reported=info["converged_successful_identities"],
+                    energy_survivors=count,
+                    retained_rmsd_05=len(selections["0.5"]),
+                    retained_rmsd_125=len(selections["1.25"]),
+                    failed_stereo_preparations=info["failed_identities"],
+                    color_excluded=checkpoint["color_excluded"],
+                )
+            )
     frame = pd.DataFrame(rows)
     if frame.duplicated(["molecule_id", "attempts"]).any() or len(frame) != 1024:
         raise ValueError("Expected two reference preparations for all 512 inputs")
     frame.to_csv(output / "raw_data/reference_counts.csv", index=False)
-    metrics = ["converged_valid_reported", "energy_survivors", "retained_rmsd_05", "retained_rmsd_125"]
+    metrics = [
+        "converged_valid_reported",
+        "energy_survivors",
+        "retained_rmsd_05",
+        "retained_rmsd_125",
+    ]
     summary = []
     for attempts, group in frame.groupby("attempts"):
         for metric in metrics:
             values = group[metric]
-            summary.append(dict(
-                attempts=attempts, metric=metric, inputs=len(values),
-                zeros=int(values.eq(0).sum()), mean=values.mean(), median=values.median(),
-                p05=values.quantile(.05), p95=values.quantile(.95), maximum=values.max(),
-                total=int(values.sum()),
-            ))
-    pd.DataFrame(summary).to_csv(output / "raw_data/reference_count_summary.csv", index=False)
+            summary.append(
+                dict(
+                    attempts=attempts,
+                    metric=metric,
+                    inputs=len(values),
+                    zeros=int(values.eq(0).sum()),
+                    mean=values.mean(),
+                    median=values.median(),
+                    p05=values.quantile(0.05),
+                    p95=values.quantile(0.95),
+                    maximum=values.max(),
+                    total=int(values.sum()),
+                )
+            )
+    pd.DataFrame(summary).to_csv(
+        output / "raw_data/reference_count_summary.csv", index=False
+    )
     render_reference_counts(frame, output)
-    atomic_json(output / "raw_data/count_provenance.json", dict(
-        source=str(source), checkpoint_sha256=hashes, inputs=512,
-        scope="Descriptive counts from the completed historical chemical-state policy; no regeneration. Converged counts are identity-valid counts reported by successful stereo preparations, before the 8 kcal/mol window. Failed stereo preparations are separate; their intermediate counts were not always saved.",
-        script_sha256=digest(__file__),
-    ))
+    atomic_json(
+        output / "raw_data/count_provenance.json",
+        dict(
+            source=str(source),
+            checkpoint_sha256=hashes,
+            inputs=512,
+            scope="Descriptive counts from the completed historical chemical-state policy; no regeneration. Converged counts are identity-valid counts reported by successful stereo preparations, before the 8 kcal/mol window. Failed stereo preparations are separate; their intermediate counts were not always saved.",
+            script_sha256=digest(__file__),
+        ),
+    )
     print(pd.DataFrame(summary).to_string(index=False), flush=True)
 
 
-def time_batches(source: Path, output: Path, batch_size: int, repeats: int, protonate: bool) -> None:
+def time_batches(
+    source: Path, output: Path, batch_size: int, repeats: int, protonate: bool
+) -> None:
     """Direct getScores timing; shared query, serial generation, parallel alignment.
 
     Pool startup, SDF I/O and actual candidate minimization are included. Reference
@@ -96,54 +234,102 @@ def time_batches(source: Path, output: Path, batch_size: int, repeats: int, prot
     Compare the same inputs/order at every setting; failures stay in the batch.
     """
     raw = output / "raw_data"
-    source_files = [Path(__file__), PROJECT_ROOT / "_david/code/chemistry.py",
-                    PROJECT_ROOT / "_david/code/reference.py", PROJECT_ROOT / "_david/code/environment.py"]
+    # RDKit's default binary transport rounds coordinates to float32. The local
+    # overlay optimizer can then select another optimum: use identical coordinates
+    # when comparing native alignment workers with in-process scoring.
+    Chem.SetDefaultPickleProperties(
+        Chem.GetDefaultPickleProperties() | Chem.PropertyPickleOptions.CoordsAsDouble
+    )
+    source_files = [
+        Path(__file__),
+        PROJECT_ROOT / "_david/code/chemistry.py",
+        PROJECT_ROOT / "_david/code/reference.py",
+        PROJECT_ROOT / "_david/code/environment.py",
+    ]
     before = {str(p): digest(p) for p in source_files}
     panel = pd.read_csv(source / "panel.csv").head(batch_size)
     if len(panel) != batch_size:
         raise ValueError("Batch exceeds the frozen panel")
     profile = Optimization("MMFF94s", 78.4)
-    prepared = prepare_candidate_molecule(standardize_smiles(DEFAULT_MOLECULE), protonate=protonate)
-    preparer = PrepareMolecule(num_conformers=50, max_reference_conformers=3,
-                              random_seed=43, rmsd_cutoff=None, embedding_rmsd=None,
-                              num_threads=1, optimization=profile)
-    ref_path = preparer.generate_reference_conformers(prepared, raw / "timing_query.sdf")
+    prepared = prepare_candidate_molecule(
+        standardize_smiles(DEFAULT_MOLECULE), protonate=protonate
+    )
+    preparer = PrepareMolecule(
+        num_conformers=50,
+        max_reference_conformers=3,
+        random_seed=43,
+        rmsd_cutoff=None,
+        embedding_rmsd=None,
+        num_threads=1,
+        optimization=profile,
+    )
+    ref_path = preparer.generate_reference_conformers(
+        prepared, raw / "timing_query.sdf"
+    )
     refs = list(Chem.SDMolSupplier(str(ref_path), removeHs=False))
     panel.to_csv(raw / "timing_inputs.csv", index=False)
-    settings = [(False, 1, "native"), (True, 1, "native"),
-                (False, 8, "native"), (True, 8, "native"),
-                (False, 8, "whole_call_pool"), (True, 8, "whole_call_pool")]
+    settings = [
+        (False, 1, "native"),
+        (True, 1, "native"),
+        (False, 8, "native"),
+        (True, 8, "native"),
+        (False, 8, "whole_call_pool"),
+        (True, 8, "whole_call_pool"),
+    ]
     rows, score_rows = [], []
     manifest = dict(
-        state="running", purpose="RL scoring throughput diagnostic, NOT self-recovery or training",
-        host=socket.gethostname(), python=platform.python_version(), rdkit=rdBase.rdkitVersion,
-        dimorphite_dl=version("dimorphite_dl"), batch_size=batch_size, repeats=repeats,
+        state="running",
+        purpose="RL scoring throughput diagnostic, NOT self-recovery or training",
+        host=socket.gethostname(),
+        python=platform.python_version(),
+        rdkit=rdBase.rdkitVersion,
+        dimorphite_dl=version("dimorphite_dl"),
+        batch_size=batch_size,
+        repeats=repeats,
         candidates="First frozen panel inputs, unchanged order, one common EGCG query",
-        reference_count=len(refs), reference_preparation="R50/I1; seed43; first3 energy-ordered survivors; no RMSD; MMFF94s constant epsilon78.4",
+        reference_count=len(refs),
+        reference_preparation="R50/I1; seed43; first3 energy-ordered survivors; no RMSD; MMFF94s constant epsilon78.4",
         candidate_preparation="C20/I4; seed42; no embedding/post RMSD; same factory as RL",
-        ph_reassignment=protonate, query_formal_charge=Chem.GetFormalCharge(prepared),
-        source_sha256=before, git_revision=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+        ph_reassignment=protonate,
+        rdkit_pickle_flags=int(Chem.GetDefaultPickleProperties()),
+        query_formal_charge=Chem.GetFormalCharge(prepared),
+        source_sha256=before,
+        git_revision=subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip(),
         git_status=subprocess.check_output(["git", "status", "--short"], text=True),
         cpu_note="Eight alignment workers, one embedding thread; production generates the batch before starting its alignment pool. Wall time includes pool startup and SDF I/O.",
     )
     atomic_json(raw / "timing_manifest.json", manifest)
     for repeat in range(repeats):
         # Reverse settings on alternate repeats to reduce a fixed order effect.
-        for minimize, workers, engine in settings[::1 if repeat % 2 == 0 else -1]:
-            scorer = create_rocs_scorer(refs, max_conformers=20, max_isomers=4,
-                                        minimize_candidates=minimize, optimization=profile,
-                                        conformer_threads=1, n_jobs=workers)
+        for minimize, workers, engine in settings[:: 1 if repeat % 2 == 0 else -1]:
+            scorer = create_rocs_scorer(
+                refs,
+                max_conformers=20,
+                max_isomers=4,
+                minimize_candidates=minimize,
+                optimization=profile,
+                conformer_threads=1,
+                n_jobs=workers,
+            )
             generator = scorer.conformer_generator
             generator.embedding_rmsd = None
             generator.protonate = protonate
             generate = generator.genConformers
             generation = {}
 
-            def timed_generate(smiles, directory, generate=generate, generation=generation):
+            def timed_generate(
+                smiles, directory, generate=generate, generation=generation
+            ):
                 started = time.perf_counter()
                 path = generate(smiles, directory)
                 generation["seconds"] = time.perf_counter() - started
-                generation["records"] = len(Chem.SDMolSupplier(path, removeHs=False)) if Path(path).stat().st_size else 0
+                generation["records"] = (
+                    len(Chem.SDMolSupplier(path, removeHs=False))
+                    if Path(path).stat().st_size
+                    else 0
+                )
                 return path
 
             generator.genConformers = timed_generate
@@ -154,21 +340,48 @@ def time_batches(source: Path, output: Path, batch_size: int, repeats: int, prot
                 # Fixed chunks preserve order; the selected 32 inputs are unique.
                 # This is an engineering comparison, not a deployed RL adapter.
                 smiles = panel.smiles.tolist()
-                jobs = [(str(ref_path.resolve()), smiles[i:i+4], minimize, protonate)
-                        for i in range(0, len(smiles), 4)]
-                with ProcessPoolExecutor(max_workers=workers,
-                                         mp_context=multiprocessing.get_context("spawn")) as pool:
-                    scores = np.array([score for chunk in pool.map(score_chunk, jobs) for score in chunk])
+                jobs = [
+                    (str(ref_path.resolve()), smiles[i : i + 4], minimize, protonate)
+                    for i in range(0, len(smiles), 4)
+                ]
+                with ProcessPoolExecutor(
+                    max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+                ) as pool:
+                    scores = np.array(
+                        [
+                            score
+                            for chunk in pool.map(score_chunk, jobs)
+                            for score in chunk
+                        ]
+                    )
             elapsed = time.perf_counter() - tick
             stage = generation.get("seconds", float("nan"))
-            rows.append(dict(repeat=repeat, minimize=minimize, workers=workers, engine=engine,
-                             batch_size=batch_size, actual_conformers=generation.get("records"),
-                             batch_seconds=elapsed, generation_and_minimization_seconds=stage,
-                             alignment_io_pool_seconds=elapsed-stage,
-                             smiles_per_second=batch_size/elapsed, zero_scores=int((scores == 0).sum())))
-            score_rows.extend(dict(repeat=repeat, minimize=minimize, workers=workers, engine=engine,
-                                   molecule_id=int(mid), score=float(score))
-                              for mid, score in zip(panel.molecule_id, scores))
+            rows.append(
+                dict(
+                    repeat=repeat,
+                    minimize=minimize,
+                    workers=workers,
+                    engine=engine,
+                    batch_size=batch_size,
+                    actual_conformers=generation.get("records"),
+                    batch_seconds=elapsed,
+                    generation_and_minimization_seconds=stage,
+                    alignment_io_pool_seconds=elapsed - stage,
+                    smiles_per_second=batch_size / elapsed,
+                    zero_scores=int((scores == 0).sum()),
+                )
+            )
+            score_rows.extend(
+                dict(
+                    repeat=repeat,
+                    minimize=minimize,
+                    workers=workers,
+                    engine=engine,
+                    molecule_id=int(mid),
+                    score=float(score),
+                )
+                for mid, score in zip(panel.molecule_id, scores)
+            )
             pd.DataFrame(rows).to_csv(raw / "batch_timing.csv", index=False)
             pd.DataFrame(score_rows).to_csv(raw / "batch_scores.csv", index=False)
             print(json.dumps(rows[-1]), flush=True)
@@ -176,29 +389,56 @@ def time_batches(source: Path, output: Path, batch_size: int, repeats: int, prot
         raise ValueError("Source changed during batch timing")
     # Parallelism must not change scores for the same chemistry/embedding policy.
     scores = pd.DataFrame(score_rows)
-    spread = scores.groupby(["minimize", "molecule_id"]).score.agg(lambda x: x.max()-x.min()).max()
+    spread = (
+        scores.groupby(["minimize", "molecule_id"])
+        .score.agg(lambda x: x.max() - x.min())
+        .max()
+    )
     if spread > 1e-8:
         raise ValueError(f"Serial/parallel score disagreement: {spread}")
-    manifest.update(state="complete", max_serial_parallel_score_difference=float(spread),
-                    output_sha256={p.name: digest(p) for p in (raw / "batch_timing.csv", raw / "batch_scores.csv", ref_path)})
+    manifest.update(
+        state="complete",
+        max_serial_parallel_score_difference=float(spread),
+        output_sha256={
+            p.name: digest(p)
+            for p in (raw / "batch_timing.csv", raw / "batch_scores.csv", ref_path)
+        },
+    )
     atomic_json(raw / "timing_manifest.json", manifest)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["counts", "timing"])
-    parser.add_argument("--source", type=Path, required=True, help="Completed calibration raw_data directory")
+    parser.add_argument(
+        "mode", choices=["counts", "timing", "preparation", "precision"]
+    )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        required=True,
+        help="Completed calibration raw_data directory",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--repeats", type=int, default=2)
-    parser.add_argument("--protonate", action="store_true", help="Explicit strict pH7.4 policy on both sides")
+    parser.add_argument(
+        "--protonate",
+        action="store_true",
+        help="Explicit strict pH7.4 policy on both sides",
+    )
     args = parser.parse_args()
     (args.output / "raw_data").mkdir(parents=True, exist_ok=True)
     (args.output / "logs").mkdir(exist_ok=True)
-    if args.mode == "counts":
+    if args.mode == "precision":
+        inspect_precision(args.source, args.output)
+    elif args.mode == "preparation":
+        inspect_preparation(args.source, args.output)
+    elif args.mode == "counts":
         inspect_counts(args.source, args.output)
     else:
-        time_batches(args.source, args.output, args.batch_size, args.repeats, args.protonate)
+        time_batches(
+            args.source, args.output, args.batch_size, args.repeats, args.protonate
+        )
 
 
 if __name__ == "__main__":
