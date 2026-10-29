@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm, TwoSlopeNorm
 import numpy as np
 import pandas as pd
+from rdkit import Chem
 
 from _david.code.conformer.reference_bank import LABELS, METHODS
 from _david.code.conformer.reward_calibration import CAPS, CANDIDATES, KEYS
@@ -207,6 +208,106 @@ def pareto(frame, summary, output, warning=""):
     plt.close(fig)
 
 
+def reference_statistics(output):
+    rows = []
+    for phase in ("development", "confirmation"):
+        directory = output / "raw_data" / phase
+        manifest = directory / "manifest.json"
+        if (
+            not manifest.exists()
+            or json.loads(manifest.read_text())["state"] != "complete"
+        ):
+            continue
+        for checkpoint in (directory / "checkpoints").glob("*/complete.json"):
+            metadata = json.loads(checkpoint.read_text())
+            generated = sum(
+                len(Chem.SDMolSupplier(str(file), removeHs=False))
+                for file in checkpoint.parent.glob("embedded_stereo_*.sdf")
+                if file.stat().st_size
+            )
+            for method, info in metadata["methods"].items():
+                rows.append(
+                    dict(
+                        molecule_id=metadata["case"]["molecule_id"],
+                        phase=phase,
+                        method=method,
+                        chemical_preparation_ok=not metadata["preparation_error"],
+                        enumerated_isomers=metadata["enumerated_isomers"],
+                        generated_valid=generated,
+                        converged_valid=info["optimization_statuses"].get("0", 0)
+                        if method != "etkdg"
+                        else np.nan,
+                        energy_survivors=info["energy_survivors"],
+                    )
+                )
+    if not rows:
+        return
+    frame = pd.DataFrame(rows)
+    if frame.duplicated(["molecule_id", "method"]).any():
+        raise ValueError("Reference statistics contain duplicate input/method rows")
+    frame.to_csv(output / "raw_data/reference_counts.csv", index=False)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), constrained_layout=True)
+    for ax, method in zip(axes.flat, METHODS):
+        group = frame[frame.method.eq(method)]
+        if group.empty:
+            continue
+        primary = "generated_valid" if method == "etkdg" else "converged_valid"
+        series = [
+            (
+                primary,
+                "Generated valid"
+                if method == "etkdg"
+                else "Converged + identity valid",
+                "#31688e",
+            )
+        ]
+        if method != "etkdg":
+            series.append(("energy_survivors", "After 8 kcal/mol window", "#35b779"))
+        for key, label, color in series:
+            values = np.sort(group[key].to_numpy())
+            ax.step(
+                values,
+                np.arange(1, len(values) + 1) / len(values),
+                where="post",
+                linewidth=2,
+                label=label,
+                color=color,
+            )
+        values, surviving = group[primary], group.energy_survivors
+        ax.text(
+            0.98,
+            0.12,
+            f"{len(group)} inputs, zeros included\n"
+            f"{series[0][1]}: mean {values.mean():.1f}, median {values.median():.0f}\n"
+            f"95th percentile {values.quantile(0.95):.0f}; maximum {values.max():.0f}\n"
+            f"Energy survivors: mean {surviving.mean():.1f}, median {surviving.median():.0f}",
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=10,
+            bbox=dict(facecolor="white", alpha=0.88, edgecolor="none"),
+        )
+        ax.set_xscale("symlog", linthresh=1)
+        ax.set_xticks(
+            [0, 1, 4, 16, 64, 256, 400], ["0", "1", "4", "16", "64", "256", "400"]
+        )
+        ax.set_xlim(-0.2, 410)
+        ax.set_ylim(0, 1.02)
+        ax.set_xlabel("Reference conformers per input, summed across stereo identities")
+        ax.set_ylabel("Fraction of inputs")
+        ax.set_title(LABELS[method])
+        ax.grid(alpha=0.2)
+        ax.legend(loc="upper left", fontsize=9)
+    fig.suptitle(
+        "Reference ensemble counts · actual generated/converged/energy-surviving outputs\n"
+        "R50 per stereo identity, cap8 · no RMSD pruning · seed104729 · unsupported preparations remain zero",
+        fontsize=14,
+    )
+    fig.savefig(output / "reference_counts.png", dpi=170)
+    fig.savefig(output / "reference_counts.svg")
+    plt.close(fig)
+
+
 def render_rl_timing(output):
     raw = output / "raw_data/rl_egcg"
     path = raw / "manifest.json"
@@ -293,6 +394,8 @@ def render(output):
     )
     heatmaps(summary, output, warning)
     pareto(frame, summary, output, warning)
+    if not warning:
+        reference_statistics(output)
     render_rl_timing(output)
     comparison = output / "raw_data/confirmation/summary.csv"
     if comparison.exists():
