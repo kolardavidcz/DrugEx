@@ -239,6 +239,7 @@ def run(output: Path, workers: int, smoke=False):
         vocabulary_sha256=digest(vocabulary),
         coordinate_pickle_flags=int(Chem.GetDefaultPickleProperties()),
         note="Native RL fit includes its 10%-size validation sample each epoch. Reference/model setup excluded from epoch timing; capture I/O included in residual epoch work. GPU kernels are not forced deterministic.",
+        replay_selection="First 64 rows of the first recorded training batch, selected before inspecting scores; all epoch batches remain saved. Replays test scoring cost/score changes, not independent learning.",
     )
     atomic_json(path, manifest)
     monitor = TimingMonitor(output, raw, totals)
@@ -260,12 +261,12 @@ def run(output: Path, workers: int, smoke=False):
             totals=totals,
         )
         atomic_json(path, manifest)
-        rows = []
+        rows, molecule_rows = [], []
         for key, setting in presets.items():
             replay_env, _ = configured_environment(ref_paths[key], setting, workers)
             replay_scorer = replay_env.scorers[0]
-            for batch in sorted(batches.glob("batch_*.csv")):
-                recorded = pd.read_csv(batch, keep_default_na=False)
+            for batch in sorted(batches.glob("batch_*.csv"))[:1]:
+                recorded = pd.read_csv(batch, keep_default_na=False).head(64)
                 mols = [
                     Chem.MolFromSmiles(smi) if smi else None for smi in recorded.SMILES
                 ]
@@ -287,6 +288,23 @@ def run(output: Path, workers: int, smoke=False):
                     )
                 )
                 pd.DataFrame(rows).to_csv(raw / "batch_replays.csv", index=False)
+                molecule_rows.extend(
+                    dict(
+                        **setting,
+                        batch=batch.name,
+                        index=index,
+                        smiles=smiles,
+                        baseline_rocs=float(old),
+                        replay_rocs=float(new),
+                        change=float(new - old),
+                    )
+                    for index, (smiles, old, new) in enumerate(
+                        zip(recorded.SMILES, original_scores, scores)
+                    )
+                )
+                pd.DataFrame(molecule_rows).to_csv(
+                    raw / "replay_scores.csv.gz", index=False
+                )
         if digest(package) != initial_hash:
             raise RuntimeError("Pretrained checkpoint changed during illustration")
         if source_hashes != {str(file): digest(file) for file in source_files}:
@@ -296,7 +314,11 @@ def run(output: Path, workers: int, smoke=False):
             base_checkpoint_unchanged=True,
             output_sha256={
                 name: digest(raw / name)
-                for name in ("epoch_timings.csv", "batch_replays.csv")
+                for name in (
+                    "epoch_timings.csv",
+                    "batch_replays.csv",
+                    "replay_scores.csv.gz",
+                )
             },
         )
     except Exception as exc:

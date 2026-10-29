@@ -26,6 +26,49 @@ import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_query_budget_order_uses_actual_reference_counts_without_redundancy(self):
+        from _david.code.conformer.query_calibration import budget_order
+
+        frame = pd.DataFrame(
+            [
+                dict(
+                    method="uff",
+                    reference_cap=1,
+                    candidate_attempts=10,
+                    mean_seconds=0.1,
+                ),
+                dict(
+                    method="uff",
+                    reference_cap=4,
+                    candidate_attempts=10,
+                    mean_seconds=0.2,
+                ),
+                dict(
+                    method="uff",
+                    reference_cap=0,
+                    candidate_attempts=10,
+                    mean_seconds=0.3,
+                ),
+                dict(
+                    method="uff",
+                    reference_cap=2,
+                    candidate_attempts=20,
+                    mean_seconds=0.4,
+                ),
+                dict(
+                    method="etkdg",
+                    reference_cap=1,
+                    candidate_attempts=10,
+                    mean_seconds=0.01,
+                ),
+            ]
+        )
+        budgets = list(budget_order(frame, "uff", available=1))
+        self.assertEqual(
+            [(row["reference_cap"], row["candidate_attempts"]) for row in budgets],
+            [(1, 10), (1, 20)],
+        )
+
     def test_reference_and_candidate_embedding_streams_do_not_overlap(self):
         from _david.code.conformer.reference_bank import REFERENCE_SEED, CANDIDATE_SEED
 
