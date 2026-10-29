@@ -24,6 +24,24 @@ class SavedGenerator:
         return str(self.path)
 
 
+def select_replay_cells(eligible: pd.DataFrame, replays: int) -> pd.DataFrame:
+    """Cover methods with cheap saved-pose replays, even without K1/C10 cells."""
+    pool = eligible.assign(
+        preferred=eligible.reference_cap.eq(1) & eligible.candidate_attempts.eq(10),
+        pair_work=eligible.actual_references * eligible.actual_candidates,
+    ).sort_values(
+        ["preferred", "pair_work", *KEYS],
+        ascending=[False, True, *([True] * len(KEYS))],
+    )
+    pool = pool.drop_duplicates(["method", "molecule_id"])
+    pool["replay_rank"] = pool.groupby("method").cumcount()
+    selected = pool.sort_values(["replay_rank", "method"]).head(replays)
+    # Replay every larger native overshoot regardless of the ordinary quota.
+    return pd.concat([selected, eligible[eligible.score.gt(1.00001)]]).drop_duplicates(
+        KEYS
+    )[eligible.columns]
+
+
 def validate(output: Path, phase: str, replays: int = 12):
     raw = output / "raw_data" / phase
     path = raw / "manifest.json"
@@ -87,18 +105,7 @@ def validate(output: Path, phase: str, replays: int = 12):
     ]
     if not frame.loc[~frame.color_excluded, "score"].between(0, 1.0001).all():
         raise ValueError("Invalid native normalized score")
-    # Small-cap cells permit an exhaustive independent component/max reduction.
-    selected = (
-        eligible[eligible.reference_cap.eq(1) & eligible.candidate_attempts.eq(10)]
-        .groupby("method", group_keys=False)
-        .head(max(1, replays // 4))
-        .head(replays)
-    )
-    # Larger native overshoots require their own exact public/component replay;
-    # retain the original values instead of clipping the reward or table.
-    selected = pd.concat(
-        [selected, eligible[eligible.score.gt(1.00001)]]
-    ).drop_duplicates(KEYS)
+    selected = select_replay_cells(eligible, replays)
     replay_rows = []
     for row in selected.to_dict("records"):
         directory = raw / "checkpoints" / str(row["molecule_id"])

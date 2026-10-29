@@ -26,6 +26,64 @@ import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_confirmation_replays_cover_methods_without_development_grid_cells(self):
+        from _david.code.conformer.validate_reward_calibration import (
+            select_replay_cells,
+        )
+
+        rows = [
+            dict(
+                molecule_id=mid,
+                method=method,
+                reference_cap=cap,
+                candidate_attempts=75,
+                actual_references=refs,
+                actual_candidates=75,
+                score=0.9,
+            )
+            for method in ("etkdg", "uff")
+            for mid in (1, 2, 3)
+            for cap, refs in ((0, 50), (4, 4))
+        ]
+        rows.append(rows[0] | dict(molecule_id=99, score=1.00002))
+        selected = select_replay_cells(pd.DataFrame(rows), 4)
+        ordinary = selected[selected.molecule_id.ne(99)]
+        self.assertEqual(
+            ordinary.groupby("method").size().to_dict(), {"etkdg": 2, "uff": 2}
+        )
+        self.assertFalse(ordinary.duplicated(["method", "molecule_id"]).any())
+        self.assertTrue(ordinary.reference_cap.eq(4).all())
+        self.assertEqual(len(selected), 5)
+        self.assertIn(99, selected.molecule_id.tolist())
+
+    def test_development_replays_prefer_small_caps_before_cheaper_other_settings(self):
+        from _david.code.conformer.validate_reward_calibration import (
+            select_replay_cells,
+        )
+
+        row = dict(molecule_id=1, method="uff", score=0.9)
+        frame = pd.DataFrame(
+            [
+                row
+                | dict(
+                    reference_cap=1,
+                    candidate_attempts=10,
+                    actual_references=1,
+                    actual_candidates=10,
+                ),
+                row
+                | dict(
+                    reference_cap=0,
+                    candidate_attempts=75,
+                    actual_references=1,
+                    actual_candidates=1,
+                ),
+            ]
+        )
+        selected = select_replay_cells(frame, 1)
+        self.assertEqual(selected.reference_cap.tolist(), [1])
+        self.assertEqual(selected.candidate_attempts.tolist(), [10])
+
     def test_whole_call_dispatch_matches_singletons_and_restores_duplicate_rows(self):
         from _david.code.conformer.whole_call_scorer import WholeCallScorer
         from _david.code.environment import create_rocs_scorer
