@@ -105,7 +105,7 @@ def derive_input(job):
     return output
 
 
-def render(summary, root, name):
+def render(summary, root, name, status=""):
     """Fix the selected preparation budget to isolate retained-count effects."""
     selected = summary[
         summary.reference_attempts.eq(50) & summary.reference_rmsd.eq(0.5)
@@ -164,7 +164,7 @@ def render(summary, root, name):
             )
         fig.colorbar(image, ax=ax, shrink=0.8)
     fig.suptitle(
-        f"Retained references vs candidate search · {int(selected.inputs.iloc[0])} inputs · same-input self-recovery\n"
+        f"{status}Retained references vs candidate search · {int(selected.inputs.iloc[0])} inputs · same-input self-recovery\n"
         "Reference preparation fixed: 50 requests/stereoisomer, cap 8 identities, 0.5 Å pruning\n"
         "MMFF94s ε=78.4 · failures retained · shared component timing; not RL epoch time",
         fontsize=14,
@@ -234,7 +234,12 @@ def run(root, workers, data=None, name="reference_caps", partial=False):
             summary["mean"] * summary.scored_inputs + len(pending) * 1.00001
         ) / denominator
     summary.to_csv(raw / f"{stem}_summary.csv", index=False)
-    render(summary, root, name)
+    render(
+        summary,
+        root,
+        name,
+        f"PROVISIONAL ({len(pending)} pending) · " if partial else "",
+    )
     analysis = dict(
         source_data_sha256=digest(
             raw / ("provisional_measurements.csv.gz" if partial else "data.csv.gz")
@@ -247,6 +252,7 @@ def run(root, workers, data=None, name="reference_caps", partial=False):
         data_sha256=digest(raw / f"{stem}.csv.gz"),
         pending_input_ids=pending,
         partial=partial,
+        completed_inputs=len(jobs),
     )
     if partial:
         # The original coordinator may still be writing its own manifest.
