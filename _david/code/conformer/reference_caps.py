@@ -174,12 +174,33 @@ def render(summary, root, name):
     plt.close(fig)
 
 
-def run(root, workers, data=None, name="reference_caps"):
+def run(root, workers, data=None, name="reference_caps", partial=False):
     raw = data or root / "raw_data"
     manifest = json.loads((raw / "manifest.json").read_text())
-    if manifest["state"] != "complete" or "validation" not in manifest:
+    if not partial and (
+        manifest["state"] != "complete" or "validation" not in manifest
+    ):
         raise ValueError("Finish and validate the original measurements first")
-    original = pd.read_csv(raw / "data.csv.gz")
+    pending = []
+    if partial:
+        panel = pd.read_csv(raw / "panel.csv")
+        completed = []
+        for molecule_id in panel.molecule_id:
+            directory = raw / "checkpoints" / str(molecule_id)
+            if not (directory / "complete.json").exists():
+                pending.append(int(molecule_id))
+                continue
+            checkpoint = json.loads((directory / "complete.json").read_text())
+            for filename, expected in checkpoint["files_sha256"].items():
+                if digest(directory / filename) != expected:
+                    raise ValueError(f"Changed checkpoint: {directory / filename}")
+            completed.append(pd.read_csv(directory / "rows.csv"))
+        original = pd.concat(completed, ignore_index=True)
+        original.to_csv(
+            raw / "provisional_measurements.csv.gz", index=False, compression="gzip"
+        )
+    else:
+        original = pd.read_csv(raw / "data.csv.gz")
     jobs = [
         (str(raw), group.to_dict("records"))
         for _, group in original.groupby("molecule_id")
@@ -195,7 +216,8 @@ def run(root, workers, data=None, name="reference_caps"):
         or frame.duplicated([*KEYS, "reference_cap"]).any()
     ):
         raise ValueError("Incomplete or duplicated retained-reference grid")
-    frame.to_csv(raw / "reference_caps.csv.gz", index=False, compression="gzip")
+    stem = "provisional_reference_caps" if partial else "reference_caps"
+    frame.to_csv(raw / f"{stem}.csv.gz", index=False, compression="gzip")
     summary = pd.concat(
         [
             summarize(group).assign(reference_cap=cap)
@@ -203,18 +225,35 @@ def run(root, workers, data=None, name="reference_caps"):
         ],
         ignore_index=True,
     )
-    summary.to_csv(raw / "reference_caps_summary.csv", index=False)
+    if partial:
+        denominator = summary.scored_inputs + len(pending)
+        summary["full_mean_lower"] = (
+            summary["mean"] * summary.scored_inputs / denominator
+        )
+        summary["full_mean_upper"] = (
+            summary["mean"] * summary.scored_inputs + len(pending) * 1.00001
+        ) / denominator
+    summary.to_csv(raw / f"{stem}_summary.csv", index=False)
     render(summary, root, name)
-    manifest["retained_reference_analysis"] = dict(
-        source_data_sha256=digest(raw / "data.csv.gz"),
+    analysis = dict(
+        source_data_sha256=digest(
+            raw / ("provisional_measurements.csv.gz" if partial else "data.csv.gz")
+        ),
         script_sha256=digest(__file__),
         reference_caps=REFERENCE_CAPS,
         rows=len(frame),
         selection="Candidate-score-blind round-robin across stereo identities; preserve each identity's existing energy order. Cap means at most K; do not mask rigid inputs with fewer references.",
         timing="Reuse measured pair times; no new embedding, minimization or alignment. RMSD masks reconstructed from saved geometries.",
-        data_sha256=digest(raw / "reference_caps.csv.gz"),
+        data_sha256=digest(raw / f"{stem}.csv.gz"),
+        pending_input_ids=pending,
+        partial=partial,
     )
-    atomic_json(raw / "manifest.json", manifest)
+    if partial:
+        # The original coordinator may still be writing its own manifest.
+        atomic_json(raw / "provisional_analysis.json", analysis)
+    else:
+        manifest["retained_reference_analysis"] = analysis
+        atomic_json(raw / "manifest.json", manifest)
 
 
 if __name__ == "__main__":
@@ -227,5 +266,10 @@ if __name__ == "__main__":
         help="Validated measurement directory; default: OUTPUT/raw_data",
     )
     parser.add_argument("--name", default="reference_caps", help="Figure filename stem")
+    parser.add_argument(
+        "--partial",
+        action="store_true",
+        help="Explicitly provisional snapshot; retain pending IDs and bound the full-panel mean",
+    )
     args = parser.parse_args()
-    run(args.output, args.workers, args.data, args.name)
+    run(args.output, args.workers, args.data, args.name, args.partial)
