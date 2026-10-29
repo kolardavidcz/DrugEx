@@ -17,7 +17,7 @@ Revisit evidence when the implementation or relevant dependency behavior, datase
 
 ## Consult and challenge
 
-Use the installed `literature-research` skill and its free database routes. Resolve its current location on the execution host; on Linux the managed skill is normally `~/.agents/skills/literature-research/SKILL.md`. Read the chosen database skill before using its helpers. Keep access keyless/free where available; use no paid plans or trials.
+Use the central [scientific-literature](../scientific-literature/SKILL.md) skill and its two-tiered architecture (Undermind MCP Tier 1 + free open science engines Tier 2). Read the chosen database guide before running retrieval. Keep access keyless/free where available; use no paid plans or trials.
 
 - Search for the original method, relevant comparisons, and evidence against the proposed assumption. Use official version-appropriate library documentation to check API behavior.
 - Inspect accessible methods/results, not just titles or abstracts. Label abstract-only evidence and preprints. Retain DOI/PMID/arXiv ID, exact source link, version/date, supporting section/page, and access level for material claims.
