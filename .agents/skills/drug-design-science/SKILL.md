@@ -59,7 +59,7 @@ python scripts/drug_design_suite.py literature --query "DrugEx de novo drug desi
 - **Dielectric Golden Rule**: For polar ligands (e.g. EGCG with 8 OH groups), never use gas-phase vacuum ($\epsilon_r = 1.0$). Always use **MMFF94s with protein pocket dielectric ($\epsilon_r = 6.5$)** or **aqueous dielectric ($\epsilon_r = 78.4$)** with $K_{\mathrm{ref}} = 3$ and $K_{\mathrm{gen}} = 10$.
 
 ### Pipeline D: Literature Retrieval & Thesis Bibliography
-- **Tools**: `undermind` (Primary MCP), `literature-search-europepmc`, `literature-search-arxiv`, `biorxiv`, `openalex`
+- **Tools**: [`scientific-literature`](../scientific-literature/SKILL.md) (Central Hub: Undermind MCP + Europe PMC + arXiv + bioRxiv + OpenAlex)
 - **When to Use**: When researching SOTA algorithms, benchmarking baseline models (DrugEx v1–v3, REINVENT), or exporting BibTeX citations.
 - **Tiered Strategy**: Uses **Undermind MCP** as primary for deep AI-driven literature exploration, automatically falling back to **Europe PMC / arXiv / OpenAlex** for routine lookups or when Undermind free limits are reached.
 - **Runbook**: [Academic Literature & SOTA Discovery Runbook](./references/literature_retrieval_runbook.md)
