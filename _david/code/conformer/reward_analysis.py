@@ -113,8 +113,8 @@ def heatmaps(summary: pd.DataFrame, output: Path, warning=""):
             "Fresh public scoring calls, one worker per input; shared host · reference setup excluded · not RL epoch time",
             fontsize=15,
         )
-        fig.savefig(output / f"{filename}.png", dpi=170)
-        fig.savefig(output / f"{filename}.svg")
+        fig.savefig(output / f"{filename}.png", dpi=170, bbox_inches="tight")
+        fig.savefig(output / f"{filename}.svg", bbox_inches="tight")
         plt.close(fig)
 
 
