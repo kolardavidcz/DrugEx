@@ -11,6 +11,17 @@ empirical overlap controls. Its full grid is128 development drugs ×144 cells;
 384 confirmation drugs check a development-selected shortlist. Fresh public calls
 measure latency; short RL pilots are cost illustrations, not learning comparisons.
 
+The corrected pilot passed40 tests,72 cells,1131 saved-geometry identity checks and
+8 public/component replays (maximum difference1.12e−16). The parameter/batch
+prototype adds a control against singleton public calls, including duplicate and
+invalid rows. RDKit mutates default `maxIterations` on its parameter object
+(observed0→90 for ethanol); reusing it across differently sized graphs can couple
+a native batch to its first graph. The per-input calibration is unaffected.
+`whole_call_scorer.py` avoids that coupling and persists whole-call workers; it is
+a reviewable prototype, not a deployed default. `query_calibration.py` suggests
+query budgets from measured cost order and two disjoint self-check streams, with
+explicit limits on what self-recovery proves.
+
 **2026-10-29: full drug-panel calibration completed and verified.**
 Read the [single maintained report](../../output/20261028_2145_joint_calibration/REPORT.md)
 and [final retained-reference figure](../../output/20261028_2145_joint_calibration/reference_caps.png).

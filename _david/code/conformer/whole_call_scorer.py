@@ -56,6 +56,16 @@ class WholeCallScorer(Scorer):
         super().__init__(prototype.getModifier())
         if len(prototype.group_to_indices) != 1:
             raise ValueError("Whole-call prototype supports one reference group")
+        if (
+            prototype.score_type != "TanimotoCombo"
+            or prototype.score_variant != "tanimoto"
+            or not prototype.use_colors
+            or prototype.inject_color
+            or prototype.color_ff != "default"
+        ):
+            raise ValueError(
+                "Whole-call prototype currently supports native-colour TanimotoCombo only"
+            )
         self.prototype = prototype
         self.prototype.n_jobs = 1
         self.reference = str(reference.resolve())

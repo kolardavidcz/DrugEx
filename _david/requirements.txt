@@ -1,3 +1,4 @@
-# Thesis chemical-state preparation. Install in the existing DrugEx environment:
+# Optional pH-audit dependency; thesis preparation leaves pH reassignment OFF.
+# Install for the audit/controls in the existing DrugEx environment:
 # .venv/bin/python -m pip install -r _david/requirements.txt
 dimorphite_dl==2.1.0
