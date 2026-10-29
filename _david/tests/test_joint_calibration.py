@@ -150,12 +150,13 @@ class TestJointCalibration(unittest.TestCase):
     def test_ph_preparation_cannot_silently_skip_missing_or_failed_dependency(self):
         with patch("_david.code.chemistry.core_protonation._DIMORPHITE_AVAILABLE", False):
             with self.assertRaisesRegex(ImportError, "requires dimorphite_dl"):
-                prepare_candidate_molecule("CCN")
+                prepare_candidate_molecule("CCN", protonate=True)
         with patch("_david.code.chemistry.core_protonation.dimorphite_dl.protonate_smiles", return_value=[]):
             with self.assertRaisesRegex(ValueError, "no valid chemical state"):
-                prepare_candidate_molecule("CCN")
-        prepared = prepare_candidate_molecule("CCN")
+                prepare_candidate_molecule("CCN", protonate=True)
+        prepared = prepare_candidate_molecule("CCN", protonate=True)
         self.assertEqual(Chem.GetFormalCharge(prepared), 1)
+        self.assertEqual(Chem.GetFormalCharge(prepare_candidate_molecule("CCN")), 0)
 
     def test_embedding_pruning_is_explicit_and_optional(self):
         default = CandidateConformerGenerator()._create_fresh_etkdg()

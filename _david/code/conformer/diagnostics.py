@@ -7,14 +7,17 @@ query and different frozen-panel candidates: it measures cost, not self-recovery
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 from importlib.metadata import version
 import json
+import multiprocessing
 from pathlib import Path
 import platform
 import socket
 import subprocess
 import time
 
+import numpy as np
 import pandas as pd
 from rdkit import Chem, rdBase
 
@@ -24,6 +27,18 @@ from _david.code.conformer.self_recovery import atomic_json, digest
 from _david.code.conformer.visualization import render_reference_counts
 from _david.code.environment import create_rocs_scorer
 from _david.code.reference import PrepareMolecule
+
+
+def score_chunk(job):
+    """Parallelize complete public calls, with no nested alignment processes."""
+    reference, smiles, minimize, protonate = job
+    scorer = create_rocs_scorer(Path(reference), max_conformers=20, max_isomers=4,
+                                minimize_candidates=minimize,
+                                optimization=Optimization("MMFF94s", 78.4),
+                                conformer_threads=1, n_jobs=1)
+    scorer.conformer_generator.embedding_rmsd = None
+    scorer.conformer_generator.protonate = protonate
+    return (scorer.getScores(smiles)[:, 0] / 2).tolist()
 
 
 def inspect_counts(source: Path, output: Path) -> None:
@@ -73,7 +88,7 @@ def inspect_counts(source: Path, output: Path) -> None:
     print(pd.DataFrame(summary).to_string(index=False), flush=True)
 
 
-def time_batches(source: Path, output: Path, batch_size: int, repeats: int) -> None:
+def time_batches(source: Path, output: Path, batch_size: int, repeats: int, protonate: bool) -> None:
     """Direct getScores timing; shared query, serial generation, parallel alignment.
 
     Pool startup, SDF I/O and actual candidate minimization are included. Reference
@@ -88,14 +103,16 @@ def time_batches(source: Path, output: Path, batch_size: int, repeats: int) -> N
     if len(panel) != batch_size:
         raise ValueError("Batch exceeds the frozen panel")
     profile = Optimization("MMFF94s", 78.4)
-    prepared = prepare_candidate_molecule(standardize_smiles(DEFAULT_MOLECULE))
+    prepared = prepare_candidate_molecule(standardize_smiles(DEFAULT_MOLECULE), protonate=protonate)
     preparer = PrepareMolecule(num_conformers=50, max_reference_conformers=3,
                               random_seed=43, rmsd_cutoff=None, embedding_rmsd=None,
                               num_threads=1, optimization=profile)
     ref_path = preparer.generate_reference_conformers(prepared, raw / "timing_query.sdf")
     refs = list(Chem.SDMolSupplier(str(ref_path), removeHs=False))
     panel.to_csv(raw / "timing_inputs.csv", index=False)
-    settings = [(False, 1), (True, 1), (False, 8), (True, 8)]
+    settings = [(False, 1, "native"), (True, 1, "native"),
+                (False, 8, "native"), (True, 8, "native"),
+                (False, 8, "whole_call_pool"), (True, 8, "whole_call_pool")]
     rows, score_rows = [], []
     manifest = dict(
         state="running", purpose="RL scoring throughput diagnostic, NOT self-recovery or training",
@@ -103,7 +120,8 @@ def time_batches(source: Path, output: Path, batch_size: int, repeats: int) -> N
         dimorphite_dl=version("dimorphite_dl"), batch_size=batch_size, repeats=repeats,
         candidates="First frozen panel inputs, unchanged order, one common EGCG query",
         reference_count=len(refs), reference_preparation="R50/I1; seed43; first3 energy-ordered survivors; no RMSD; MMFF94s constant epsilon78.4",
-        candidate_preparation="C20/I4; seed42; strict native pH7.4 policy; no embedding/post RMSD; same factory as RL",
+        candidate_preparation="C20/I4; seed42; no embedding/post RMSD; same factory as RL",
+        ph_reassignment=protonate, query_formal_charge=Chem.GetFormalCharge(prepared),
         source_sha256=before, git_revision=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         git_status=subprocess.check_output(["git", "status", "--short"], text=True),
         cpu_note="Eight alignment workers, one embedding thread; production generates the batch before starting its alignment pool. Wall time includes pool startup and SDF I/O.",
@@ -111,12 +129,13 @@ def time_batches(source: Path, output: Path, batch_size: int, repeats: int) -> N
     atomic_json(raw / "timing_manifest.json", manifest)
     for repeat in range(repeats):
         # Reverse settings on alternate repeats to reduce a fixed order effect.
-        for minimize, workers in settings[::1 if repeat % 2 == 0 else -1]:
+        for minimize, workers, engine in settings[::1 if repeat % 2 == 0 else -1]:
             scorer = create_rocs_scorer(refs, max_conformers=20, max_isomers=4,
                                         minimize_candidates=minimize, optimization=profile,
                                         conformer_threads=1, n_jobs=workers)
             generator = scorer.conformer_generator
             generator.embedding_rmsd = None
+            generator.protonate = protonate
             generate = generator.genConformers
             generation = {}
 
@@ -129,14 +148,25 @@ def time_batches(source: Path, output: Path, batch_size: int, repeats: int) -> N
 
             generator.genConformers = timed_generate
             tick = time.perf_counter()
-            scores = scorer.getScores(panel.smiles.tolist())[:, 0] / 2
+            if engine == "native":
+                scores = scorer.getScores(panel.smiles.tolist())[:, 0] / 2
+            else:
+                # Fixed chunks preserve order; the selected 32 inputs are unique.
+                # This is an engineering comparison, not a deployed RL adapter.
+                smiles = panel.smiles.tolist()
+                jobs = [(str(ref_path.resolve()), smiles[i:i+4], minimize, protonate)
+                        for i in range(0, len(smiles), 4)]
+                with ProcessPoolExecutor(max_workers=workers,
+                                         mp_context=multiprocessing.get_context("spawn")) as pool:
+                    scores = np.array([score for chunk in pool.map(score_chunk, jobs) for score in chunk])
             elapsed = time.perf_counter() - tick
-            rows.append(dict(repeat=repeat, minimize=minimize, alignment_workers=workers,
-                             batch_size=batch_size, actual_conformers=generation["records"],
-                             batch_seconds=elapsed, generation_and_minimization_seconds=generation["seconds"],
-                             alignment_io_pool_seconds=elapsed-generation["seconds"],
+            stage = generation.get("seconds", float("nan"))
+            rows.append(dict(repeat=repeat, minimize=minimize, workers=workers, engine=engine,
+                             batch_size=batch_size, actual_conformers=generation.get("records"),
+                             batch_seconds=elapsed, generation_and_minimization_seconds=stage,
+                             alignment_io_pool_seconds=elapsed-stage,
                              smiles_per_second=batch_size/elapsed, zero_scores=int((scores == 0).sum())))
-            score_rows.extend(dict(repeat=repeat, minimize=minimize, alignment_workers=workers,
+            score_rows.extend(dict(repeat=repeat, minimize=minimize, workers=workers, engine=engine,
                                    molecule_id=int(mid), score=float(score))
                               for mid, score in zip(panel.molecule_id, scores))
             pd.DataFrame(rows).to_csv(raw / "batch_timing.csv", index=False)
@@ -161,13 +191,14 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument("--protonate", action="store_true", help="Explicit strict pH7.4 policy on both sides")
     args = parser.parse_args()
     (args.output / "raw_data").mkdir(parents=True, exist_ok=True)
     (args.output / "logs").mkdir(exist_ok=True)
     if args.mode == "counts":
         inspect_counts(args.source, args.output)
     else:
-        time_batches(args.source, args.output, args.batch_size, args.repeats)
+        time_batches(args.source, args.output, args.batch_size, args.repeats, args.protonate)
 
 
 if __name__ == "__main__":

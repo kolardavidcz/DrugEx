@@ -20,9 +20,11 @@ from rdkit.Chem.EnumerateStereoisomers import (
 IDENTITY_REJECTED = -2  # Thesis validation result, not a native force-field status.
 
 
-def prepare_candidate_molecule(smiles, *, canonicalize_tautomer=True, protonate=True):
+def prepare_candidate_molecule(smiles, *, canonicalize_tautomer=True, protonate=False):
     """Training chemical state, preserving assigned stereo during tautomerization.
 
+    pH reassignment is explicit: installing an optional dependency must not change
+    an existing experiment's chemical states. When requested, it cannot fail open.
     RDKit otherwise removes stereo from atoms/bonds touched by any enumerated
     tautomer, even when the chosen tautomer still supports the original stereo.
     """
@@ -102,12 +104,14 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         minimize_candidates: bool = False,
         optimization: Optimization | None = None,
         embedding_rmsd: float | None = 0.5,
+        protonate: bool = False,
         **kwargs,
     ) -> None:
         requested = kwargs.get("max_conformers", 10)
         if not isinstance(requested, int) or not 1 <= requested <= 1000:
             raise ValueError("Conformer attempts must be an integer from 1 to 1000")
         kwargs["max_conformers"] = min(requested, 200)
+        kwargs["protonate"] = protonate
         super().__init__(**kwargs)
         # The core silently clamps at 200; explicit thesis budgets must be honored.
         self.max_conformers = requested

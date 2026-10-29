@@ -31,7 +31,8 @@ def render_reference_counts(frame: pd.DataFrame, output: Path) -> None:
                   f"Converged count: median {converged.median():.0f}, mean {converged.mean():.1f}\n"
                   f"95th percentile {converged.quantile(.95):.1f}; maximum {converged.max()}\n"
                   f"Zero converged outputs: {converged.eq(0).sum()}",
-                  transform=hist.transAxes, ha="right", va="top", fontsize=10)
+                  transform=hist.transAxes, ha="right", va="top", fontsize=10,
+                  bbox=dict(facecolor="white", alpha=.88, edgecolor="none"))
         hist.set_ylabel("Number of input molecules")
         ecdf.set_ylabel("Fraction of all input molecules")
         ecdf.set_ylim(0, 1.02)
