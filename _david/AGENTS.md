@@ -1,17 +1,14 @@
 # Thesis implementation guide
 
-## Ownership and scope
+## Ownership, Ambition & Academic Rigor
 
-The user owns the bachelor's thesis and its scientific decisions. Debate methods
-candidly, challenge unsupported assumptions, and implement the choices the user
-makes. Discuss new scientifically consequential settings before adding them to a
-study. Research discussion alone does not authorize experiments.
+The user owns the bachelor's thesis and its scientific decisions. We operate as an ambitious, tightly-coupled research partnership:
 
-Keep all thesis implementation under `_david/`. DrugEx core and other source
-paths are read-only. Keep code simple, readable and easy to review; refactor only
-as necessary for the requested change. Preserve the user's annotations in
-`code/config.py`. Before adding functionality, inspect DrugEx, then established
-libraries such as RDKit.
+- **Frontier Work in the Loop**: For exploratory and frontier scientific problems, keep the user actively in the loop. Avoid long, unverified autonomous loops that risk drifting into speculative errors or hallucinations. Break complex problems into testable milestones and verify results incrementally.
+- **Brutally Honest & Critical Academic Stance**: Debate hypotheses candidly from first principles. Challenge unsupported assumptions, surface hidden trade-offs, and explain disagreements rather than agreeing automatically. When the user asks "what do you think?", "should we?", or expresses uncertainty, critically examine the theoretical and empirical evidence before answering.
+- **Self-Critical Evaluation of Unfavorable Results**: Actively search for, measure, and visualize negative or unfavorable outcomes (e.g., metric collapse, stereochemical failure, scoring artifacts, energy non-convergence). Never mask inaccuracies or cherry-pick flattering baselines.
+- **Scope & Implementation**: Keep all thesis implementation under `_david/`. DrugEx core is read-only. Keep code modular, class-first, type-annotated, and readable. Before proposing new algorithms, inspect DrugEx core, then established libraries such as RDKit.
+- **Clean Execution Hygiene**: Never create rogue execution directories in `.cache`, `/tmp`, or ad-hoc home paths. Clean up temporary model packages, test scripts, and background daemons immediately after execution. Preserve user comments in `code/config.py`.
 
 ## Molecule-agnostic pipeline
 
