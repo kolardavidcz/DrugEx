@@ -89,24 +89,6 @@ class HardwareManager:
         return torch.device(f"cuda:{gpus[0]}"), gpus
 
     @classmethod
-    def get_recommended_batch_size(cls, n_samples: int = 100) -> int:
-        """Determine power-of-2 batch size aligned with VRAM and clamped to sample pool size."""
-        safe_gpus = cls.get_safe_gpus(preferred_gpu="auto")
-        if not safe_gpus:
-            batch_size = 32
-        else:
-            _, free_mb, _ = cls.get_device_vram(safe_gpus[0])
-            if free_mb >= 16000.0:
-                batch_size = 256
-            elif free_mb >= 10000.0:
-                batch_size = 128
-            elif free_mb >= 4000.0:
-                batch_size = 64
-            else:
-                batch_size = 32
-        return max(1, min(batch_size, n_samples))
-
-    @classmethod
     def init_runtime_environment(cls, ratio: float = 0.90) -> dict[str, str]:
         """Sole authority for initializing multiprocessing and scoring environment."""
         n_jobs = str(cls.get_safe_parallel_jobs(ratio=ratio))

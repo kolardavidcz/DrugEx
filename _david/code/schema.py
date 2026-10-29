@@ -37,3 +37,16 @@ class std:
     AVG_AMEAN: str = "avg_amean"
     AVG_GMEAN: str = "avg_gmean"
     BEST_EPOCH: str = "best_epoch"
+
+    # ROCS 3D Alignment Score Types & Variants
+    ROCS_SCORE_TYPE: str = "TanimotoCombo"
+    VARIANT_TANIMOTO: str = "tanimoto"
+    VARIANT_TANIMOTO_COMBO: str = "tanimoto_combo"
+    VARIANT_TVERSKY: str = "tversky_subshape"
+    VARIANT_TVERSKY_REF: str = "tversky_ref"
+    VARIANT_TVERSKY_FIT: str = "tversky_fit"
+
+    # Multi-Objective RL Reward Schemes
+    REWARD_WEIGHTED_SUM: str = "weighted_sum"
+    REWARD_PARETO: str = "pareto_crowding"
+    REWARD_HARRINGTON: str = "harrington"

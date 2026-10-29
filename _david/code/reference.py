@@ -30,6 +30,23 @@ def _record_identity_key(mol: Chem.Mol) -> str:
     return Chem.MolToSmiles(Chem.RemoveHs(mol), isomericSmiles=True)
 
 
+def _record_energy(mol: Chem.Mol) -> float:
+    """Return the stored ``Energy_kcal_mol`` property or ``0.0`` when absent."""
+    return (
+        float(mol.GetDoubleProp("Energy_kcal_mol"))
+        if mol.HasProp("Energy_kcal_mol")
+        else 0.0
+    )
+
+
+def _group_indices_by_identity(records: Sequence[Chem.Mol]) -> dict[str, list[int]]:
+    """Group record indices by their canonical stereoisomer SMILES identity."""
+    groups: dict[str, list[int]] = {}
+    for index, mol in enumerate(records):
+        groups.setdefault(_record_identity_key(mol), []).append(index)
+    return groups
+
+
 def balanced_reference_order(
     records: Sequence[Chem.Mol],
     indices: Sequence[int],
@@ -42,9 +59,7 @@ def balanced_reference_order(
     """
     groups: dict[str, list[int]] = {}
     for index in indices:
-        mol = records[index]
-        key = _record_identity_key(mol)
-        groups.setdefault(key, []).append(index)
+        groups.setdefault(_record_identity_key(records[index]), []).append(index)
     ordered: list[int] = []
     round_index = 0
     while True:
@@ -70,35 +85,29 @@ def diverse_order(
     dissimilarity to that identity's already-selected poses up to ``prefix``, then
     continue in stereo round-robin order.
     """
-    groups: dict[str, list[int]] = {}
-    for index, mol in enumerate(records):
-        identity = _record_identity_key(mol)
-        groups.setdefault(identity, []).append(index)
-
-    def energy(index: int) -> float:
-        mol = records[index]
-        return (
-            float(mol.GetDoubleProp("Energy_kcal_mol"))
-            if mol.HasProp("Energy_kcal_mol")
-            else 0.0
-        )
-
+    groups = _group_indices_by_identity(records)
     for group in groups.values():
-        group.sort(key=lambda i: (energy(i), i))
+        group.sort(key=lambda i: (_record_energy(records[i]), i))
+
     selected: list[int] = []
     nearest: dict[int, float] = {}
-    while len(selected) < min(prefix, len(records)):
+    target_prefix = min(prefix, len(records))
+    while len(selected) < target_prefix:
         for group in groups.values():
             remaining = [i for i in group if i not in selected]
             if not remaining:
                 continue
             prior = [i for i in group if i in selected]
-            if not prior:
-                chosen = remaining[0]
-            else:
-                chosen = min(remaining, key=lambda i: (nearest[i], energy(i), i))
+            chosen = (
+                remaining[0]
+                if not prior
+                else min(
+                    remaining,
+                    key=lambda i: (nearest[i], _record_energy(records[i]), i),
+                )
+            )
             selected.append(chosen)
-            if len(selected) == min(prefix, len(records)):
+            if len(selected) == target_prefix:
                 break
             for index in remaining:
                 if index != chosen:
@@ -107,7 +116,7 @@ def diverse_order(
                         similarity(records[chosen], records[index])[0],
                     )
                     nearest[index] = max(nearest.get(index, 0.0), overlap)
-    # Continue in stereo round-robin order, retaining every remaining identity.
+
     tails = [[i for i in group if i not in selected] for group in groups.values()]
     while any(tails):
         for tail in tails:
@@ -124,16 +133,9 @@ def select_conformers(
     Choose the lowest-energy member when energies are present. Return indices so
     studies can reuse saved geometries and measure pruning independently.
     """
-    groups: dict[str, list[int]] = {}
-    for index, record in enumerate(records):
-        identity = _record_identity_key(record)
-        groups.setdefault(identity, []).append(index)
+    groups = _group_indices_by_identity(records)
     selected: list[int] = []
     for indices in groups.values():
-
-        def energy(i: int) -> float:
-            return float(records[i].GetDoubleProp("Energy_kcal_mol"))
-
         have_energy = all(records[i].HasProp("Energy_kcal_mol") for i in indices)
         if cutoff is None or len(indices) < 2:
             kept = indices.copy()
@@ -148,13 +150,13 @@ def select_conformers(
                 distances, len(indices), distThresh=cutoff, isDistData=True
             )
             kept = [
-                min((indices[i] for i in cluster), key=energy)
+                min((indices[i] for i in cluster), key=lambda idx: _record_energy(records[idx]))
                 if have_energy
                 else indices[cluster[0]]
                 for cluster in clusters
             ]
         if have_energy:
-            kept.sort(key=energy)
+            kept.sort(key=lambda idx: _record_energy(records[idx]))
         selected.extend(kept)
     return selected
 
@@ -181,6 +183,10 @@ class PrepareMolecule:
             raise ValueError("max_reference_isomers must be >= 1")
         if selection_mode not in {"rmsd", "diverse"}:
             raise ValueError("selection_mode must be 'rmsd' or 'diverse'")
+        if embedding_rmsd is not None and embedding_rmsd < 0:
+            raise ValueError("Embedding RMSD must be nonnegative or None")
+        if embedding_timeout_seconds < 0:
+            raise ValueError("Embedding timeout must be nonnegative")
         self.num_conformers: int = num_conformers
         self.max_reference_conformers: int = max_reference_conformers
         self.max_reference_isomers: int = max_reference_isomers
@@ -190,19 +196,34 @@ class PrepareMolecule:
         self.energy_window_kcal: float = energy_window_kcal
         self.num_threads: int = num_threads
         self.optimization: Optimization | None = optimization
-        if embedding_rmsd is not None and embedding_rmsd < 0:
-            raise ValueError("Embedding RMSD must be nonnegative or None")
         self.embedding_rmsd: float | None = embedding_rmsd
-        if embedding_timeout_seconds < 0:
-            raise ValueError("Embedding timeout must be nonnegative")
         self.embedding_timeout_seconds: int = embedding_timeout_seconds
         self.selection_mode: Literal["rmsd", "diverse"] = selection_mode
         self.last_optimization_statuses: list[int] = []
         self.last_identity_rejections: list[str] = []
 
     def standardize(self, smiles: str) -> str:
-        """Standardize input chemical structure into canonical SMILES representation."""
+        """Standardize input chemical structure into canonical isomeric SMILES representation."""
         return standardize_smiles(smiles)
+
+    def _load_sdf_records(self, path: Path) -> tuple[Chem.Mol, bool]:
+        """Load and align multi-record SDF conformers onto a single base RDKit Mol."""
+        mols = [m for m in Chem.SDMolSupplier(str(path), removeHs=False)]
+        if not mols or any(m is None for m in mols):
+            raise ValueError(f"Empty or invalid molecule record in SDF: {path}")
+        base = mols[0]
+        use_chirality = self.max_reference_isomers <= 1
+        for extra in mols[1:]:
+            if use_chirality:
+                check_identity(extra, base)
+            order = extra.GetSubstructMatch(base, useChirality=use_chirality)
+            if len(order) != base.GetNumAtoms():
+                raise ValueError("SDF records have incompatible atom mappings")
+            aligned = Chem.RenumberAtoms(extra, order)
+            base.AddConformer(aligned.GetConformer(), assignId=True)
+        if base.GetNumConformers() > 0 and base.GetConformer().Is3D():
+            return base, True
+        return Chem.RemoveHs(base), False
 
     def load_molecule(self, query: str | Path | Chem.Mol) -> tuple[Chem.Mol, bool]:
         """Load and standardize molecule across RDKit Mols, SMILES strings, and structure files."""
@@ -222,29 +243,10 @@ class PrepareMolecule:
             )
             else None
         )
-
         if p and p.is_file():
             if p.suffix.lower() in {".sdf", ".sd"}:
-                mols = [m for m in Chem.SDMolSupplier(str(p), removeHs=False)]
-                if not mols or any(m is None for m in mols):
-                    raise ValueError(f"Empty or invalid molecule record in SDF: {p}")
-                base = mols[0]
-                for extra in mols[1:]:
-                    if self.max_reference_isomers <= 1:
-                        check_identity(extra, base)
-                        order = extra.GetSubstructMatch(base, useChirality=True)
-                    else:
-                        order = extra.GetSubstructMatch(base, useChirality=False)
-                    if len(order) != base.GetNumAtoms():
-                        raise ValueError("SDF records have incompatible atom mappings")
-                    aligned = Chem.RenumberAtoms(extra, order)
-                    base.AddConformer(aligned.GetConformer(), assignId=True)
-                if base.GetNumConformers() > 0 and base.GetConformer().Is3D():
-                    return base, True
-                return Chem.RemoveHs(base), False
-
-            text = p.read_text(encoding="utf-8").strip()
-            tokens = text.split()
+                return self._load_sdf_records(p)
+            tokens = p.read_text(encoding="utf-8").strip().split()
             if not tokens:
                 raise ValueError(f"Empty molecule file: {p}")
             query = tokens[0]
@@ -265,7 +267,13 @@ class PrepareMolecule:
         query_desc: str = "",
         num_threads: int = 0,
     ) -> dict[int, float]:
-        """Minimize conformers using MMFF94 with UFF fallback and return valid conformer energies in kcal/mol."""
+        """Minimize conformers in-place using batch MMFF94 with UFF fallback and return valid energies.
+
+        Note: Unlike ``chemistry.optimize_conformers`` (which enforces strict single-force-field
+        physics without UFF fallback and round-trips each conformer through SDF), this legacy
+        method runs when ``optimization=None`` to provide fast multithreaded C++ batch minimization
+        with automatic UFF fallback.
+        """
         results = []
         if AllChem.MMFFHasAllMoleculeParams(mol_h):
             results = AllChem.MMFFOptimizeMoleculeConfs(
@@ -299,6 +307,131 @@ class PrepareMolecule:
             )
         return energies
 
+    def _build_etkdg_params(self, seed: int) -> AllChem.EmbedParameters:
+        """Create configured ETKDGv3 embedding parameters for reference generation."""
+        params = AllChem.ETKDGv3()
+        params.randomSeed = seed
+        params.enableSequentialRandomSeeds = False
+        params.pruneRmsThresh = (
+            -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
+        )
+        params.numThreads = self.num_threads
+        params.timeout = self.embedding_timeout_seconds
+        return params
+
+    def _embed_conformers_with_fallback(
+        self, mol_h: Chem.Mol, attempts: int, seed: int
+    ) -> list[int]:
+        """Embed conformers with ETKDGv3, falling back to ``useRandomCoords=True`` if needed."""
+        params = self._build_etkdg_params(seed)
+        conf_ids = list(
+            AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
+        )
+        if not conf_ids:
+            params.useRandomCoords = True
+            conf_ids = list(
+                AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
+            )
+        return conf_ids
+
+    def _minimize_embedded_conformers(
+        self,
+        mol_h: Chem.Mol,
+        conf_ids: Sequence[int],
+        query_desc: str,
+        *,
+        strict: bool,
+    ) -> tuple[Chem.Mol, dict[int, float] | None]:
+        """Apply the configured force-field policy to ``mol_h`` and return ``(mol_h, energies)``."""
+        if self.optimization is None:
+            energies = self.calculate_conformer_energies(
+                mol_h, query_desc=query_desc, num_threads=self.num_threads
+            )
+            return mol_h, energies
+
+        if self.optimization.method == "none":
+            mol_h.SetProp("ForceField", "none")
+            return mol_h, None
+
+        raw_records = [Chem.Mol(mol_h, confId=cid) for cid in conf_ids]
+        optimized, statuses = optimize_conformers(raw_records, self.optimization)
+        self.last_optimization_statuses.extend(statuses)
+        if not optimized:
+            if strict:
+                raise RuntimeError(
+                    f"No reference converged with {self.optimization.name}"
+                )
+            mol_h.RemoveAllConformers()
+            return mol_h, {}
+
+        rebuilt = Chem.Mol(optimized[0])
+        rebuilt.RemoveAllConformers()
+        energies = {}
+        for record in optimized:
+            cid = rebuilt.AddConformer(record.GetConformer(), assignId=True)
+            energies[cid] = record.GetDoubleProp("Energy_kcal_mol")
+        rebuilt.SetIntProp("EmbeddedConformers", len(conf_ids))
+        return rebuilt, energies
+
+    def _filter_identity_and_energy_window(
+        self,
+        mol_h: Chem.Mol,
+        expected_mol: Chem.Mol,
+        energies: dict[int, float] | None,
+    ) -> tuple[int, float | None]:
+        """Remove conformers that fail 3D stereochemical identity or exceed the energy window."""
+        for conf in list(mol_h.GetConformers()):
+            cid = conf.GetId()
+            try:
+                check_identity(Chem.Mol(mol_h, confId=cid), expected_mol)
+            except ValueError as exc:
+                self.last_identity_rejections.append(str(exc))
+                mol_h.RemoveConformer(cid)
+                if energies is not None:
+                    energies.pop(cid, None)
+
+        if energies is None or not energies:
+            return 0, None
+
+        converged_count = len(energies)
+        min_e = min(energies.values())
+        for cid, e_val in list(energies.items()):
+            if (e_val - min_e) > self.energy_window_kcal:
+                mol_h.RemoveConformer(cid)
+                del energies[cid]
+        return converged_count, min_e
+
+    def _select_reference_order(
+        self, records: Sequence[Chem.Mol], *, balance_isomers: bool
+    ) -> tuple[list[int], int]:
+        """Select and order reference conformer indices via ``diverse`` or ``rmsd`` strategy."""
+        if self.selection_mode == "diverse":
+            order = diverse_order(records, prefix=self.max_reference_conformers)
+            return order, len(records)
+        clustered = select_conformers(records, self.rmsd_cutoff)
+        order = (
+            balanced_reference_order(records, clustered)
+            if balance_isomers
+            else clustered
+        )
+        return order, len(clustered)
+
+    def _write_preloaded_3d_sdf(self, mol: Chem.Mol, target_path: Path) -> Path:
+        """Validate and write pre-existing 3D conformers directly to ``target_path``."""
+        written = 0
+        with Chem.SDWriter(str(target_path)) as writer:
+            for conf in mol.GetConformers():
+                try:
+                    check_identity(Chem.Mol(mol, confId=conf.GetId()), mol)
+                except ValueError as exc:
+                    self.last_identity_rejections.append(str(exc))
+                    continue
+                writer.write(mol, confId=conf.GetId())
+                written += 1
+        if not written:
+            raise RuntimeError("No identity-valid reference conformers survived")
+        return target_path
+
     def _generate_multi_isomer_reference_conformers(
         self,
         mol: Chem.Mol,
@@ -321,66 +454,21 @@ class PrepareMolecule:
         for iso in isomers:
             iso_identity = iso.GetProp("EnumeratedIsomerSMILES")
             mol_h = Chem.AddHs(Chem.Mol(iso))
-            params = AllChem.ETKDGv3()
-            params.randomSeed = seed
-            params.enableSequentialRandomSeeds = False
-            params.pruneRmsThresh = (
-                -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
-            )
-            params.numThreads = self.num_threads
-            params.timeout = self.embedding_timeout_seconds
-            conf_ids = list(
-                AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
-            )
-            if not conf_ids:
-                params.useRandomCoords = True
-                conf_ids = list(
-                    AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
-                )
+            conf_ids = self._embed_conformers_with_fallback(mol_h, attempts, seed)
             if not conf_ids:
                 continue
             total_embedded += len(conf_ids)
-            energies: dict[int, float] | None = None
-            if self.optimization is None:
-                energies = self.calculate_conformer_energies(
-                    mol_h, query_desc=str(query), num_threads=self.num_threads
-                )
-            elif self.optimization.method != "none":
-                raw_records = [Chem.Mol(mol_h, confId=cid) for cid in conf_ids]
-                optimized, statuses = optimize_conformers(
-                    raw_records, self.optimization
-                )
-                self.last_optimization_statuses.extend(statuses)
-                if not optimized:
-                    continue
-                mol_h = Chem.Mol(optimized[0])
-                mol_h.RemoveAllConformers()
-                energies = {}
-                for record in optimized:
-                    cid = mol_h.AddConformer(record.GetConformer(), assignId=True)
-                    energies[cid] = record.GetDoubleProp("Energy_kcal_mol")
-            else:
-                mol_h.SetProp("ForceField", "none")
-
-            for conf in list(mol_h.GetConformers()):
-                cid = conf.GetId()
-                try:
-                    check_identity(Chem.Mol(mol_h, confId=cid), iso)
-                except ValueError as exc:
-                    self.last_identity_rejections.append(str(exc))
-                    mol_h.RemoveConformer(cid)
-                    if energies is not None:
-                        energies.pop(cid, None)
-
-            if energies is not None and energies:
+            mol_h, energies = self._minimize_embedded_conformers(
+                mol_h, conf_ids, str(query), strict=False
+            )
+            if not mol_h.GetNumConformers():
+                continue
+            converged, _ = self._filter_identity_and_energy_window(
+                mol_h, iso, energies
+            )
+            if converged > 0:
                 energy_window_applied = True
-                total_converged += len(energies)
-                min_iso_e = min(energies.values())
-                for cid, e in list(energies.items()):
-                    if (e - min_iso_e) > self.energy_window_kcal:
-                        mol_h.RemoveConformer(cid)
-                        del energies[cid]
-
+                total_converged += converged
             for conf in mol_h.GetConformers():
                 cid = conf.GetId()
                 single = Chem.Mol(mol_h, confId=cid)
@@ -394,14 +482,9 @@ class PrepareMolecule:
                 f"No identity-valid reference conformers survived for: {query}"
             )
 
-        if self.selection_mode == "diverse":
-            order = diverse_order(all_records, prefix=self.max_reference_conformers)
-            cluster_count = len(all_records)
-        else:
-            clustered = select_conformers(all_records, self.rmsd_cutoff)
-            cluster_count = len(clustered)
-            order = balanced_reference_order(all_records, clustered)
-
+        order, cluster_count = self._select_reference_order(
+            all_records, balance_isomers=True
+        )
         curated = [all_records[i] for i in order[: self.max_reference_conformers]]
         global_min_e = (
             min(rec.GetDoubleProp("Energy_kcal_mol") for rec in all_records)
@@ -425,7 +508,6 @@ class PrepareMolecule:
                     e_val = rec.GetDoubleProp("Energy_kcal_mol")
                     rec.SetDoubleProp("DeltaE_kcal_mol", e_val - global_min_e)
                 writer.write(rec)
-
         return target_path
 
     def generate_reference_conformers(
@@ -435,7 +517,7 @@ class PrepareMolecule:
         num_conformers: int | None = None,
         random_seed: int | None = None,
     ) -> Path:
-        """Embed, minimize, energy-filter and cluster a reference ensemble."""
+        """Embed, minimize, energy-filter, and select a curated 3D reference ensemble."""
         target_path = Path(output_path) if output_path else Path("reference_3d.sdf")
         target_path.parent.mkdir(parents=True, exist_ok=True)
         self.last_optimization_statuses = []
@@ -443,114 +525,52 @@ class PrepareMolecule:
 
         mol, is_3d = self.load_molecule(query)
         if is_3d:
-            written = 0
-            with Chem.SDWriter(str(target_path)) as writer:
-                for conf in mol.GetConformers():
-                    try:
-                        check_identity(Chem.Mol(mol, confId=conf.GetId()), mol)
-                    except ValueError as exc:
-                        self.last_identity_rejections.append(str(exc))
-                        continue
-                    writer.write(mol, confId=conf.GetId())
-                    written += 1
-            if not written:
-                raise RuntimeError("No identity-valid reference conformers survived")
-            return target_path
+            return self._write_preloaded_3d_sdf(mol, target_path)
 
         attempts = self.num_conformers if num_conformers is None else num_conformers
         seed = self.random_seed if random_seed is None else random_seed
-
         if self.max_reference_isomers > 1:
             return self._generate_multi_isomer_reference_conformers(
                 mol, query, target_path, attempts, seed
             )
 
         mol_h = Chem.AddHs(mol)
-        params = AllChem.ETKDGv3()
-        params.randomSeed = seed
-        params.enableSequentialRandomSeeds = False
-        params.pruneRmsThresh = (
-            -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
-        )
-        params.numThreads = self.num_threads
-        params.timeout = self.embedding_timeout_seconds
-
-        conf_ids = list(
-            AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
-        )
-        if not conf_ids:
-            params.useRandomCoords = True
-            conf_ids = list(
-                AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
-            )
+        conf_ids = self._embed_conformers_with_fallback(mol_h, attempts, seed)
         if not conf_ids:
             raise RuntimeError(f"ETKDGv3 conformer embedding failed for: {query}")
 
         mol_h.SetIntProp("EmbeddedConformers", len(conf_ids))
-        energies: dict[int, float] | None = None
-        if self.optimization is None:
-            energies = self.calculate_conformer_energies(
-                mol_h, query_desc=str(query), num_threads=self.num_threads
-            )
-        elif self.optimization.method != "none":
-            records = [Chem.Mol(mol_h, confId=cid) for cid in conf_ids]
-            optimized, self.last_optimization_statuses = optimize_conformers(
-                records, self.optimization
-            )
-            if not optimized:
-                raise RuntimeError(
-                    f"No reference converged with {self.optimization.name}"
-                )
-            mol_h = Chem.Mol(optimized[0])
-            mol_h.RemoveAllConformers()
-            energies = {}
-            for record in optimized:
-                cid = mol_h.AddConformer(record.GetConformer(), assignId=True)
-                energies[cid] = record.GetDoubleProp("Energy_kcal_mol")
-            mol_h.SetIntProp("EmbeddedConformers", len(conf_ids))
-        else:
-            mol_h.SetProp("ForceField", "none")
-        for conf in list(mol_h.GetConformers()):
-            cid = conf.GetId()
-            try:
-                check_identity(Chem.Mol(mol_h, confId=cid), mol)
-            except ValueError as exc:
-                self.last_identity_rejections.append(str(exc))
-                mol_h.RemoveConformer(cid)
-                if energies is not None:
-                    energies.pop(cid, None)
+        mol_h, energies = self._minimize_embedded_conformers(
+            mol_h, conf_ids, str(query), strict=True
+        )
+        converged_count, min_e = self._filter_identity_and_energy_window(
+            mol_h, mol, energies
+        )
         if not mol_h.GetNumConformers():
             raise RuntimeError("No identity-valid reference conformers survived")
+
+        remaining_cids = [c.GetId() for c in mol_h.GetConformers()]
+        records = [Chem.Mol(mol_h, confId=cid) for cid in remaining_cids]
+        if energies is not None:
+            for record, cid in zip(records, remaining_cids):
+                record.SetDoubleProp("Energy_kcal_mol", energies[cid])
+
+        selection, cluster_count = self._select_reference_order(
+            records, balance_isomers=False
+        )
         mol_h.SetIntProp(
             "IdentityRejectedConformers",
             self.last_optimization_statuses.count(IDENTITY_REJECTED)
             + len(self.last_identity_rejections),
         )
-        mol_h.SetIntProp(
-            "ConvergedConformers", len(energies) if energies is not None else 0
-        )
+        mol_h.SetIntProp("ConvergedConformers", converged_count)
         mol_h.SetBoolProp("EnergyWindowApplied", energies is not None)
-        min_e = min(energies.values()) if energies is not None else None
-        if energies is not None and min_e is not None:
-            for cid, e in list(energies.items()):
-                if (e - min_e) > self.energy_window_kcal:
-                    mol_h.RemoveConformer(cid)
-                    del energies[cid]
-        remaining_cids = [c.GetId() for c in mol_h.GetConformers()]
         mol_h.SetIntProp("EnergyWindowConformers", len(remaining_cids))
-        records = [Chem.Mol(mol_h, confId=cid) for cid in remaining_cids]
-        if energies is not None:
-            for record, cid in zip(records, remaining_cids):
-                record.SetDoubleProp("Energy_kcal_mol", energies[cid])
-        if self.selection_mode == "diverse":
-            selection = diverse_order(records, prefix=self.max_reference_conformers)
-        else:
-            selection = select_conformers(records, self.rmsd_cutoff)
-        mol_h.SetIntProp("ReferenceClusters", len(selection))
+        mol_h.SetIntProp("ReferenceClusters", cluster_count)
+
         curated = [
             remaining_cids[i] for i in selection[: self.max_reference_conformers]
         ]
-
         with Chem.SDWriter(str(target_path)) as writer:
             for i, cid in enumerate(curated):
                 check_identity(Chem.Mol(mol_h, confId=cid), mol)
@@ -559,5 +579,4 @@ class PrepareMolecule:
                     mol_h.SetDoubleProp("Energy_kcal_mol", energies[cid])
                     mol_h.SetDoubleProp("DeltaE_kcal_mol", energies[cid] - min_e)
                 writer.write(mol_h, confId=cid)
-
         return target_path

@@ -55,20 +55,7 @@ class MoleculePipeline:
             self.paths = RunPaths.resolve()
 
         self.preparer: PrepareMolecule = PrepareMolecule(
-            num_conformers=self.config.reference_attempts,
-            max_reference_conformers=self.config.max_reference_conformers,
-            max_reference_isomers=self.config.max_reference_isomers,
-            random_seed=(
-                DEFAULT_REFERENCE_SEED
-                if self.config.reference_random_seed is None
-                else self.config.reference_random_seed
-            ),
-            stereo_seed=self.config.random_seed,
-            rmsd_cutoff=self.config.reference_rmsd_cutoff,
-            energy_window_kcal=self.config.energy_window_kcal,
-            num_threads=self.config.conformer_threads,
-            optimization=self.config.optimization,
-            selection_mode=self.config.reference_selection_mode,
+            **self.config.preparer_kwargs(default_ref_seed=DEFAULT_REFERENCE_SEED)
         )
 
     @staticmethod
@@ -164,9 +151,8 @@ class MoleculePipeline:
         ref_png = self.paths.figures_dir / "reference_3d_superposition.png"
 
         # Stage 0: 3D Reference Conformer Ensemble
-        query_desc = str(molecule)[:40]
         logger.info(
-            f"\n[Stage 0] Generating 3D reference conformer ensemble for: {query_desc}..."
+            f"\n[Stage 0] Generating 3D reference conformer ensemble for: {molecule}"
         )
         self.preparer.generate_reference_conformers(molecule, output_path=ref_sdf)
         render_reference_ensemble(ref_sdf, output_png=ref_png)
@@ -177,10 +163,7 @@ class MoleculePipeline:
         )
         optimizer = SequenceRNNOptimizer(
             models_dir=self.paths.models_dir,
-            gpu=self.config.gpu,
-            agent_path=self.config.agent_path,
-            vocab_path=self.config.vocab_path,
-            cpu_ratio=self.config.cpu_ratio,
+            config=self.config,
         )
         agent, prior, voc = optimizer.load_models()
         env = create_environment(ref_sdf, config=self.config)
@@ -228,14 +211,7 @@ class MoleculePipeline:
         monitor = FileMonitor(str(output_base), save_smiles=True, reset_directory=True)
 
         t_start = time.time()
-        explorer.fit(
-            monitor=monitor,
-            epochs=self.config.epochs,
-            patience=self.config.patience,
-            reload_interval=self.config.epochs + 1,
-            criteria=self.config.criteria,
-            min_epochs=self.config.min_epochs,
-        )
+        explorer.fit(monitor=monitor, **self.config.fit_kwargs())
         monitor.close()
         logger.info(
             f"RL training complete in {(time.time() - t_start) / 60:.1f} minutes."
@@ -280,111 +256,178 @@ class MoleculePipeline:
         )
         return self.paths.root
 
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for standalone execution."""
+    """Parse command line arguments with all defaults sourced from ``PipelineConfig``."""
+    defaults = PipelineConfig()
     parser = argparse.ArgumentParser(
         description="DrugEx SequenceRNN De Novo Drug Design Pipeline"
     )
     parser.add_argument(
-        "--epochs", type=int, default=50, help="RL training epochs (default: 50)"
+        "--epochs",
+        type=int,
+        default=defaults.epochs,
+        help=f"RL training epochs (default: {defaults.epochs})",
     )
     parser.add_argument(
         "--samples",
         type=int,
-        default=500,
-        help="Molecules per training epoch (default: 500)",
+        default=defaults.n_samples,
+        help=f"Molecules per training epoch (default: {defaults.n_samples})",
     )
     parser.add_argument(
         "--eval-samples",
         type=int,
-        default=1000,
-        help="Molecules per evaluation arm (default: 1000)",
+        default=defaults.n_eval_samples,
+        help=f"Molecules per evaluation arm (default: {defaults.n_eval_samples})",
     )
     parser.add_argument(
-        "--epsilon", type=float, default=0.20, help="Exploration rate (default: 0.20)"
+        "--epsilon",
+        type=float,
+        default=defaults.epsilon,
+        help=f"Exploration rate (default: {defaults.epsilon})",
     )
     parser.add_argument(
         "--use-decay",
         action="store_true",
-        help="Enable scheduled exploration noise decay",
+        default=defaults.use_epsilon_decay,
+        help=f"Enable scheduled exploration noise decay (default: {defaults.use_epsilon_decay})",
     )
     parser.add_argument(
         "--epsilon-end",
         type=float,
-        default=0.05,
-        help="Terminal exploration rate (default: 0.05)",
+        default=defaults.epsilon_end,
+        help=f"Terminal exploration rate (default: {defaults.epsilon_end})",
     )
     parser.add_argument(
         "--decay-type",
         type=str,
-        default="cosine",
+        default=defaults.decay_type,
         choices=["cosine", "linear"],
-        help="Schedule decay type (default: cosine)",
+        help=f"Schedule decay type (default: {defaults.decay_type})",
     )
     parser.add_argument(
-        "--beta", type=float, default=0.0, help="Policy baseline penalty (default: 0.0)"
+        "--beta",
+        type=float,
+        default=defaults.beta,
+        help=f"Policy baseline penalty (default: {defaults.beta})",
     )
     parser.add_argument(
         "--reward-scheme",
         type=str,
-        default="weighted_sum",
-        choices=["weighted_sum", "pareto_crowding", "harrington"],
-        help="Multi-objective reward scheme (default: weighted_sum)",
+        default=defaults.reward_scheme,
+        choices=[std.REWARD_WEIGHTED_SUM, std.REWARD_PARETO, std.REWARD_HARRINGTON],
+        help=f"Multi-objective reward scheme (default: {defaults.reward_scheme})",
     )
     parser.add_argument(
         "--score-variant",
         type=str,
-        default="tanimoto_combo",
-        choices=["tanimoto_combo", "tversky_subshape"],
-        help="3D ROCS scoring variant (default: tanimoto_combo)",
+        default=defaults.score_variant,
+        choices=[std.VARIANT_TANIMOTO_COMBO, std.VARIANT_TVERSKY],
+        help=f"3D ROCS scoring variant (default: {defaults.score_variant})",
     )
     parser.add_argument(
         "--minimize-candidates",
         action="store_true",
-        help="Minimize candidates with the selected optimization profile (default: off)",
-    )
-    defaults = PipelineConfig()
-    parser.add_argument("--conformers", type=int, default=defaults.max_conformers)
-    parser.add_argument("--isomers", type=int, default=defaults.max_isomers)
-    parser.add_argument(
-        "--reference-conformers", type=int, default=defaults.max_reference_conformers
+        default=defaults.minimize_candidates,
+        help=f"Minimize candidates with the selected optimization profile (default: {defaults.minimize_candidates})",
     )
     parser.add_argument(
-        "--reference-isomers", type=int, default=defaults.max_reference_isomers
+        "--conformers",
+        type=int,
+        default=defaults.max_conformers,
+        help=f"Candidate conformers per isomer (default: {defaults.max_conformers})",
+    )
+    parser.add_argument(
+        "--isomers",
+        type=int,
+        default=defaults.max_isomers,
+        help=f"Candidate stereoisomer limit (default: {defaults.max_isomers})",
+    )
+    parser.add_argument(
+        "--reference-conformers",
+        type=int,
+        default=defaults.max_reference_conformers,
+        help=f"Reference conformer cap K (default: {defaults.max_reference_conformers})",
+    )
+    parser.add_argument(
+        "--reference-isomers",
+        type=int,
+        default=defaults.max_reference_isomers,
+        help=f"Reference stereoisomer limit (default: {defaults.max_reference_isomers})",
     )
     parser.add_argument(
         "--reference-selection",
         choices=["rmsd", "diverse"],
         default=defaults.reference_selection_mode,
+        help=f"Reference selection strategy (default: {defaults.reference_selection_mode})",
     )
     parser.add_argument(
-        "--reference-attempts", type=int, default=defaults.reference_attempts
+        "--reference-attempts",
+        type=int,
+        default=defaults.reference_attempts,
+        help=f"Reference ETKDGv3 attempts per isomer (default: {defaults.reference_attempts})",
     )
     parser.add_argument(
-        "--reference-rmsd", type=float, default=defaults.reference_rmsd_cutoff
+        "--reference-rmsd",
+        type=float,
+        default=defaults.reference_rmsd_cutoff,
+        help=f"Reference Butina RMSD cutoff in Å (default: {defaults.reference_rmsd_cutoff})",
     )
     parser.add_argument(
-        "--reference-seed", type=int, default=defaults.reference_random_seed
+        "--reference-seed",
+        type=int,
+        default=defaults.reference_random_seed,
+        help=f"Reference conformer RNG seed (default: {defaults.reference_random_seed})",
     )
-    parser.add_argument("--seed", type=int, default=defaults.random_seed)
-    parser.add_argument("--training-seed", type=int, default=defaults.training_seed)
     parser.add_argument(
-        "--optimization", choices=["MMFF94", "MMFF94s", "UFF"], default=None
+        "--seed",
+        type=int,
+        default=defaults.random_seed,
+        help=f"Candidate conformer RNG seed (default: {defaults.random_seed})",
     )
-    parser.add_argument("--dielectric", type=float, default=1.0)
     parser.add_argument(
-        "--conformer-threads", type=int, default=defaults.conformer_threads
+        "--training-seed",
+        type=int,
+        default=defaults.training_seed,
+        help=f"Global Python/NumPy/Torch RNG seed (default: {defaults.training_seed})",
     )
-    parser.add_argument("--min-epochs", type=int, default=defaults.min_epochs)
-    parser.add_argument("--patience", type=int, default=defaults.patience)
-    parser.add_argument("--agent-path", type=Path, default=None)
-    parser.add_argument("--vocab-path", type=Path, default=None)
+    parser.add_argument(
+        "--optimization",
+        choices=["MMFF94", "MMFF94s", "UFF"],
+        default=None,
+        help="Force-field optimization method (default: None)",
+    )
+    parser.add_argument(
+        "--dielectric",
+        type=float,
+        default=1.0,
+        help="MMFF dielectric constant (default: 1.0)",
+    )
+    parser.add_argument(
+        "--conformer-threads",
+        type=int,
+        default=defaults.conformer_threads,
+        help=f"RDKit C++ threads per conformer call (default: {defaults.conformer_threads})",
+    )
+    parser.add_argument(
+        "--min-epochs",
+        type=int,
+        default=defaults.min_epochs,
+        help=f"Minimum RL epochs before early stopping (default: {defaults.min_epochs})",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=defaults.patience,
+        help=f"Early stopping patience epochs (default: {defaults.patience})",
+    )
+    parser.add_argument("--agent-path", type=Path, default=defaults.agent_path)
+    parser.add_argument("--vocab-path", type=Path, default=defaults.vocab_path)
     parser.add_argument(
         "--cpu-ratio",
         type=float,
-        default=0.90,
-        help="CPU core utilization ratio (default: 0.90)",
+        default=defaults.cpu_ratio,
+        help=f"CPU core utilization ratio (default: {defaults.cpu_ratio})",
     )
     parser.add_argument(
         "--output-dir",

@@ -100,6 +100,7 @@ def _init_whole_call_worker(
         random_seed=int(setting.get("random_seed", 42)),
         minimize_candidates=minimize,
         optimization=optimization,
+        # Default 10s per-molecule ETKDG timeout prevents pathological stalls in study worker pools.
         timeout=int(setting.get("timeout", 10)),
         conformer_threads=1,
         n_jobs=1,

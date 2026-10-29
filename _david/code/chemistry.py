@@ -6,12 +6,13 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+from typing import Any
 
 from drugex.training.scorers import protonation as core_protonation
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolDescriptors
 from rdkit.Chem.EnumerateStereoisomers import (
     EnumerateStereoisomers,
     StereoEnumerationOptions,
@@ -71,47 +72,55 @@ def verify_disjoint_conformer_seeds(
         )
 
 
+def _count_assigned_stereo(mol: Chem.Mol) -> int:
+    """Count explicitly specified tetrahedral and bond stereocenters on ``mol``."""
+    return sum(str(s.specified) == "Specified" for s in Chem.FindPotentialStereo(mol))
+
+
+def _canonicalize_tautomer_preserving_stereo(mol: Chem.Mol) -> Chem.Mol:
+    """Canonicalize tautomers while retaining assigned sp3 and double-bond stereochemistry.
+
+    Unlike ``drugex.training.scorers.conformer_generators._RDKIT_TAUTOMER_ENUMERATOR``
+    (which leaves ``RemoveSp3Stereo=True`` and strips assigned chirality near keto/enol
+    sites), this helper explicitly disables stereocenter erasure.
+    """
+    enumerator = rdMolStandardize.TautomerEnumerator()
+    enumerator.SetRemoveSp3Stereo(False)
+    enumerator.SetRemoveBondStereo(False)
+    return enumerator.Canonicalize(mol)
+
+
+def _protonate_at_physiological_ph(mol: Chem.Mol) -> Chem.Mol:
+    """Apply explicit pH-7.4 protonation via Dimorphite-DL without silent fallback."""
+    if not core_protonation._DIMORPHITE_AVAILABLE:
+        raise ImportError(
+            "pH preparation requires dimorphite_dl; refusing a silent no-op"
+        )
+    variants = core_protonation.dimorphite_dl.protonate_smiles(
+        Chem.MolToSmiles(mol), ph_min=7.4, ph_max=7.4, precision=0.0
+    )
+    parsed = Chem.MolFromSmiles(variants[0]) if variants else None
+    if parsed is None:
+        raise ValueError("pH-7.4 preparation returned no valid chemical state")
+    return parsed
+
+
 def prepare_candidate_molecule(
     smiles: str,
     *,
     canonicalize_tautomer: bool = True,
     protonate: bool = False,
 ) -> Chem.Mol:
-    """Prepare a candidate SMILES for 3D embedding while preserving assigned stereochemistry.
-
-    pH reassignment is explicit: installing an optional dependency must not change
-    an existing experiment's chemical states. When requested, it cannot fail open.
-    RDKit otherwise removes stereo from atoms/bonds touched by any enumerated
-    tautomer, even when the chosen tautomer still supports the original stereo.
-    """
+    """Prepare a candidate SMILES for 3D embedding while preserving assigned stereochemistry."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise ValueError(f"Invalid candidate SMILES: {smiles!r}")
-    assigned_before = sum(
-        str(s.specified) == "Specified" for s in Chem.FindPotentialStereo(mol)
-    )
+    assigned_before = _count_assigned_stereo(mol)
     if canonicalize_tautomer:
-        enumerator = rdMolStandardize.TautomerEnumerator()
-        enumerator.SetRemoveSp3Stereo(False)
-        enumerator.SetRemoveBondStereo(False)
-        mol = enumerator.Canonicalize(mol)
+        mol = _canonicalize_tautomer_preserving_stereo(mol)
     if protonate:
-        # Same pH and first-variant policy as DrugEx, without its silent fallback.
-        if not core_protonation._DIMORPHITE_AVAILABLE:
-            raise ImportError(
-                "pH preparation requires dimorphite_dl; refusing a silent no-op"
-            )
-        variants = core_protonation.dimorphite_dl.protonate_smiles(
-            Chem.MolToSmiles(mol), ph_min=7.4, ph_max=7.4, precision=0.0
-        )
-        parsed = Chem.MolFromSmiles(variants[0]) if variants else None
-        if parsed is None:
-            raise ValueError("pH-7.4 preparation returned no valid chemical state")
-        mol = parsed
-    assigned_after = sum(
-        str(s.specified) == "Specified" for s in Chem.FindPotentialStereo(mol)
-    )
-    if assigned_after < assigned_before:
+        mol = _protonate_at_physiological_ph(mol)
+    if _count_assigned_stereo(mol) < assigned_before:
         raise ValueError("Selected chemical state loses assigned stereochemistry")
     return mol
 
@@ -158,8 +167,23 @@ def enumerate_stereoisomers(
         yield iso
 
 
+def _has_finite_3d_conformer(mol: Chem.Mol | None) -> bool:
+    """Return True when ``mol`` has at least one 3D conformer with finite coordinates."""
+    if mol is None or not mol.GetNumConformers():
+        return False
+    conf = mol.GetConformer()
+    return bool(conf.Is3D() and np.isfinite(conf.GetPositions()).all())
+
+
+def _write_sdf_records(path: str, records: Sequence[Chem.Mol]) -> None:
+    """Write a sequence of RDKit molecule records to an SDF path."""
+    with Chem.SDWriter(path) as writer:
+        for mol in records:
+            writer.write(mol)
+
+
 class CandidateConformerGenerator(RDKitConformerGenerator):
-    """DrugEx ETKDG with a selectable seed, per-isomer parameter isolation, and optional minimization."""
+    """DrugEx ETKDGv3 generator with selectable seed, per-isomer isolation, and optional minimization."""
 
     def __init__(
         self,
@@ -174,10 +198,19 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         requested = kwargs.get("max_conformers", 10)
         if not isinstance(requested, int) or not 1 <= requested <= 1000:
             raise ValueError("Conformer attempts must be an integer from 1 to 1000")
+        max_heavy = kwargs.pop("max_heavy_atoms", 35)
+        max_rotors = kwargs.pop("max_rotatable_bonds", 15)
         kwargs["max_conformers"] = min(requested, 200)
         kwargs["protonate"] = protonate
-        super().__init__(**kwargs)
-        # The core silently clamps at 200; explicit thesis budgets must be honored.
+        super().__init__(
+            max_heavy_atoms=35 if max_heavy is None else int(max_heavy),
+            max_rotatable_bonds=15 if max_rotors is None else int(max_rotors),
+            **kwargs,
+        )
+        self.max_heavy_atoms: int | None = None if max_heavy is None else int(max_heavy)
+        self.max_rotatable_bonds: int | None = (
+            None if max_rotors is None else int(max_rotors)
+        )
         self.max_conformers: int = requested
         self.random_seed: int = random_seed
         self.stereo_seed: int = stereo_seed
@@ -189,6 +222,23 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         self.last_minimization_statuses: list[int] = []
         self.last_embedding_failures: int = 0
         self.last_identity_rejections: list[str] = []
+        self.last_filtered_molecules: list[str] = []
+
+    def _filter_mol(self, smi: str, mol: Chem.Mol) -> bool:
+        """Filter candidate molecules exceeding optional heavy-atom or rotatable-bond caps."""
+        if (
+            self.max_heavy_atoms is not None
+            and rdMolDescriptors.CalcNumHeavyAtoms(mol) > self.max_heavy_atoms
+        ):
+            self.last_filtered_molecules.append(smi)
+            return True
+        if (
+            self.max_rotatable_bonds is not None
+            and rdMolDescriptors.CalcNumRotatableBonds(mol) > self.max_rotatable_bonds
+        ):
+            self.last_filtered_molecules.append(smi)
+            return True
+        return False
 
     def _create_fresh_etkdg(self) -> AllChem.EmbedParameters:
         params = super()._create_fresh_etkdg()
@@ -204,20 +254,14 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
             mol, limit=self.max_isomers, seed=self.stereo_seed
         )
 
-    def genConformers(self, smiles_list: Sequence[str], out_dir: str | Path) -> str:
-        """Generate 3D conformers for a batch of SMILES and write valid geometries to an SDF."""
-        # Core has no preparation hook. Keep its filtering, ETKDG and SDF naming
-        # here while routing chemistry through the shared stereo-preserving step.
-        self.last_minimization_statuses = []
-        self.last_embedding_failures = 0
-        self.last_identity_rejections = []
-        path = str(Path(out_dir) / "conformers.sdf")
-        with Chem.SDWriter(path) as writer:
+    def _embed_batch_to_sdf(self, smiles_list: Sequence[str], sdf_path: str) -> None:
+        """Prepare candidates, enumerate unassigned stereoisomers, and write raw ETKDGv3 conformers."""
+        with Chem.SDWriter(sdf_path) as writer:
             for index, smiles in enumerate(smiles_list):
                 if not smiles:
                     continue
-                mol = Chem.MolFromSmiles(smiles)
-                if mol is None or self._filter_mol(smiles, mol):
+                raw_mol = Chem.MolFromSmiles(smiles)
+                if raw_mol is None or self._filter_mol(smiles, raw_mol):
                     continue
                 try:
                     mol = prepare_candidate_molecule(
@@ -231,57 +275,53 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                     )
                     continue
                 for iso_index, iso in enumerate(self._get_isomers(mol)):
-                    iso = Chem.AddHs(iso)
-                    iso.SetProp("_Name", f"mol_{index}+{iso_index}")
+                    iso_h = Chem.AddHs(iso)
+                    iso_h.SetProp("_Name", f"mol_{index}+{iso_index}")
                     try:
                         # Fresh ETKDGv3 parameters per isomer prevent maxIterations leakage across batches.
                         params = self._create_fresh_etkdg()
                         conf_ids = AllChem.EmbedMultipleConfs(
-                            iso, numConfs=self.max_conformers, params=params
+                            iso_h, numConfs=self.max_conformers, params=params
                         )
                         for conf_id in conf_ids:
-                            writer.write(iso, confId=conf_id)
+                            writer.write(iso_h, confId=conf_id)
                     except (RuntimeError, ValueError) as exc:
                         logging.getLogger(__name__).warning(
                             "%s: conformer generation failed: %s", smiles, exc
                         )
+
+    def genConformers(self, smiles_list: Sequence[str], out_dir: str | Path) -> str:
+        """Generate 3D conformers for a batch of SMILES and write valid geometries to an SDF."""
+        self.last_minimization_statuses = []
+        self.last_embedding_failures = 0
+        self.last_identity_rejections = []
+        self.last_filtered_molecules = []
+        path = str(Path(out_dir) / "conformers.sdf")
+        self._embed_batch_to_sdf(smiles_list, path)
         try:
             records = list(Chem.SDMolSupplier(path, removeHs=False))
         except (OSError, ValueError):
-            return path  # An empty generation remains an empty scorer input.
-        valid = [
-            mol
-            for mol in records
-            if mol is not None
-            and mol.GetNumConformers()
-            and mol.GetConformer().Is3D()
-            and np.isfinite(mol.GetConformer().GetPositions()).all()
-        ]
+            return path
+        valid = [mol for mol in records if _has_finite_3d_conformer(mol)]
         valid, self.last_identity_rejections = filter_conformer_identities(valid)
         self.last_embedding_failures = len(records) - len(valid)
-        if self.last_embedding_failures and not self.minimize_candidates:
-            with Chem.SDWriter(path) as writer:
-                for mol in valid:
-                    writer.write(mol)
-        if self.minimize_candidates:
-            minimized, statuses = optimize_conformers(valid, self.optimization)
-            # ~ [Kim, Bolton & Bryant, 2013; doi:10.1186/1758-2946-5-1]
-            # RMSD clustering can discard poses important to shape/colour overlap.
-            # Keep converged candidates without additional RMSD clustering here;
-            # embedding-stage pruning is separately controlled by embedding_rmsd.
-            # The paper supports this risk, not a universal speed/accuracy optimum.
-            self.last_minimization_statuses = statuses
-            with Chem.SDWriter(path) as writer:
-                for mol in minimized:
-                    writer.write(mol)
-            failures = sum(status != 0 for status in statuses)
-            if failures:
-                logging.getLogger(__name__).warning(
-                    "%s candidate minimization excluded %d/%d conformers",
-                    self.optimization.name,
-                    failures,
-                    len(statuses),
-                )
+
+        if not self.minimize_candidates:
+            if self.last_embedding_failures:
+                _write_sdf_records(path, valid)
+            return path
+
+        minimized, statuses = optimize_conformers(valid, self.optimization)
+        self.last_minimization_statuses = statuses
+        _write_sdf_records(path, minimized)
+        failures = sum(status != 0 for status in statuses)
+        if failures:
+            logging.getLogger(__name__).warning(
+                "%s candidate minimization excluded %d/%d conformers",
+                self.optimization.name,
+                failures,
+                len(statuses),
+            )
         return path
 
 
@@ -292,6 +332,66 @@ def minimize_mmff94(
     return optimize_conformers(records, Optimization(max_iterations=max_iterations))
 
 
+def _build_force_field(mol: Chem.Mol, settings: Optimization) -> Any:
+    """Construct an RDKit UFF or MMFF94/MMFF94s force-field instance for ``mol``."""
+    if settings.method == "UFF" and AllChem.UFFHasAllMoleculeParams(mol):
+        return AllChem.UFFGetMoleculeForceField(mol)
+    if settings.method.startswith("MMFF") and AllChem.MMFFHasAllMoleculeParams(mol):
+        props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant=settings.method)
+        props.SetMMFFDielectricConstant(settings.dielectric)
+        props.SetMMFFDielectricModel(settings.dielectric_model)
+        return AllChem.MMFFGetMoleculeForceField(mol, props)
+    return None
+
+
+def _round_trip_sdf_conformer(
+    mol: Chem.Mol,
+    reference: Chem.Mol,
+    settings: Optimization,
+    energy: float,
+    status: int,
+) -> Chem.Mol:
+    """Annotate force-field metadata, round-trip through SDF, and verify stereochemical identity."""
+    check_identity(mol, reference)
+    mol.SetProp("ForceField", settings.method)
+    mol.SetProp("Optimization", settings.name)
+    mol.SetDoubleProp("Energy_kcal_mol", energy)
+    mol.SetIntProp("OptimizationStatus", status)
+    if settings.method.startswith("MMFF"):
+        mol.SetIntProp("MMFFOptimizationStatus", status)
+    supplier = Chem.SDMolSupplier()
+    supplier.SetData(Chem.SDWriter.GetText(mol), removeHs=False)
+    round_tripped = supplier[0]
+    check_identity(round_tripped, reference)
+    return round_tripped
+
+
+def _minimize_single_record(
+    record: Chem.Mol | None, settings: Optimization
+) -> tuple[Chem.Mol | None, int]:
+    """Minimize one 3D conformer copy and validate its post-minimization identity."""
+    if not _has_finite_3d_conformer(record):
+        return None, -1
+    mol = Chem.Mol(record)
+    field = _build_force_field(mol, settings)
+    if field is None:
+        return None, -1
+    status = int(field.Minimize(maxIts=settings.max_iterations))
+    if status != 0:
+        return None, status
+    energy = float(field.CalcEnergy())
+    if not np.isfinite(energy):
+        return None, -1
+    try:
+        validated = _round_trip_sdf_conformer(mol, record, settings, energy, status)
+    except ValueError as exc:
+        logging.getLogger(__name__).warning(
+            "Conformer rejected after minimization: %s", exc
+        )
+        return None, IDENTITY_REJECTED
+    return validated, 0
+
+
 def optimize_conformers(
     records: Sequence[Chem.Mol], settings: Optimization
 ) -> tuple[list[Chem.Mol], list[int]]:
@@ -299,70 +399,28 @@ def optimize_conformers(
 
     Status 0 means converged, 1 means more iterations are needed, and -1 means
     invalid geometry/missing parameters. IDENTITY_REJECTED (-2) means the solver
-    converged but stereo/connectivity or SDF validation failed. One rejection
-    never discards other conformers. No UFF fallback is used for this method.
-    Round-trip results through the scorer's SDF representation so the study and
-    training use the same coordinates, aromaticity perception and properties.
+    converged but stereo/connectivity or SDF validation failed.
     """
     if settings.method not in {"MMFF94", "MMFF94s", "UFF"}:
         raise ValueError(f"Unsupported optimization method: {settings.method}")
     minimized: list[Chem.Mol] = []
     statuses: list[int] = []
     for record in records:
-        status = -1
-        if record is not None and record.GetNumConformers():
-            mol = Chem.Mol(record)
-            conf = mol.GetConformer()
-            field = None
-            if conf.Is3D() and np.isfinite(conf.GetPositions()).all():
-                if settings.method == "UFF" and AllChem.UFFHasAllMoleculeParams(mol):
-                    field = AllChem.UFFGetMoleculeForceField(mol)
-                elif settings.method.startswith(
-                    "MMFF"
-                ) and AllChem.MMFFHasAllMoleculeParams(mol):
-                    props = AllChem.MMFFGetMoleculeProperties(
-                        mol, mmffVariant=settings.method
-                    )
-                    props.SetMMFFDielectricConstant(settings.dielectric)
-                    props.SetMMFFDielectricModel(settings.dielectric_model)
-                    field = AllChem.MMFFGetMoleculeForceField(mol, props)
-            if field is not None:
-                status = field.Minimize(maxIts=settings.max_iterations)
-                if status == 0:
-                    energy = float(field.CalcEnergy())
-                    if not np.isfinite(energy):
-                        statuses.append(-1)
-                        continue
-                    try:
-                        check_identity(mol, record)
-                        mol.SetProp("ForceField", settings.method)
-                        mol.SetProp("Optimization", settings.name)
-                        mol.SetDoubleProp("Energy_kcal_mol", energy)
-                        mol.SetIntProp("OptimizationStatus", status)
-                        if settings.method.startswith("MMFF"):
-                            mol.SetIntProp("MMFFOptimizationStatus", status)
-                        supplier = Chem.SDMolSupplier()
-                        supplier.SetData(Chem.SDWriter.GetText(mol), removeHs=False)
-                        mol = supplier[0]
-                        check_identity(mol, record)
-                    except ValueError as exc:
-                        logging.getLogger(__name__).warning(
-                            "Conformer rejected after minimization: %s", exc
-                        )
-                        status = IDENTITY_REJECTED
-                    else:
-                        minimized.append(mol)
+        validated, status = _minimize_single_record(record, settings)
         statuses.append(status)
+        if validated is not None:
+            minimized.append(validated)
     return minimized, statuses
 
 
 def standardize_smiles(smiles: str) -> str:
-    """Use DrugEx's standardization steps, retaining isomeric SMILES output.
+    """Execute DrugEx's chemical standardization pipeline while preserving isomeric SMILES.
 
-    DefaultStandardizer ends with non-isomeric serialization. There is no option
-    to change that, so reproduce its RDKit operations here rather than patch core
-    or bypass desalting/normalization. Fail explicitly instead of using a fallback
-    with a different chemistry policy.
+    Note: ``drugex.molecules.converters.standardizers.DefaultStandardizer`` ends with
+    ``Chem.MolToSmiles(rd_mol, 0)`` (``isomericSmiles=False``), which erases all ``@``
+    and ``/`` ``\\`` stereocenters. This function runs the identical RDKit standardization
+    steps (MetalDisconnector -> Normalizer -> LargestFragmentChooser -> Uncharger) and
+    serializes with ``isomericSmiles=True``.
     """
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -381,33 +439,37 @@ def standardize_smiles(smiles: str) -> str:
     return Chem.MolToSmiles(mol, isomericSmiles=True)
 
 
-def check_identity(mol: Chem.Mol, expected: Chem.Mol) -> str:
-    """Check connectivity and specified stereo, including assignment from 3D.
+def _strip_non_isotopic_hydrogens(mol: Chem.Mol) -> Chem.Mol:
+    """Remove explicit hydrogens (including stereo-defining H) while keeping isotopic H."""
+    params = Chem.RemoveHsParameters()
+    params.removeDefiningBondStereo = True
+    return Chem.RemoveHs(Chem.Mol(mol), params)
 
-    Unspecified input centers may be resolved; specified centers may not change.
-    Return the actual isomeric identity for inspection and winner reporting.
+
+def check_identity(mol: Chem.Mol, expected: Chem.Mol) -> str:
+    """Check connectivity and specified stereo, including assignment from 3D coordinates.
+
+    Unspecified input centers may be resolved in 3D; specified centers may never invert.
+    Returns the canonical isomeric SMILES of ``mol`` after 3D stereo perception.
     """
     actual = Chem.Mol(mol)
     if actual.GetNumConformers():
-        conf = actual.GetConformer()
-        if not conf.Is3D() or not np.isfinite(conf.GetPositions()).all():
+        if not _has_finite_3d_conformer(actual):
             raise ValueError("Conformer lacks finite 3D coordinates")
         Chem.AssignStereochemistryFrom3D(actual, replaceExistingTags=True)
-    # Ordinary stereo-defining hydrogens may remain explicit after 3D assignment.
-    # Normalize both representations; keep isotope-labelled H and real E/Z checks.
-    params = Chem.RemoveHsParameters()
-    params.removeDefiningBondStereo = True
-    actual = Chem.RemoveHs(actual, params)
-    expected = Chem.RemoveHs(Chem.Mol(expected), params)
-    same_graph = Chem.MolToSmiles(actual, isomericSmiles=False) == Chem.MolToSmiles(
-        expected, isomericSmiles=False
-    )
-    if not same_graph or not actual.HasSubstructMatch(expected, useChirality=True):
+    actual_clean = _strip_non_isotopic_hydrogens(actual)
+    expected_clean = _strip_non_isotopic_hydrogens(expected)
+    same_connectivity = Chem.MolToSmiles(
+        actual_clean, isomericSmiles=False
+    ) == Chem.MolToSmiles(expected_clean, isomericSmiles=False)
+    if not same_connectivity or not actual_clean.HasSubstructMatch(
+        expected_clean, useChirality=True
+    ):
         raise ValueError(
-            f"Molecular identity changed: {Chem.MolToSmiles(expected)} -> "
-            f"{Chem.MolToSmiles(actual)}"
+            f"Molecular identity changed: {Chem.MolToSmiles(expected_clean)} -> "
+            f"{Chem.MolToSmiles(actual_clean)}"
         )
-    return Chem.MolToSmiles(actual, isomericSmiles=True)
+    return Chem.MolToSmiles(actual_clean, isomericSmiles=True)
 
 
 def filter_conformer_identities(
@@ -418,9 +480,11 @@ def filter_conformer_identities(
     accepted: list[Chem.Mol] = []
     rejected: list[str] = []
     for record in records:
-        target = expected
-        if target is None:
-            target = Chem.MolFromSmiles(record.GetProp("EnumeratedIsomerSMILES"))
+        target = (
+            expected
+            if expected is not None
+            else Chem.MolFromSmiles(record.GetProp("EnumeratedIsomerSMILES"))
+        )
         try:
             check_identity(record, target)
         except ValueError as exc:

@@ -28,37 +28,47 @@ class DecayingSequenceExplorer(SequenceExplorer):
         mutate: SequenceRNN | None = None,
         crover: Any = None,
         no_multifrag_smiles: bool = True,
-        batch_size: int = 128,
-        epsilon: float = 0.20,
-        epsilon_end: float = 0.05,
-        decay_epochs: int = 50,
-        decay_type: str = "cosine",
-        use_decay: bool = True,
-        beta: float = 0.0,
-        n_samples: int = 500,
+        config: PipelineConfig | None = None,
+        batch_size: int | None = None,
+        epsilon: float | None = None,
+        epsilon_end: float | None = None,
+        decay_epochs: int | None = None,
+        decay_type: str | None = None,
+        use_decay: bool | None = None,
+        beta: float | None = None,
+        n_samples: int | None = None,
         optim: Any = None,
         device: Any = DEFAULT_DEVICE,
         use_gpus: Any = DEFAULT_GPUS,
     ) -> None:
+        cfg = config or PipelineConfig()
+        active_batch = cfg.batch_size if batch_size is None else batch_size
+        active_eps = (0.20 if config is None else cfg.epsilon) if epsilon is None else epsilon
+        active_eps_end = cfg.epsilon_end if epsilon_end is None else epsilon_end
+        active_decay_epochs = cfg.decay_epochs if decay_epochs is None else decay_epochs
+        active_decay_type = cfg.decay_type if decay_type is None else decay_type
+        active_use_decay = (True if config is None else cfg.use_epsilon_decay) if use_decay is None else use_decay
+        active_beta = cfg.beta if beta is None else beta
+        active_samples = cfg.n_samples if n_samples is None else n_samples
         super().__init__(
             agent=agent,
             env=env,
             mutate=mutate,
             crover=crover,
             no_multifrag_smiles=no_multifrag_smiles,
-            batch_size=batch_size,
-            epsilon=epsilon,
-            beta=beta,
-            n_samples=n_samples,
+            batch_size=active_batch,
+            epsilon=active_eps,
+            beta=active_beta,
+            n_samples=active_samples,
             optim=optim,
             device=device,
             use_gpus=use_gpus,
         )
-        self.epsilon_start: float = float(epsilon)
-        self.epsilon_end: float = float(epsilon_end)
-        self.decay_epochs: int = int(decay_epochs)
-        self.decay_type: str = str(decay_type).lower()
-        self.use_decay: bool = bool(use_decay)
+        self.epsilon_start: float = float(active_eps)
+        self.epsilon_end: float = float(active_eps_end)
+        self.decay_epochs: int = int(active_decay_epochs)
+        self.decay_type: str = str(active_decay_type).lower()
+        self.use_decay: bool = bool(active_use_decay)
         self.current_epoch: int = 0
 
     def get_decayed_epsilon(self, epoch: int) -> float:
@@ -108,19 +118,23 @@ class SequenceRNNOptimizer:
     def __init__(
         self,
         models_dir: Path | str,
-        gpu: int | str | None = "auto",
+        config: PipelineConfig | None = None,
+        gpu: int | str | None = None,
         agent_path: Path | str | None = None,
         vocab_path: Path | str | None = None,
-        cpu_ratio: float = 0.90,
+        cpu_ratio: float | None = None,
     ) -> None:
-        HardwareManager.init_runtime_environment(ratio=cpu_ratio)
+        cfg = config or PipelineConfig()
+        active_ratio = cfg.cpu_ratio if cpu_ratio is None else cpu_ratio
+        active_gpu = cfg.gpu if gpu is None else gpu
+        HardwareManager.init_runtime_environment(ratio=active_ratio)
         self.models_dir = Path(models_dir)
         self.models_dir.mkdir(parents=True, exist_ok=True)
         self.device, self.use_gpus = HardwareManager.get_device_and_gpus(
-            preferred_gpu=gpu
+            preferred_gpu=active_gpu
         )
-        self.agent_path = agent_path
-        self.vocab_path = vocab_path
+        self.agent_path = cfg.agent_path if agent_path is None else agent_path
+        self.vocab_path = cfg.vocab_path if vocab_path is None else vocab_path
 
     def load_models(
         self,
@@ -172,30 +186,12 @@ class SequenceRNNOptimizer:
         config: PipelineConfig,
     ) -> SequenceExplorer:
         """Construct configured SequenceExplorer with decoupled stopping criteria and exploration schedule."""
-        if config.use_epsilon_decay:
-            return DecayingSequenceExplorer(
-                agent=agent,
-                env=env,
-                mutate=mutate,
-                batch_size=config.batch_size,
-                epsilon=config.epsilon,
-                epsilon_end=config.epsilon_end,
-                decay_epochs=config.decay_epochs,
-                decay_type=config.decay_type,
-                use_decay=True,
-                beta=config.beta,
-                n_samples=config.n_samples,
-                device=self.device,
-                use_gpus=self.use_gpus,
-            )
-        return SequenceExplorer(
+        cls = DecayingSequenceExplorer if config.use_epsilon_decay else SequenceExplorer
+        return cls(
             agent=agent,
             env=env,
             mutate=mutate,
-            batch_size=config.batch_size,
-            epsilon=config.epsilon,
-            beta=config.beta,
-            n_samples=config.n_samples,
             device=self.device,
             use_gpus=self.use_gpus,
+            **config.explorer_kwargs(),
         )
