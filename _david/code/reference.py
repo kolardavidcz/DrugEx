@@ -73,6 +73,7 @@ class PrepareMolecule:
         num_threads: int = 0,
         optimization: Optimization | None = None,
         embedding_rmsd: float | None = 0.35,
+        embedding_timeout_seconds: int = 0,
     ) -> None:
         self.num_conformers = num_conformers
         self.max_reference_conformers = max_reference_conformers
@@ -84,6 +85,9 @@ class PrepareMolecule:
         if embedding_rmsd is not None and embedding_rmsd < 0:
             raise ValueError("Embedding RMSD must be nonnegative or None")
         self.embedding_rmsd = embedding_rmsd
+        if embedding_timeout_seconds < 0:
+            raise ValueError("Embedding timeout must be nonnegative")
+        self.embedding_timeout_seconds = embedding_timeout_seconds
         self.last_optimization_statuses: list[int] = []
         self.last_identity_rejections: list[str] = []
 
@@ -217,6 +221,7 @@ class PrepareMolecule:
         params.randomSeed = self.random_seed if random_seed is None else random_seed
         params.pruneRmsThresh = -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
         params.numThreads = self.num_threads
+        params.timeout = self.embedding_timeout_seconds
         attempts = self.num_conformers if num_conformers is None else num_conformers
 
         conf_ids = list(

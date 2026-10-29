@@ -53,6 +53,45 @@ def render_reference_counts(frame: pd.DataFrame, output: Path) -> None:
     plt.close(fig)
 
 
+def render_batch_cost(frame: pd.DataFrame, output: Path) -> None:
+    """Actual public-call wall times, including worker startup; two repeats."""
+    configurations = [("native", 1, "Native: 1 worker"),
+                      ("native", 8, "Native: 8 alignment workers"),
+                      ("whole_call_pool", 8, "8 whole-call workers")]
+    fig, (total, stages) = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True)
+    positions = np.arange(3)
+    for minimize, offset, color, label in [(False, -.18, "#31688e", "ETKDG, no minimization"),
+                                           (True, .18, "#35b779", "ETKDG + MMFF94s ε78.4")]:
+        groups = [frame[frame.engine.eq(engine) & frame.workers.eq(workers)
+                        & frame.minimize.eq(minimize)].batch_seconds
+                  for engine, workers, _ in configurations]
+        heights = [group.median() for group in groups]
+        bars = total.bar(positions + offset, heights, width=.34, color=color, label=label)
+        total.bar_label(bars, fmt="%.1f s", padding=4)
+        for x, group in zip(positions + offset, groups):
+            total.scatter([x] * len(group), group, color="black", s=18, zorder=3)
+    total.set_xticks(positions, [label.replace(": ", ":\n") for _, _, label in configurations])
+    total.set_ylim(0, frame.batch_seconds.max() * 1.18)
+    total.set_ylabel("Wall seconds for the complete 32-input call")
+    total.set_title("Measured batch cost; dots show individual repeats")
+    total.legend(loc="upper right", fontsize=9)
+    native = frame[frame.engine.eq("native") & frame.workers.eq(8)]
+    generation = native.groupby("minimize").generation_and_minimization_seconds.median().reindex([False, True])
+    alignment = native.groupby("minimize").alignment_io_pool_seconds.median().reindex([False, True])
+    stages.bar([0, 1], generation, color="#31688e", label="Serial generation + optional minimization")
+    stages.bar([0, 1], alignment, bottom=generation, color="#d5812b", label="Alignment + I/O + worker startup")
+    stages.set_xticks([0, 1], ["No minimization", "MMFF94s ε78.4"])
+    stages.set_ylabel("Wall seconds")
+    stages.set_title("Why parallelizing only alignment leaves a bottleneck")
+    stages.legend(fontsize=9)
+    fig.suptitle("RL scoring cost diagnostic · 32 frozen drug inputs · three fixed EGCG references\n"
+                 "C20/I4 · no RMSD pruning · no pH reassignment · shared lab host\n"
+                 "Fresh public scoring calls; no RNN training; scores checked for serial/parallel parity", fontsize=13)
+    fig.savefig(output / "batch_cost.png", dpi=170)
+    fig.savefig(output / "batch_cost.svg")
+    plt.close(fig)
+
+
 def render_joint_calibration(summary: pd.DataFrame, output: Path) -> None:
     """One readable score/time sheet for the 36-cell joint calibration."""
     reference_keys = [(n, r) for n in (50, 100) for r in (0.5, 1.25)]

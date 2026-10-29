@@ -40,6 +40,10 @@ make that comparison explicit before interpreting scores or launching a large ru
 
 ## Science and reporting
 
+Conformer calibration serves a dependable, affordable ligand-based RL reward.
+Do not expand it into physical-pose or solvent-population simulation unless the
+user chooses that research question.
+
 Use [consult-literature](../.agents/skills/consult-literature/SKILL.md) before
 choosing, recommending or changing research methods, consequential parameters,
 datasets or evaluation. Use free primary literature and inspect the actual

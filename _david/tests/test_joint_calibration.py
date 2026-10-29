@@ -26,6 +26,24 @@ import pandas as pd
 
 
 class TestJointCalibration(unittest.TestCase):
+    def test_energy_seeded_diversity_protects_stereo_identities(self):
+        from _david.code.conformer.reference_bank import diverse_order
+
+        records = []
+        for index, (identity, energy) in enumerate([("A", 2.), ("A", 1.), ("A", 3.), ("B", 10.)]):
+            mol = Chem.MolFromSmiles("CCO")
+            mol.SetProp("EnumeratedIsomerSMILES", identity)
+            mol.SetDoubleProp("Energy_kcal_mol", energy)
+            mol.SetIntProp("FixtureIndex", index)
+            records.append(mol)
+
+        def similarity(left, right):
+            pair = {left.GetIntProp("FixtureIndex"), right.GetIntProp("FixtureIndex")}
+            return (0.2 if 2 in pair else 0.99, 0., 0.)
+
+        self.assertEqual(diverse_order(records, prefix=3, similarity=similarity), [1, 3, 2, 0])
+        self.assertEqual(diverse_order([], similarity=similarity), [])
+
     @staticmethod
     def geometry(smiles):
         mol = Chem.AddHs(Chem.MolFromSmiles(smiles))

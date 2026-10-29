@@ -196,7 +196,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                     writer.write(mol)
         if self.minimize_candidates:
             minimized, statuses = optimize_conformers(valid, self.optimization)
-            #~ Kim, Bolton & Bryant (2013), doi:10.1186/1758-2946-5-1:
+            #~ [Kim, Bolton & Bryant, 2013; doi:10.1186/1758-2946-5-1]
             # RMSD clustering can discard poses important to shape/colour overlap.
             # Keep converged candidates without additional RMSD clustering here;
             # embedding-stage pruning is separately controlled by embedding_rmsd.
