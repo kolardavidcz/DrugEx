@@ -106,9 +106,9 @@ def derive_input(job):
 
 
 def render(summary, root, name, status=""):
-    """Fix the selected preparation budget to isolate retained-count effects."""
+    """Fix the shortlisted preparation budget to isolate retained-count effects."""
     selected = summary[
-        summary.reference_attempts.eq(50) & summary.reference_rmsd.eq(0.5)
+        summary.reference_attempts.eq(100) & summary.reference_rmsd.eq(0.5)
     ]
     columns = list(itertools.product((10, 20, 40), (0.0, 0.5, 1.25)))
     lookup = selected.set_index(
@@ -156,7 +156,7 @@ def render(summary, root, name, status=""):
             ax.text(
                 j,
                 i,
-                f"{values[i, j]:.3f}",
+                f"{values[i, j]:.4f}" if metric == "mean" else f"{values[i, j]:.3f}",
                 ha="center",
                 va="center",
                 color="black" if luminance > 0.48 else "white",
@@ -164,9 +164,9 @@ def render(summary, root, name, status=""):
             )
         fig.colorbar(image, ax=ax, shrink=0.8)
     fig.suptitle(
-        f"{status}Retained references vs candidate search · {int(selected.inputs.iloc[0])} inputs · same-input self-recovery\n"
-        "Reference preparation fixed: 50 requests/stereoisomer, cap 8 identities, 0.5 Å pruning\n"
-        "MMFF94s ε=78.4 · failures retained · shared component timing; not RL epoch time",
+        f"{status}Retained references vs candidate search · {int(selected.inputs.iloc[0])} inputs ({int(selected.scored_inputs.iloc[0])} scored)\n"
+        "Reference preparation fixed: 100 requests/stereoisomer, cap 8 identities, 0.5 Å pruning · candidate stereo cap 4\n"
+        f"MMFF94s ε=78.4 · {int(selected.color_excluded.iloc[0])} color exclusions · {int(selected.reference_failures.iloc[0])} preparation failures score zero · shared component timing, not RL epochs",
         fontsize=14,
     )
     fig.savefig(root / f"{name}.png", dpi=160)
