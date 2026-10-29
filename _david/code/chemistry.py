@@ -24,14 +24,16 @@ DEFAULT_REFERENCE_SEED: int = 104729
 
 
 def enable_double_precision_mol_pickling() -> None:
-    """Ensure RDKit preserves float64 3D coordinates when pickling molecules across workers.
+    """Ensure RDKit preserves float64 3D coordinates and properties when pickling molecules.
 
     By default, RDKit serializes conformer coordinates in single precision (float32,
-    ~2.9e-5 Å rounding error), which can shift local Gaussian shape/color overlay optima
-    when reference or candidate conformers cross multiprocessing queues.
+    ~2.9e-5 Å rounding error) and strips molecular properties across multiprocessing
+    queues, which can shift local Gaussian shape/color overlay optima or drop metadata.
     """
     Chem.SetDefaultPickleProperties(
-        Chem.GetDefaultPickleProperties() | Chem.PropertyPickleOptions.CoordsAsDouble
+        Chem.GetDefaultPickleProperties()
+        | Chem.PropertyPickleOptions.CoordsAsDouble
+        | Chem.PropertyPickleOptions.AllProps
     )
 
 
