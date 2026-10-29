@@ -312,6 +312,7 @@ def run(root, workers, data=None, name="reference_caps", partial=False):
     else:
         manifest["retained_reference_analysis"] = analysis
         atomic_json(raw / "manifest.json", manifest)
+        reference_pruning_anchor(raw)
 
 
 if __name__ == "__main__":
