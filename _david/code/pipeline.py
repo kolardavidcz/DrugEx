@@ -461,6 +461,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"CPU core utilization ratio (default: {defaults.cpu_ratio})",
     )
     parser.add_argument(
+        "--gpu",
+        type=str,
+        default=str(defaults.gpu),
+        help=f"Preferred GPU device ('auto' prefers GPU 1 when free, or integer index / 'cpu', default: {defaults.gpu})",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -509,6 +515,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         rocs_shape_weight=args.shape_weight,
         rocs_color_weight=args.color_weight,
         minimize_candidates=args.minimize_candidates,
+        gpu=int(args.gpu) if str(args.gpu).strip().isdigit() else args.gpu,
         cpu_ratio=args.cpu_ratio,
         max_conformers=args.conformers,
         max_isomers=args.isomers,

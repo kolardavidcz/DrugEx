@@ -69,10 +69,22 @@ class HardwareManager:
             idx = int(preferred_gpu.strip())
             return (idx,) if 0 <= idx < torch.cuda.device_count() else ()
         if preferred_gpu == "auto":
-            free_vrams = [
-                cls.get_device_vram(i)[1] for i in range(torch.cuda.device_count())
-            ]
-            best_idx = int(max(range(len(free_vrams)), key=lambda i: free_vrams[i]))
+            n_dev = torch.cuda.device_count()
+            free_vrams = [cls.get_device_vram(i)[1] for i in range(n_dev)]
+            max_free = max(free_vrams)
+            if max_free < min_free_mb:
+                return ()
+            # Default to 2nd GPU (index 1) when free (within 512 MB of max free VRAM),
+            # since other users on shared multi-GPU servers typically default to GPU 0.
+            if n_dev > 1 and free_vrams[1] >= min_free_mb and (max_free - free_vrams[1]) <= 512.0:
+                return (1,)
+            # Otherwise pick the GPU with the most free VRAM, preferring non-zero indices on ties.
+            best_idx = int(
+                max(
+                    range(n_dev),
+                    key=lambda i: (round(free_vrams[i], -2), i == 1, i > 0, i),
+                )
+            )
             return (best_idx,) if free_vrams[best_idx] >= min_free_mb else ()
         return ()
 

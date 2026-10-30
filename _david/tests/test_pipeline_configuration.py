@@ -101,6 +101,28 @@ class TestPipelineConfiguration(unittest.TestCase):
                 self.assertEqual(HardwareManager.get_safe_parallel_jobs(ratio=1), 8)
                 self.assertEqual(HardwareManager.get_safe_parallel_jobs(ratio=0.8), 6)
 
+    def test_auto_gpu_prefers_second_gpu_when_all_gpus_are_free(self):
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.device_count", return_value=2),
+            patch.object(
+                HardwareManager,
+                "get_device_vram",
+                side_effect=lambda i: (0.0, 20000.0, 20000.0),
+            ),
+        ):
+            self.assertEqual(HardwareManager.get_safe_gpus("auto"), (1,))
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.device_count", return_value=2),
+            patch.object(
+                HardwareManager,
+                "get_device_vram",
+                side_effect=lambda i: (0.0, 20000.0 if i == 0 else 2000.0, 20000.0),
+            ),
+        ):
+            self.assertEqual(HardwareManager.get_safe_gpus("auto"), (0,))
+
     def test_grid_preserves_arguments_and_uses_actual_script_path(self):
         spec = GridJobSpec("egcg_test", "--molecule 'CC(O)C' --epochs 200")
         manager = MetaCentrumGridManager()
