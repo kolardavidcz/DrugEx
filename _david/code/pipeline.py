@@ -417,6 +417,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Candidate conformer RNG seed (default: {defaults.random_seed})",
     )
     parser.add_argument(
+        "--timeout",
+        type=int,
+        default=defaults.timeout_seconds,
+        help=f"Per-molecule candidate ETKDG conformer timeout in seconds (0 = unlimited, default: {defaults.timeout_seconds})",
+    )
+    parser.add_argument(
         "--training-seed",
         type=int,
         default=defaults.training_seed,
@@ -527,6 +533,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         reference_random_seed=args.reference_seed,
         random_seed=args.seed,
         training_seed=args.training_seed,
+        timeout_seconds=args.timeout,
         optimization=opt,
         conformer_threads=args.conformer_threads,
         min_epochs=args.min_epochs,
