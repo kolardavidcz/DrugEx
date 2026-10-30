@@ -392,8 +392,26 @@ def _minimize_single_record(
     return validated, 0
 
 
+def _minimize_chunk_worker(
+    args: tuple[list[Chem.Mol | None], Optimization],
+) -> tuple[list[Chem.Mol], list[int]]:
+    """Minimize a chunk of conformer records in a worker process with double-precision pickling."""
+    enable_double_precision_mol_pickling()
+    chunk, settings = args
+    minimized: list[Chem.Mol] = []
+    statuses: list[int] = []
+    for record in chunk:
+        validated, status = _minimize_single_record(record, settings)
+        statuses.append(status)
+        if validated is not None:
+            minimized.append(validated)
+    return minimized, statuses
+
+
 def optimize_conformers(
-    records: Sequence[Chem.Mol], settings: Optimization
+    records: Sequence[Chem.Mol],
+    settings: Optimization,
+    n_jobs: int | None = None,
 ) -> tuple[list[Chem.Mol], list[int]]:
     """Minimize copies; retain only converged, identity-valid conformers.
 
@@ -403,8 +421,43 @@ def optimize_conformers(
     """
     if settings.method not in {"MMFF94", "MMFF94s", "UFF"}:
         raise ValueError(f"Unsupported optimization method: {settings.method}")
-    minimized: list[Chem.Mol] = []
-    statuses: list[int] = []
+
+    import multiprocessing
+    from drugex.training.scorers.parallel import pool_context
+    from _david.code.utils import HardwareManager
+
+    enable_double_precision_mol_pickling()
+    workers = (
+        HardwareManager.get_safe_parallel_jobs() if n_jobs is None else int(n_jobs)
+    )
+    if (
+        len(records) >= 32
+        and workers > 1
+        and not multiprocessing.current_process().daemon
+    ):
+        num_chunks = min(len(records), workers * 2)
+        chunk_size = (len(records) + num_chunks - 1) // num_chunks
+        tasks = [
+            (list(records[i : i + chunk_size]), settings)
+            for i in range(0, len(records), chunk_size)
+        ]
+        try:
+            with pool_context().Pool(
+                min(workers, len(tasks)),
+                initializer=enable_double_precision_mol_pickling,
+            ) as pool:
+                chunk_results = pool.map(_minimize_chunk_worker, tasks, chunksize=1)
+            minimized: list[Chem.Mol] = []
+            statuses: list[int] = []
+            for m_chunk, s_chunk in chunk_results:
+                minimized.extend(m_chunk)
+                statuses.extend(s_chunk)
+            return minimized, statuses
+        except Exception:
+            pass
+
+    minimized = []
+    statuses = []
     for record in records:
         validated, status = _minimize_single_record(record, settings)
         statuses.append(status)
