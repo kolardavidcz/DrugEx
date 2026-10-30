@@ -84,7 +84,7 @@ class TestPipelineConfiguration(unittest.TestCase):
         self.assertEqual(cfg.reference_rmsd_cutoff, 0.35)
         self.assertEqual(cfg.max_reference_conformers, 4)
         self.assertEqual(cfg.reference_selection_mode, "diverse")
-        self.assertEqual(cfg.score_variant, "tversky_mild_color_heavy")
+        self.assertEqual(cfg.score_variant, "tanimoto_combo")
         with self.assertRaises(ValueError):
             config_from_args(parse_args(["--dielectric", "78.4"]))
 
