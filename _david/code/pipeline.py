@@ -357,6 +357,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Explicit ROCS color weight override (default: {defaults.rocs_color_weight})",
     )
     parser.add_argument(
+        "--rocs-clip-upper",
+        type=float,
+        default=defaults.rocs_clip_upper,
+        help=f"ROCS raw score upper clipping bound (default: {defaults.rocs_clip_upper})",
+    )
+    parser.add_argument(
         "--minimize-candidates",
         action=argparse.BooleanOptionalAction,
         default=defaults.minimize_candidates,
@@ -520,6 +526,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         rocs_tversky_beta=args.tversky_beta,
         rocs_shape_weight=args.shape_weight,
         rocs_color_weight=args.color_weight,
+        rocs_clip_upper=args.rocs_clip_upper,
         minimize_candidates=args.minimize_candidates,
         gpu=int(args.gpu) if str(args.gpu).strip().isdigit() else args.gpu,
         cpu_ratio=args.cpu_ratio,

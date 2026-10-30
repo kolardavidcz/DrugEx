@@ -158,7 +158,7 @@ EXPERIMENTS=(
     "rl06_opt1_beta_penalty_ablation|#6 Penalty Ablation: Beta=0.15 Penalty vs Beta=0.0 on Option 1 (Mode Collapse Control)|--score-variant tversky_mild_color_heavy --reward-scheme harrington --beta 0.15 --epochs 100 --min-epochs 100 --patience 101"
 )
 
-# Common calibrated 3D physics & RL arguments shared across all 6 runs
+# Common calibrated 3D physics & RL arguments shared across runs
 COMMON_ARGS=(
     --minimize-candidates
     --optimization MMFF94s
@@ -172,13 +172,13 @@ COMMON_ARGS=(
     --samples 500
     --batch-size 64
     --eval-samples 1000
-    --epsilon 0.15
-    --epsilon-end 0.02
-    --use-decay
-    --decay-type cosine
+    --epsilon 0.0
+    --epsilon-end 0.0
+    --no-use-decay
     --training-seed 42
     --seed 42
-    --timeout 60
+    --timeout 30
+    --rocs-clip-upper 1.8
 )
 
 # Check whether an experiment directory has completed all stages cleanly
