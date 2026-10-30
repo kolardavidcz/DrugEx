@@ -413,18 +413,26 @@ class ConfigurableRDKitROCSScorer(RDKitROCSScorer):
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             conf_file = self.conformer_generator.genConformers(unique_smiles, tmpdir)
-            if not os.path.exists(conf_file):
+            if not os.path.exists(conf_file) or os.path.getsize(conf_file) == 0:
                 return scores
             conformers_by_mol: dict[int, list[Chem.Mol]] = defaultdict(list)
-            suppl = Chem.SDMolSupplier(conf_file, removeHs=False)
-            for conf_mol in suppl or []:
-                if conf_mol is None:
-                    continue
-                try:
-                    mol_id = int(conf_mol.GetProp("_Name").split("+")[0].split("_")[1])
-                    conformers_by_mol[mol_id].append(conf_mol)
-                except (KeyError, ValueError, IndexError):
-                    continue
+            try:
+                suppl = Chem.SDMolSupplier(conf_file, removeHs=False)
+                if suppl is None:
+                    return scores
+                for conf_mol in suppl:
+                    if conf_mol is None:
+                        continue
+                    try:
+                        mol_id = int(conf_mol.GetProp("_Name").split("+")[0].split("_")[1])
+                        conformers_by_mol[mol_id].append(conf_mol)
+                    except (KeyError, ValueError, IndexError):
+                        continue
+            except Exception:
+                return scores
+
+            if not conformers_by_mol:
+                return scores
 
             unique_count = len(unique_smiles)
             worker_args = [(mid, conformers_by_mol.get(mid, [])) for mid in range(unique_count)]

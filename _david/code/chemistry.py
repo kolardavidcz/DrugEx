@@ -296,10 +296,13 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         self.last_embedding_failures = 0
         self.last_identity_rejections = []
         self.last_filtered_molecules = []
-        path = str(Path(out_dir) / "conformers.sdf")
+        path_obj = Path(out_dir) / "conformers.sdf"
+        path = str(path_obj)
         self._embed_batch_to_sdf(smiles_list, path)
+        if not path_obj.is_file() or path_obj.stat().st_size == 0:
+            return path
         try:
-            records = list(Chem.SDMolSupplier(path, removeHs=False))
+            records = [m for m in Chem.SDMolSupplier(path, removeHs=False) if m is not None]
         except (OSError, ValueError):
             return path
         valid = [mol for mol in records if _has_finite_3d_conformer(mol)]
@@ -311,8 +314,13 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
                 _write_sdf_records(path, valid)
             return path
 
+        if not valid:
+            return path
+
         minimized, statuses = optimize_conformers(valid, self.optimization)
         self.last_minimization_statuses = statuses
+        if not minimized:
+            return path
         _write_sdf_records(path, minimized)
         failures = sum(status != 0 for status in statuses)
         if failures:

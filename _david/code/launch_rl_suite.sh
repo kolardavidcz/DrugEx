@@ -17,6 +17,8 @@
 #
 # Quick Usage (works both directly on dichtator OR from local WSL2):
 #   ./_david/code/launch_rl_suite.sh                 # Launch/resume in detached tmux (with 12:00 cutoff ON)
+#   ./_david/code/launch_rl_suite.sh --restart       # Kill existing session and restart suite
+#   ./_david/code/launch_rl_suite.sh --run <EXP_ID>  # Run ONLY a specific experiment (e.g. rl01_opt1_mild_color_heavy)
 #   ./_david/code/launch_rl_suite.sh --no-time-limit # Launch/resume ignoring the 12:00 cutoff
 #   ./_david/code/launch_rl_suite.sh --status        # Show table of completed/running/pending runs + GPU status
 #   ./_david/code/launch_rl_suite.sh --attach        # Attach to live tmux session (Ctrl+B, D to detach)
@@ -49,39 +51,56 @@ REMOTE_REPO="/home/kolarv/DrugEx"
 ACTION="launch"
 INSIDE_WORKER=0
 FORCE_LOCAL=0
+ONLY_EXP=""
 
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --no-time-limit|--ignore-cutoff|--after-12-ok)
             dont_start_run_after_12_00="false"
+            shift
             ;;
         --time-limit)
             dont_start_run_after_12_00="true"
+            shift
             ;;
         --status|status)
             ACTION="status"
+            shift
             ;;
         --attach|attach)
             ACTION="attach"
+            shift
             ;;
         --stop|stop|kill)
             ACTION="stop"
+            shift
+            ;;
+        --restart|--rerun|restart|rerun)
+            ACTION="restart"
+            shift
+            ;;
+        --run|--only)
+            ONLY_EXP="${2:-}"
+            shift 2
             ;;
         --pull|pull|sync)
             ACTION="pull"
+            shift
             ;;
         --local)
             FORCE_LOCAL=1
+            shift
             ;;
         --worker-loop)
             INSIDE_WORKER=1
+            shift
             ;;
         --help|-h)
             sed -n '2,27p' "$0"
             exit 0
             ;;
         *)
-            echo "Unknown option: $arg (use --help for usage)" >&2
+            echo "Unknown option: $1 (use --help for usage)" >&2
             exit 1
             ;;
     esac
@@ -111,10 +130,11 @@ if [[ "$CURRENT_HOST" != "dichtator"* && "$FORCE_LOCAL" -eq 0 ]]; then
     if [[ "$ACTION" == "attach" ]]; then
         exec ssh -t "${REMOTE_HOST}" "tmux attach -t ${TMUX_SESSION}"
     else
-        ForwardArgs=()
-        [[ "$dont_start_run_after_12_00" == "false" ]] && ForwardArgs+=("--no-time-limit")
-        [[ "$ACTION" != "launch" ]] && ForwardArgs+=("--${ACTION}")
-        exec ssh -t "${REMOTE_HOST}" "cd ${REMOTE_REPO} && bash ${SCRIPT_REL} --local ${ForwardArgs[*]}"
+        RemoteArgs=()
+        [[ "$dont_start_run_after_12_00" == "false" ]] && RemoteArgs+=("--no-time-limit")
+        [[ -n "$ONLY_EXP" ]] && RemoteArgs+=("--run" "$ONLY_EXP")
+        [[ "$ACTION" != "launch" ]] && RemoteArgs+=("--${ACTION}")
+        exec ssh -t "${REMOTE_HOST}" "cd ${REMOTE_REPO} && bash ${SCRIPT_REL} --local ${RemoteArgs[*]:-}"
     fi
 fi
 
@@ -225,6 +245,14 @@ if [[ "$ACTION" == "status" ]]; then
     exit 0
 fi
 
+if [[ "$ACTION" == "restart" ]]; then
+    if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+        tmux kill-session -t "$TMUX_SESSION"
+        echo "[RESTART] Killed existing tmux session '${TMUX_SESSION}'."
+    fi
+    ACTION="launch"
+fi
+
 if [[ "$ACTION" == "stop" ]]; then
     if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
         tmux kill-session -t "$TMUX_SESSION"
@@ -251,6 +279,7 @@ if [[ "$INSIDE_WORKER" -eq 0 ]]; then
 
     WORKER_CMD="cd ${REPO_ROOT} && DONT_START_RUN_AFTER_12_00=${dont_start_run_after_12_00} bash ${REPO_ROOT}/${SCRIPT_REL} --local --worker-loop"
     [[ "$dont_start_run_after_12_00" == "false" ]] && WORKER_CMD="${WORKER_CMD} --no-time-limit"
+    [[ -n "$ONLY_EXP" ]] && WORKER_CMD="${WORKER_CMD} --run ${ONLY_EXP}"
 
     tmux new-session -d -s "$TMUX_SESSION" "$WORKER_CMD"
     sleep 1
@@ -260,6 +289,8 @@ if [[ "$INSIDE_WORKER" -eq 0 ]]; then
     echo "Useful commands (zero LLM tokens required):"
     echo "  Check status : ./_david/code/launch_rl_suite.sh --status"
     echo "  Watch live   : ./_david/code/launch_rl_suite.sh --attach   (detach with Ctrl+B, then D)"
+    echo "  Restart/Rerun: ./_david/code/launch_rl_suite.sh --restart"
+    echo "  Run one only : ./_david/code/launch_rl_suite.sh --run <EXP_ID>"
     echo "  Resume >12:00: ./_david/code/launch_rl_suite.sh --no-time-limit"
     echo "  Pull results : ./_david/code/launch_rl_suite.sh --pull"
     exit 0
@@ -278,10 +309,14 @@ log_msg "=======================================================================
 log_msg "Starting DrugEx 6-Arm SequenceRNN RL Suite on $(hostname)"
 log_msg "dont_start_run_after_12_00 = ${dont_start_run_after_12_00} (cutoff window: ${CUTOFF_START_HOUR}:00..${CUTOFF_END_HOUR}:00)"
 log_msg "Suite output directory     = ${SUITE_DIR}"
+[[ -n "$ONLY_EXP" ]] && log_msg "Filter: running ONLY experiment '${ONLY_EXP}'"
 log_msg "================================================================================"
 
 for entry in "${EXPERIMENTS[@]}"; do
     IFS='|' read -r exp_id exp_desc exp_extra_args <<< "$entry"
+    if [[ -n "$ONLY_EXP" && "$exp_id" != "$ONLY_EXP" ]]; then
+        continue
+    fi
     exp_dir="${SUITE_DIR}/${exp_id}"
 
     # 1. Skip already completed runs
