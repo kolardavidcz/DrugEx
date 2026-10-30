@@ -30,8 +30,8 @@ class PipelineConfig:
     # with 8 Adam gradient steps/epoch (lr=1e-3). Pairing n_samples=500 with batch_size=64
     # preserves ceil(500/64) = 8 Adam steps/epoch at half the 3D scoring cost.
     epochs: int = 250  # ^ [250, 200, 100] (250 epochs = 2,000 Adam steps)
-    patience: int = 251  # Decoupled (> epochs) to prevent premature stopping
-    min_epochs: int = 250
+    patience: int = 100  # Decoupled (> epochs) to prevent premature stopping
+    min_epochs: int = 50
 
     n_samples: int = 500  # Molecule samples generated per training epoch # ^ [500, 1000]
     val_samples: int = 100
@@ -42,25 +42,28 @@ class PipelineConfig:
     beta: float = 0.0  # Baseline policy penalization # ^ [0.0, 0.05, 0.10] (beta=0.0 eliminates sparse-reward death spiral on early exploration)
 
     # Exploration Noise (Epsilon)
-    epsilon: float = 0.15  # ^ [0.15, 0.10] (initial prior-mutation mixing rate)
-    epsilon_end: float = 0.02  # ^ [0.02, 0.05] (terminal exploration floor)
-    decay_epochs: int = 250
+    #! OFF - super-supervisor note
+    epsilon: float = 0.0  # ^ [0.15, 0.10] (initial prior-mutation mixing rate)
+    epsilon_end: float = 0.0  # ^ [0.02, 0.05] (terminal exploration floor)
+    decay_epochs: int = 50
     decay_type: str = "cosine"  # ^ ["cosine", "linear"]
-    use_epsilon_decay: bool = True  # ^ [True, False]
+    use_epsilon_decay: bool = False  # ^ [True, False]
 
     # Multi-Objective Desirability Thresholds (ROCS, SA, QED)
     thresholds: tuple[float, float, float] = (0.35, 0.50, 0.50)
     # Empirical baseline percentile (e.g. 75.0 = Q3) to auto-calibrate from Stage 1 prior distribution
-    threshold_percentile: float | None = 75.0  # ^ [75.0, None]
+    #! OFF for now
+    threshold_percentile: float | None = None  # ^ [75.0, None]
 
     # Scoring & Rewards (Calibrated on 121x121 = 14,641 drug-pair x 162-combo selectivity grid):
+    #!: i would start with TomitoCombo - color shape with default settings
     # - Option 1 — Ultra-Clean Selectivity (α+β=2, (1.0, 1.0) or (0.8, 1.2) with 0.2S + 0.8C):
     #     "tversky_mild_color_heavy" -> (α=0.8, β=1.2) with 0.2S + 0.8C
     #     "selectivity_color_heavy"  -> (α=1.0, β=1.0) with 0.2S + 0.8C
     # - Option 2 — Aggressive Sub-Scaffold Hopping (α+β=2, (0.6, 1.4) with 0.3S + 0.7C or 0.2S + 0.8C):
     #     "tversky_scaffold_hop"        -> (α=0.6, β=1.4) with 0.3S + 0.7C
     #     "tversky_scaffold_hop_strict" -> (α=0.6, β=1.4) with 0.2S + 0.8C
-    score_variant: str = "tversky_mild_color_heavy"  # ^ ["tversky_mild_color_heavy", "selectivity_color_heavy", "tversky_scaffold_hop", "tversky_scaffold_hop_strict", "tanimoto_combo"]
+    score_variant: str = "tanimoto_combo"  # ^ ["tversky_mild_color_heavy", "selectivity_color_heavy", "tversky_scaffold_hop", "tversky_scaffold_hop_strict", "tanimoto_combo"]
     rocs_tversky_alpha: float | None = None  # ^ [None (use score_variant preset), 0.8, 1.0, 0.6] (Option 1: 0.8 or 1.0; Option 2: 0.6)
     rocs_tversky_beta: float | None = None  # ^ [None (use score_variant preset), 1.2, 1.0, 1.4] (Option 1: 1.2 or 1.0; Option 2: 1.4; α+β=2)
     rocs_shape_weight: float | None = None  # ^ [None (use score_variant preset), 0.2, 0.3, 0.5] (Option 1: 0.2; Option 2: 0.3 or 0.2)
@@ -73,7 +76,8 @@ class PipelineConfig:
     )  # ^ [(0.50, 0.25, 0.25), (0.60, 0.20, 0.20)]
 
     # Scorer Modifier Bounds (ROCS ClippedScore & SA SmoothClippedScore)
-    rocs_clip_upper: float = 2.0  # Raw TanimotoCombo [0, 2] -> normalized [0, 1]
+    #! we sould be ok with 90% for ROCS
+    rocs_clip_upper: float = 1.8  # Raw TanimotoCombo [0, 2] -> normalized [0, 1]
     sa_smooth_lower: float = 5.0  # Raw SA = 5.0 -> ~0.12 desirability
     sa_smooth_upper: float = 3.0  # Raw SA = 3.0 -> ~0.88 desirability
 
@@ -98,7 +102,8 @@ class PipelineConfig:
     reference_selection_mode: Literal["rmsd", "diverse"] = "diverse"  # ^ ["diverse", "rmsd"]
     energy_window_kcal: float = 8.0
     timeout_seconds: int = (
-        60  # Per-molecule ETKDG cap in seconds # ^ [60, 30, 20, 10, 0] (60s bounds pathological macrocycle hangs in RL; 0 = unlimited)
+        #! I switch from  60 to 30 based on my past experience
+        30  # Per-molecule ETKDG cap in seconds # ^ [60, 30, 20, 10, 0] (60s bounds pathological macrocycle hangs in RL; 0 = unlimited)
     )
     random_seed: int = 42
     training_seed: int | None = (
