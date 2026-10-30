@@ -98,7 +98,7 @@ class PipelineConfig:
     reference_selection_mode: Literal["rmsd", "diverse"] = "diverse"  # ^ ["diverse", "rmsd"]
     energy_window_kcal: float = 8.0
     timeout_seconds: int = (
-        0  # 0 = unlimited execution time (only limited by max_conformers)
+        10  # Per-molecule ETKDG cap in seconds # ^ [10, 20, 0] (prevents pathological de novo ring hangs in RL; 0 = unlimited)
     )
     random_seed: int = 42
     training_seed: int | None = (

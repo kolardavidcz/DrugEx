@@ -252,7 +252,7 @@ class TestPreparation(unittest.TestCase):
         generator = scorer.conformer_generator
         self.assertEqual(
             (generator.max_conformers, generator.max_isomers, generator.timeout),
-            (7, 8, 0),
+            (7, 8, 10),
         )
         self.assertEqual(generator._create_fresh_etkdg().randomSeed, 42)
 
