@@ -55,6 +55,9 @@ class TestPreparation(unittest.TestCase):
                 timeout=0,
                 conformer_threads=1,
                 n_jobs=1,
+                minimize_candidates=False,
+                optimization=Optimization("MMFF94", 1.0),
+                score_variant="tanimoto_combo",
             )
             raw_path = baseline.conformer_generator.genConformers(
                 [DEFAULT_MOLECULE], directory
@@ -76,6 +79,8 @@ class TestPreparation(unittest.TestCase):
                 conformer_threads=1,
                 n_jobs=1,
                 minimize_candidates=True,
+                optimization=Optimization("MMFF94", 1.0),
+                score_variant="tanimoto_combo",
             )
             self.assertAlmostEqual(
                 float(training.getScores([DEFAULT_MOLECULE])[0, 0]),
@@ -83,10 +88,14 @@ class TestPreparation(unittest.TestCase):
                 places=10,
             )
 
-    def test_candidate_minimization_switch_is_off_by_default_and_preserves_identity(
+    def test_candidate_minimization_switch_is_on_by_default_and_preserves_identity(
         self,
     ):
-        self.assertFalse(PipelineConfig().minimize_candidates)
+        self.assertTrue(PipelineConfig().minimize_candidates)
+        self.assertEqual(PipelineConfig().max_conformers, 20)
+        self.assertEqual(
+            PipelineConfig().optimization, Optimization("MMFF94s", 78.4)
+        )
         smiles = "CCCCCC"
         reference = Chem.AddHs(Chem.MolFromSmiles(smiles))
         self.assertEqual(AllChem.EmbedMolecule(reference, randomSeed=42), 0)
@@ -98,6 +107,7 @@ class TestPreparation(unittest.TestCase):
                     config=PipelineConfig(
                         max_conformers=3,
                         minimize_candidates=enabled,
+                        optimization=Optimization("MMFF94", 1.0),
                         conformer_threads=1,
                     ),
                 )

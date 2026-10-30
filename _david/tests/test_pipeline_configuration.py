@@ -73,12 +73,18 @@ class TestPipelineConfiguration(unittest.TestCase):
         self.assertEqual(cfg.optimization.dielectric, 78.4)
         self.assertEqual(cfg.min_epochs, 200)
 
-    def test_defaults_keep_previous_chemistry(self):
+    def test_defaults_reflect_calibrated_production_chemistry(self):
         cfg = config_from_args(parse_args([]))
-        self.assertFalse(cfg.minimize_candidates)
-        self.assertIsNone(cfg.optimization)
-        self.assertEqual(cfg.max_conformers, 30)
+        self.assertTrue(cfg.minimize_candidates)
+        self.assertIsNotNone(cfg.optimization)
+        self.assertEqual(cfg.optimization.method, "MMFF94s")
+        self.assertEqual(cfg.optimization.dielectric, 78.4)
+        self.assertEqual(cfg.max_conformers, 20)
         self.assertEqual(cfg.reference_attempts, 100)
+        self.assertEqual(cfg.reference_rmsd_cutoff, 0.35)
+        self.assertEqual(cfg.max_reference_conformers, 4)
+        self.assertEqual(cfg.reference_selection_mode, "diverse")
+        self.assertEqual(cfg.score_variant, "tversky_mild_color_heavy")
         with self.assertRaises(ValueError):
             config_from_args(parse_args(["--dielectric", "78.4"]))
 

@@ -26,83 +26,77 @@ class PipelineConfig:
     """
 
     # Reinforcement Learning Exploration
-    # DrugEx v1 (Liu et al., 2019, J. Cheminform. 11:35) ran up to 1000 epochs (converging ~200 epochs)
-    # with n_samples=1000, batch_size=128 (8 Adam gradient steps/epoch at lr=1e-3).
-    # DrugEx 3D ROCS tutorial (tutorial/advanced/rocs/config.py) uses epochs=50..100, n_samples=500..1000.
-    epochs: int = 50  # ^ [50, 100, 200] (at n_samples=500, batch_size=64 -> 8 gradient updates/epoch; 200 epochs = 1,600 updates matching DrugEx v1 convergence)
-    patience: int = 51  # Decoupled (> epochs) to prevent premature stopping
-    min_epochs: int = 50
+    # DrugEx v1 (Liu et al., 2019, J. Cheminform. 11:35) converges around ~200 epochs
+    # with 8 Adam gradient steps/epoch (lr=1e-3). Pairing n_samples=500 with batch_size=64
+    # preserves ceil(500/64) = 8 Adam steps/epoch at half the 3D scoring cost.
+    epochs: int = 100  # ^ [100, 200] (100..200 epochs = 800..1,600 Adam steps)
+    patience: int = 101  # Decoupled (> epochs) to prevent premature stopping
+    min_epochs: int = 100
 
-    n_samples: int = 500  # Molecule samples generated per training epoch #^ [500, 1000] (SequenceExplorer default is 1000; 500 with batch_size=64 keeps 8 Adam steps/epoch at 2x speed)
+    n_samples: int = 500  # Molecule samples generated per training epoch # ^ [500, 1000]
     val_samples: int = 100
     n_eval_samples: int = 1000  # Statistical evaluation sample pool size
-    batch_size: int = 64  # Mini-batch size per Adam policy-gradient step #^ [64, 128] (use 64 when n_samples=500, 128 when n_samples=1000 so ceil(n_samples/batch_size) == 8 updates/epoch)
+    batch_size: int = 64  # Mini-batch size per Adam policy-gradient step # ^ [64, 128] (use 64 with n_samples=500, 128 with n_samples=1000)
 
     criteria: str = std.AVG_AMEAN
-    beta: float = 0.0  # Baseline policy penalization (0.0 = unpenalized) #^ [0.0, 0.10, 0.15] (beta > 0 gives negative policy gradient (reward - beta < 0) to low-scoring decoys, preventing validity/entropy drift)
+    beta: float = 0.15  # Baseline policy penalization # ^ [0.15, 0.10, 0.0] (reward - beta < 0 penalizes low-scoring decoys)
 
     # Exploration Noise (Epsilon)
-    epsilon: float = 0.10  # ^[0.1, 0.0, [use_epsilon_decay=True, cosine, epsilon_end=0.0]] (and maybe even [use_epsilon_decay=True, linear, episolon_end=0.0], )
-    epsilon_end: float = 0.05
-    decay_epochs: int = 50
-    decay_type: str = "cosine"  # "cosine" or "linear"
-    use_epsilon_decay: bool = False
+    epsilon: float = 0.15  # ^ [0.15, 0.10] (initial prior-mutation mixing rate)
+    epsilon_end: float = 0.02  # ^ [0.02, 0.05] (terminal exploration floor)
+    decay_epochs: int = 100
+    decay_type: str = "cosine"  # ^ ["cosine", "linear"]
+    use_epsilon_decay: bool = True  # ^ [True, False]
 
     # Multi-Objective Desirability Thresholds (ROCS, SA, QED)
-    # Default static fallback calibrated to raw ROCS >= 0.70, raw SA <= 3.5, QED >= 0.50
-    thresholds: tuple[float, float, float] = (0.35, 0.50, 0.50)  # * if tresholds arent meet even if its ussfull molecule it gets score wtih 0.0 (treshold are also used to evaulate the epoch continuece on "desired_rasion" settings)
+    thresholds: tuple[float, float, float] = (0.35, 0.50, 0.50)
     # Empirical baseline percentile (e.g. 75.0 = Q3) to auto-calibrate from Stage 1 prior distribution
-    threshold_percentile: float | None = 75.0  # ^ or this is better to calculate threshold based on how good is base_network doing
+    threshold_percentile: float | None = 75.0  # ^ [75.0, None]
 
-    # Scoring & Rewards
-    # 162-Combo Selectivity Synthesis (14,641 drug pairs, O'Hagan & Kell 2016 α+β=2 Tanimoto scale):
-    # - Option 1 (Ultra-Clean Selectivity, <0.85% decoy FP at 0.35):
-    #     "selectivity_color_heavy"  -> α=1.0, β=1.0 (α+β=2) with 0.2S + 0.8C
-    #     "tversky_mild_color_heavy" -> α=0.8, β=1.2 (α+β=2) with 0.2S + 0.8C
-    # - Option 2 (Aggressive Sub-Scaffold Hopping, compact high-QED bioisosteres):
-    #     "tversky_scaffold_hop"        -> α=0.6, β=1.4 (α+β=2) with 0.3S + 0.7C
-    #     "tversky_scaffold_hop_strict" -> α=0.6, β=1.4 (α+β=2) with 0.2S + 0.8C
-    score_variant: str = std.VARIANT_TANIMOTO_COMBO  # ^ ["tanimoto_combo", "selectivity_color_heavy", "tversky_mild_color_heavy", "tversky_scaffold_hop", "tversky_scaffold_hop_strict", "tversky_subshape"]
-    rocs_tversky_alpha: float | None = None  # ^ [None (use score_variant preset), 1.0, 0.8, 0.6] (with rocs_tversky_beta = 2.0 - alpha on Tanimoto scale)
-    rocs_tversky_beta: float | None = None  # ^ [None (use score_variant preset), 1.0, 1.2, 1.4]
-    rocs_shape_weight: float | None = None  # ^ [None (use score_variant preset), 0.2, 0.3, 0.5]
-    rocs_color_weight: float | None = None  # ^ [None (use score_variant preset), 0.8, 0.7, 0.5]
-    reward_scheme: str = std.REWARD_WEIGHTED_SUM  # ^ ["weighted_sum", "pareto_crowding", "harrington"]
+    # Scoring & Rewards (Calibrated on 121x121 = 14,641 drug-pair x 162-combo selectivity grid):
+    # - Option 1 — Ultra-Clean Selectivity (α+β=2, (1.0, 1.0) or (0.8, 1.2) with 0.2S + 0.8C):
+    #     "tversky_mild_color_heavy" -> (α=0.8, β=1.2) with 0.2S + 0.8C
+    #     "selectivity_color_heavy"  -> (α=1.0, β=1.0) with 0.2S + 0.8C
+    # - Option 2 — Aggressive Sub-Scaffold Hopping (α+β=2, (0.6, 1.4) with 0.3S + 0.7C or 0.2S + 0.8C):
+    #     "tversky_scaffold_hop"        -> (α=0.6, β=1.4) with 0.3S + 0.7C
+    #     "tversky_scaffold_hop_strict" -> (α=0.6, β=1.4) with 0.2S + 0.8C
+    score_variant: str = "tversky_mild_color_heavy"  # ^ ["tversky_mild_color_heavy", "selectivity_color_heavy", "tversky_scaffold_hop", "tversky_scaffold_hop_strict", "tanimoto_combo"]
+    rocs_tversky_alpha: float | None = None  # ^ [None (use score_variant preset), 0.8, 1.0, 0.6] (Option 1: 0.8 or 1.0; Option 2: 0.6)
+    rocs_tversky_beta: float | None = None  # ^ [None (use score_variant preset), 1.2, 1.0, 1.4] (Option 1: 1.2 or 1.0; Option 2: 1.4; α+β=2)
+    rocs_shape_weight: float | None = None  # ^ [None (use score_variant preset), 0.2, 0.3, 0.5] (Option 1: 0.2; Option 2: 0.3 or 0.2)
+    rocs_color_weight: float | None = None  # ^ [None (use score_variant preset), 0.8, 0.7, 0.5] (Option 1: 0.8; Option 2: 0.7 or 0.8)
+    reward_scheme: str = std.REWARD_HARRINGTON  # ^ ["harrington", "pareto_crowding", "weighted_sum"]
     weights: tuple[float, float, float] = (
         0.50,
         0.25,
         0.25,
-    )  # ^ [none, (0.50, 0.25, 0.25)]
+    )  # ^ [(0.50, 0.25, 0.25), (0.60, 0.20, 0.20)]
 
     # Scorer Modifier Bounds (ROCS ClippedScore & SA SmoothClippedScore)
     rocs_clip_upper: float = 2.0  # Raw TanimotoCombo [0, 2] -> normalized [0, 1]
     sa_smooth_lower: float = 5.0  # Raw SA = 5.0 -> ~0.12 desirability
     sa_smooth_upper: float = 3.0  # Raw SA = 3.0 -> ~0.88 desirability
 
-    # 3D Conformer & Chemistry Settings
-    max_conformers: int = 30  # ^ [20, 30] (C=20..30 unminimized ETKDG candidates optimal speed-accuracy frontier in RL)
+    # 3D Conformer & Chemistry Settings (Calibrated on 128-drug panel: C=20 minimized beats C=75 unminimized)
+    max_conformers: int = 20  # ^ [20, 30] (C=20 with MMFF94s optimization reaches >=0.95 ceiling at minimum latency)
     max_isomers: int = 4  # Independent cap; enumerate only unresolved stereochemistry.
     max_heavy_atoms: int | None = 45  # Pre-filter limit for candidate conformer generation (None disables)
     max_rotatable_bonds: int | None = 15  # Pre-filter limit for candidate rotatable bonds (None disables)
 
     # Note: ``optimization`` defines the force-field profile (method, dielectric, max_iterations)
-    # shared by reference curation and optional candidate minimization; ``minimize_candidates``
-    # toggles whether RL candidates execute that minimization at runtime.
-    minimize_candidates: bool = (
-        False  # Optional force-field minimization after ETKDG; reference minimization is separate.
-    )
-    optimization: Optimization | None = (
-        None  # Explicit force-field profile #^ [Optimization("MMFF94s", 78.4), Optimization("MMFF94s", 6.5)]
-    )
+    # shared by reference curation and candidate minimization; ``minimize_candidates`` toggles
+    # whether RL candidates execute that minimization at runtime.
+    minimize_candidates: bool = True  # ^ [True, False]
+    optimization: Optimization | None = Optimization(
+        "MMFF94s", 78.4
+    )  # ^ [Optimization("MMFF94s", 78.4), Optimization("MMFF94s", 6.5)]
     reference_attempts: int = 100
-    reference_rmsd_cutoff: float | None = 1.25  # Butina RMSD cutoff in Å #^ [0.35, 0.50] (r=0.35 Å ETKDG default avoids collapsing polar rotamers)
+    reference_rmsd_cutoff: float | None = 0.35  # Butina RMSD cutoff in Å # ^ [0.35, 0.50]
     reference_random_seed: int | None = None  # None uses disjoint DEFAULT_REFERENCE_SEED (104729).
-    max_reference_conformers: int = (
-        3  # Hawkins low-energy basin ensemble size #^ [3, 4, 5] (K=4 with reference_selection_mode="diverse" or rmsd_cutoff=0.35 covers both ADME and pocket poses)
-    )
+    max_reference_conformers: int = 4  # Low-energy reference ensemble cap K # ^ [3, 4, 5]
     max_reference_isomers: int = 1
-    reference_selection_mode: Literal["rmsd", "diverse"] = "rmsd"  # ^ ["diverse", "rmsd"] ("diverse" farthest-first 3D shape+color maximizes pocket conformer coverage at K=3..5)
-    energy_window_kcal: float = 8.0  # ^ also try insted of vacume with 8.0 kcal, try water (MMFF94s eps=78.4) or receptor pocket (MMFF94s eps=6.5) envirument
+    reference_selection_mode: Literal["rmsd", "diverse"] = "diverse"  # ^ ["diverse", "rmsd"]
+    energy_window_kcal: float = 8.0
     timeout_seconds: int = (
         0  # 0 = unlimited execution time (only limited by max_conformers)
     )

@@ -29,6 +29,7 @@ from _david.code.chemistry import DEFAULT_REFERENCE_SEED
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.environment import PrepareMolecule, create_environment
 from _david.code.models import SequenceRNNOptimizer
+from _david.code.rocs import ROCS_SIMILARITY_PRESETS
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
 from _david.code.visualization import ResultAnalyzer, render_reference_ensemble
@@ -275,6 +276,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Molecules per training epoch (default: {defaults.n_samples})",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=defaults.batch_size,
+        help=f"Mini-batch size per Adam policy-gradient step (default: {defaults.batch_size})",
+    )
+    parser.add_argument(
         "--eval-samples",
         type=int,
         default=defaults.n_eval_samples,
@@ -288,7 +295,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--use-decay",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=defaults.use_epsilon_decay,
         help=f"Enable scheduled exploration noise decay (default: {defaults.use_epsilon_decay})",
     )
@@ -322,12 +329,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--score-variant",
         type=str,
         default=defaults.score_variant,
-        choices=[std.VARIANT_TANIMOTO_COMBO, std.VARIANT_TVERSKY],
+        choices=sorted(ROCS_SIMILARITY_PRESETS),
         help=f"3D ROCS scoring variant (default: {defaults.score_variant})",
     )
     parser.add_argument(
+        "--tversky-alpha",
+        type=float,
+        default=defaults.rocs_tversky_alpha,
+        help=f"Explicit Tversky alpha override (default: {defaults.rocs_tversky_alpha})",
+    )
+    parser.add_argument(
+        "--tversky-beta",
+        type=float,
+        default=defaults.rocs_tversky_beta,
+        help=f"Explicit Tversky beta override (default: {defaults.rocs_tversky_beta})",
+    )
+    parser.add_argument(
+        "--shape-weight",
+        type=float,
+        default=defaults.rocs_shape_weight,
+        help=f"Explicit ROCS shape weight override (default: {defaults.rocs_shape_weight})",
+    )
+    parser.add_argument(
+        "--color-weight",
+        type=float,
+        default=defaults.rocs_color_weight,
+        help=f"Explicit ROCS color weight override (default: {defaults.rocs_color_weight})",
+    )
+    parser.add_argument(
         "--minimize-candidates",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=defaults.minimize_candidates,
         help=f"Minimize candidates with the selected optimization profile (default: {defaults.minimize_candidates})",
     )
@@ -393,15 +424,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--optimization",
-        choices=["MMFF94", "MMFF94s", "UFF"],
+        choices=["MMFF94", "MMFF94s", "UFF", "none"],
         default=None,
-        help="Force-field optimization method (default: None)",
+        help=f"Force-field optimization method (default: {defaults.optimization})",
     )
     parser.add_argument(
         "--dielectric",
         type=float,
-        default=1.0,
-        help="MMFF dielectric constant (default: 1.0)",
+        default=None,
+        help="MMFF dielectric constant override (requires --optimization MMFF94/MMFF94s)",
     )
     parser.add_argument(
         "--conformer-threads",
@@ -448,19 +479,35 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
     """Keep CLI-to-configuration translation inspectable and usable by preflight."""
     from _david.code.chemistry import Optimization
 
-    if args.dielectric != 1.0 and args.optimization not in {"MMFF94", "MMFF94s"}:
+    defaults = PipelineConfig()
+    if args.dielectric is not None and args.optimization not in {"MMFF94", "MMFF94s"}:
         raise ValueError("A dielectric override requires an explicit MMFF profile")
+    if args.optimization is None:
+        opt = defaults.optimization
+    elif args.optimization == "none":
+        opt = None
+    else:
+        opt = Optimization(
+            args.optimization,
+            1.0 if args.dielectric is None else args.dielectric,
+        )
     return PipelineConfig(
         epochs=args.epochs,
         n_samples=args.samples,
+        batch_size=args.batch_size,
         n_eval_samples=args.eval_samples,
         epsilon=args.epsilon,
         epsilon_end=args.epsilon_end,
         use_epsilon_decay=args.use_decay,
+        decay_epochs=args.epochs,
         decay_type=args.decay_type,
         beta=args.beta,
         reward_scheme=args.reward_scheme,
         score_variant=args.score_variant,
+        rocs_tversky_alpha=args.tversky_alpha,
+        rocs_tversky_beta=args.tversky_beta,
+        rocs_shape_weight=args.shape_weight,
+        rocs_color_weight=args.color_weight,
         minimize_candidates=args.minimize_candidates,
         cpu_ratio=args.cpu_ratio,
         max_conformers=args.conformers,
@@ -473,9 +520,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         reference_random_seed=args.reference_seed,
         random_seed=args.seed,
         training_seed=args.training_seed,
-        optimization=Optimization(args.optimization, args.dielectric)
-        if args.optimization
-        else None,
+        optimization=opt,
         conformer_threads=args.conformer_threads,
         min_epochs=args.min_epochs,
         patience=args.patience,

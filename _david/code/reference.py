@@ -167,17 +167,17 @@ class PrepareMolecule:
     def __init__(
         self,
         num_conformers: int = 100,
-        max_reference_conformers: int = 3,
+        max_reference_conformers: int = 4,
         max_reference_isomers: int = 1,
         random_seed: int = 42,
         stereo_seed: int = 42,
-        rmsd_cutoff: float | None = 1.25,
+        rmsd_cutoff: float | None = 0.35,
         energy_window_kcal: float = 8.0,
         num_threads: int = 0,
         optimization: Optimization | None = None,
         embedding_rmsd: float | None = 0.35,
         embedding_timeout_seconds: int = 0,
-        selection_mode: Literal["rmsd", "diverse"] = "rmsd",
+        selection_mode: Literal["rmsd", "diverse"] = "diverse",
     ) -> None:
         if max_reference_isomers < 1:
             raise ValueError("max_reference_isomers must be >= 1")

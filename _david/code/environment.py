@@ -45,7 +45,21 @@ def create_rocs_scorer(
     """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
     cfg = config or PipelineConfig()
     ref_input = str(references) if isinstance(references, Path) else references
-    active_variant = cfg.score_variant if score_variant is None else score_variant
+    active_variant = (
+        (std.VARIANT_TANIMOTO_COMBO if config is None else cfg.score_variant)
+        if score_variant is None
+        else score_variant
+    )
+    active_minimize = (
+        (False if config is None else cfg.minimize_candidates)
+        if minimize_candidates is None
+        else minimize_candidates
+    )
+    active_opt = (
+        (None if config is None else cfg.optimization)
+        if optimization is None
+        else optimization
+    )
     conf_gen = CandidateConformerGenerator(
         max_conformers=cfg.max_conformers if max_conformers is None else max_conformers,
         max_isomers=cfg.max_isomers if max_isomers is None else max_isomers,
@@ -55,8 +69,8 @@ def create_rocs_scorer(
         show_progress=False,
         timeout=60 if (timeout is None and config is None) else (cfg.timeout_seconds if timeout is None else timeout),
         random_seed=cfg.random_seed if random_seed is None else random_seed,
-        minimize_candidates=cfg.minimize_candidates if minimize_candidates is None else minimize_candidates,
-        optimization=cfg.optimization if optimization is None else optimization,
+        minimize_candidates=active_minimize,
+        optimization=active_opt,
     )
     safe_jobs = (
         n_jobs

@@ -42,13 +42,6 @@ class std:
     ROCS_SCORE_TYPE: str = "TanimotoCombo"
     VARIANT_TANIMOTO: str = "tanimoto"
     VARIANT_TANIMOTO_COMBO: str = "tanimoto_combo"
-    # Option 1 — Ultra-Clean Selectivity (α+β=2 Tanimoto scale + Color-Heavy 0.2S + 0.8C)
-    VARIANT_SELECTIVITY_COLOR_HEAVY: str = "selectivity_color_heavy"
-    VARIANT_TVERSKY_MILD_COLOR_HEAVY: str = "tversky_mild_color_heavy"
-    # Option 2 — Aggressive Sub-Scaffold Hopping (α+β=2, (0.6, 1.4) + 0.3S+0.7C or 0.2S+0.8C)
-    VARIANT_TVERSKY_SCAFFOLD_HOP: str = "tversky_scaffold_hop"
-    VARIANT_TVERSKY_SCAFFOLD_HOP_STRICT: str = "tversky_scaffold_hop_strict"
-    # Legacy / DrugEx built-in variants (α+β=1 Dice scale, 0.5S + 0.5C)
     VARIANT_TVERSKY: str = "tversky_subshape"
     VARIANT_TVERSKY_REF: str = "tversky_ref"
     VARIANT_TVERSKY_FIT: str = "tversky_fit"
