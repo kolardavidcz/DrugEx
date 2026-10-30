@@ -18,6 +18,7 @@ from _david.code.chemistry import (
     Optimization,
 )
 from _david.code.reference import PrepareMolecule
+from _david.code.rocs import ConfigurableRDKitROCSScorer
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
 
@@ -36,6 +37,10 @@ def create_rocs_scorer(
     optimization: Optimization | None = None,
     max_heavy_atoms: int | None = 45,
     max_rotatable_bonds: int | None = 15,
+    tversky_alpha: float | None = None,
+    tversky_beta: float | None = None,
+    shape_weight: float | None = None,
+    color_weight: float | None = None,
 ) -> RDKitROCSScorer:
     """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
     cfg = config or PipelineConfig()
@@ -63,7 +68,7 @@ def create_rocs_scorer(
         if active_variant in (std.VARIANT_TANIMOTO, std.VARIANT_TANIMOTO_COMBO)
         else active_variant
     )
-    scorer = RDKitROCSScorer(
+    scorer = ConfigurableRDKitROCSScorer(
         references=ref_input,
         conformer_generator=conf_gen,
         score_type=std.ROCS_SCORE_TYPE,
@@ -71,6 +76,10 @@ def create_rocs_scorer(
         use_colors=True,
         show_progress=False,
         n_jobs=safe_jobs,
+        tversky_alpha=cfg.rocs_tversky_alpha if tversky_alpha is None else tversky_alpha,
+        tversky_beta=cfg.rocs_tversky_beta if tversky_beta is None else tversky_beta,
+        shape_weight=cfg.rocs_shape_weight if shape_weight is None else shape_weight,
+        color_weight=cfg.rocs_color_weight if color_weight is None else color_weight,
     )
     scorer.getKey = lambda: [std.ROCS]
     return scorer

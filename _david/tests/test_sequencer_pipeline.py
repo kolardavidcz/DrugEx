@@ -260,6 +260,38 @@ class TestPreparation(unittest.TestCase):
                 check_identity(mol, Chem.MolFromSmiles(DEFAULT_MOLECULE))
             self.assertEqual(len({Chem.MolToSmiles(Chem.RemoveHs(m)) for m in mols}), 1)
 
+    def test_configurable_rocs_presets_and_custom_tversky_color_weights(self):
+        ref = Chem.AddHs(Chem.MolFromSmiles("Oc1ccccc1O"))
+        self.assertEqual(AllChem.EmbedMolecule(ref, randomSeed=42), 0)
+        for variant, expected in (
+            ("selectivity_color_heavy", (1.0, 1.0, 0.2, 0.8)),
+            ("tversky_mild_color_heavy", (0.8, 1.2, 0.2, 0.8)),
+            ("tversky_scaffold_hop", (0.6, 1.4, 0.3, 0.7)),
+            ("tversky_scaffold_hop_strict", (0.6, 1.4, 0.2, 0.8)),
+        ):
+            cfg = PipelineConfig(
+                score_variant=variant,
+                max_conformers=2,
+                conformer_threads=1,
+            )
+            env = create_environment(ref, config=cfg)
+            scorer = env.scorers[0]
+            self.assertEqual(
+                (
+                    scorer.tversky_alpha,
+                    scorer.tversky_beta,
+                    scorer.shape_weight,
+                    scorer.color_weight,
+                ),
+                expected,
+            )
+            self.assertTrue(scorer._use_custom_weights)
+            raw = scorer._score_sequential(1, {0: [Chem.Mol(ref)]}, 1)
+            self.assertAlmostEqual(float(raw[0, 0]), 2.0, places=5)
+            self.assertAlmostEqual(
+                float(scorer.getModifiedScores(raw)[0, 0]), 1.0, places=5
+            )
+
 
 class TestRNNTransfer(unittest.TestCase):
     def test_loaded_agent_and_frozen_prior_do_not_share_parameter_storage(self):
