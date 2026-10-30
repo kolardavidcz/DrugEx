@@ -98,7 +98,7 @@ class PipelineConfig:
     reference_selection_mode: Literal["rmsd", "diverse"] = "diverse"  # ^ ["diverse", "rmsd"]
     energy_window_kcal: float = 8.0
     timeout_seconds: int = (
-        30  # Per-molecule ETKDG cap in seconds # ^ [30, 20, 10, 0] (30s bounds pathological macrocycle hangs in RL; 0 = unlimited)
+        60  # Per-molecule ETKDG cap in seconds # ^ [60, 30, 20, 10, 0] (60s bounds pathological macrocycle hangs in RL; 0 = unlimited)
     )
     random_seed: int = 42
     training_seed: int | None = (

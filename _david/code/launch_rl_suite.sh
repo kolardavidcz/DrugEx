@@ -178,7 +178,7 @@ COMMON_ARGS=(
     --decay-type cosine
     --training-seed 42
     --seed 42
-    --timeout 30
+    --timeout 60
 )
 
 # Check whether an experiment directory has completed all stages cleanly
