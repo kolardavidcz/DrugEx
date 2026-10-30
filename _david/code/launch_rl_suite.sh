@@ -3,12 +3,12 @@
 # DrugEx SequenceRNN 6-Arm RL Experiment Suite Launcher (Resumable + tmux)
 # ==============================================================================
 # Prioritized 6-arm study order (most meaningful -> least meaningful):
-#   1. rl01_opt1_mild_color_heavy   (Primary Thesis Anchor: Option 1 (0.8, 1.2) + 0.2S/0.8C, Harrington, beta=0.15)
-#   2. rl02_opt2_scaffold_hop       (Option 2 Sub-Scaffold Hopping: (0.6, 1.4) + 0.3S/0.7C)
-#   3. rl03_baseline_tanimoto_combo (Standard ROCS Control: (1.0, 1.0) + 0.5S/0.5C equal-weight TanimotoCombo)
-#   4. rl04_legacy_dice_tversky03_07(Negative Control: Legacy DrugEx (0.3, 0.7) alpha+beta=1 Dice subshape)
-#   5. rl05_opt1_pareto_vs_harrington(Multi-Objective Reward Ablation: Pareto crowding vs Harrington on Option 1)
-#   6. rl06_opt1_200epochs_beta0    (Long-Horizon & Unpenalized Ablation: 200 epochs, beta=0.0 on Option 1)
+#   1. rl01_opt1_mild_color_heavy   (Primary Thesis Anchor: Option 1 (0.8, 1.2) + 0.2S/0.8C, Harrington, beta=0.0, 250 ep)
+#   2. rl02_opt2_scaffold_hop       (Option 2 Sub-Scaffold Hopping: (0.6, 1.4) + 0.3S/0.7C, Harrington, beta=0.0, 250 ep)
+#   3. rl03_baseline_tanimoto_combo (Standard ROCS Control: (1.0, 1.0) + 0.5S/0.5C equal-weight TanimotoCombo, beta=0.0, 250 ep)
+#   4. rl04_legacy_dice_tversky03_07(Negative Control: Legacy DrugEx (0.3, 0.7) alpha+beta=1 Dice subshape, beta=0.0, 250 ep)
+#   5. rl05_opt1_pareto_vs_harrington(Multi-Objective Reward Ablation: Pareto crowding vs Harrington on Option 1, beta=0.0, 250 ep)
+#   6. rl06_opt1_beta_penalty_ablation(Penalty Ablation: Beta=0.15 Penalty vs Beta=0.0 on Option 1, Mode Collapse Control)
 #
 # All 6 runs share the calibrated 3D conformer physics defaults from config.py:
 #   - minimize_candidates=True, max_conformers=20, Optimization("MMFF94s", 78.4)
@@ -150,12 +150,12 @@ mkdir -p "$SUITE_DIR"
 
 # 6 prioritized experiments: "EXP_ID|DESCRIPTION|EXTRA_CLI_ARGS"
 EXPERIMENTS=(
-    "rl01_opt1_mild_color_heavy|#1 Primary Anchor: Option 1 (0.8, 1.2) + 0.2S/0.8C, Harrington, beta=0.15, 100 ep|--score-variant tversky_mild_color_heavy --reward-scheme harrington --beta 0.15 --epochs 100 --min-epochs 100 --patience 101"
-    "rl02_opt2_scaffold_hop|#2 Option 2 Sub-Scaffold Hopping: (0.6, 1.4) + 0.3S/0.7C, Harrington, beta=0.15, 100 ep|--score-variant tversky_scaffold_hop --reward-scheme harrington --beta 0.15 --epochs 100 --min-epochs 100 --patience 101"
-    "rl03_baseline_tanimoto_combo|#3 Standard ROCS Control: (1.0, 1.0) + 0.5S/0.5C TanimotoCombo, Harrington, beta=0.15, 100 ep|--score-variant tanimoto_combo --reward-scheme harrington --beta 0.15 --epochs 100 --min-epochs 100 --patience 101"
-    "rl04_legacy_dice_tversky03_07|#4 Negative Control: Legacy DrugEx (0.3, 0.7) alpha+beta=1 Dice Subshape, 100 ep|--score-variant tversky_subshape --reward-scheme harrington --beta 0.15 --epochs 100 --min-epochs 100 --patience 101"
-    "rl05_opt1_pareto_vs_harrington|#5 Reward Ablation: Pareto Crowding vs Harrington on Option 1 (0.8, 1.2) + 0.2S/0.8C, 100 ep|--score-variant tversky_mild_color_heavy --reward-scheme pareto_crowding --beta 0.15 --epochs 100 --min-epochs 100 --patience 101"
-    "rl06_opt1_200epochs_beta0|#6 Horizon & Penalty Ablation: 200 Epochs + beta=0.0 on Option 1 (0.8, 1.2) + 0.2S/0.8C|--score-variant tversky_mild_color_heavy --reward-scheme harrington --beta 0.0 --epochs 200 --min-epochs 200 --patience 201"
+    "rl01_opt1_mild_color_heavy|#1 Primary Anchor: Option 1 (0.8, 1.2) + 0.2S/0.8C, Harrington, beta=0.0, 250 ep|--score-variant tversky_mild_color_heavy --reward-scheme harrington --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
+    "rl02_opt2_scaffold_hop|#2 Option 2 Sub-Scaffold Hopping: (0.6, 1.4) + 0.3S/0.7C, Harrington, beta=0.0, 250 ep|--score-variant tversky_scaffold_hop --reward-scheme harrington --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
+    "rl03_baseline_tanimoto_combo|#3 Standard ROCS Control: (1.0, 1.0) + 0.5S/0.5C TanimotoCombo, Harrington, beta=0.0, 250 ep|--score-variant tanimoto_combo --reward-scheme harrington --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
+    "rl04_legacy_dice_tversky03_07|#4 Negative Control: Legacy DrugEx (0.3, 0.7) alpha+beta=1 Dice Subshape, 250 ep|--score-variant tversky_subshape --reward-scheme harrington --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
+    "rl05_opt1_pareto_vs_harrington|#5 Reward Ablation: Pareto Crowding vs Harrington on Option 1 (0.8, 1.2) + 0.2S/0.8C, 250 ep|--score-variant tversky_mild_color_heavy --reward-scheme pareto_crowding --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
+    "rl06_opt1_beta_penalty_ablation|#6 Penalty Ablation: Beta=0.15 Penalty vs Beta=0.0 on Option 1 (Mode Collapse Control)|--score-variant tversky_mild_color_heavy --reward-scheme harrington --beta 0.15 --epochs 100 --min-epochs 100 --patience 101"
 )
 
 # Common calibrated 3D physics & RL arguments shared across all 6 runs

@@ -29,9 +29,9 @@ class PipelineConfig:
     # DrugEx v1 (Liu et al., 2019, J. Cheminform. 11:35) converges around ~200 epochs
     # with 8 Adam gradient steps/epoch (lr=1e-3). Pairing n_samples=500 with batch_size=64
     # preserves ceil(500/64) = 8 Adam steps/epoch at half the 3D scoring cost.
-    epochs: int = 100  # ^ [100, 200] (100..200 epochs = 800..1,600 Adam steps)
-    patience: int = 101  # Decoupled (> epochs) to prevent premature stopping
-    min_epochs: int = 100
+    epochs: int = 250  # ^ [250, 200, 100] (250 epochs = 2,000 Adam steps)
+    patience: int = 251  # Decoupled (> epochs) to prevent premature stopping
+    min_epochs: int = 250
 
     n_samples: int = 500  # Molecule samples generated per training epoch # ^ [500, 1000]
     val_samples: int = 100
@@ -39,12 +39,12 @@ class PipelineConfig:
     batch_size: int = 64  # Mini-batch size per Adam policy-gradient step # ^ [64, 128] (use 64 with n_samples=500, 128 with n_samples=1000)
 
     criteria: str = std.AVG_AMEAN
-    beta: float = 0.15  # Baseline policy penalization # ^ [0.15, 0.10, 0.0] (reward - beta < 0 penalizes low-scoring decoys)
+    beta: float = 0.0  # Baseline policy penalization # ^ [0.0, 0.05, 0.10] (beta=0.0 eliminates sparse-reward death spiral on early exploration)
 
     # Exploration Noise (Epsilon)
     epsilon: float = 0.15  # ^ [0.15, 0.10] (initial prior-mutation mixing rate)
     epsilon_end: float = 0.02  # ^ [0.02, 0.05] (terminal exploration floor)
-    decay_epochs: int = 100
+    decay_epochs: int = 250
     decay_type: str = "cosine"  # ^ ["cosine", "linear"]
     use_epsilon_decay: bool = True  # ^ [True, False]
 

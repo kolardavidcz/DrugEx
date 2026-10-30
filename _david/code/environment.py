@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Sequence
 
@@ -111,7 +112,7 @@ class HarringtonDesirabilityReward(RewardScheme):
     def __init__(
         self,
         weights: Sequence[float] = (0.50, 0.25, 0.25),
-        rocs_anchors: tuple[float, float, float, float] = (0.50, 0.05, 0.70, 0.70),
+        rocs_anchors: tuple[float, float, float, float] = (0.20, 0.05, 0.60, 0.80),
         sa_anchors: tuple[float, float, float, float] = (0.20, 0.05, 0.80, 0.90),
         qed_anchors: tuple[float, float, float, float] = (0.30, 0.05, 0.70, 0.90),
         eps: float = 1e-6,
@@ -192,7 +193,15 @@ class HarringtonDesirabilityReward(RewardScheme):
             d_j = self._eval_desirability(scores_clean[:, j], b0, b1)
             log_d_sum += w_norm[j] * np.log(d_j + self.eps)
 
-        return np.clip(np.exp(log_d_sum), 0.0, 1.0).reshape(-1, 1)
+        rewards = np.clip(np.exp(log_d_sum), 0.0, 1.0).reshape(-1, 1)
+        if isinstance(smiles, (list, tuple)):
+            for idx, s in enumerate(smiles):
+                if isinstance(s, str) and (
+                    re.search(r"([A-Za-z])\1{7,}", s)
+                    or (len(s) > 20 and s.count("N") / len(s) > 0.50)
+                ):
+                    rewards[idx] = 0.0
+        return rewards
 
 
 def resolve_reward_scheme(
