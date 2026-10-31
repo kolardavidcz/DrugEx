@@ -1,114 +1,138 @@
-# Thesis implementation guide
+# DrugEx Thesis Implementation & Technical Agent Guide
 
-## Ownership, Ambition & Academic Rigor
+This document is the authoritative single source of truth for AI agents and human researchers working on the DrugEx bachelor's thesis codebase (`/home/kolar/DrugEx/_david/`).
 
-The user owns the bachelor's thesis and its scientific decisions. We operate as an ambitious, tightly-coupled research partnership:
+---
 
-- **Frontier Work in the Loop**: For exploratory and frontier scientific problems, keep the user actively in the loop. Avoid long, unverified autonomous loops that risk drifting into speculative errors or hallucinations. Break complex problems into testable milestones and verify results incrementally.
-- **Brutally Honest & Critical Academic Stance**: Debate hypotheses candidly from first principles. Challenge unsupported assumptions, surface hidden trade-offs, and explain disagreements rather than agreeing automatically. When the user asks "what do you think?", "should we?", or expresses uncertainty, critically examine the theoretical and empirical evidence before answering.
-- **Self-Critical Evaluation of Unfavorable Results**: Actively search for, measure, and visualize negative or unfavorable outcomes (e.g., metric collapse, stereochemical failure, scoring artifacts, energy non-convergence). Never mask inaccuracies or cherry-pick flattering baselines.
-- **Scope & Implementation**: Keep all thesis implementation under `_david/`. DrugEx core is read-only. Keep code modular, class-first, type-annotated, and readable. Before proposing new algorithms, inspect DrugEx core, then established libraries such as RDKit.
-- **Clean Execution Hygiene**: Never create rogue execution directories in `.cache`, `/tmp`, or ad-hoc home paths. Clean up temporary model packages, test scripts, and background daemons immediately after execution. Preserve user comments in `code/config.py`.
+## 1. Core Engineering & Execution Hygiene
 
-## Molecule-agnostic pipeline
+1. **Isolation Boundary**:
+   - All thesis code, experimental scripts, configurations, and test suites must strictly reside under `_david/`.
+   - **DrugEx core remains strictly read-only.** Never modify files under `drugex/` or repository root.
+2. **Dual-Host Development Workflow**:
+   - **Local Workstation** (`/home/kolar/DrugEx/`): Used for editing, linting (`ruff`), unit test execution (`python -m unittest discover -s _david/tests -v`), and lightweight batch profiling.
+   - **Remote Lab Server (`dichtator`)** (`kolarv@147.33.72.143`): Primary server for offline model evaluation, deep profiling, and sanity runs. Connect via SSH alias `dichtator`. Always check for user edits before synchronizing (`git status`, `git stash`).
+   - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): Primary cluster for multi-arm reinforcement learning training and GPU compute. Managed via `_david/code/metacentrum/grid.py`.
+3. **Zero Broken Tests & Lints**:
+   - Maintain zero tolerance for test failures or lint regressions.
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/tests -v` (Currently 74/74 passing).
+   - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
-References and candidates are inputs, not named special cases. EGCG is the
-current configurable default reference for unprompted Papyrus SMILES SequenceRNN
-generation, not a fragment prompt. Do not specialize preparation, conformer
-budgets, identity checks, visualization or success criteria to EGCG or another
-named molecule. A single-reference experiment cannot establish generality.
+---
 
-Apply the same explicit chemistry policy to every supported input. Preserve
-specified stereochemistry; distinguish unresolved stereochemistry from a
-preparation error. Report unsupported chemistry, missing force-field parameters,
-embedding failures and nonconvergence explicitly. Molecule-agnostic does not
-promise support for every chemical structure.
+## 2. Biological Target & Cheminformatics Model
 
-The conformer study must use the same candidate-preparation/scoring path and
-isomer policy as training. Deep reference optimization and candidate preparation
-serve different roles; document that distinction. Any alternative candidate path
-is a labelled comparison, not evidence that training already uses it. Keep
-isomer and conformer limits independently configurable; coupling them is a
-proposal until selected. Report actual enumerated/embedded/retained counts.
+- **Target Query Molecule**: (-)-Epigallocatechin gallate (EGCG)
+  - SMILES: `C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O`
+  - Formula: $\text{C}_{22}\text{H}_{18}\text{O}_{11}$, MW: $458.37\text{ Da}$, Heavy Atoms: $33$, Rotatable Bonds: $3$, H-Bond Donors: $8$, H-Bond Acceptors: $11$.
+  - Physicochemical Profile: Natural polyphenol; **$\text{QED} = 0.21$** (severely penalized by Lipinski / Veber drug-like rules).
+- **Physics-Based 3D Scoring Engine**:
+  - Implemented in `_david/code/rocs.py` via `ConfigurableRDKitROCSScorer` and `RDKitROCSScorer`.
+  - Computes 3D Gaussian volume overlaps (Shape Tanimoto) and color feature alignments (Color Tanimoto using RDKit pharmacophore donor/acceptor/hydrophobe features).
+  - Metric: $\text{TanimotoCombo} = \text{ShapeTanimoto} + \text{ColorTanimoto} \in [0, 2]$.
 
-For self-recovery, every parent has its own independent reference ensemble.
-Different candidates scored against one common query answer a different question;
-make that comparison explicit before interpreting scores or launching a large run.
+---
 
-## Science and reporting
+## 3. Scientific Discoveries & Autopsy of Prior Failures
 
-Conformer calibration serves a dependable, affordable ligand-based RL reward.
-Do not expand it into physical-pose or solvent-population simulation unless the
-user chooses that research question.
+### 3.1 Run 01 Autopsy (`rl01_opt1_mild_color_heavy`, 250 Epochs)
+- **Results**: Completed 250 epochs in 21.4 hours on `dichtator`. However, median ROCS dropped to $0.000$, syntactic validity crashed to $39.0\%$, and median molecular weight contracted by $-21.3\%$ ($385.5 \to 303.3\text{ Da}$).
+- **Root Cause 1: The SA Shrinkage Trap**:
+  Used `SmoothClippedScore(5.0, 3.0)` on synthetic accessibility. This function continuously rewarded lower SA without an asymptotic plateau. Because small fragments naturally have lower SA scores, the agent maximized reward by dropping heavy atoms ($27 \to 20\text{ HAC}$).
+- **Root Cause 2: The QED Objective Conflict**:
+  Included QED with weight $0.25$. Because EGCG has $\text{QED} = 0.21$, optimizing QED provided a strong gradient to strip polyphenol rings into high-QED fragments ($0.85\text{--}0.92$), fighting the 3D shape objective.
+- **Root Cause 3: Harrington Gompertz Anchor Compression**:
+  Normalized ROCS by dividing by `rocs_clip_upper=2.0`. Under Gompertz anchors $(0.20, 0.05, 0.60, 0.80)$, baseline candidates (raw ROCS $<0.60$) landed in a flat zero-desirability basin, eliminating policy gradients.
 
-Use [consult-literature](../.agents/skills/consult-literature/SKILL.md) before
-choosing, recommending or changing research methods, consequential parameters,
-datasets or evaluation. Use free primary literature and inspect the actual
-implementation. Routine software fixes preserving scientific behavior do not
-need a new literature review.
+### 3.2 Supervisor Breakthrough (`fulopjoz/DrugEx:egcg-rocs-tutorial`)
+In `tutorial/advanced/rocs/egcg/final_out/eps0.1/executed_eps0.1.ipynb`, supervisor Jozef Fülöp achieved a massive positive shift:
+- **Median ROCS Combo**: $+0.1425$ ($0.638 \to 0.781$), max hit $0.992$, $19.4\times$ enrichment at ROCS $\ge 0.85$.
+- **Training Horizon**: Only **50 epochs** (completed in 20.7 hours on a 32-core node).
+- **The Critical Fixes**:
+  1. Changed SA modifier to `ClippedScore(lower_x=5.0, upper_x=3.0)`. Flat at $1.0$ below raw SA $3.0$, yielding zero marginal reward for fragment shrinkage. MW increased toward EGCG ($387.6 \to 404.0\text{ Da}$).
+  2. Dropped QED from RL environment; optimized only ROCS and SA.
+  3. Evaluated raw TanimotoCombo $[0, 2]$ directly via `ParetoCrowdingDistance`.
+  4. Kept constant exploration noise $\epsilon = 0.10$.
 
-Measure unfavorable outcomes as well as promising ones. Include relevant
-diagnostics in `code/visualization.py`. State score definitions and transformations
-explicitly; never infer their scale from observed maxima. Scoring/conformer
-experiments do not establish RNN training improvements.
+### 3.3 The Epsilon Exploration Mechanism
+- In `drugex/training/generators/sequence_rnn.py`, $\epsilon$ is evaluated **at every individual character token** (`torch.rand < epsilon`).
+- At $\epsilon = 0.10$, a 40-token SMILES contains an average of $4.0$ prior-mutated tokens, and $98.5\%$ of molecules contain alien tokens.
+- However, setting $\epsilon = 0.0$ leads to catastrophic mode collapse (uniqueness collapsed to $0.226$ by epoch 60 in supervisor's `v2` run) because SequenceRNN lacks entropy regularization ($\mathcal{H}=0$) or adaptive KL penalties.
+- **The Golden Mean**: $\epsilon = 0.05$ with `use_epsilon_decay = False`. It protects against mode collapse while allowing $70\%\text{--}80\%$ of tokens to be generated purely by the trained policy.
 
-When a consequential result or method remains unclear to the user, provide a
-readable Markdown explanation with a concrete molecular comparison, a diagram or
-table when useful, and a clear distinction between measured facts and hypotheses.
-Keep results.md as the maintained entry point and link requested dated artifacts.
-Use consistent terms for an input molecule, stereoisomer, conformer, embedding
-request and retained reference. Explain the practical difference between similar
-technical names before asking for a choice; do not infer a method change from
-a spelling variation when an existing choice is already recorded.
-Lead method discussions with one evidence-based recommendation and its reasons.
-Before proposing a parameter grid, identify the deployed quantity and how often
-its cost is paid. Reference preparation is a one-time cost; retained reference
-count controls repeated alignment work. Embedding requests are not a substitute
-for the retained count. Reuse saved measurements before launching more geometry
-generation, and explain what a comparison can actually decide.
-Ask for a choice when a material scientific trade-off needs the user's judgment;
-do not hand back a list of unexplained technical options.
+### 3.4 Conformer Generation & Multi-Core Serialization Bottleneck
+- In `CandidateConformerGenerator._embed_batch_to_sdf` ([`_david/code/chemistry.py`](code/chemistry.py)), conformer embedding previously ran in a serial Python loop in the main process, capping throughput at $\sim 0.34\text{ mol/s}$ and causing idle CPU cores.
+- **The Fix**: Parallelized candidate embedding via chunked multiprocessing pools (`pool_context().Pool`) with `params.numThreads = 1` inside worker processes. Achieves exact bit-for-bit parity (`diff <= 1e-8`) and scales throughput with core count.
+- **Pareto Trade-off**: Unminimized ETKDGv3 ($C=30, K=1$) has $\rho = 0.978$ rank correlation with MMFF94s-minimized candidates ($C=50, K=4$) on the 128-drug panel, while running $4\times\text{--}5\times$ faster (~3.8h vs ~16.5h for 50 epochs).
 
-This file is the single source of current project instructions.
-[code/conformer/results.md](code/conformer/results.md) is the single maintained findings/limitations/decision
-record. Mark proposals, selected methods and measured results separately. Keep
-the conformer delivery compact: one score/time figure, reproducible scripts and
-raw data referenced from results.md. Frozen historical evidence, raw data and
-Git history are provenance, not additional live guidance. Do not revive their
-action lists or settings.
+---
 
-## Code and execution
+## 4. Current Codebase Architecture (`_david/code/`)
 
-- `code/config.py`: run configuration and checkpoint resolution.
-- `code/environment.py`: reference preparation, conformer/scorer construction,
-  modifiers and rewards.
-- `code/models.py`, `code/pipeline.py`: agent/frozen-prior loading and RL workflow.
-- `code/schema.py`, `code/utils.py`: score columns and runtime configuration.
-- `code/visualization.py`: analysis and figures; `tests/`: executable assertions.
-- `code/conformer/`: conformer study and maintained results; generated evidence
-  belongs under `output/YYYYMMDD_HHMM_short_description/`, separate from source.
-  Put the report and final figures at the experiment root, measurements and
-  intermediate data in `raw_data/`, and execution logs in `logs/`.
-- `legacy/`: fragment-conditioned historical comparisons; `output/`: generated
-  artifacts. Ignored data/checkpoints are not transferred by Git.
+```
+_david/
+├── AGENTS.md                          # Authoritative project instructions & architectural decisions
+├── code/
+│   ├── config.py                      # PipelineConfig single source of truth for hyperparameters
+│   ├── chemistry.py                   # Conformer generation, standardization, parallel embedding
+│   ├── environment.py                 # Multi-objective environment, scorers, modifiers, rewards
+│   ├── models.py                      # DecayingSequenceExplorer and model wrapper factories
+│   ├── pipeline.py                    # 5-stage LBDD execution pipeline and CLI entry point
+│   ├── rocs.py                        # ConfigurableRDKitROCSScorer and Gaussian volume alignment
+│   ├── schema.py, utils.py            # Standard column names and hardware job allocation
+│   ├── visualization.py               # 8 publication-grade diagnostics & trajectory figures
+│   ├── conformer/                     # Conformer calibration, batch probes, and results.md
+│   │   ├── batch_probe.py             # Realistic multi-core batch scoring benchmark
+│   │   ├── drug_panel.py              # DrugCentral curation for self-recovery
+│   │   ├── results.md                 # Conformer research findings & decision record
+│   │   └── reward_calibration.py      # Historical singleton Pareto benchmark
+│   └── metacentrum/                   # MetaCentrum grid submission and cluster orchestration
+│       ├── grid.py                    # MetaCentrumGridManager, CLI, and grid generators
+│       ├── job_template.sh            # PBS Pro cluster execution script
+│       └── scripts/                   # Standalone submission scripts (h1..h4, submit_all)
+├── tests/                             # 74 unit and regression tests (100% passing)
+└── output/                            # Experiment deliverables, figures, and models
+```
 
-Edit in local WSL `/home/kolar/DrugEx`; execute computation with explicit SSH
-commands in `/home/kolarv/DrugEx` through alias `dichtator`. All thesis source
-must remain in the main checkout's `_david/code/`, and all generated work under
-`_david/output/`. Do not create execution worktrees, source copies or experiment
-data in `.cache`, another checkout, or another home-directory path. Preserve
-provenance with Git revisions, source hashes and archived source under the
-experiment's `raw_data/`; check relevant hashes before and after computation.
-Set temporary directories inside the experiment's `raw_data/` as well.
-Follow the personal `drugex-dichtator` skill within these project constraints.
-Inspect both hosts before synchronization and preserve unrelated/user edits.
-Commit only task files and synchronize through private `dichtator`; never push
-to GitHub `origin` or force push. Do not commit credentials, checkpoints or bulky
-output. Use LF endings and the existing remote `.venv`.
+---
 
-Validate the relevant source, including imports from the main checkout.
-Record host, revision/dirty state, exact command and result for substantive
-validation. When relevant source is dirty or concurrent edits are possible,
-compare its hashes before claiming remote validation. Reuse existing experiment
-manifests; record configuration, input identities, dependency versions, seeds,
-sample denominators, failures and score scales. No additional validation framework.
+## 5. MetaCentrum HPC Cluster Execution Guide
+
+- **Connection**: `ssh meta` (Configured in `~/.ssh/config` as `kolardavidcz@tarkil.metacentrum.cz`).
+- **Persistent Storage**: `/storage/brno2/brno2/kolardavidcz/DrugEx/` (2.0 PB total, >370 TB free).
+- **Codebase Releases**: Staged automatically by `MetaCentrumGridManager.sync_codebase_to_grid()` under `${storage_root}/releases/<commit_sha>/`.
+
+### Resource Directive Guidelines
+- **CPU Cores & Memory**: `ncpus=16, mem=32gb, scratch_local=15gb, walltime=24:00:00`.
+- **SPEC Directive**: Use `:spec=8.0` for GPU jobs.
+  - Setting `:spec=10.0` restricts jobs to only `fobos` (spec 12.0) and `bee` (spec 11.0), which can cause long queue wait times.
+  - Setting `:spec=8.0` enables all modern high-performance GPU nodes (Ada Lovelace RTX 4090 on `alfrid` and `fobos`, Hopper H100 on `bee`, Ampere RTX 3090 on `galdor`), giving a pool of >60 GPU nodes while filtering out ancient nodes (`konos`, `glados`).
+
+### Common CLI Commands
+```bash
+# Check PBS Pro job status
+python -m _david.code.metacentrum.grid status
+# (or directly via SSH: ssh meta "qstat -u kolardavidcz")
+
+# Synchronize local codebase release to MetaCentrum storage
+python -m _david.code.metacentrum.grid sync
+
+# Preview the 4-hypothesis Daytime Sprint
+python -m _david.code.metacentrum.grid sprint
+
+# Submit the 4-hypothesis Daytime Sprint to PBS Pro
+python -m _david.code.metacentrum.grid submit-sprint --spec 8.0
+
+# Pull completed deliverables from MetaCentrum to local _david/output/
+python -m _david.code.metacentrum.grid pull
+```
+
+---
+
+## 6. Active Experiments (4-Hypothesis Sprint)
+
+Submitted to PBS Pro queue with `:spec=8.0` (all unminimized Regime 2: $K=1, C=30, \varepsilon=0.05$, 200 epochs max, 50 min/patience):
+1. **`25157837` (`sprint_h1_without_qed_pareto`)**: Supervisor tutorial replication baseline (2-objective `[ROCS, SA]`, Pareto crowding).
+2. **`25157838` (`sprint_h2_without_qed_harrington`)**: Harrington reward scheme isolation (2-objective `[ROCS, SA]`, Harrington desirability).
+3. **`25157839` (`sprint_h3_with_qed_pareto`)**: QED shrinkage causal ablation (3-objective `[ROCS, SA, QED]`, Pareto crowding).
+4. **`25157840` (`sprint_h4_with_qed_harrington`)**: Modernized Run 01 comparison (3-objective `[ROCS, SA, QED]`, Harrington desirability).
