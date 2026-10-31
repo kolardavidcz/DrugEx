@@ -80,7 +80,7 @@ class MetaCentrumGridManager:
         release = f"{self.storage_root}/releases/{revision}"
         command = (
             f"mkdir -p {shlex.quote(self.storage_root + '/releases')} && "
-            f"mkdir {shlex.quote(release)} && tar -xf - -C {shlex.quote(release)}"
+            f"mkdir -p {shlex.quote(release)} && tar -xf - -C {shlex.quote(release)}"
         )
         with tempfile.TemporaryFile() as archive:
             subprocess.run(
@@ -179,8 +179,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="DrugEx MetaCentrum Grid CLI")
     parser.add_argument(
         "action",
-        choices=["test", "sync", "status", "pull"],
-        help="Action to execute: 'test' connection, 'sync' code, check 'status', or 'pull' results",
+        choices=["test", "sync", "status", "pull", "submit"],
+        help="Action to execute: 'test' connection, 'sync' code, check 'status', 'pull' results, or 'submit' job",
     )
     parser.add_argument(
         "--host", default="meta", help="SSH host alias (default: 'meta')"
@@ -195,6 +195,66 @@ def main() -> None:
         "--output-dir",
         default=str(PROJECT_ROOT / "_david" / "output"),
         help="Local directory for pulling results",
+    )
+    parser.add_argument(
+        "--name",
+        default="rl_default_tanimoto_combo",
+        help="Experiment name for submission (default: 'rl_default_tanimoto_combo')",
+    )
+    parser.add_argument(
+        "--args",
+        default="",
+        help="CLI arguments passed to _david.code.pipeline (default: empty, using config defaults)",
+    )
+    parser.add_argument(
+        "--ncpus",
+        type=int,
+        default=16,
+        help="Requested CPU cores (default: 16)",
+    )
+    parser.add_argument(
+        "--mem",
+        type=int,
+        default=32,
+        help="Requested RAM in GB (default: 32)",
+    )
+    parser.add_argument(
+        "--scratch",
+        type=int,
+        default=15,
+        help="Requested local scratch in GB (default: 15)",
+    )
+    parser.add_argument(
+        "--spec",
+        type=float,
+        default=10.0,
+        help="Minimum CPU SPEC benchmark score for high-performance cores (default: 10.0)",
+    )
+    parser.add_argument(
+        "--walltime",
+        default="12:00:00",
+        help="Requested walltime HH:MM:SS (default: '12:00:00')",
+    )
+    parser.add_argument(
+        "--ngpus",
+        type=int,
+        default=1,
+        help="Requested GPU count (default: 1; set 0 for CPU-only nodes)",
+    )
+    parser.add_argument(
+        "--gpu-cap",
+        default=None,
+        help="Optional GPU capability filter, e.g. 'sm_89', 'sm_90' (default: None)",
+    )
+    parser.add_argument(
+        "--revision",
+        default=None,
+        help="Committed Git commit hash to deploy (default: HEAD)",
+    )
+    parser.add_argument(
+        "--no-sync",
+        action="store_true",
+        help="Skip syncing codebase before submitting",
     )
     args = parser.parse_args()
 
@@ -217,6 +277,32 @@ def main() -> None:
         print(f"Pulling deliverables to {args.output_dir}...")
         mgr.sync_results_from_grid(args.output_dir)
         print("Pull completed.")
+    elif args.action == "submit":
+        if not args.no_sync:
+            print(f"Synchronizing codebase to {args.host}:{mgr.storage_root}...")
+            mgr.sync_codebase_to_grid()
+        revision = (
+            args.revision
+            or subprocess.check_output(
+                ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"], text=True
+            ).strip()
+        )
+        spec = GridJobSpec(
+            experiment_name=args.name,
+            args=args.args,
+            n_cpus=args.ncpus,
+            mem_gb=args.mem,
+            n_gpus=args.ngpus,
+            gpu_cap=args.gpu_cap,
+            scratch_gb=args.scratch,
+            walltime=args.walltime,
+            spec=args.spec,
+        )
+        print(
+            f"Submitting job '{spec.experiment_name}' with {spec.n_cpus} CPUs (spec>={spec.spec}) and {spec.n_gpus} GPU(s)..."
+        )
+        job_id = mgr.submit_job(spec, revision)
+        print(f"Job successfully submitted to PBS Pro: {job_id}")
 
 
 if __name__ == "__main__":

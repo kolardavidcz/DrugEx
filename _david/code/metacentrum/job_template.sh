@@ -30,7 +30,11 @@ cleanup() {
             exit 1
         fi
     fi
-    clean_scratch
+    if command -v clean_scratch >/dev/null 2>&1; then
+        clean_scratch
+    else
+        rm -rf "$SCRATCHDIR"/*
+    fi
     exit "$status"
 }
 trap cleanup EXIT

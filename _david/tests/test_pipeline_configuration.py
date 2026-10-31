@@ -154,6 +154,35 @@ class TestPipelineConfiguration(unittest.TestCase):
         command_cap = run_cap.call_args_list[1].args[0][-1]
         self.assertIn("gpu_cap=sm_80", command_cap)
 
+    def test_grid_cli_submit_action(self):
+        from _david.code.metacentrum.grid import main as grid_main
+
+        with patch.object(
+            MetaCentrumGridManager, "submit_job", return_value="999.pbs-m1"
+        ) as mock_submit, patch(
+            "sys.argv",
+            [
+                "grid.py",
+                "submit",
+                "--name",
+                "cli_test_exp",
+                "--no-sync",
+                "--revision",
+                "b" * 40,
+                "--ncpus",
+                "32",
+                "--spec",
+                "11.0",
+            ],
+        ):
+            grid_main()
+            mock_submit.assert_called_once()
+            spec, revision = mock_submit.call_args[0]
+            self.assertEqual(spec.experiment_name, "cli_test_exp")
+            self.assertEqual(spec.n_cpus, 32)
+            self.assertEqual(spec.spec, 11.0)
+            self.assertEqual(revision, "b" * 40)
+
 
 if __name__ == "__main__":
     unittest.main()

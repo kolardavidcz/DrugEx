@@ -250,6 +250,10 @@ class TestPreparation(unittest.TestCase):
         scorer = env.scorers[0]
         self.assertAlmostEqual(float(scorer.getModifiedScores(np.array([raw]))[0]), 1.0)
         generator = scorer.conformer_generator
+        self.assertEqual(
+            (generator.max_conformers, generator.max_isomers, generator.timeout),
+            (7, 8, PipelineConfig().timeout_seconds),
+        )
         self.assertEqual(generator._create_fresh_etkdg().randomSeed, 42)
 
     def test_candidate_generation_preserves_specified_identity(self):

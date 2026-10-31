@@ -148,14 +148,9 @@ PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 
 mkdir -p "$SUITE_DIR"
 
-# 6 prioritized experiments: "EXP_ID|DESCRIPTION|EXTRA_CLI_ARGS"
+# Prioritized experiments: "EXP_ID|DESCRIPTION|EXTRA_CLI_ARGS"
 EXPERIMENTS=(
-    "rl01_opt1_mild_color_heavy|#1 Primary Anchor: Option 1 (0.8, 1.2) + 0.2S/0.8C, Harrington, beta=0.0, 250 ep|--score-variant tversky_mild_color_heavy --reward-scheme harrington --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
-    "rl02_opt2_scaffold_hop|#2 Option 2 Sub-Scaffold Hopping: (0.6, 1.4) + 0.3S/0.7C, Harrington, beta=0.0, 250 ep|--score-variant tversky_scaffold_hop --reward-scheme harrington --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
-    "rl03_baseline_tanimoto_combo|#3 Standard ROCS Control: (1.0, 1.0) + 0.5S/0.5C TanimotoCombo, Harrington, beta=0.0, 250 ep|--score-variant tanimoto_combo --reward-scheme harrington --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
-    "rl04_legacy_dice_tversky03_07|#4 Negative Control: Legacy DrugEx (0.3, 0.7) alpha+beta=1 Dice Subshape, 250 ep|--score-variant tversky_subshape --reward-scheme harrington --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
-    "rl05_opt1_pareto_vs_harrington|#5 Reward Ablation: Pareto Crowding vs Harrington on Option 1 (0.8, 1.2) + 0.2S/0.8C, 250 ep|--score-variant tversky_mild_color_heavy --reward-scheme pareto_crowding --beta 0.0 --epochs 250 --min-epochs 250 --patience 251"
-    "rl06_opt1_beta_penalty_ablation|#6 Penalty Ablation: Beta=0.15 Penalty vs Beta=0.0 on Option 1 (Mode Collapse Control)|--score-variant tversky_mild_color_heavy --reward-scheme harrington --beta 0.15 --epochs 100 --min-epochs 100 --patience 101"
+    "rl01_tanimoto_combo_default|#1 Production Baseline: TanimotoCombo (Color+Shape), Harrington, beta=0.0, eps=0.0, default config|--score-variant tanimoto_combo"
 )
 
 # Common calibrated 3D physics & RL arguments shared across runs
