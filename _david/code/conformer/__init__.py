@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from _david.code.conformer.batch_probe import (
+    measure_batch_scoring,
+    run_batch_probe,
+)
 from _david.code.conformer.reference_bank import (
     CANDIDATE_ISOMER_CAP,
     CANDIDATE_SEED,
@@ -51,8 +55,10 @@ __all__ = [
     "digest",
     "diverse_order",
     "load_sdf",
+    "measure_batch_scoring",
     "plan_sampling",
     "prepare_banks",
+    "run_batch_probe",
     "save_records",
     "save_sdf",
     "source_hashes",

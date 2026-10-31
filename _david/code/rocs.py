@@ -343,6 +343,12 @@ class ConfigurableRDKitROCSScorer(RDKitROCSScorer):
         self.tversky_beta: float = beta
         self.shape_weight: float = ws
         self.color_weight: float = wc
+        self._n_jobs: int = int(n_jobs)
+        if (
+            hasattr(self.conformer_generator, "n_jobs")
+            and getattr(self.conformer_generator, "n_jobs", None) is None
+        ):
+            self.conformer_generator.n_jobs = self._n_jobs if self._n_jobs > 0 else None
         # Check whether standard DrugEx path is exact (ws == wc and standard alpha/beta)
         is_equal_weights = abs(ws - wc) <= 1e-9
         is_std_ab = (
@@ -352,6 +358,18 @@ class ConfigurableRDKitROCSScorer(RDKitROCSScorer):
             or (base_variant == "tversky_fit" and abs(alpha - 0.05) <= 1e-9 and abs(beta - 0.95) <= 1e-9)
         )
         self._use_custom_weights: bool = not (is_equal_weights and is_std_ab)
+
+    @property
+    def n_jobs(self) -> int:
+        return getattr(self, "_n_jobs", 1)
+
+    @n_jobs.setter
+    def n_jobs(self, value: int) -> None:
+        self._n_jobs = int(value)
+        if hasattr(self, "conformer_generator") and hasattr(
+            self.conformer_generator, "n_jobs"
+        ):
+            self.conformer_generator.n_jobs = int(value) if int(value) > 0 else None
 
     def _score_sequential(
         self,

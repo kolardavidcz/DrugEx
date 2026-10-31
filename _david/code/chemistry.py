@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+import io
 import logging
 from pathlib import Path
 from typing import Any
@@ -182,6 +183,118 @@ def _write_sdf_records(path: str, records: Sequence[Chem.Mol]) -> None:
             writer.write(mol)
 
 
+def _create_etkdg_params(
+    random_seed: int,
+    embedding_rmsd: float | None,
+    timeout: int = 0,
+    num_threads: int = 1,
+) -> AllChem.EmbedParameters:
+    """Create fresh ETKDGv3 parameters with explicit seed, RMSD pruning, and thread limit.
+
+    Per-graph parameter isolation is mandatory: RDKit's C++ embedder mutates default
+    maxIterations (0 -> graph-dependent value) in-place on the parameter object.
+    """
+    params = AllChem.ETKDGv3()
+    params.randomSeed = random_seed
+    params.enableSequentialRandomSeeds = False
+    params.pruneRmsThresh = -1.0 if embedding_rmsd is None else float(embedding_rmsd)
+    if timeout > 0:
+        params.timeout = int(timeout)
+    params.numThreads = max(1, int(num_threads))
+    return params
+
+
+@dataclass(frozen=True)
+class _CandidateEmbeddingTask:
+    """Inputs and configuration for one chunk of candidate conformer embedding."""
+
+    items: list[tuple[int, str]]
+    max_conformers: int
+    max_isomers: int
+    max_heavy_atoms: int | None
+    max_rotatable_bonds: int | None
+    random_seed: int
+    stereo_seed: int
+    embedding_rmsd: float | None
+    timeout: int
+    num_threads: int
+    canonicalize_tautomer: bool
+    protonate: bool
+
+
+def _embed_candidate_chunk_worker(
+    task: _CandidateEmbeddingTask,
+) -> tuple[str, list[str]]:
+    """Embed candidate molecules in a chunk and serialize conformers to SDF text.
+
+    Instantiates a fresh ETKDGv3 parameter object for every stereoisomer to prevent
+    in-place maxIterations mutation across molecules (per-graph parameter isolation).
+    """
+    enable_double_precision_mol_pickling()
+    sio = io.StringIO()
+    writer = Chem.SDWriter(sio)
+    filtered: list[str] = []
+
+    try:
+        for index, smiles in task.items:
+            if not smiles or not isinstance(smiles, str):
+                continue
+            raw_mol = Chem.MolFromSmiles(smiles)
+            if raw_mol is None:
+                continue
+            if (
+                task.max_heavy_atoms is not None
+                and rdMolDescriptors.CalcNumHeavyAtoms(raw_mol) > task.max_heavy_atoms
+            ):
+                filtered.append(smiles)
+                continue
+            if (
+                task.max_rotatable_bonds is not None
+                and rdMolDescriptors.CalcNumRotatableBonds(raw_mol) > task.max_rotatable_bonds
+            ):
+                filtered.append(smiles)
+                continue
+            try:
+                mol = prepare_candidate_molecule(
+                    smiles,
+                    canonicalize_tautomer=task.canonicalize_tautomer,
+                    protonate=task.protonate,
+                )
+            except (ValueError, RuntimeError) as exc:
+                logging.getLogger(__name__).warning(
+                    "%s: preparation failed: %s", smiles, exc
+                )
+                continue
+
+            for iso_index, iso in enumerate(
+                enumerate_stereoisomers(
+                    mol, limit=task.max_isomers, seed=task.stereo_seed
+                )
+            ):
+                iso_h = Chem.AddHs(iso)
+                iso_h.SetProp("_Name", f"mol_{index}+{iso_index}")
+                try:
+                    params = _create_etkdg_params(
+                        random_seed=task.random_seed,
+                        embedding_rmsd=task.embedding_rmsd,
+                        timeout=task.timeout,
+                        num_threads=task.num_threads,
+                    )
+                    conf_ids = AllChem.EmbedMultipleConfs(
+                        iso_h, numConfs=task.max_conformers, params=params
+                    )
+                    for conf_id in conf_ids:
+                        writer.write(iso_h, confId=conf_id)
+                except (RuntimeError, ValueError) as exc:
+                    logging.getLogger(__name__).warning(
+                        "%s: conformer generation failed: %s", smiles, exc
+                    )
+    finally:
+        writer.close()
+
+    return sio.getvalue(), filtered
+
+
 class CandidateConformerGenerator(RDKitConformerGenerator):
     """DrugEx ETKDGv3 generator with selectable seed, per-isomer isolation, and optional minimization."""
 
@@ -193,6 +306,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         optimization: Optimization | None = None,
         embedding_rmsd: float | None = 0.5,
         protonate: bool = False,
+        n_jobs: int | None = None,
         **kwargs: object,
     ) -> None:
         requested = kwargs.get("max_conformers", 10)
@@ -200,6 +314,18 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
             raise ValueError("Conformer attempts must be an integer from 1 to 1000")
         max_heavy = kwargs.pop("max_heavy_atoms", 35)
         max_rotors = kwargs.pop("max_rotatable_bonds", 15)
+        raw_n_jobs = kwargs.pop("n_jobs", n_jobs)
+        raw_n_jobs = kwargs.pop("workers", raw_n_jobs)
+        if raw_n_jobs is not None:
+            if raw_n_jobs == -1:
+                resolved_n_jobs: int | None = None
+            elif not isinstance(raw_n_jobs, int) or raw_n_jobs < 1:
+                raise ValueError("n_jobs must be a positive integer, -1, or None")
+            else:
+                resolved_n_jobs = int(raw_n_jobs)
+        else:
+            resolved_n_jobs = None
+
         kwargs["max_conformers"] = min(requested, 200)
         kwargs["protonate"] = protonate
         super().__init__(
@@ -207,6 +333,10 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
             max_rotatable_bonds=15 if max_rotors is None else int(max_rotors),
             **kwargs,
         )
+        if not isinstance(self.max_isomers, int) or self.max_isomers < 1:
+            raise ValueError("max_isomers must be a positive integer")
+        if not isinstance(self.timeout, int) or self.timeout < 0:
+            raise ValueError("timeout must be a non-negative integer")
         self.max_heavy_atoms: int | None = None if max_heavy is None else int(max_heavy)
         self.max_rotatable_bonds: int | None = (
             None if max_rotors is None else int(max_rotors)
@@ -219,6 +349,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         if embedding_rmsd is not None and embedding_rmsd < 0:
             raise ValueError("Embedding RMSD must be nonnegative or None")
         self.embedding_rmsd: float | None = embedding_rmsd
+        self.n_jobs: int | None = resolved_n_jobs
         self.last_minimization_statuses: list[int] = []
         self.last_embedding_failures: int = 0
         self.last_identity_rejections: list[str] = []
@@ -241,13 +372,12 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         return False
 
     def _create_fresh_etkdg(self) -> AllChem.EmbedParameters:
-        params = super()._create_fresh_etkdg()
-        params.randomSeed = self.random_seed
-        params.enableSequentialRandomSeeds = False
-        params.pruneRmsThresh = (
-            -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
+        return _create_etkdg_params(
+            random_seed=self.random_seed,
+            embedding_rmsd=self.embedding_rmsd,
+            timeout=self.timeout,
+            num_threads=self.num_threads,
         )
-        return params
 
     def _get_isomers(self, mol: Chem.Mol) -> Iterator[Chem.Mol]:
         yield from enumerate_stereoisomers(
@@ -255,40 +385,96 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         )
 
     def _embed_batch_to_sdf(self, smiles_list: Sequence[str], sdf_path: str) -> None:
-        """Prepare candidates, enumerate unassigned stereoisomers, and write raw ETKDGv3 conformers."""
-        with Chem.SDWriter(sdf_path) as writer:
-            for index, smiles in enumerate(smiles_list):
-                if not smiles:
-                    continue
-                raw_mol = Chem.MolFromSmiles(smiles)
-                if raw_mol is None or self._filter_mol(smiles, raw_mol):
-                    continue
-                try:
-                    mol = prepare_candidate_molecule(
-                        smiles,
-                        canonicalize_tautomer=self.canonicalize_tautomer,
-                        protonate=self.protonate,
+        """Prepare candidates, enumerate unassigned stereoisomers, and write raw ETKDGv3 conformers.
+
+        When multiple workers are configured and the candidate batch is non-trivial,
+        distributes embedding across worker processes using chunked multiprocessing.
+        Gracefully falls back to serial execution if workers <= 1, in daemon contexts,
+        or on pool execution errors.
+        """
+        import multiprocessing
+        from drugex.training.scorers.parallel import capped_n_jobs, pool_context
+        from _david.code.utils import HardwareManager
+
+        enable_double_precision_mol_pickling()
+        Path(sdf_path).parent.mkdir(parents=True, exist_ok=True)
+
+        if not smiles_list:
+            with open(sdf_path, "w"):
+                pass
+            return
+
+        workers = (
+            HardwareManager.get_safe_parallel_jobs()
+            if self.n_jobs is None
+            else int(self.n_jobs)
+        )
+        workers = capped_n_jobs(workers)
+
+        if (
+            len(smiles_list) >= 4
+            and workers > 1
+            and not multiprocessing.current_process().daemon
+        ):
+            num_chunks = min(len(smiles_list), workers * 2)
+            chunk_size = (len(smiles_list) + num_chunks - 1) // num_chunks
+            items = list(enumerate(smiles_list))
+            tasks = [
+                _CandidateEmbeddingTask(
+                    items=items[i : i + chunk_size],
+                    max_conformers=self.max_conformers,
+                    max_isomers=self.max_isomers,
+                    max_heavy_atoms=self.max_heavy_atoms,
+                    max_rotatable_bonds=self.max_rotatable_bonds,
+                    random_seed=self.random_seed,
+                    stereo_seed=self.stereo_seed,
+                    embedding_rmsd=self.embedding_rmsd,
+                    timeout=self.timeout,
+                    num_threads=1,
+                    canonicalize_tautomer=self.canonicalize_tautomer,
+                    protonate=self.protonate,
+                )
+                for i in range(0, len(items), chunk_size)
+            ]
+            try:
+                with pool_context().Pool(
+                    min(workers, len(tasks)),
+                    initializer=enable_double_precision_mol_pickling,
+                ) as pool:
+                    chunk_results = pool.map(
+                        _embed_candidate_chunk_worker, tasks, chunksize=1
                     )
-                except (ValueError, RuntimeError) as exc:
-                    logging.getLogger(__name__).warning(
-                        "%s: preparation failed: %s", smiles, exc
-                    )
-                    continue
-                for iso_index, iso in enumerate(self._get_isomers(mol)):
-                    iso_h = Chem.AddHs(iso)
-                    iso_h.SetProp("_Name", f"mol_{index}+{iso_index}")
-                    try:
-                        # Fresh ETKDGv3 parameters per isomer prevent maxIterations leakage across batches.
-                        params = self._create_fresh_etkdg()
-                        conf_ids = AllChem.EmbedMultipleConfs(
-                            iso_h, numConfs=self.max_conformers, params=params
-                        )
-                        for conf_id in conf_ids:
-                            writer.write(iso_h, confId=conf_id)
-                    except (RuntimeError, ValueError) as exc:
-                        logging.getLogger(__name__).warning(
-                            "%s: conformer generation failed: %s", smiles, exc
-                        )
+                with open(sdf_path, "w") as out_f:
+                    for sdf_text, filtered in chunk_results:
+                        out_f.write(sdf_text)
+                        self.last_filtered_molecules.extend(filtered)
+                return
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "Parallel candidate embedding pool encountered error (%s); "
+                    "falling back to serial execution",
+                    exc,
+                )
+                self.last_filtered_molecules = []
+
+        single_task = _CandidateEmbeddingTask(
+            items=list(enumerate(smiles_list)),
+            max_conformers=self.max_conformers,
+            max_isomers=self.max_isomers,
+            max_heavy_atoms=self.max_heavy_atoms,
+            max_rotatable_bonds=self.max_rotatable_bonds,
+            random_seed=self.random_seed,
+            stereo_seed=self.stereo_seed,
+            embedding_rmsd=self.embedding_rmsd,
+            timeout=self.timeout,
+            num_threads=self.num_threads,
+            canonicalize_tautomer=self.canonicalize_tautomer,
+            protonate=self.protonate,
+        )
+        sdf_text, filtered = _embed_candidate_chunk_worker(single_task)
+        with open(sdf_path, "w") as out_f:
+            out_f.write(sdf_text)
+        self.last_filtered_molecules.extend(filtered)
 
     def genConformers(self, smiles_list: Sequence[str], out_dir: str | Path) -> str:
         """Generate 3D conformers for a batch of SMILES and write valid geometries to an SDF."""
@@ -317,7 +503,9 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         if not valid:
             return path
 
-        minimized, statuses = optimize_conformers(valid, self.optimization)
+        minimized, statuses = optimize_conformers(
+            valid, self.optimization, n_jobs=self.n_jobs
+        )
         self.last_minimization_statuses = statuses
         if not minimized:
             return path

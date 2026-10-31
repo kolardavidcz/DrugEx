@@ -299,7 +299,7 @@ def time_batches(
             ["git", "rev-parse", "HEAD"], text=True
         ).strip(),
         git_status=subprocess.check_output(["git", "status", "--short"], text=True),
-        cpu_note="Eight alignment workers, one embedding thread; production generates the batch before starting its alignment pool. Wall time includes pool startup and SDF I/O.",
+        cpu_note="Candidate conformer embedding and alignment parallelized across worker pool when workers > 1. Wall time includes pool startup and SDF I/O.",
     )
     atomic_json(raw / "timing_manifest.json", manifest)
     for repeat in range(repeats):
@@ -317,6 +317,7 @@ def time_batches(
             generator = scorer.conformer_generator
             generator.embedding_rmsd = None
             generator.protonate = protonate
+            generator.n_jobs = workers
             generate = generator.genConformers
             generation = {}
 

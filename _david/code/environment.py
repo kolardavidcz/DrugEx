@@ -61,6 +61,11 @@ def create_rocs_scorer(
         if optimization is None
         else optimization
     )
+    safe_jobs = (
+        n_jobs
+        if n_jobs is not None
+        else HardwareManager.get_safe_parallel_jobs(ratio=cfg.cpu_ratio)
+    )
     conf_gen = CandidateConformerGenerator(
         max_conformers=cfg.max_conformers if max_conformers is None else max_conformers,
         max_isomers=cfg.max_isomers if max_isomers is None else max_isomers,
@@ -72,11 +77,7 @@ def create_rocs_scorer(
         random_seed=cfg.random_seed if random_seed is None else random_seed,
         minimize_candidates=active_minimize,
         optimization=active_opt,
-    )
-    safe_jobs = (
-        n_jobs
-        if n_jobs is not None
-        else HardwareManager.get_safe_parallel_jobs(ratio=cfg.cpu_ratio)
+        n_jobs=safe_jobs,
     )
     variant = (
         std.VARIANT_TANIMOTO
