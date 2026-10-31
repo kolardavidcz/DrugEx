@@ -24,6 +24,7 @@ class GridJobSpec:
     gpu_cap: str = "compute_80"
     scratch_gb: int = 15
     walltime: str = "12:00:00"
+    spec: float | None = 10.0
 
     def __post_init__(self):
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", self.experiment_name):
@@ -40,8 +41,8 @@ class MetaCentrumGridManager:
     def __init__(
         self,
         remote_host: str = "meta",
-        remote_user: str = "kolarv",
-        storage_site: str = "praha1",
+        remote_user: str = "kolardavidcz",
+        storage_site: str = "brno2",
     ) -> None:
         self.remote_host = remote_host
         self.remote_user = remote_user
@@ -123,6 +124,8 @@ class MetaCentrumGridManager:
             ["ssh", self.remote_host, write_spec], input=payload, text=True, check=True
         )
         resources = f"select=1:ncpus={spec.n_cpus}:mem={spec.mem_gb}gb:scratch_local={spec.scratch_gb}gb"
+        if spec.spec is not None:
+            resources += f":spec={spec.spec}"
         if spec.n_gpus:
             resources += f":ngpus={spec.n_gpus}:gpu_cap={spec.gpu_cap}"
         command = [
@@ -178,7 +181,10 @@ def main() -> None:
         "--host", default="meta", help="SSH host alias (default: 'meta')"
     )
     parser.add_argument(
-        "--user", default="kolarv", help="MetaCentrum username (default: 'kolarv')"
+        "--user", default="kolardavidcz", help="MetaCentrum username (default: 'kolardavidcz')"
+    )
+    parser.add_argument(
+        "--storage-site", default="brno2", help="MetaCentrum storage site (default: 'brno2')"
     )
     parser.add_argument(
         "--output-dir",
@@ -187,7 +193,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    mgr = MetaCentrumGridManager(remote_host=args.host, remote_user=args.user)
+    mgr = MetaCentrumGridManager(
+        remote_host=args.host, remote_user=args.user, storage_site=args.storage_site
+    )
 
     if args.action == "test":
         ok = mgr.test_connection()

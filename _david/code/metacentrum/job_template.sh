@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Submit through grid.py: arguments live in a JSON spec, never an eval string.
 #PBS -N drugex_run
-#PBS -l select=1:ncpus=16:mem=32gb:ngpus=1:gpu_cap=compute_80:scratch_local=15gb
+#PBS -l select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=10:ngpus=1:gpu_cap=compute_80
 #PBS -l walltime=12:00:00
 #PBS -j oe
 
@@ -42,6 +42,7 @@ rsync -a "$SOURCE_DIR/" "$SCRATCHDIR/DrugEx/"
 cd "$SCRATCHDIR/DrugEx"
 export MPLBACKEND=Agg OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 export DRUGEX_MP_CONTEXT=forkserver
+export PYTHONPATH="$SCRATCHDIR/DrugEx:${PYTHONPATH:-}"
 cp "$RUN_SPEC" "$OUT_DIR/submission.json"
 
 "$PYTHON" - "$RUN_SPEC" "$OUT_DIR" <<'PY' 2>&1 | tee "$OUT_DIR/execution.log"
