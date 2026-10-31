@@ -15,6 +15,8 @@ from _david.code.chemistry import (
     CandidateConformerGenerator,
     Optimization,
     check_identity,
+    filter_conformer_identities,
+    optimize_conformers,
 )
 from _david.code.conformer.batch_probe import (
     SAMPLE_CANDIDATE_SMILES,
@@ -23,6 +25,7 @@ from _david.code.conformer.batch_probe import (
     run_batch_probe,
 )
 from _david.code.environment import create_rocs_scorer
+from _david.code.rocs import ConfigurableRDKitROCSScorer
 
 
 class TestCandidateEmbeddingParallel(unittest.TestCase):
@@ -46,15 +49,29 @@ class TestCandidateEmbeddingParallel(unittest.TestCase):
         gen_auto = CandidateConformerGenerator(n_jobs=-1)
         self.assertIsNone(gen_auto.n_jobs)
 
-        # Invalid bounds
+        # Dynamic setter assignment of -1
+        gen.n_jobs = -1
+        self.assertIsNone(gen.n_jobs)
+        gen.n_jobs = 2
+        self.assertEqual(gen.n_jobs, 2)
+
+        # Invalid bounds and boolean type rejection
         with self.assertRaisesRegex(ValueError, "Conformer attempts must be an integer"):
             CandidateConformerGenerator(max_conformers=0)
+        with self.assertRaisesRegex(ValueError, "Conformer attempts must be an integer"):
+            CandidateConformerGenerator(max_conformers=True)
         with self.assertRaisesRegex(ValueError, "max_isomers must be a positive integer"):
             CandidateConformerGenerator(max_isomers=0)
+        with self.assertRaisesRegex(ValueError, "max_isomers must be a positive integer"):
+            CandidateConformerGenerator(max_isomers=True)
         with self.assertRaisesRegex(ValueError, "timeout must be a non-negative integer"):
             CandidateConformerGenerator(timeout=-5)
+        with self.assertRaisesRegex(ValueError, "timeout must be a non-negative integer"):
+            CandidateConformerGenerator(timeout=True)
         with self.assertRaisesRegex(ValueError, "n_jobs must be a positive integer"):
             CandidateConformerGenerator(n_jobs=-2)
+        with self.assertRaisesRegex(ValueError, "n_jobs must be a positive integer"):
+            CandidateConformerGenerator(n_jobs=True)
 
     def test_serial_vs_parallel_conformer_identity(self) -> None:
         """Verify that parallel embedding (n_jobs=4) produces bit-identical conformers to serial (n_jobs=1)."""
@@ -219,6 +236,55 @@ class TestCandidateEmbeddingParallel(unittest.TestCase):
         self.assertEqual(scorer.n_jobs, 1)
         self.assertEqual(scorer.conformer_generator.n_jobs, 1)
 
+        # ConfigurableRDKitROCSScorer with n_jobs=-1 must resolve to a valid positive integer
+        scorer_neg = ConfigurableRDKitROCSScorer(
+            conformer_generator=CandidateConformerGenerator(n_jobs=-1),
+            references=ref_mol,
+            score_variant="selectivity_color_heavy",
+            n_jobs=-1,
+        )
+        self.assertGreaterEqual(scorer_neg.n_jobs, 1)
+        self.assertEqual(scorer_neg.conformer_generator.n_jobs, scorer_neg.n_jobs)
+        # Running getScores with custom preset must execute without crashing or pool error
+        scores = scorer_neg.getScores(["CCO", "CCN"])
+        self.assertEqual(scores.shape, (2, 1))
+
+        # Dynamic setting of -1 on scorer propagates synchronized positive integer to conformer_generator
+        scorer.n_jobs = -1
+        self.assertGreaterEqual(scorer.n_jobs, 1)
+        self.assertEqual(scorer.conformer_generator.n_jobs, scorer.n_jobs)
+
+    def test_filter_conformer_identities_without_isomer_smiles(self) -> None:
+        """Verify that conformers without EnumeratedIsomerSMILES property do not raise KeyError."""
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        Chem.AllChem.EmbedMolecule(mol, randomSeed=42)
+        # mol has no EnumeratedIsomerSMILES property
+        self.assertFalse(mol.HasProp("EnumeratedIsomerSMILES"))
+        accepted, rejected = filter_conformer_identities([mol])
+        self.assertEqual(len(accepted), 1)
+        self.assertEqual(len(rejected), 0)
+
+    def test_batch_probe_reports_minimization_seconds(self) -> None:
+        """Verify that batch probe separately tracks embedding and minimization durations."""
+        ref_mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)Oc1ccccc1C(=O)O"))
+        Chem.AllChem.EmbedMolecule(ref_mol, randomSeed=104729)
+        scores, timings = measure_batch_scoring(
+            ["CCO", "CCN", "CCC", "CCF"],
+            [ref_mol],
+            workers=1,
+            max_conformers=2,
+            minimize_candidates=True,
+        )
+        self.assertGreater(timings["embedding_seconds"], 0.0)
+        self.assertGreater(timings["minimization_seconds"], 0.0)
+
+    def test_lazy_conformer_init_no_runtime_warning(self) -> None:
+        """Verify that _david.code.conformer exports measure_batch_scoring and run_batch_probe lazily."""
+        import _david.code.conformer as conf_pkg
+
+        self.assertTrue(callable(conf_pkg.measure_batch_scoring))
+        self.assertTrue(callable(conf_pkg.run_batch_probe))
+
     def test_batch_probe_measure_and_parity(self) -> None:
         """Test the realistic batch scoring benchmark probe and verify serial/parallel score agreement."""
         ref_mol = Chem.AddHs(Chem.MolFromSmiles("Oc1ccc(cc1)C(=O)O"))  # 4-hydroxybenzoic acid
@@ -265,8 +331,70 @@ class TestCandidateEmbeddingParallel(unittest.TestCase):
         self.assertEqual(len(df), 2)
         self.assertIn("speedup", df.columns)
         self.assertIn("embedding_seconds", df.columns)
+        self.assertIn("minimization_seconds", df.columns)
         self.assertIn("alignment_seconds", df.columns)
         self.assertLessEqual(max_diff, 1e-8)
+
+    def test_optimize_conformers_parameter_validation(self) -> None:
+        """Verify strict validation on n_jobs for optimize_conformers."""
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        Chem.AllChem.EmbedMolecule(mol, randomSeed=42)
+        opt = Optimization("MMFF94s", 78.4)
+
+        with self.assertRaisesRegex(ValueError, "n_jobs must be a positive integer"):
+            optimize_conformers([mol], opt, n_jobs=-2)
+        with self.assertRaisesRegex(ValueError, "n_jobs must be a positive integer"):
+            optimize_conformers([mol], opt, n_jobs=True)
+
+    def test_minimized_candidates_empty_on_failed_embedding_or_optimization(self) -> None:
+        """Verify that when minimize_candidates=True, failed embedding or optimization produces size 0 SDF."""
+        with tempfile.TemporaryDirectory() as d:
+            # 1. Failed embedding
+            gen = CandidateConformerGenerator(minimize_candidates=True, n_jobs=1)
+            with patch("_david.code.chemistry.AllChem.EmbedMultipleConfs", return_value=[-1]):
+                path_fail_embed = gen.genConformers(["CCO"], Path(d) / "fail_embed")
+                self.assertEqual(Path(path_fail_embed).stat().st_size, 0)
+                self.assertEqual(gen.last_embedding_failures, 1)
+
+            # 2. Failed optimization (no converged conformers)
+            with patch("_david.code.chemistry.optimize_conformers", return_value=([], [1])):
+                path_fail_opt = gen.genConformers(["CCO"], Path(d) / "fail_opt")
+                self.assertEqual(Path(path_fail_opt).stat().st_size, 0)
+
+    def test_serial_vs_parallel_conformer_identity_with_minimization(self) -> None:
+        """Verify that parallel candidate generation with minimization matches serial bit-for-bit."""
+        smiles_batch = list(SAMPLE_CANDIDATE_SMILES[:6])
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            d = Path(tmp_dir)
+            gen_s = CandidateConformerGenerator(
+                max_conformers=3,
+                max_isomers=2,
+                random_seed=42,
+                stereo_seed=42,
+                n_jobs=1,
+                minimize_candidates=True,
+                optimization=Optimization("MMFF94s", 78.4),
+            )
+            sdf_s = gen_s.genConformers(smiles_batch, d / "s")
+            recs_s = [m for m in Chem.SDMolSupplier(sdf_s, removeHs=False) if m is not None]
+
+            gen_p = CandidateConformerGenerator(
+                max_conformers=3,
+                max_isomers=2,
+                random_seed=42,
+                stereo_seed=42,
+                n_jobs=4,
+                minimize_candidates=True,
+                optimization=Optimization("MMFF94s", 78.4),
+            )
+            sdf_p = gen_p.genConformers(smiles_batch, d / "p")
+            recs_p = [m for m in Chem.SDMolSupplier(sdf_p, removeHs=False) if m is not None]
+
+            self.assertGreater(len(recs_s), 0)
+            self.assertEqual(len(recs_s), len(recs_p))
+            for s, p in zip(recs_s, recs_p):
+                diff = np.abs(s.GetConformer().GetPositions() - p.GetConformer().GetPositions()).max()
+                self.assertLessEqual(diff, 1e-8)
 
 
 if __name__ == "__main__":

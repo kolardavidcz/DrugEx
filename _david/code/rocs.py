@@ -11,6 +11,7 @@ from typing import Any
 from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.parallel import (
     ScoreTimeout,
+    capped_n_jobs,
     mol_timeout,
     molecule_time_limit,
     pool_context,
@@ -32,6 +33,7 @@ from _david.code.chemistry import (
     Optimization,
     enable_double_precision_mol_pickling,
 )
+from _david.code.utils import HardwareManager
 
 NAMED_OPTIMIZATION_METHODS: dict[str, Optimization] = {
     "etkdg": Optimization("none"),
@@ -343,12 +345,17 @@ class ConfigurableRDKitROCSScorer(RDKitROCSScorer):
         self.tversky_beta: float = beta
         self.shape_weight: float = ws
         self.color_weight: float = wc
-        self._n_jobs: int = int(n_jobs)
-        if (
-            hasattr(self.conformer_generator, "n_jobs")
-            and getattr(self.conformer_generator, "n_jobs", None) is None
+        raw_jobs = n_jobs if n_jobs is not None else -1
+        resolved_jobs = (
+            HardwareManager.get_safe_parallel_jobs()
+            if raw_jobs == -1
+            else capped_n_jobs(int(raw_jobs))
+        )
+        self._n_jobs: int = max(1, resolved_jobs)
+        if hasattr(self, "conformer_generator") and hasattr(
+            self.conformer_generator, "n_jobs"
         ):
-            self.conformer_generator.n_jobs = self._n_jobs if self._n_jobs > 0 else None
+            self.conformer_generator.n_jobs = self._n_jobs
         # Check whether standard DrugEx path is exact (ws == wc and standard alpha/beta)
         is_equal_weights = abs(ws - wc) <= 1e-9
         is_std_ab = (
@@ -361,15 +368,25 @@ class ConfigurableRDKitROCSScorer(RDKitROCSScorer):
 
     @property
     def n_jobs(self) -> int:
-        return getattr(self, "_n_jobs", 1)
+        val = getattr(self, "_n_jobs", None)
+        if val is None or val < 1:
+            return max(1, capped_n_jobs(HardwareManager.get_safe_parallel_jobs()))
+        return val
 
     @n_jobs.setter
-    def n_jobs(self, value: int) -> None:
-        self._n_jobs = int(value)
+    def n_jobs(self, value: int | None) -> None:
+        if value is None or value == -1:
+            self._n_jobs = max(
+                1, capped_n_jobs(HardwareManager.get_safe_parallel_jobs())
+            )
+        else:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError("n_jobs must be a positive integer, -1, or None")
+            self._n_jobs = max(1, capped_n_jobs(int(value)))
         if hasattr(self, "conformer_generator") and hasattr(
             self.conformer_generator, "n_jobs"
         ):
-            self.conformer_generator.n_jobs = int(value) if int(value) > 0 else None
+            self.conformer_generator.n_jobs = self._n_jobs
 
     def _score_sequential(
         self,

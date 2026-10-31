@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from _david.code.conformer.batch_probe import (
-    measure_batch_scoring,
-    run_batch_probe,
-)
+from typing import Any
+
 from _david.code.conformer.reference_bank import (
     CANDIDATE_ISOMER_CAP,
     CANDIDATE_SEED,
@@ -63,3 +61,11 @@ __all__ = [
     "save_sdf",
     "source_hashes",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in ("measure_batch_scoring", "run_batch_probe"):
+        from _david.code.conformer import batch_probe
+
+        return getattr(batch_probe, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

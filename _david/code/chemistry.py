@@ -200,7 +200,7 @@ def _create_etkdg_params(
     params.pruneRmsThresh = -1.0 if embedding_rmsd is None else float(embedding_rmsd)
     if timeout > 0:
         params.timeout = int(timeout)
-    params.numThreads = max(1, int(num_threads))
+    params.numThreads = max(0, int(num_threads))
     return params
 
 
@@ -266,14 +266,22 @@ def _embed_candidate_chunk_worker(
                 )
                 continue
 
-            for iso_index, iso in enumerate(
-                enumerate_stereoisomers(
-                    mol, limit=task.max_isomers, seed=task.stereo_seed
+            try:
+                isomers = list(
+                    enumerate_stereoisomers(
+                        mol, limit=task.max_isomers, seed=task.stereo_seed
+                    )
                 )
-            ):
-                iso_h = Chem.AddHs(iso)
-                iso_h.SetProp("_Name", f"mol_{index}+{iso_index}")
+            except (ValueError, RuntimeError) as exc:
+                logging.getLogger(__name__).warning(
+                    "%s: stereoisomer enumeration failed: %s", smiles, exc
+                )
+                continue
+
+            for iso_index, iso in enumerate(isomers):
                 try:
+                    iso_h = Chem.AddHs(iso)
+                    iso_h.SetProp("_Name", f"mol_{index}+{iso_index}")
                     params = _create_etkdg_params(
                         random_seed=task.random_seed,
                         embedding_rmsd=task.embedding_rmsd,
@@ -310,7 +318,11 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         **kwargs: object,
     ) -> None:
         requested = kwargs.get("max_conformers", 10)
-        if not isinstance(requested, int) or not 1 <= requested <= 1000:
+        if (
+            isinstance(requested, bool)
+            or not isinstance(requested, int)
+            or not 1 <= requested <= 1000
+        ):
             raise ValueError("Conformer attempts must be an integer from 1 to 1000")
         max_heavy = kwargs.pop("max_heavy_atoms", 35)
         max_rotors = kwargs.pop("max_rotatable_bonds", 15)
@@ -319,7 +331,11 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         if raw_n_jobs is not None:
             if raw_n_jobs == -1:
                 resolved_n_jobs: int | None = None
-            elif not isinstance(raw_n_jobs, int) or raw_n_jobs < 1:
+            elif (
+                isinstance(raw_n_jobs, bool)
+                or not isinstance(raw_n_jobs, int)
+                or raw_n_jobs < 1
+            ):
                 raise ValueError("n_jobs must be a positive integer, -1, or None")
             else:
                 resolved_n_jobs = int(raw_n_jobs)
@@ -333,9 +349,17 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
             max_rotatable_bonds=15 if max_rotors is None else int(max_rotors),
             **kwargs,
         )
-        if not isinstance(self.max_isomers, int) or self.max_isomers < 1:
+        if (
+            isinstance(self.max_isomers, bool)
+            or not isinstance(self.max_isomers, int)
+            or self.max_isomers < 1
+        ):
             raise ValueError("max_isomers must be a positive integer")
-        if not isinstance(self.timeout, int) or self.timeout < 0:
+        if (
+            isinstance(self.timeout, bool)
+            or not isinstance(self.timeout, int)
+            or self.timeout < 0
+        ):
             raise ValueError("timeout must be a non-negative integer")
         self.max_heavy_atoms: int | None = None if max_heavy is None else int(max_heavy)
         self.max_rotatable_bonds: int | None = (
@@ -349,11 +373,26 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         if embedding_rmsd is not None and embedding_rmsd < 0:
             raise ValueError("Embedding RMSD must be nonnegative or None")
         self.embedding_rmsd: float | None = embedding_rmsd
-        self.n_jobs: int | None = resolved_n_jobs
+        self._n_jobs: int | None = resolved_n_jobs
         self.last_minimization_statuses: list[int] = []
         self.last_embedding_failures: int = 0
         self.last_identity_rejections: list[str] = []
         self.last_filtered_molecules: list[str] = []
+        self.last_embedding_seconds: float = 0.0
+        self.last_minimization_seconds: float = 0.0
+
+    @property
+    def n_jobs(self) -> int | None:
+        return self._n_jobs
+
+    @n_jobs.setter
+    def n_jobs(self, value: int | None) -> None:
+        if value is None or value == -1:
+            self._n_jobs = None
+        elif isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError("n_jobs must be a positive integer, -1, or None")
+        else:
+            self._n_jobs = int(value)
 
     def _filter_mol(self, smi: str, mol: Chem.Mol) -> bool:
         """Filter candidate molecules exceeding optional heavy-atom or rotatable-bond caps."""
@@ -406,7 +445,7 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
 
         workers = (
             HardwareManager.get_safe_parallel_jobs()
-            if self.n_jobs is None
+            if (self.n_jobs is None or self.n_jobs == -1)
             else int(self.n_jobs)
         )
         workers = capped_n_jobs(workers)
@@ -478,13 +517,19 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
 
     def genConformers(self, smiles_list: Sequence[str], out_dir: str | Path) -> str:
         """Generate 3D conformers for a batch of SMILES and write valid geometries to an SDF."""
+        import time
+
         self.last_minimization_statuses = []
         self.last_embedding_failures = 0
         self.last_identity_rejections = []
         self.last_filtered_molecules = []
+        self.last_embedding_seconds = 0.0
+        self.last_minimization_seconds = 0.0
         path_obj = Path(out_dir) / "conformers.sdf"
         path = str(path_obj)
+        t_embed_0 = time.perf_counter()
         self._embed_batch_to_sdf(smiles_list, path)
+        self.last_embedding_seconds = time.perf_counter() - t_embed_0
         if not path_obj.is_file() or path_obj.stat().st_size == 0:
             return path
         try:
@@ -501,14 +546,15 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
             return path
 
         if not valid:
+            _write_sdf_records(path, [])
             return path
 
+        t_min_0 = time.perf_counter()
         minimized, statuses = optimize_conformers(
             valid, self.optimization, n_jobs=self.n_jobs
         )
+        self.last_minimization_seconds = time.perf_counter() - t_min_0
         self.last_minimization_statuses = statuses
-        if not minimized:
-            return path
         _write_sdf_records(path, minimized)
         failures = sum(status != 0 for status in statuses)
         if failures:
@@ -617,15 +663,22 @@ def optimize_conformers(
     """
     if settings.method not in {"MMFF94", "MMFF94s", "UFF"}:
         raise ValueError(f"Unsupported optimization method: {settings.method}")
+    if isinstance(n_jobs, bool) or (
+        n_jobs is not None and n_jobs != -1 and (not isinstance(n_jobs, int) or n_jobs < 1)
+    ):
+        raise ValueError("n_jobs must be a positive integer, -1, or None")
 
     import multiprocessing
-    from drugex.training.scorers.parallel import pool_context
+    from drugex.training.scorers.parallel import capped_n_jobs, pool_context
     from _david.code.utils import HardwareManager
 
     enable_double_precision_mol_pickling()
     workers = (
-        HardwareManager.get_safe_parallel_jobs() if n_jobs is None else int(n_jobs)
+        HardwareManager.get_safe_parallel_jobs()
+        if (n_jobs is None or n_jobs == -1)
+        else int(n_jobs)
     )
+    workers = capped_n_jobs(workers)
     if (
         len(records) >= 32
         and workers > 1
@@ -729,11 +782,16 @@ def filter_conformer_identities(
     accepted: list[Chem.Mol] = []
     rejected: list[str] = []
     for record in records:
-        target = (
-            expected
-            if expected is not None
-            else Chem.MolFromSmiles(record.GetProp("EnumeratedIsomerSMILES"))
-        )
+        if expected is not None:
+            target = expected
+        elif record.HasProp("EnumeratedIsomerSMILES"):
+            target = Chem.MolFromSmiles(record.GetProp("EnumeratedIsomerSMILES"))
+        else:
+            target = Chem.Mol(record)
+
+        if target is None:
+            rejected.append("Missing or invalid reference structure for identity check")
+            continue
         try:
             check_identity(record, target)
         except ValueError as exc:

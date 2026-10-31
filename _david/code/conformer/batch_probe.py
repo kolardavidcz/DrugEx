@@ -147,7 +147,13 @@ def measure_batch_scoring(
         t0 = time.perf_counter()
         sdf = original_gen(smiles, out_dir)
         elapsed = time.perf_counter() - t0
-        timings["embedding_seconds"] = elapsed
+        timings["generation_seconds"] = elapsed
+        timings["embedding_seconds"] = getattr(
+            generator, "last_embedding_seconds", elapsed
+        )
+        timings["minimization_seconds"] = getattr(
+            generator, "last_minimization_seconds", 0.0
+        )
         if Path(sdf).is_file() and Path(sdf).stat().st_size > 0:
             suppl = Chem.SDMolSupplier(str(sdf), removeHs=False)
             timings["conformer_count"] = float(sum(1 for m in suppl if m is not None))
@@ -160,7 +166,7 @@ def measure_batch_scoring(
     total_batch_seconds = time.perf_counter() - t_batch_start
 
     scores = raw_scores / 2.0  # Normalized [0, 1]
-    alignment_seconds = max(0.0, total_batch_seconds - timings["embedding_seconds"])
+    alignment_seconds = max(0.0, total_batch_seconds - timings.get("generation_seconds", 0.0))
     timings["total_batch_seconds"] = total_batch_seconds
     timings["alignment_seconds"] = alignment_seconds
     timings["molecules_per_second"] = len(smiles_list) / max(1e-6, total_batch_seconds)
@@ -215,6 +221,7 @@ def run_batch_probe(
                     minimize=minimize_candidates,
                     total_seconds=metrics["total_batch_seconds"],
                     embedding_seconds=metrics["embedding_seconds"],
+                    minimization_seconds=metrics["minimization_seconds"],
                     alignment_seconds=metrics["alignment_seconds"],
                     molecules_per_second=metrics["molecules_per_second"],
                     conformer_count=int(metrics["conformer_count"]),
@@ -295,6 +302,7 @@ def main() -> None:
         "workers",
         "total_seconds",
         "embedding_seconds",
+        "minimization_seconds",
         "alignment_seconds",
         "molecules_per_second",
         "speedup",
