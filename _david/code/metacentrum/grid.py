@@ -23,7 +23,7 @@ class GridJobSpec:
     n_gpus: int = 1
     gpu_cap: str | None = None
     scratch_gb: int = 15
-    walltime: str = "12:00:00"
+    walltime: str = "24:00:00"
     spec: float | None = 10.0
 
     def __post_init__(self):
@@ -232,8 +232,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--walltime",
-        default="12:00:00",
-        help="Requested walltime HH:MM:SS (default: '12:00:00')",
+        default="24:00:00",
+        help="Requested walltime HH:MM:SS (default: '24:00:00')",
     )
     parser.add_argument(
         "--ngpus",

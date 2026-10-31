@@ -2,7 +2,7 @@
 # Submit through grid.py: arguments live in a JSON spec, never an eval string.
 #PBS -N drugex_run
 #PBS -l select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=10:ngpus=1
-#PBS -l walltime=12:00:00
+#PBS -l walltime=24:00:00
 #PBS -j oe
 
 set -euo pipefail
