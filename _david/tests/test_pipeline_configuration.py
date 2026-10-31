@@ -8,11 +8,15 @@ from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from _david.code.config import PROJECT_ROOT
+from _david.code.config import PROJECT_ROOT, PipelineConfig
 from _david.code.environment import PrepareMolecule, create_environment
 from _david.code.pipeline import MoleculePipeline, config_from_args, parse_args
 from _david.code.reference import PrepareMolecule as ReferencePreparer
-from _david.code.metacentrum.grid import GridJobSpec, MetaCentrumGridManager
+from _david.code.metacentrum.grid import (
+    GridJobSpec,
+    MetaCentrumGridManager,
+    generate_8arm_grid,
+)
 from _david.code.utils import HardwareManager
 from _david.code.conformer.sampling import plan_sampling
 from rdkit import Chem
@@ -85,6 +89,17 @@ class TestPipelineConfiguration(unittest.TestCase):
         self.assertEqual(cfg.max_reference_conformers, 4)
         self.assertEqual(cfg.reference_selection_mode, "diverse")
         self.assertEqual(cfg.score_variant, "tanimoto_combo")
+        self.assertEqual(cfg.epochs, 200)
+        self.assertEqual(cfg.min_epochs, 50)
+        self.assertEqual(cfg.patience, 50)
+        self.assertEqual(cfg.epsilon, 0.05)
+        self.assertFalse(cfg.use_epsilon_decay)
+        self.assertFalse(cfg.include_qed)
+        self.assertFalse(cfg.rocs_use_modifier)
+        self.assertEqual(cfg.thresholds, (0.35, 0.50))
+        self.assertEqual(cfg.weights, (0.75, 0.25))
+        self.assertEqual(cfg.sa_score_lower, 5.0)
+        self.assertEqual(cfg.sa_score_upper, 3.0)
         with self.assertRaises(ValueError):
             config_from_args(parse_args(["--dielectric", "78.4"]))
 
@@ -182,6 +197,124 @@ class TestPipelineConfiguration(unittest.TestCase):
             self.assertEqual(spec.n_cpus, 32)
             self.assertEqual(spec.spec, 11.0)
             self.assertEqual(revision, "b" * 40)
+
+    def test_sa_clipped_score_and_rocs_modifier(self):
+        from rdkit.Chem import AllChem
+        from drugex.training.scorers.modifiers import ClippedScore
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CC"))
+        self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
+
+        # Default: rocs_use_modifier=False, SA modifier is ClippedScore(lower_x=5, upper_x=3)
+        cfg_default = PipelineConfig()
+        env = create_environment(mol, config=cfg_default)
+        rocs_scorer, sa_scorer = env.scorers[0], env.scorers[1]
+        self.assertIsNone(rocs_scorer.modifier)
+
+        # Test SA ClippedScore(lower_x=5.0, upper_x=3.0) bounds
+        self.assertAlmostEqual(float(sa_scorer.modifier(2.0)), 1.0)
+        self.assertAlmostEqual(float(sa_scorer.modifier(3.0)), 1.0)
+        self.assertAlmostEqual(float(sa_scorer.modifier(4.0)), 0.5)
+        self.assertAlmostEqual(float(sa_scorer.modifier(5.0)), 0.0)
+        self.assertAlmostEqual(float(sa_scorer.modifier(6.0)), 0.0)
+
+        # When rocs_use_modifier=True
+        cfg_mod = PipelineConfig(rocs_use_modifier=True)
+        env_mod = create_environment(mol, config=cfg_mod)
+        self.assertIsNotNone(env_mod.scorers[0].modifier)
+        self.assertIsInstance(env_mod.scorers[0].modifier, ClippedScore)
+
+    def test_qed_inclusion_and_objective_scaling(self):
+        from rdkit.Chem import AllChem
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CC"))
+        self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
+
+        # 2-objective: without QED
+        cfg_noqed = PipelineConfig(include_qed=False)
+        env_noqed = create_environment(mol, config=cfg_noqed)
+        self.assertEqual(len(env_noqed.scorers), 2)
+        self.assertEqual(len(env_noqed.thresholds), 2)
+        self.assertEqual(env_noqed.thresholds, [0.35, 0.50])
+        self.assertEqual(cfg_noqed.weights, (0.75, 0.25))
+
+        # 3-objective: with QED
+        cfg_qed = PipelineConfig(include_qed=True)
+        env_qed = create_environment(mol, config=cfg_qed)
+        self.assertEqual(len(env_qed.scorers), 3)
+        self.assertEqual(len(env_qed.thresholds), 3)
+        self.assertEqual(env_qed.thresholds, [0.35, 0.50, 0.50])
+        self.assertEqual(cfg_qed.weights, (0.50, 0.25, 0.25))
+
+    def test_generate_8arm_grid(self):
+        specs = generate_8arm_grid(prefix="suite", molecule="CCO")
+        self.assertEqual(len(specs), 8)
+        names = {s.experiment_name for s in specs}
+        self.assertEqual(len(names), 8)
+
+        # Verify shared hyperparameters
+        for s in specs:
+            self.assertIn("--epochs 200", s.args)
+            self.assertIn("--min-epochs 50", s.args)
+            self.assertIn("--patience 50", s.args)
+            self.assertIn("--epsilon 0.05", s.args)
+            self.assertIn("--score-variant tanimoto_combo", s.args)
+            self.assertIn("--molecule CCO", s.args)
+
+        # Verify factor levels
+        no_qed_specs = [s for s in specs if "--no-include-qed" in s.args]
+        qed_specs = [s for s in specs if "--include-qed" in s.args]
+        self.assertEqual(len(no_qed_specs), 4)
+        self.assertEqual(len(qed_specs), 4)
+
+        pareto_specs = [s for s in specs if "--reward-scheme pareto_crowding" in s.args]
+        harrington_specs = [s for s in specs if "--reward-scheme harrington" in s.args]
+        self.assertEqual(len(pareto_specs), 4)
+        self.assertEqual(len(harrington_specs), 4)
+
+        unmin_specs = [
+            s
+            for s in specs
+            if "--no-minimize-candidates" in s.args and "--conformers 30" in s.args
+        ]
+        min_specs = [
+            s
+            for s in specs
+            if "--minimize-candidates" in s.args and "--conformers 20" in s.args
+        ]
+        self.assertEqual(len(unmin_specs), 4)
+        self.assertEqual(len(min_specs), 4)
+
+    def test_grid_cli_actions(self):
+        from _david.code.metacentrum.grid import main as grid_main
+
+        with patch("sys.argv", ["grid.py", "grid", "--name", "test_run"]):
+            grid_main()
+
+        with (
+            patch.object(
+                MetaCentrumGridManager,
+                "submit_matrix",
+                return_value=["1.pbs", "2.pbs", "3.pbs", "4.pbs", "5.pbs", "6.pbs", "7.pbs", "8.pbs"],
+            ) as mock_matrix,
+            patch(
+                "sys.argv",
+                [
+                    "grid.py",
+                    "submit-grid",
+                    "--name",
+                    "matrix_test",
+                    "--no-sync",
+                    "--revision",
+                    "c" * 40,
+                ],
+            ),
+        ):
+            grid_main()
+            mock_matrix.assert_called_once()
+            specs_submitted, rev = mock_matrix.call_args[0]
+            self.assertEqual(len(specs_submitted), 8)
+            self.assertEqual(rev, "c" * 40)
 
 
 if __name__ == "__main__":

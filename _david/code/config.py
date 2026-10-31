@@ -27,59 +27,48 @@ class PipelineConfig:
 
     # Reinforcement Learning Exploration
     # DrugEx v1 (Liu et al., 2019, J. Cheminform. 11:35) converges around ~200 epochs
-    # with 8 Adam gradient steps/epoch (lr=1e-3). Pairing n_samples=500 with batch_size=64
-    # preserves ceil(500/64) = 8 Adam steps/epoch at half the 3D scoring cost.
-    epochs: int = 250  # ^ [250, 200, 100] (250 epochs = 2,000 Adam steps)
-    patience: int = 100  # Decoupled (> epochs) to prevent premature stopping
+    # with 8 Adam gradient steps/epoch (lr=1e-3). Defaulting to 200 epochs with min_epochs=50 and patience=50.
+    epochs: int = 200  # ^ [250, 200, 100]
+    patience: int = 50  # Early-stopping patience (min 50 epochs before triggering)
     min_epochs: int = 50
 
     n_samples: int = 500  # Molecule samples generated per training epoch # ^ [500, 1000]
     val_samples: int = 100
     n_eval_samples: int = 1000  # Statistical evaluation sample pool size
-    batch_size: int = 64  # Mini-batch size per Adam policy-gradient step # ^ [64, 128] (use 64 with n_samples=500, 128 with n_samples=1000)
+    batch_size: int = 64  # Mini-batch size per Adam policy-gradient step # ^ [64, 128]
 
     criteria: str = std.AVG_AMEAN
-    beta: float = 0.0  # Baseline policy penalization # ^ [0.0, 0.05, 0.10] (beta=0.0 eliminates sparse-reward death spiral on early exploration)
+    beta: float = 0.0  # Baseline policy penalization
 
     # Exploration Noise (Epsilon)
-    #! OFF - super-supervisor note
-    epsilon: float = 0.0  # ^ [0.15, 0.10] (initial prior-mutation mixing rate)
-    epsilon_end: float = 0.0  # ^ [0.02, 0.05] (terminal exploration floor)
+    epsilon: float = 0.05  # Prior-mutation exploration rate
+    epsilon_end: float = 0.0  # Terminal exploration floor
     decay_epochs: int = 50
     decay_type: str = "cosine"  # ^ ["cosine", "linear"]
     use_epsilon_decay: bool = False  # ^ [True, False]
 
-    # Multi-Objective Desirability Thresholds (ROCS, SA, QED)
-    thresholds: tuple[float, float, float] = (0.35, 0.50, 0.50)
+    # Multi-Objective Desirability Thresholds (ROCS, SA[, QED])
+    include_qed: bool = False  # Toggle QED inclusion in multi-objective RL environment
+    thresholds: tuple[float, ...] | None = None  # Auto-calibrates to (0.35, 0.50) or (0.35, 0.50, 0.50)
     # Empirical baseline percentile (e.g. 75.0 = Q3) to auto-calibrate from Stage 1 prior distribution
-    #! OFF for now
     threshold_percentile: float | None = None  # ^ [75.0, None]
 
     # Scoring & Rewards (Calibrated on 121x121 = 14,641 drug-pair x 162-combo selectivity grid):
-    #!: i would start with TomitoCombo - color shape with default settings
-    # - Option 1 — Ultra-Clean Selectivity (α+β=2, (1.0, 1.0) or (0.8, 1.2) with 0.2S + 0.8C):
-    #     "tversky_mild_color_heavy" -> (α=0.8, β=1.2) with 0.2S + 0.8C
-    #     "selectivity_color_heavy"  -> (α=1.0, β=1.0) with 0.2S + 0.8C
-    # - Option 2 — Aggressive Sub-Scaffold Hopping (α+β=2, (0.6, 1.4) with 0.3S + 0.7C or 0.2S + 0.8C):
-    #     "tversky_scaffold_hop"        -> (α=0.6, β=1.4) with 0.3S + 0.7C
-    #     "tversky_scaffold_hop_strict" -> (α=0.6, β=1.4) with 0.2S + 0.8C
     score_variant: str = "tanimoto_combo"  # ^ ["tversky_mild_color_heavy", "selectivity_color_heavy", "tversky_scaffold_hop", "tversky_scaffold_hop_strict", "tanimoto_combo"]
-    rocs_tversky_alpha: float | None = None  # ^ [None (use score_variant preset), 0.8, 1.0, 0.6] (Option 1: 0.8 or 1.0; Option 2: 0.6)
-    rocs_tversky_beta: float | None = None  # ^ [None (use score_variant preset), 1.2, 1.0, 1.4] (Option 1: 1.2 or 1.0; Option 2: 1.4; α+β=2)
-    rocs_shape_weight: float | None = None  # ^ [None (use score_variant preset), 0.2, 0.3, 0.5] (Option 1: 0.2; Option 2: 0.3 or 0.2)
-    rocs_color_weight: float | None = None  # ^ [None (use score_variant preset), 0.8, 0.7, 0.5] (Option 1: 0.8; Option 2: 0.7 or 0.8)
+    rocs_tversky_alpha: float | None = None
+    rocs_tversky_beta: float | None = None
+    rocs_shape_weight: float | None = None
+    rocs_color_weight: float | None = None
     reward_scheme: str = std.REWARD_HARRINGTON  # ^ ["harrington", "pareto_crowding", "weighted_sum"]
-    weights: tuple[float, float, float] = (
-        0.50,
-        0.25,
-        0.25,
-    )  # ^ [(0.50, 0.25, 0.25), (0.60, 0.20, 0.20)]
+    weights: tuple[float, ...] | None = None  # Auto-calibrates to (0.75, 0.25) or (0.50, 0.25, 0.25)
 
-    # Scorer Modifier Bounds (ROCS ClippedScore & SA SmoothClippedScore)
-    #! we sould be ok with 90% for ROCS
-    rocs_clip_upper: float = 1.8  # Raw TanimotoCombo [0, 2] -> normalized [0, 1]
-    sa_smooth_lower: float = 5.0  # Raw SA = 5.0 -> ~0.12 desirability
-    sa_smooth_upper: float = 3.0  # Raw SA = 3.0 -> ~0.88 desirability
+    # Scorer Modifier Bounds (ROCS raw/clipped & SA ClippedScore)
+    rocs_use_modifier: bool = False  # False preserves raw TanimotoCombo [0, 2]; True applies ClippedScore [0, 1]
+    rocs_clip_upper: float = 1.8  # Raw TanimotoCombo upper bound when rocs_use_modifier=True
+    sa_score_lower: float = 5.0  # Raw SA >= 5.0 -> 0.0 reward
+    sa_score_upper: float = 3.0  # Raw SA <= 3.0 -> flat 1.0 reward (stops artificial shrinkage)
+    sa_smooth_lower: float = 5.0  # Backward-compatibility alias
+    sa_smooth_upper: float = 3.0  # Backward-compatibility alias
 
     # 3D Conformer & Chemistry Settings (Calibrated on 128-drug panel: C=20 minimized beats C=75 unminimized)
     max_conformers: int = 20  # ^ [20, 30] (C=20 with MMFF94s optimization reaches >=0.95 ceiling at minimum latency)
@@ -118,6 +107,18 @@ class PipelineConfig:
     # Checkpoint Paths
     agent_path: Path | str | None = None
     vocab_path: Path | str | None = None
+
+    def __post_init__(self) -> None:
+        if self.thresholds is None:
+            default_thresh = (0.35, 0.50, 0.50) if self.include_qed else (0.35, 0.50)
+            object.__setattr__(self, "thresholds", default_thresh)
+        if self.weights is None:
+            default_weights = (0.50, 0.25, 0.25) if self.include_qed else (0.75, 0.25)
+            object.__setattr__(self, "weights", default_weights)
+        if self.sa_smooth_lower != 5.0 and self.sa_score_lower == 5.0:
+            object.__setattr__(self, "sa_score_lower", self.sa_smooth_lower)
+        if self.sa_smooth_upper != 3.0 and self.sa_score_upper == 3.0:
+            object.__setattr__(self, "sa_score_upper", self.sa_smooth_upper)
 
     @property
     def minimize_method(self) -> Optimization | None:

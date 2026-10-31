@@ -172,6 +172,84 @@ class MetaCentrumGridManager:
         subprocess.run(cmd, check=True)
 
 
+def generate_8arm_grid(
+    prefix: str = "exp",
+    molecule: str | None = None,
+    n_cpus: int = 16,
+    mem_gb: int = 32,
+    n_gpus: int = 1,
+    walltime: str = "24:00:00",
+    scratch_gb: int = 15,
+    spec: float | None = 10.0,
+    gpu_cap: str | None = None,
+) -> list[GridJobSpec]:
+    """Generate canonical 8-arm PBS Pro experiment grid (2 QED x 2 Reward x 2 Conformer/Opt).
+
+    Factors:
+        1. QED Factor (2 levels):
+           - without_qed: include_qed=False (--no-include-qed)
+           - with_qed:    include_qed=True  (--include-qed)
+        2. Reward Factor (2 levels):
+           - pareto_crowding: ParetoCrowdingDistance (--reward-scheme pareto_crowding)
+           - harrington:      HarringtonDesirabilityReward (--reward-scheme harrington)
+        3. Conformer / Optimization Factor (2 levels):
+           - unminimized_c30_k1: minimize_candidates=False, max_conformers=30, max_reference_conformers=1
+           - minimized_c20_k4:   minimize_candidates=True,  max_conformers=20, max_reference_conformers=4
+
+    Shared Hyperparameters:
+        epochs=200, min_epochs=50, patience=50, epsilon=0.05, score_variant="tanimoto_combo".
+    """
+    qed_levels = [
+        ("without_qed", "--no-include-qed"),
+        ("with_qed", "--include-qed"),
+    ]
+    reward_levels = [
+        ("pareto_crowding", "--reward-scheme pareto_crowding"),
+        ("harrington", "--reward-scheme harrington"),
+    ]
+    conformer_levels = [
+        (
+            "unminimized_c30_k1",
+            "--no-minimize-candidates --conformers 30 --reference-conformers 1",
+        ),
+        (
+            "minimized_c20_k4",
+            "--minimize-candidates --conformers 20 --reference-conformers 4",
+        ),
+    ]
+
+    base_args = [
+        "--epochs 200",
+        "--min-epochs 50",
+        "--patience 50",
+        "--epsilon 0.05",
+        "--score-variant tanimoto_combo",
+    ]
+    if molecule:
+        base_args.append(f"--molecule {shlex.quote(molecule)}")
+
+    specs: list[GridJobSpec] = []
+    for qed_tag, qed_arg in qed_levels:
+        for reward_tag, reward_arg in reward_levels:
+            for conf_tag, conf_arg in conformer_levels:
+                name = f"{prefix}_{qed_tag}_{reward_tag}_{conf_tag}"
+                arm_args = " ".join([*base_args, qed_arg, reward_arg, conf_arg])
+                specs.append(
+                    GridJobSpec(
+                        experiment_name=name,
+                        args=arm_args,
+                        n_cpus=n_cpus,
+                        mem_gb=mem_gb,
+                        n_gpus=n_gpus,
+                        gpu_cap=gpu_cap,
+                        scratch_gb=scratch_gb,
+                        walltime=walltime,
+                        spec=spec,
+                    )
+                )
+    return specs
+
+
 def main() -> None:
     """CLI utility for managing MetaCentrum grid synchronization and job tracking."""
     import argparse
@@ -179,8 +257,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="DrugEx MetaCentrum Grid CLI")
     parser.add_argument(
         "action",
-        choices=["test", "sync", "status", "pull", "submit"],
-        help="Action to execute: 'test' connection, 'sync' code, check 'status', 'pull' results, or 'submit' job",
+        choices=["test", "sync", "status", "pull", "submit", "grid", "submit-grid"],
+        help="Action to execute: 'test' connection, 'sync' code, check 'status', 'pull' results, 'submit' job, inspect 'grid', or 'submit-grid'",
     )
     parser.add_argument(
         "--host", default="meta", help="SSH host alias (default: 'meta')"
@@ -199,12 +277,17 @@ def main() -> None:
     parser.add_argument(
         "--name",
         default="rl_default_tanimoto_combo",
-        help="Experiment name for submission (default: 'rl_default_tanimoto_combo')",
+        help="Experiment name prefix for submission / grid generation (default: 'rl_default_tanimoto_combo')",
     )
     parser.add_argument(
         "--args",
         default="",
         help="CLI arguments passed to _david.code.pipeline (default: empty, using config defaults)",
+    )
+    parser.add_argument(
+        "--molecule",
+        default=None,
+        help="Optional target query molecule SMILES or SDF path for grid experiments",
     )
     parser.add_argument(
         "--ncpus",
@@ -277,6 +360,47 @@ def main() -> None:
         print(f"Pulling deliverables to {args.output_dir}...")
         mgr.sync_results_from_grid(args.output_dir)
         print("Pull completed.")
+    elif args.action == "grid":
+        specs = generate_8arm_grid(
+            prefix=args.name,
+            molecule=args.molecule,
+            n_cpus=args.ncpus,
+            mem_gb=args.mem,
+            n_gpus=args.ngpus,
+            gpu_cap=args.gpu_cap,
+            scratch_gb=args.scratch,
+            walltime=args.walltime,
+            spec=args.spec,
+        )
+        print(f"Generated {len(specs)}-arm experiment grid:")
+        for idx, spec in enumerate(specs, 1):
+            print(f"[{idx}/8] {spec.experiment_name}")
+            print(f"      Args: {spec.args}")
+    elif args.action == "submit-grid":
+        if not args.no_sync:
+            print(f"Synchronizing codebase to {args.host}:{mgr.storage_root}...")
+            mgr.sync_codebase_to_grid()
+        revision = (
+            args.revision
+            or subprocess.check_output(
+                ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"], text=True
+            ).strip()
+        )
+        specs = generate_8arm_grid(
+            prefix=args.name,
+            molecule=args.molecule,
+            n_cpus=args.ncpus,
+            mem_gb=args.mem,
+            n_gpus=args.ngpus,
+            gpu_cap=args.gpu_cap,
+            scratch_gb=args.scratch,
+            walltime=args.walltime,
+            spec=args.spec,
+        )
+        print(f"Submitting {len(specs)} grid experiments to PBS Pro...")
+        job_ids = mgr.submit_matrix(specs, revision)
+        for spec, jid in zip(specs, job_ids):
+            print(f"Submitted {spec.experiment_name}: {jid}")
     elif args.action == "submit":
         if not args.no_sync:
             print(f"Synchronizing codebase to {args.host}:{mgr.storage_root}...")

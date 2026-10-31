@@ -112,15 +112,25 @@ class HarringtonDesirabilityReward(RewardScheme):
 
     def __init__(
         self,
-        weights: Sequence[float] = (0.50, 0.25, 0.25),
-        rocs_anchors: tuple[float, float, float, float] = (0.20, 0.05, 0.60, 0.80),
+        weights: Sequence[float] = (0.75, 0.25),
+        rocs_anchors: tuple[float, float, float, float] | None = None,
         sa_anchors: tuple[float, float, float, float] = (0.20, 0.05, 0.80, 0.90),
         qed_anchors: tuple[float, float, float, float] = (0.30, 0.05, 0.70, 0.90),
         eps: float = 1e-6,
+        rocs_raw: bool = True,
     ) -> None:
         super().__init__()
         self.weights = np.array(weights, dtype=np.float64)
         self.eps = float(eps)
+        self.rocs_raw = bool(rocs_raw)
+        if rocs_anchors is None:
+            # Calibrate Gompertz anchors to physical [0, 2] scale when raw (0.4 raw ~ 0.2 norm, 1.2 raw ~ 0.6 norm)
+            # or [0, 1] when normalized.
+            rocs_anchors = (
+                (0.40, 0.05, 1.20, 0.80)
+                if self.rocs_raw
+                else (0.20, 0.05, 0.60, 0.80)
+            )
         self.params: list[tuple[float, float]] = [
             self._fit_anchors(*rocs_anchors),
             self._fit_anchors(*sa_anchors),
@@ -177,10 +187,13 @@ class HarringtonDesirabilityReward(RewardScheme):
         if n_samples == 0:
             return np.zeros((0, 1), dtype=np.float64)
 
-        scores_clean = np.clip(
-            np.nan_to_num(scores_arr, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0
-        )
-        n_objs = scores_clean.shape[1]
+        clean = np.nan_to_num(scores_arr, nan=0.0, posinf=1.0, neginf=0.0)
+        scores_clean = np.zeros_like(clean, dtype=np.float64)
+        n_objs = clean.shape[1]
+        for j in range(n_objs):
+            max_val = 2.0 if (j == 0 and self.rocs_raw) else 1.0
+            scores_clean[:, j] = np.clip(clean[:, j], 0.0, max_val)
+
         w = (
             self.weights[:n_objs]
             if len(self.weights) >= n_objs
@@ -207,7 +220,8 @@ class HarringtonDesirabilityReward(RewardScheme):
 
 def resolve_reward_scheme(
     scheme: str | RewardScheme | None = None,
-    weights: tuple[float, ...] = (0.50, 0.25, 0.25),
+    weights: tuple[float, ...] = (0.75, 0.25),
+    rocs_raw: bool = True,
 ) -> RewardScheme:
     """Resolve RewardScheme instance from canonical std.REWARD_* constant or pass through."""
     if isinstance(scheme, RewardScheme):
@@ -215,10 +229,10 @@ def resolve_reward_scheme(
     name = (scheme or std.REWARD_WEIGHTED_SUM).lower().strip()
     if name in (std.REWARD_WEIGHTED_SUM, "ws"):
         return WeightedSum()
-    if name in (std.REWARD_PARETO, "pareto"):
+    if name in (std.REWARD_PARETO, "pareto", "pareto_crowding"):
         return ParetoCrowdingDistance()
     if name in (std.REWARD_HARRINGTON, "harrington_desirability", "desirability"):
-        return HarringtonDesirabilityReward(weights=weights)
+        return HarringtonDesirabilityReward(weights=weights, rocs_raw=rocs_raw)
     raise ValueError(
         f"Unknown reward scheme: '{scheme}'. Valid options: "
         f"[{std.REWARD_WEIGHTED_SUM!r}, {std.REWARD_PARETO!r}, {std.REWARD_HARRINGTON!r}]"
@@ -234,9 +248,16 @@ def create_environment(
     reward_scheme: str | RewardScheme | None = None,
     score_variant: str | None = None,
     conformer_threads: int | None = None,
+    include_qed: bool | None = None,
+    rocs_use_modifier: bool | None = None,
 ) -> DrugExEnvironment:
-    """Construct multi-objective DrugEx reinforcement learning environment for ROCS + SA + QED."""
+    """Construct multi-objective DrugEx reinforcement learning environment."""
     cfg = config or PipelineConfig()
+    use_qed = cfg.include_qed if include_qed is None else bool(include_qed)
+    use_rocs_mod = (
+        cfg.rocs_use_modifier if rocs_use_modifier is None else bool(rocs_use_modifier)
+    )
+
     scorer_kwargs = cfg.rocs_scorer_kwargs(
         n_jobs=HardwareManager.get_safe_parallel_jobs(ratio=cfg.cpu_ratio)
     )
@@ -250,31 +271,65 @@ def create_environment(
         scorer_kwargs["conformer_threads"] = conformer_threads
 
     rocs_scorer = create_rocs_scorer(ref_sdf, **scorer_kwargs)
-    rocs_scorer.setModifier(
-        ClippedScore(
-            lower_x=0.0, upper_x=cfg.rocs_clip_upper, low_score=0.0, high_score=1.0
+    if use_rocs_mod:
+        rocs_scorer.setModifier(
+            ClippedScore(
+                lower_x=0.0, upper_x=cfg.rocs_clip_upper, low_score=0.0, high_score=1.0
+            )
         )
-    )
+    else:
+        # None / raw [0, 2] ROCS modifier
+        rocs_scorer.setModifier(None)
 
+    # SA ClippedScore(5, 3) so reward is flat (1.0) below raw SA 3.0, stopping artificial shrinkage
     sa_scorer = Property(std.SA)
     sa_scorer.setModifier(
-        SmoothClippedScore(
-            lower_x=cfg.sa_smooth_lower,
-            upper_x=cfg.sa_smooth_upper,
+        ClippedScore(
+            lower_x=cfg.sa_score_lower,
+            upper_x=cfg.sa_score_upper,
             low_score=0.0,
             high_score=1.0,
         )
     )
 
-    qed_scorer = Property(std.QED)
-    qed_scorer.setModifier(
-        ClippedScore(lower_x=0.0, upper_x=1.0, low_score=0.0, high_score=1.0)
-    )
+    scorers: list[Scorer] = [rocs_scorer, sa_scorer]
 
-    active_thresholds = thresholds if thresholds is not None else cfg.thresholds
+    if use_qed:
+        qed_scorer = Property(std.QED)
+        qed_scorer.setModifier(
+            ClippedScore(lower_x=0.0, upper_x=1.0, low_score=0.0, high_score=1.0)
+        )
+        scorers.append(qed_scorer)
+
+    if thresholds is not None:
+        active_thresholds = thresholds
+    elif cfg.thresholds is not None:
+        active_thresholds = cfg.thresholds
+    else:
+        active_thresholds = (0.35, 0.50, 0.50) if use_qed else (0.35, 0.50)
+
+    # Validate threshold dimensions against scorers
+    if len(active_thresholds) != len(scorers):
+        if not use_qed and len(active_thresholds) >= 2:
+            active_thresholds = tuple(active_thresholds[:2])
+        elif use_qed and len(active_thresholds) == 2:
+            active_thresholds = tuple(list(active_thresholds) + [0.50])
+
     active_scheme = reward_scheme if reward_scheme is not None else cfg.reward_scheme
+    weights = (
+        cfg.weights
+        if cfg.weights is not None
+        else ((0.50, 0.25, 0.25) if use_qed else (0.75, 0.25))
+    )
+    if not use_qed and len(weights) > 2:
+        weights = tuple(weights[:2])
+
     return DrugExEnvironment(
-        scorers=[rocs_scorer, sa_scorer, qed_scorer],
+        scorers=scorers,
         thresholds=list(active_thresholds),
-        reward_scheme=resolve_reward_scheme(active_scheme, weights=cfg.weights),
+        reward_scheme=resolve_reward_scheme(
+            active_scheme,
+            weights=weights,
+            rocs_raw=(not use_rocs_mod),
+        ),
     )

@@ -14,6 +14,11 @@ from _david.code.environment import (
     create_rocs_scorer,
     resolve_reward_scheme,
 )
+from _david.code.metacentrum.grid import (
+    GridJobSpec,
+    MetaCentrumGridManager,
+    generate_8arm_grid,
+)
 from _david.code.models import DecayingSequenceExplorer, SequenceRNNOptimizer
 from _david.code.pipeline import MoleculePipeline
 from _david.code.reference import (
@@ -81,5 +86,8 @@ __all__ = [
     "HardwareManager",
     "get_gpu_telemetry",
     "MoleculePipeline",
+    "GridJobSpec",
+    "MetaCentrumGridManager",
+    "generate_8arm_grid",
     "std",
 ]

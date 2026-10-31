@@ -248,7 +248,18 @@ class TestPreparation(unittest.TestCase):
             mol, config=PipelineConfig(max_conformers=7, max_isomers=8)
         )
         scorer = env.scorers[0]
-        self.assertAlmostEqual(float(scorer.getModifiedScores(np.array([raw]))[0]), 1.0)
+        # Raw ROCS modifier None preserves raw TanimotoCombo [0, 2] scale
+        self.assertAlmostEqual(float(scorer.getModifiedScores(np.array([raw]))[0]), 2.0, places=5)
+        # When rocs_use_modifier=True, ClippedScore normalizes 2.0 to 1.0
+        env_mod = create_environment(
+            mol,
+            config=PipelineConfig(
+                max_conformers=7, max_isomers=8, rocs_use_modifier=True
+            ),
+        )
+        self.assertAlmostEqual(
+            float(env_mod.scorers[0].getModifiedScores(np.array([raw]))[0]), 1.0, places=5
+        )
         generator = scorer.conformer_generator
         self.assertEqual(
             (generator.max_conformers, generator.max_isomers, generator.timeout),
@@ -298,8 +309,20 @@ class TestPreparation(unittest.TestCase):
             self.assertTrue(scorer._use_custom_weights)
             raw = scorer._score_sequential(1, {0: [Chem.Mol(ref)]}, 1)
             self.assertAlmostEqual(float(raw[0, 0]), 2.0, places=5)
+            # Default rocs_use_modifier=False preserves raw TanimotoCombo [0, 2]
             self.assertAlmostEqual(
-                float(scorer.getModifiedScores(raw)[0, 0]), 1.0, places=5
+                float(scorer.getModifiedScores(raw)[0, 0]), 2.0, places=5
+            )
+            # When rocs_use_modifier=True, ClippedScore normalizes 2.0 to 1.0
+            cfg_mod = PipelineConfig(
+                score_variant=variant,
+                max_conformers=2,
+                conformer_threads=1,
+                rocs_use_modifier=True,
+            )
+            scorer_mod = create_environment(ref, config=cfg_mod).scorers[0]
+            self.assertAlmostEqual(
+                float(scorer_mod.getModifiedScores(raw)[0, 0]), 1.0, places=5
             )
 
 

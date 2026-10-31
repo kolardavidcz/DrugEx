@@ -83,8 +83,18 @@ class MoleculePipeline:
         for col in scores_df.columns:
             df[col] = scores_df[col].values
         if std.ROCS in df.columns and "Raw_ROCS" not in df.columns:
-            # DrugExEnvironment.getScores returns ClippedScore(0, 2) normalized to [0, 1].
-            df["Raw_ROCS"] = df[std.ROCS] * 2.0
+            has_modifier = any(
+                hasattr(s, "getKey")
+                and std.ROCS in s.getKey()
+                and getattr(s, "modifier", None) is not None
+                for s in env.scorers
+            )
+            if has_modifier:
+                # DrugExEnvironment.getScores returns ClippedScore(0, 2) normalized to [0, 1].
+                df["Raw_ROCS"] = df[std.ROCS] * 2.0
+            else:
+                # Scorer has no modifier; getScores returned raw TanimotoCombo [0, 2].
+                df["Raw_ROCS"] = df[std.ROCS].copy()
 
         mols = [
             Chem.MolFromSmiles(s) if isinstance(s, str) and s else None
@@ -189,12 +199,19 @@ class MoleculePipeline:
             p = float(self.config.threshold_percentile)
             t_rocs = float(np.percentile(df_before[std.ROCS].dropna(), p))
             t_sa = float(np.percentile(df_before[std.SA].dropna(), p))
-            t_qed = float(np.percentile(df_before[std.QED].dropna(), p))
-            env.thresholds = [t_rocs, t_sa, t_qed]
-            logger.info(
-                f"Calibrated dynamic empirical baseline thresholds (P{p:.0f}): "
-                f"ROCS>={t_rocs:.3f}, SA>={t_sa:.3f}, QED>={t_qed:.3f}"
-            )
+            if self.config.include_qed and std.QED in df_before.columns:
+                t_qed = float(np.percentile(df_before[std.QED].dropna(), p))
+                env.thresholds = [t_rocs, t_sa, t_qed]
+                logger.info(
+                    f"Calibrated dynamic empirical baseline thresholds (P{p:.0f}): "
+                    f"ROCS>={t_rocs:.3f}, SA>={t_sa:.3f}, QED>={t_qed:.3f}"
+                )
+            else:
+                env.thresholds = [t_rocs, t_sa]
+                logger.info(
+                    f"Calibrated dynamic empirical baseline thresholds (P{p:.0f}): "
+                    f"ROCS>={t_rocs:.3f}, SA>={t_sa:.3f}"
+                )
 
         # Stage 2: Reinforcement Learning Exploration
         logger.info(
@@ -363,6 +380,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"ROCS raw score upper clipping bound (default: {defaults.rocs_clip_upper})",
     )
     parser.add_argument(
+        "--rocs-use-modifier",
+        action=argparse.BooleanOptionalAction,
+        default=defaults.rocs_use_modifier,
+        help=f"Apply ClippedScore modifier to ROCS score (default: {defaults.rocs_use_modifier})",
+    )
+    parser.add_argument(
+        "--include-qed",
+        action=argparse.BooleanOptionalAction,
+        default=defaults.include_qed,
+        help=f"Include QED as an RL multi-objective scoring component (default: {defaults.include_qed})",
+    )
+    parser.add_argument(
+        "--sa-score-lower",
+        type=float,
+        default=defaults.sa_score_lower,
+        help=f"SA raw score lower desirability cutoff (default: {defaults.sa_score_lower})",
+    )
+    parser.add_argument(
+        "--sa-score-upper",
+        type=float,
+        default=defaults.sa_score_upper,
+        help=f"SA raw score upper desirability cutoff (default: {defaults.sa_score_upper})",
+    )
+    parser.add_argument(
         "--minimize-candidates",
         action=argparse.BooleanOptionalAction,
         default=defaults.minimize_candidates,
@@ -527,6 +568,10 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         rocs_shape_weight=args.shape_weight,
         rocs_color_weight=args.color_weight,
         rocs_clip_upper=args.rocs_clip_upper,
+        rocs_use_modifier=args.rocs_use_modifier,
+        include_qed=args.include_qed,
+        sa_score_lower=args.sa_score_lower,
+        sa_score_upper=args.sa_score_upper,
         minimize_candidates=args.minimize_candidates,
         gpu=int(args.gpu) if str(args.gpu).strip().isdigit() else args.gpu,
         cpu_ratio=args.cpu_ratio,
