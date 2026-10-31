@@ -18,11 +18,39 @@ if [[ -z "${PBS_JOBID:-}" ]]; then
 fi
 
 : "${SCRATCHDIR:?PBS scratch allocation is required}"
-STORAGE_DIR="${STORAGE_DIR:-/storage/brno2/brno2/kolardavidcz/DrugEx}"
+
+# Resolve canonical storage directory (supporting both /storage/brno2/brno2 and /storage/brno2/home)
+STORAGE_DIR="${STORAGE_DIR:-}"
+if [[ -z "$STORAGE_DIR" ]]; then
+    if [[ -d "/storage/brno2/brno2/kolardavidcz/DrugEx" ]]; then
+        STORAGE_DIR="/storage/brno2/brno2/kolardavidcz/DrugEx"
+    elif [[ -d "/storage/brno2/home/kolardavidcz/DrugEx" ]]; then
+        STORAGE_DIR="/storage/brno2/home/kolardavidcz/DrugEx"
+    else
+        STORAGE_DIR="/storage/brno2/brno2/kolardavidcz/DrugEx"
+    fi
+fi
 EXP_NAME="sprint_h4_with_qed_harrington"
 
 PYTHON="$STORAGE_DIR/.venv/bin/python"
 test -x "$PYTHON" || { echo "Missing validated environment: $PYTHON" >&2; exit 1; }
+
+# Resolve source code directory (direct repo or staged release)
+SOURCE_DIR="${SOURCE_DIR:-}"
+if [[ -z "$SOURCE_DIR" ]]; then
+    if [[ -d "$STORAGE_DIR/_david" ]]; then
+        SOURCE_DIR="$STORAGE_DIR"
+    elif [[ -d "$STORAGE_DIR/releases" ]]; then
+        LATEST_REL="$(ls -td "$STORAGE_DIR"/releases/* 2>/dev/null | head -n 1 || true)"
+        if [[ -n "$LATEST_REL" && -d "$LATEST_REL/_david" ]]; then
+            SOURCE_DIR="$LATEST_REL"
+        else
+            SOURCE_DIR="$STORAGE_DIR"
+        fi
+    else
+        SOURCE_DIR="$STORAGE_DIR"
+    fi
+fi
 
 OUT_DIR="$SCRATCHDIR/output"
 RESULTS_DIR="$STORAGE_DIR/_david/output/$EXP_NAME"
@@ -48,7 +76,7 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 
 mkdir -p "$OUT_DIR" "$SCRATCHDIR/DrugEx"
-rsync -a --exclude='.venv' --exclude='_david/output' "$STORAGE_DIR/" "$SCRATCHDIR/DrugEx/"
+rsync -a --exclude='.venv' --exclude='_david/output' "$SOURCE_DIR/" "$SCRATCHDIR/DrugEx/"
 cd "$SCRATCHDIR/DrugEx"
 
 export MPLBACKEND=Agg OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
@@ -57,6 +85,13 @@ export PYTHONPATH="$SCRATCHDIR/DrugEx:${PYTHONPATH:-}"
 
 AGENT_PKG="$STORAGE_DIR/models/Papyrus05.5_smiles_rnn_PT.pkg"
 VOCAB_FILE="$STORAGE_DIR/models/Papyrus05.5_smiles_rnn_PT.vocab"
+if [[ ! -f "$AGENT_PKG" ]]; then
+    FALLBACK_DIR="$SCRATCHDIR/DrugEx/tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT"
+    if [[ -f "$FALLBACK_DIR/Papyrus05.5_smiles_rnn_PT.pkg" ]]; then
+        AGENT_PKG="$FALLBACK_DIR/Papyrus05.5_smiles_rnn_PT.pkg"
+        VOCAB_FILE="$FALLBACK_DIR/Papyrus05.5_smiles_rnn_PT.vocab"
+    fi
+fi
 
 "$PYTHON" -u -m _david.code.pipeline \
     --output-dir "$OUT_DIR" \

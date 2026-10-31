@@ -7,7 +7,7 @@ import shlex
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from _david.code.config import PROJECT_ROOT, PipelineConfig
 
@@ -66,6 +66,25 @@ class MetaCentrumGridManager:
         res = subprocess.run(cmd, capture_output=True, text=True)
         return res.returncode == 0 and "OK" in res.stdout
 
+    def _check_process_result(self, res: Any, action: str) -> None:
+        """Validate subprocess outcome and raise an actionable error if Kerberos expired."""
+        returncode = getattr(res, "returncode", 0)
+        if returncode != 0:
+            stdout = getattr(res, "stdout", "") or ""
+            stderr = getattr(res, "stderr", "") or ""
+            combined = f"{stdout}\n{stderr}"
+            if (
+                "15010" in combined
+                or "No credentials were supplied" in combined
+                or "Key has expired" in combined
+            ):
+                raise RuntimeError(
+                    f"Kerberos credentials expired or unavailable on '{self.remote_host}' during {action} (errno 15010 / Key has expired). "
+                    f"Please run 'ssh {self.remote_host}' (or 'ssh {self.remote_host} kinit {self.remote_user}@META') to authenticate."
+                )
+            if hasattr(res, "check_returncode"):
+                res.check_returncode()
+
     def sync_codebase_to_grid(self, local_root: Path | str = PROJECT_ROOT) -> None:
         """Stage a committed release, excluding outputs and preserving older releases."""
         root = Path(local_root)
@@ -82,24 +101,42 @@ class MetaCentrumGridManager:
             f"mkdir -p {shlex.quote(self.storage_root + '/releases')} && "
             f"mkdir -p {shlex.quote(release)} && tar -xf - -C {shlex.quote(release)}"
         )
-        with tempfile.TemporaryFile() as archive:
-            subprocess.run(
-                ["git", "-C", str(root), "archive", revision],
-                stdout=archive,
-                check=True,
+        try:
+            with tempfile.TemporaryFile() as archive:
+                subprocess.run(
+                    ["git", "-C", str(root), "archive", revision],
+                    stdout=archive,
+                    check=True,
+                )
+                archive.seek(0)
+                res = subprocess.run(
+                    ["ssh", self.remote_host, command],
+                    stdin=archive,
+                    capture_output=True,
+                    text=True,
+                )
+                self._check_process_result(res, "codebase staging")
+            model_dir = f"{self.storage_root}/models"
+            res = subprocess.run(
+                ["ssh", self.remote_host, f"mkdir -p {shlex.quote(model_dir)}"],
+                capture_output=True,
+                text=True,
             )
-            archive.seek(0)
-            subprocess.run(
-                ["ssh", self.remote_host, command], stdin=archive, check=True
+            self._check_process_result(res, "model directory creation")
+            res = subprocess.run(
+                ["rsync", "-a", str(pkg), str(vocab), f"{self.remote_host}:{model_dir}/"],
+                capture_output=True,
+                text=True,
             )
-        model_dir = f"{self.storage_root}/models"
-        subprocess.run(
-            ["ssh", self.remote_host, f"mkdir -p {shlex.quote(model_dir)}"], check=True
-        )
-        subprocess.run(
-            ["rsync", "-a", str(pkg), str(vocab), f"{self.remote_host}:{model_dir}/"],
-            check=True,
-        )
+            self._check_process_result(res, "model synchronization")
+        except subprocess.CalledProcessError as exc:
+            err_text = str(getattr(exc, "stderr", "") or "")
+            if "Key has expired" in err_text or "15010" in err_text:
+                raise RuntimeError(
+                    f"Kerberos credentials expired or unavailable on '{self.remote_host}' during sync. "
+                    f"Please run 'ssh {self.remote_host}' (or 'ssh {self.remote_host} kinit {self.remote_user}@META') to authenticate."
+                ) from exc
+            raise
 
     def submit_job(self, spec: GridJobSpec, revision: str) -> str:
         """Submit a single DrugEx experiment to the PBS Pro queue."""
@@ -123,9 +160,13 @@ class MetaCentrumGridManager:
         write_spec = (
             f"mkdir -p {shlex.quote(run_dir)} && cat > {shlex.quote(spec_path)}"
         )
-        subprocess.run(
-            ["ssh", self.remote_host, write_spec], input=payload, text=True, check=True
+        res = subprocess.run(
+            ["ssh", self.remote_host, write_spec],
+            input=payload,
+            capture_output=True,
+            text=True,
         )
+        self._check_process_result(res, f"spec staging for '{spec.experiment_name}'")
         resources = f"select=1:ncpus={spec.n_cpus}:mem={spec.mem_gb}gb:scratch_local={spec.scratch_gb}gb"
         if spec.spec is not None:
             resources += f":spec={spec.spec}"
@@ -146,7 +187,8 @@ class MetaCentrumGridManager:
             f"{release}/_david/code/metacentrum/job_template.sh",
         ]
         ssh_cmd = ["ssh", self.remote_host, shlex.join(command)]
-        res = subprocess.run(ssh_cmd, capture_output=True, text=True, check=True)
+        res = subprocess.run(ssh_cmd, capture_output=True, text=True)
+        self._check_process_result(res, f"job submission for '{spec.experiment_name}'")
         job_id = res.stdout.strip()
         return job_id
 
@@ -161,7 +203,8 @@ class MetaCentrumGridManager:
     def get_queue_status(self) -> str:
         """Query PBS Pro queue status for user jobs."""
         ssh_cmd = ["ssh", self.remote_host, f"qstat -u {self.remote_user}"]
-        res = subprocess.run(ssh_cmd, capture_output=True, text=True, check=True)
+        res = subprocess.run(ssh_cmd, capture_output=True, text=True)
+        self._check_process_result(res, "queue status query")
         return res.stdout.strip()
 
     def sync_results_from_grid(self, local_output_dir: Path | str) -> None:
@@ -286,19 +329,19 @@ def generate_4hypothesis_grid(
     """
     hypotheses = [
         (
-            "h1_noqed_pareto",
+            "h1_without_qed_pareto",
             "--no-include-qed --reward-scheme pareto_crowding",
         ),
         (
-            "h2_noqed_harrington",
+            "h2_without_qed_harrington",
             "--no-include-qed --reward-scheme harrington",
         ),
         (
-            "h3_qed_pareto",
+            "h3_with_qed_pareto",
             "--include-qed --reward-scheme pareto_crowding",
         ),
         (
-            "h4_qed_harrington",
+            "h4_with_qed_harrington",
             "--include-qed --reward-scheme harrington",
         ),
     ]

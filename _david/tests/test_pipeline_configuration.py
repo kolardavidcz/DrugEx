@@ -294,10 +294,10 @@ class TestPipelineConfiguration(unittest.TestCase):
         self.assertEqual(
             names,
             [
-                "sprint_h1_noqed_pareto",
-                "sprint_h2_noqed_harrington",
-                "sprint_h3_qed_pareto",
-                "sprint_h4_qed_harrington",
+                "sprint_h1_without_qed_pareto",
+                "sprint_h2_without_qed_harrington",
+                "sprint_h3_with_qed_pareto",
+                "sprint_h4_with_qed_harrington",
             ],
         )
 
@@ -469,6 +469,20 @@ class TestPipelineConfiguration(unittest.TestCase):
         )
         self.assertEqual(len(env_pad.thresholds), 2)
         self.assertEqual(env_pad.thresholds, [0.35, 0.50])
+
+    def test_grid_kerberos_error_handling(self):
+        mgr = MetaCentrumGridManager(remote_host="meta", remote_user="kolardavidcz")
+        mock_res = SimpleNamespace(
+            args=["ssh", "meta", "qstat"],
+            returncode=255,
+            stdout="",
+            stderr="qstat: cannot connect to server pbs-m1.metacentrum.cz (errno=15010)",
+        )
+        with patch("subprocess.run", return_value=mock_res):
+            with self.assertRaises(RuntimeError) as ctx:
+                mgr.get_queue_status()
+            self.assertIn("15010", str(ctx.exception))
+            self.assertIn("kinit", str(ctx.exception))
 
 
 if __name__ == "__main__":

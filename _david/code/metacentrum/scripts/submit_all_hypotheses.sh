@@ -8,14 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-# If running locally from repository with Python venv, use grid CLI submit-sprint
-if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
-    export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
-    "$PROJECT_ROOT/.venv/bin/python" -m _david.code.metacentrum.grid submit-sprint "$@"
-    exit 0
-fi
-
-# Fallback: if running directly on MetaCentrum frontend where qsub is present
+# If running directly on MetaCentrum frontend where qsub is present
 if command -v qsub >/dev/null 2>&1; then
     echo "Submitting all 4 hypotheses via qsub on $(hostname)..."
     for script in "$SCRIPT_DIR"/h*.sh; do
@@ -25,5 +18,12 @@ if command -v qsub >/dev/null 2>&1; then
     exit 0
 fi
 
-echo "Error: Neither project virtualenv nor qsub was found." >&2
+# If running locally from repository with Python venv, use grid CLI submit-sprint
+if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+    export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
+    "$PROJECT_ROOT/.venv/bin/python" -m _david.code.metacentrum.grid submit-sprint "$@"
+    exit 0
+fi
+
+echo "Error: Neither qsub on cluster frontend nor local project virtualenv was found." >&2
 exit 1
