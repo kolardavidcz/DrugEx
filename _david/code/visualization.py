@@ -616,11 +616,11 @@ def render_training_trajectories(
         )
     else:
         ax4.axhline(
-            0.20,
+            0.05,
             color="#ea580c",
             linestyle="--",
             linewidth=1.8,
-            label="Constant Epsilon (0.20)",
+            label="Constant Epsilon (0.05)",
         )
     ax4.set_title("(D) Exploration Rate Schedule (ε)", fontsize=11, fontweight="bold")
     ax4.set_xlabel("Epoch")

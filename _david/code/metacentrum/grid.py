@@ -233,6 +233,13 @@ def generate_8arm_grid(
         for reward_tag, reward_arg in reward_levels:
             for conf_tag, conf_arg in conformer_levels:
                 name = f"{prefix}_{qed_tag}_{reward_tag}_{conf_tag}"
+                if len(name) > 64:
+                    short_qed = "noqed" if qed_tag == "without_qed" else "qed"
+                    short_rew = "pareto" if reward_tag == "pareto_crowding" else "harr"
+                    short_conf = "unmin_c30" if "unminimized" in conf_tag else "min_c20"
+                    suffix = f"_{short_qed}_{short_rew}_{short_conf}"
+                    max_pfx = max(1, 64 - len(suffix))
+                    name = f"{prefix[:max_pfx]}{suffix}"
                 arm_args = " ".join([*base_args, qed_arg, reward_arg, conf_arg])
                 specs.append(
                     GridJobSpec(
@@ -361,8 +368,13 @@ def main() -> None:
         mgr.sync_results_from_grid(args.output_dir)
         print("Pull completed.")
     elif args.action == "grid":
+        grid_prefix = (
+            "rl_grid"
+            if args.name == "rl_default_tanimoto_combo"
+            else args.name
+        )
         specs = generate_8arm_grid(
-            prefix=args.name,
+            prefix=grid_prefix,
             molecule=args.molecule,
             n_cpus=args.ncpus,
             mem_gb=args.mem,
@@ -386,8 +398,13 @@ def main() -> None:
                 ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"], text=True
             ).strip()
         )
+        grid_prefix = (
+            "rl_grid"
+            if args.name == "rl_default_tanimoto_combo"
+            else args.name
+        )
         specs = generate_8arm_grid(
-            prefix=args.name,
+            prefix=grid_prefix,
             molecule=args.molecule,
             n_cpus=args.ncpus,
             mem_gb=args.mem,

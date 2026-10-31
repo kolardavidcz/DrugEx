@@ -194,11 +194,11 @@ class HarringtonDesirabilityReward(RewardScheme):
             max_val = 2.0 if (j == 0 and self.rocs_raw) else 1.0
             scores_clean[:, j] = np.clip(clean[:, j], 0.0, max_val)
 
-        w = (
-            self.weights[:n_objs]
-            if len(self.weights) >= n_objs
-            else np.ones(n_objs, dtype=np.float64)
-        )
+        if len(self.weights) >= n_objs:
+            w = np.array(self.weights[:n_objs], dtype=np.float64)
+        else:
+            padding = np.full(n_objs - len(self.weights), 0.25, dtype=np.float64)
+            w = np.concatenate([self.weights, padding])
         w_norm = w / np.sum(w)
 
         log_d_sum = np.zeros(n_samples, dtype=np.float64)
@@ -310,10 +310,11 @@ def create_environment(
 
     # Validate threshold dimensions against scorers
     if len(active_thresholds) != len(scorers):
-        if not use_qed and len(active_thresholds) >= 2:
-            active_thresholds = tuple(active_thresholds[:2])
-        elif use_qed and len(active_thresholds) == 2:
-            active_thresholds = tuple(list(active_thresholds) + [0.50])
+        if len(active_thresholds) > len(scorers):
+            active_thresholds = tuple(active_thresholds[: len(scorers)])
+        else:
+            padding = [0.50] * (len(scorers) - len(active_thresholds))
+            active_thresholds = tuple(list(active_thresholds) + padding)
 
     active_scheme = reward_scheme if reward_scheme is not None else cfg.reward_scheme
     weights = (
@@ -321,8 +322,12 @@ def create_environment(
         if cfg.weights is not None
         else ((0.50, 0.25, 0.25) if use_qed else (0.75, 0.25))
     )
-    if not use_qed and len(weights) > 2:
-        weights = tuple(weights[:2])
+    if len(weights) != len(scorers):
+        if len(weights) > len(scorers):
+            weights = tuple(weights[: len(scorers)])
+        else:
+            padding = [0.25] * (len(scorers) - len(weights))
+            weights = tuple(list(weights) + padding)
 
     return DrugExEnvironment(
         scorers=scorers,

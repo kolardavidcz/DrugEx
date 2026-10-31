@@ -90,8 +90,16 @@ class MoleculePipeline:
                 for s in env.scorers
             )
             if has_modifier:
-                # DrugExEnvironment.getScores returns ClippedScore(0, 2) normalized to [0, 1].
-                df["Raw_ROCS"] = df[std.ROCS] * 2.0
+                upper = 2.0
+                for s in env.scorers:
+                    if (
+                        hasattr(s, "getKey")
+                        and std.ROCS in s.getKey()
+                        and getattr(s, "modifier", None) is not None
+                    ):
+                        upper = getattr(s.modifier, "upper_x", 2.0)
+                        break
+                df["Raw_ROCS"] = df[std.ROCS] * upper
             else:
                 # Scorer has no modifier; getScores returned raw TanimotoCombo [0, 2].
                 df["Raw_ROCS"] = df[std.ROCS].copy()
@@ -321,6 +329,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=defaults.epsilon_end,
         help=f"Terminal exploration rate (default: {defaults.epsilon_end})",
+    )
+    parser.add_argument(
+        "--decay-epochs",
+        type=int,
+        default=defaults.decay_epochs,
+        help=f"Epsilon decay duration epochs (default: {defaults.decay_epochs})",
     )
     parser.add_argument(
         "--decay-type",
@@ -558,7 +572,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         epsilon=args.epsilon,
         epsilon_end=args.epsilon_end,
         use_epsilon_decay=args.use_decay,
-        decay_epochs=args.epochs,
+        decay_epochs=args.decay_epochs,
         decay_type=args.decay_type,
         beta=args.beta,
         reward_scheme=args.reward_scheme,

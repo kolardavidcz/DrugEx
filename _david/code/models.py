@@ -43,11 +43,11 @@ class DecayingSequenceExplorer(SequenceExplorer):
     ) -> None:
         cfg = config or PipelineConfig()
         active_batch = cfg.batch_size if batch_size is None else batch_size
-        active_eps = (0.20 if config is None else cfg.epsilon) if epsilon is None else epsilon
+        active_eps = cfg.epsilon if epsilon is None else epsilon
         active_eps_end = cfg.epsilon_end if epsilon_end is None else epsilon_end
         active_decay_epochs = cfg.decay_epochs if decay_epochs is None else decay_epochs
         active_decay_type = cfg.decay_type if decay_type is None else decay_type
-        active_use_decay = (True if config is None else cfg.use_epsilon_decay) if use_decay is None else use_decay
+        active_use_decay = cfg.use_epsilon_decay if use_decay is None else use_decay
         active_beta = cfg.beta if beta is None else beta
         active_samples = cfg.n_samples if n_samples is None else n_samples
         super().__init__(

@@ -317,5 +317,76 @@ class TestPipelineConfiguration(unittest.TestCase):
             self.assertEqual(rev, "c" * 40)
 
 
+        with patch("sys.argv", ["grid.py", "grid"]):
+            grid_main()
+
+        long_specs = generate_8arm_grid(prefix="a" * 50)
+        self.assertEqual(len(long_specs), 8)
+        for s in long_specs:
+            self.assertLessEqual(len(s.experiment_name), 64)
+            self.assertTrue(s.experiment_name.isalnum() or "_" in s.experiment_name)
+
+    def test_harrington_desirability_reward_properties(self):
+        import numpy as np
+        from _david.code.environment import HarringtonDesirabilityReward
+
+        # 2-objective evaluation
+        h2 = HarringtonDesirabilityReward(weights=(0.75, 0.25), rocs_raw=True)
+        scores2 = np.array([[1.2, 0.8], [0.4, 0.2], [0.0, 0.0], [2.0, 1.0]])
+        smiles = ["CCO", "CCN", "CCC", "c1ccccc1"]
+        r2 = h2(smiles, scores2)
+        self.assertEqual(r2.shape, (4, 1))
+        self.assertAlmostEqual(float(r2[1, 0]), 0.05, places=3)
+        self.assertGreater(float(r2[3, 0]), 0.95)
+        self.assertLess(float(r2[2, 0]), 0.01)
+
+        # 3-objective evaluation
+        h3 = HarringtonDesirabilityReward(weights=(0.50, 0.25, 0.25), rocs_raw=True)
+        scores3 = np.array([[1.2, 0.8, 0.7], [0.4, 0.2, 0.3]])
+        r3 = h3(smiles[:2], scores3)
+        self.assertEqual(r3.shape, (2, 1))
+        self.assertAlmostEqual(float(r3[1, 0]), 0.05, places=3)
+
+        # Defensive weight padding when weights has fewer elements than objectives
+        h_pad = HarringtonDesirabilityReward(weights=(0.80, 0.20), rocs_raw=True)
+        r_pad = h_pad(["CCO"], np.array([[1.2, 0.8, 0.7]]))
+        self.assertEqual(r_pad.shape, (1, 1))
+        self.assertFalse(np.isnan(r_pad).any())
+
+        # Empty input handling
+        r_empty = h2([], np.zeros((0, 2)))
+        self.assertEqual(r_empty.shape, (0, 1))
+
+        # NaN / Inf robustness
+        scores_nan = np.array([[np.nan, np.nan], [np.inf, -np.inf]])
+        r_nan = h2(["CCO", "CCN"], scores_nan)
+        self.assertFalse(np.isnan(r_nan).any())
+        self.assertFalse(np.isinf(r_nan).any())
+
+    def test_create_environment_defensive_dimensions(self):
+        from rdkit.Chem import AllChem
+
+        mol = Chem.AddHs(Chem.MolFromSmiles("CC"))
+        self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
+
+        # Pass 4 thresholds for 2-objective env: should defensively slice to 2
+        env = create_environment(
+            mol,
+            include_qed=False,
+            thresholds=(0.35, 0.50, 0.60, 0.70),
+        )
+        self.assertEqual(len(env.thresholds), 2)
+        self.assertEqual(env.thresholds, [0.35, 0.50])
+
+        # Pass 1 threshold for 2-objective env: should defensively pad to 2
+        env_pad = create_environment(
+            mol,
+            include_qed=False,
+            thresholds=(0.35,),
+        )
+        self.assertEqual(len(env_pad.thresholds), 2)
+        self.assertEqual(env_pad.thresholds, [0.35, 0.50])
+
+
 if __name__ == "__main__":
     unittest.main()

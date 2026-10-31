@@ -11,10 +11,8 @@ from _david.code import (
     DEFAULT_MOLECULE,
     AlignedDepicter,
     DecayingSequenceExplorer,
-    GridJobSpec,
     HardwareManager,
     HarringtonDesirabilityReward,
-    MetaCentrumGridManager,
     MoleculePipeline,
     PipelineConfig,
     PrepareMolecule,
@@ -25,7 +23,6 @@ from _david.code import (
     build_diagnostic_scorecard,
     create_environment,
     create_rocs_scorer,
-    generate_8arm_grid,
     get_gpu_telemetry,
     render_before_after_distributions,
     render_lead_structures_gallery,
@@ -74,3 +71,11 @@ __all__ = [
     "render_scaffold_diversity_analysis",
     "render_rocs_shape_vs_color_decomposition",
 ]
+
+
+def __getattr__(name: str) -> object:
+    if name in ("GridJobSpec", "MetaCentrumGridManager", "generate_8arm_grid"):
+        from _david.code.metacentrum import grid
+
+        return getattr(grid, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

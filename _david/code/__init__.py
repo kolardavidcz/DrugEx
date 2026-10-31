@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from _david.code.chemistry import (
     DEFAULT_CANDIDATE_SEED,
     DEFAULT_REFERENCE_SEED,
@@ -13,11 +15,6 @@ from _david.code.environment import (
     create_environment,
     create_rocs_scorer,
     resolve_reward_scheme,
-)
-from _david.code.metacentrum.grid import (
-    GridJobSpec,
-    MetaCentrumGridManager,
-    generate_8arm_grid,
 )
 from _david.code.models import DecayingSequenceExplorer, SequenceRNNOptimizer
 from _david.code.pipeline import MoleculePipeline
@@ -91,3 +88,11 @@ __all__ = [
     "generate_8arm_grid",
     "std",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in ("GridJobSpec", "MetaCentrumGridManager", "generate_8arm_grid"):
+        from _david.code.metacentrum import grid
+
+        return getattr(grid, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
