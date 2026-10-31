@@ -15,6 +15,7 @@ from _david.code.reference import PrepareMolecule as ReferencePreparer
 from _david.code.metacentrum.grid import (
     GridJobSpec,
     MetaCentrumGridManager,
+    generate_4hypothesis_grid,
     generate_8arm_grid,
 )
 from _david.code.utils import HardwareManager
@@ -285,10 +286,65 @@ class TestPipelineConfiguration(unittest.TestCase):
         self.assertEqual(len(unmin_specs), 4)
         self.assertEqual(len(min_specs), 4)
 
+    def test_4hypothesis_sprint_grid(self):
+        specs = generate_4hypothesis_grid(prefix="sprint", molecule="CCO")
+        self.assertEqual(len(specs), 4)
+        names = [s.experiment_name for s in specs]
+        self.assertEqual(len(set(names)), 4)
+        self.assertEqual(
+            names,
+            [
+                "sprint_h1_noqed_pareto",
+                "sprint_h2_noqed_harrington",
+                "sprint_h3_qed_pareto",
+                "sprint_h4_qed_harrington",
+            ],
+        )
+
+        # Verify shared Regime 2 hyperparameters
+        for s in specs:
+            self.assertIn("--epochs 200", s.args)
+            self.assertIn("--min-epochs 50", s.args)
+            self.assertIn("--patience 50", s.args)
+            self.assertIn("--epsilon 0.05", s.args)
+            self.assertIn("--score-variant tanimoto_combo", s.args)
+            self.assertIn("--no-minimize-candidates", s.args)
+            self.assertIn("--conformers 30", s.args)
+            self.assertIn("--reference-conformers 1", s.args)
+            self.assertIn("--molecule CCO", s.args)
+            self.assertEqual(s.n_cpus, 16)
+            self.assertEqual(s.mem_gb, 32)
+            self.assertEqual(s.scratch_gb, 15)
+            self.assertEqual(s.spec, 10.0)
+            self.assertEqual(s.n_gpus, 1)
+            self.assertEqual(s.walltime, "24:00:00")
+
+        # Verify specific arms
+        self.assertIn("--no-include-qed", specs[0].args)
+        self.assertIn("--reward-scheme pareto_crowding", specs[0].args)
+
+        self.assertIn("--no-include-qed", specs[1].args)
+        self.assertIn("--reward-scheme harrington", specs[1].args)
+
+        self.assertIn("--include-qed", specs[2].args)
+        self.assertIn("--reward-scheme pareto_crowding", specs[2].args)
+
+        self.assertIn("--include-qed", specs[3].args)
+        self.assertIn("--reward-scheme harrington", specs[3].args)
+
+        # Long prefix truncation
+        long_specs = generate_4hypothesis_grid(prefix="x" * 60)
+        self.assertEqual(len(long_specs), 4)
+        for s in long_specs:
+            self.assertLessEqual(len(s.experiment_name), 64)
+
     def test_grid_cli_actions(self):
         from _david.code.metacentrum.grid import main as grid_main
 
         with patch("sys.argv", ["grid.py", "grid", "--name", "test_run"]):
+            grid_main()
+
+        with patch("sys.argv", ["grid.py", "sprint", "--name", "test_sprint"]):
             grid_main()
 
         with (
@@ -316,8 +372,35 @@ class TestPipelineConfiguration(unittest.TestCase):
             self.assertEqual(len(specs_submitted), 8)
             self.assertEqual(rev, "c" * 40)
 
+        with (
+            patch.object(
+                MetaCentrumGridManager,
+                "submit_matrix",
+                return_value=["h1.pbs", "h2.pbs", "h3.pbs", "h4.pbs"],
+            ) as mock_sprint_matrix,
+            patch(
+                "sys.argv",
+                [
+                    "grid.py",
+                    "submit-sprint",
+                    "--name",
+                    "sprint_test",
+                    "--no-sync",
+                    "--revision",
+                    "d" * 40,
+                ],
+            ),
+        ):
+            grid_main()
+            mock_sprint_matrix.assert_called_once()
+            specs_submitted, rev = mock_sprint_matrix.call_args[0]
+            self.assertEqual(len(specs_submitted), 4)
+            self.assertEqual(rev, "d" * 40)
 
         with patch("sys.argv", ["grid.py", "grid"]):
+            grid_main()
+
+        with patch("sys.argv", ["grid.py", "sprint"]):
             grid_main()
 
         long_specs = generate_8arm_grid(prefix="a" * 50)

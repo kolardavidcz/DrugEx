@@ -86,12 +86,18 @@ __all__ = [
     "GridJobSpec",
     "MetaCentrumGridManager",
     "generate_8arm_grid",
+    "generate_4hypothesis_grid",
     "std",
 ]
 
 
 def __getattr__(name: str) -> Any:
-    if name in ("GridJobSpec", "MetaCentrumGridManager", "generate_8arm_grid"):
+    if name in (
+        "GridJobSpec",
+        "MetaCentrumGridManager",
+        "generate_8arm_grid",
+        "generate_4hypothesis_grid",
+    ):
         from _david.code.metacentrum import grid
 
         return getattr(grid, name)

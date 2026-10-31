@@ -57,6 +57,7 @@ __all__ = [
     "GridJobSpec",
     "MetaCentrumGridManager",
     "generate_8arm_grid",
+    "generate_4hypothesis_grid",
     "std",
     "unscale_to_physical_metrics",
     "bootstrap_ci",
@@ -74,7 +75,12 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
-    if name in ("GridJobSpec", "MetaCentrumGridManager", "generate_8arm_grid"):
+    if name in (
+        "GridJobSpec",
+        "MetaCentrumGridManager",
+        "generate_8arm_grid",
+        "generate_4hypothesis_grid",
+    ):
         from _david.code.metacentrum import grid
 
         return getattr(grid, name)

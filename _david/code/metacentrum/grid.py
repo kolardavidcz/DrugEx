@@ -257,6 +257,88 @@ def generate_8arm_grid(
     return specs
 
 
+def generate_4hypothesis_grid(
+    prefix: str = "sprint",
+    molecule: str | None = None,
+    n_cpus: int = 16,
+    mem_gb: int = 32,
+    n_gpus: int = 1,
+    walltime: str = "24:00:00",
+    scratch_gb: int = 15,
+    spec: float | None = 10.0,
+    gpu_cap: str | None = None,
+) -> list[GridJobSpec]:
+    """Generate 4-hypothesis PBS Pro experiment grid locked to Regime 2 (C=30, K=1, unminimized, eps=0.05).
+
+    Hypotheses:
+        1. Hypothesis 1 (Supervisor Replication Champion):
+           without_qed + pareto_crowding
+        2. Hypothesis 2 (Harrington Reward Isolation):
+           without_qed + harrington
+        3. Hypothesis 3 (QED Shrinkage Ablation):
+           with_qed + pareto_crowding
+        4. Hypothesis 4 (Modernized Run 01 Baseline):
+           with_qed + harrington
+
+    Shared Hyperparameters:
+        epochs=200, min_epochs=50, patience=50, epsilon=0.05, score_variant="tanimoto_combo",
+        no-minimize-candidates, conformers=30, reference-conformers=1.
+    """
+    hypotheses = [
+        (
+            "h1_noqed_pareto",
+            "--no-include-qed --reward-scheme pareto_crowding",
+        ),
+        (
+            "h2_noqed_harrington",
+            "--no-include-qed --reward-scheme harrington",
+        ),
+        (
+            "h3_qed_pareto",
+            "--include-qed --reward-scheme pareto_crowding",
+        ),
+        (
+            "h4_qed_harrington",
+            "--include-qed --reward-scheme harrington",
+        ),
+    ]
+
+    base_args = [
+        "--epochs 200",
+        "--min-epochs 50",
+        "--patience 50",
+        "--epsilon 0.05",
+        "--score-variant tanimoto_combo",
+        "--no-minimize-candidates",
+        "--conformers 30",
+        "--reference-conformers 1",
+    ]
+    if molecule:
+        base_args.append(f"--molecule {shlex.quote(molecule)}")
+
+    specs: list[GridJobSpec] = []
+    for tag, arm_flag in hypotheses:
+        name = f"{prefix}_{tag}" if prefix else tag
+        if len(name) > 64:
+            max_pfx = max(1, 64 - len(tag) - 1)
+            name = f"{prefix[:max_pfx]}_{tag}"
+        arm_args = " ".join([*base_args, arm_flag])
+        specs.append(
+            GridJobSpec(
+                experiment_name=name,
+                args=arm_args,
+                n_cpus=n_cpus,
+                mem_gb=mem_gb,
+                n_gpus=n_gpus,
+                gpu_cap=gpu_cap,
+                scratch_gb=scratch_gb,
+                walltime=walltime,
+                spec=spec,
+            )
+        )
+    return specs
+
+
 def main() -> None:
     """CLI utility for managing MetaCentrum grid synchronization and job tracking."""
     import argparse
@@ -264,8 +346,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="DrugEx MetaCentrum Grid CLI")
     parser.add_argument(
         "action",
-        choices=["test", "sync", "status", "pull", "submit", "grid", "submit-grid"],
-        help="Action to execute: 'test' connection, 'sync' code, check 'status', 'pull' results, 'submit' job, inspect 'grid', or 'submit-grid'",
+        choices=[
+            "test",
+            "sync",
+            "status",
+            "pull",
+            "submit",
+            "grid",
+            "submit-grid",
+            "sprint",
+            "submit-sprint",
+        ],
+        help="Action to execute: 'test' connection, 'sync' code, check 'status', 'pull' results, 'submit' job, inspect 'grid', 'submit-grid', inspect 'sprint', or 'submit-sprint'",
     )
     parser.add_argument(
         "--host", default="meta", help="SSH host alias (default: 'meta')"
@@ -444,6 +536,57 @@ def main() -> None:
         )
         job_id = mgr.submit_job(spec, revision)
         print(f"Job successfully submitted to PBS Pro: {job_id}")
+    elif args.action == "sprint":
+        sprint_prefix = (
+            "sprint"
+            if args.name == "rl_default_tanimoto_combo"
+            else args.name
+        )
+        specs = generate_4hypothesis_grid(
+            prefix=sprint_prefix,
+            molecule=args.molecule,
+            n_cpus=args.ncpus,
+            mem_gb=args.mem,
+            n_gpus=args.ngpus,
+            gpu_cap=args.gpu_cap,
+            scratch_gb=args.scratch,
+            walltime=args.walltime,
+            spec=args.spec,
+        )
+        print(f"Generated {len(specs)}-hypothesis sprint grid:")
+        for idx, spec in enumerate(specs, 1):
+            print(f"[{idx}/4] {spec.experiment_name}")
+            print(f"      Args: {spec.args}")
+    elif args.action == "submit-sprint":
+        if not args.no_sync:
+            print(f"Synchronizing codebase to {args.host}:{mgr.storage_root}...")
+            mgr.sync_codebase_to_grid()
+        revision = (
+            args.revision
+            or subprocess.check_output(
+                ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"], text=True
+            ).strip()
+        )
+        sprint_prefix = (
+            "sprint"
+            if args.name == "rl_default_tanimoto_combo"
+            else args.name
+        )
+        specs = generate_4hypothesis_grid(
+            prefix=sprint_prefix,
+            molecule=args.molecule,
+            n_cpus=args.ncpus,
+            mem_gb=args.mem,
+            n_gpus=args.ngpus,
+            gpu_cap=args.gpu_cap,
+            scratch_gb=args.scratch,
+            walltime=args.walltime,
+            spec=args.spec,
+        )
+        print(f"Submitting {len(specs)} sprint experiments to PBS Pro...")
+        job_ids = mgr.submit_matrix(specs, revision)
+        for spec, jid in zip(specs, job_ids):
+            print(f"Submitted {spec.experiment_name}: {jid}")
 
 
 if __name__ == "__main__":
