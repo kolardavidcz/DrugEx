@@ -121,8 +121,7 @@ class MetaCentrumGridManager:
             )
         )
         write_spec = (
-            f"mkdir -p {shlex.quote(self.storage_root + '/jobs')} && "
-            f"mkdir {shlex.quote(run_dir)} && cat > {shlex.quote(spec_path)}"
+            f"mkdir -p {shlex.quote(run_dir)} && cat > {shlex.quote(spec_path)}"
         )
         subprocess.run(
             ["ssh", self.remote_host, write_spec], input=payload, text=True, check=True
