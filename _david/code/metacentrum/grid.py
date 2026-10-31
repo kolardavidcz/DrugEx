@@ -46,7 +46,11 @@ class MetaCentrumGridManager:
     ) -> None:
         self.remote_host = remote_host
         self.remote_user = remote_user
-        self.storage_root = f"/storage/{storage_site}/home/{remote_user}/DrugEx"
+        # On MetaCentrum, /storage/brno2/home is a symlink owned by nobody; use canonical brno2/brno2
+        if storage_site == "brno2":
+            self.storage_root = f"/storage/{storage_site}/{storage_site}/{remote_user}/DrugEx"
+        else:
+            self.storage_root = f"/storage/{storage_site}/home/{remote_user}/DrugEx"
 
     def test_connection(self) -> bool:
         """Verify SSH accessibility to MetaCentrum frontend."""
