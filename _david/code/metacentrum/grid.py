@@ -25,6 +25,7 @@ class GridJobSpec:
     scratch_gb: int = 15
     walltime: str = "24:00:00"
     spec: float | None = 10.0
+    queue: str | None = None
 
     def __post_init__(self):
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", self.experiment_name):
@@ -178,6 +179,10 @@ class MetaCentrumGridManager:
             "qsub",
             "-N",
             spec.experiment_name,
+        ]
+        if spec.queue:
+            command.extend(["-q", spec.queue])
+        command.extend([
             "-l",
             resources,
             "-l",
@@ -185,7 +190,7 @@ class MetaCentrumGridManager:
             "-v",
             f"RUN_SPEC={spec_path},STORAGE_DIR={self.storage_root}",
             f"{release}/_david/code/metacentrum/job_template.sh",
-        ]
+        ])
         ssh_cmd = ["ssh", self.remote_host, shlex.join(command)]
         res = subprocess.run(ssh_cmd, capture_output=True, text=True)
         self._check_process_result(res, f"job submission for '{spec.experiment_name}'")
@@ -225,6 +230,7 @@ def generate_8arm_grid(
     scratch_gb: int = 15,
     spec: float | None = 10.0,
     gpu_cap: str | None = None,
+    queue: str | None = None,
 ) -> list[GridJobSpec]:
     """Generate canonical 8-arm PBS Pro experiment grid (2 QED x 2 Reward x 2 Conformer/Opt).
 
@@ -295,6 +301,7 @@ def generate_8arm_grid(
                         scratch_gb=scratch_gb,
                         walltime=walltime,
                         spec=spec,
+                        queue=queue,
                     )
                 )
     return specs
@@ -310,6 +317,7 @@ def generate_4hypothesis_grid(
     scratch_gb: int = 15,
     spec: float | None = 10.0,
     gpu_cap: str | None = None,
+    queue: str | None = None,
 ) -> list[GridJobSpec]:
     """Generate 4-hypothesis PBS Pro experiment grid locked to Regime 2 (C=30, K=1, unminimized, eps=0.05).
 
@@ -377,6 +385,7 @@ def generate_4hypothesis_grid(
                 scratch_gb=scratch_gb,
                 walltime=walltime,
                 spec=spec,
+                queue=queue,
             )
         )
     return specs
@@ -472,6 +481,11 @@ def main() -> None:
         help="Optional GPU capability filter, e.g. 'sm_89', 'sm_90' (default: None)",
     )
     parser.add_argument(
+        "--queue",
+        default=None,
+        help="Optional target PBS queue (e.g. 'gpu', 'gpu_long'; default: None)",
+    )
+    parser.add_argument(
         "--revision",
         default=None,
         help="Committed Git commit hash to deploy (default: HEAD)",
@@ -518,6 +532,7 @@ def main() -> None:
             scratch_gb=args.scratch,
             walltime=args.walltime,
             spec=args.spec,
+            queue=args.queue,
         )
         print(f"Generated {len(specs)}-arm experiment grid:")
         for idx, spec in enumerate(specs, 1):
@@ -548,6 +563,7 @@ def main() -> None:
             scratch_gb=args.scratch,
             walltime=args.walltime,
             spec=args.spec,
+            queue=args.queue,
         )
         print(f"Submitting {len(specs)} grid experiments to PBS Pro...")
         job_ids = mgr.submit_matrix(specs, revision)
@@ -573,6 +589,7 @@ def main() -> None:
             scratch_gb=args.scratch,
             walltime=args.walltime,
             spec=args.spec,
+            queue=args.queue,
         )
         print(
             f"Submitting job '{spec.experiment_name}' with {spec.n_cpus} CPUs (spec>={spec.spec}) and {spec.n_gpus} GPU(s)..."
@@ -595,6 +612,7 @@ def main() -> None:
             scratch_gb=args.scratch,
             walltime=args.walltime,
             spec=args.spec,
+            queue=args.queue,
         )
         print(f"Generated {len(specs)}-hypothesis sprint grid:")
         for idx, spec in enumerate(specs, 1):
@@ -625,6 +643,7 @@ def main() -> None:
             scratch_gb=args.scratch,
             walltime=args.walltime,
             spec=args.spec,
+            queue=args.queue,
         )
         print(f"Submitting {len(specs)} sprint experiments to PBS Pro...")
         job_ids = mgr.submit_matrix(specs, revision)
