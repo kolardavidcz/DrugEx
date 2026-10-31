@@ -120,8 +120,8 @@ python -m _david.code.metacentrum.grid sync
 # Preview the 4-hypothesis Daytime Sprint
 python -m _david.code.metacentrum.grid sprint
 
-# Submit the 4-hypothesis Daytime Sprint to PBS Pro (8 CPUs, spec>=8.0)
-python -m _david.code.metacentrum.grid submit-sprint --ncpus 8 --spec 8.0
+# Submit the 4-hypothesis Daytime Sprint to PBS Pro (4 CPUs, gpu_long, 25h walltime, spec>=8.0)
+python -m _david.code.metacentrum.grid submit-sprint --queue gpu_long --ncpus 4 --walltime 25:00:00 --spec 8.0
 
 # Pull completed deliverables from MetaCentrum to local _david/output/
 python -m _david.code.metacentrum.grid pull
@@ -131,8 +131,8 @@ python -m _david.code.metacentrum.grid pull
 
 ## 6. Active Experiments (4-Hypothesis Sprint)
 
-Submitted to PBS Pro queue with `:spec=8.0` and `ncpus=8` (all unminimized Regime 2: $K=1, C=30, \varepsilon=0.05$, 200 epochs max, 50 min/patience):
-1. **`25167819` (`sprint_h1_without_qed_pareto`)**: Supervisor tutorial replication baseline (2-objective `[ROCS, SA]`, Pareto crowding).
-2. **`25167820` (`sprint_h2_without_qed_harrington`)**: Harrington reward scheme isolation (2-objective `[ROCS, SA]`, Harrington desirability).
-3. **`25167821` (`sprint_h3_with_qed_pareto`)**: QED shrinkage causal ablation (3-objective `[ROCS, SA, QED]`, Pareto crowding).
-4. **`25167822` (`sprint_h4_with_qed_harrington`)**: Modernized Run 01 comparison (3-objective `[ROCS, SA, QED]`, Harrington desirability).
+Submitted to PBS Pro queue `gpu_long` with `:spec=8.0`, `ncpus=4`, and `walltime=25:00:00` (all unminimized Regime 2: $K=1, C=30, \varepsilon=0.05$, 200 epochs max, 50 min/patience):
+1. **`25170006` (`sprint_h1_without_qed_pareto`)**: Supervisor tutorial replication baseline (2-objective `[ROCS, SA]`, Pareto crowding).
+2. **`25170007` (`sprint_h2_without_qed_harrington`)**: Harrington reward scheme isolation (2-objective `[ROCS, SA]`, Harrington desirability).
+3. **`25170008` (`sprint_h3_with_qed_pareto`)**: QED shrinkage causal ablation (3-objective `[ROCS, SA, QED]`, Pareto crowding).
+4. **`25170009` (`sprint_h4_with_qed_harrington`)**: Modernized Run 01 comparison (3-objective `[ROCS, SA, QED]`, Harrington desirability).
