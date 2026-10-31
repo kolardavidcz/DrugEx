@@ -134,12 +134,25 @@ class TestPipelineConfiguration(unittest.TestCase):
         self.assertEqual(written["args"][:2], ["--molecule", "CC(O)C"])
         command = run.call_args_list[1].args[0][-1]
         self.assertIn("/_david/code/metacentrum/job_template.sh", command)
-        self.assertIn("gpu_cap=compute_80", command)
+        self.assertIn("spec=10.0", command)
+        self.assertIn("ngpus=1", command)
+        self.assertNotIn("gpu_cap=", command)
         self.assertNotIn("EXP_ARGS", command)
         self.assertEqual(
             PROJECT_ROOT / "_david/code/metacentrum/job_template.sh",
             Path(__file__).resolve().parents[1] / "code/metacentrum/job_template.sh",
         )
+
+        # Also verify explicit gpu_cap is passed when provided
+        spec_with_cap = GridJobSpec(
+            "egcg_cap", "--epochs 10", gpu_cap="sm_80"
+        )
+        with patch(
+            "subprocess.run", return_value=SimpleNamespace(stdout="124.pbs-m1\n")
+        ) as run_cap:
+            manager.submit_job(spec_with_cap, "a" * 40)
+        command_cap = run_cap.call_args_list[1].args[0][-1]
+        self.assertIn("gpu_cap=sm_80", command_cap)
 
 
 if __name__ == "__main__":

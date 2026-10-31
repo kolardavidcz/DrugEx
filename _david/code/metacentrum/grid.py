@@ -21,7 +21,7 @@ class GridJobSpec:
     n_cpus: int = 16
     mem_gb: int = 32
     n_gpus: int = 1
-    gpu_cap: str = "compute_80"
+    gpu_cap: str | None = None
     scratch_gb: int = 15
     walltime: str = "12:00:00"
     spec: float | None = 10.0
@@ -131,7 +131,9 @@ class MetaCentrumGridManager:
         if spec.spec is not None:
             resources += f":spec={spec.spec}"
         if spec.n_gpus:
-            resources += f":ngpus={spec.n_gpus}:gpu_cap={spec.gpu_cap}"
+            resources += f":ngpus={spec.n_gpus}"
+            if spec.gpu_cap:
+                resources += f":gpu_cap={spec.gpu_cap}"
         command = [
             "qsub",
             "-N",
