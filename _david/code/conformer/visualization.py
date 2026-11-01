@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from textwrap import fill
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -1582,6 +1583,79 @@ def render_reward_heatmaps(
         plt.close(fig)
 
 
+FALLBACK_RL_REFERENCE: dict[str, Any] | None = dict(
+    provenance=(
+        "dichtator RL smoke 2026-10-29, MMFF94s eps78.4 K4/C20, 2 workers, "
+        "17 rows (raw_data/rl_smoke); see 20261029_1155_reward_calibration"
+    ),
+    serial_equivalent_seconds_per_row=6.07,
+    wall_seconds_per_row=3.04,
+    baseline_mean_seconds=1.88,
+    factor=3.2,
+)
+RL_PROJECTION_SAMPLES = 500
+RL_PROJECTION_WORKERS = 4
+
+
+def rl_reference_measurement(output: Path) -> dict[str, Any] | None:
+    """Read the measured live-RL cost reference for this calibration, if saved.
+
+    Looks for ``raw_data/rl_smoke`` then ``raw_data/rl_egcg`` (written by
+    ``rl_cost_probe``) and converts its wall-clock ROCS seconds into a
+    serial-equivalent per-row cost using the recorded alignment worker count.
+    Returns ``None`` when no complete measurement is available.
+    """
+    import json
+
+    for name in ("rl_smoke", "rl_egcg"):
+        raw = output / "raw_data" / name
+        manifest = raw / "manifest.json"
+        timings = raw / "epoch_timings.csv"
+        if not manifest.exists() or not timings.exists():
+            continue
+        try:
+            meta = json.loads(manifest.read_text())
+            if meta.get("state") != "complete":
+                continue
+            epochs = pd.read_csv(timings)
+            rows = int(epochs.environment_rows.sum())
+            workers = int(meta.get("actual_alignment_workers", 0))
+            rocs_seconds = float(epochs.rocs_seconds.sum())
+            if rows <= 0 or workers <= 0 or rocs_seconds <= 0:
+                continue
+            return dict(
+                provenance=(
+                    f"{meta.get('host', 'unknown host')} live RL probe "
+                    f"({name}), {rows} scored rows, {workers} workers"
+                ),
+                serial_equivalent_seconds_per_row=rocs_seconds * workers / rows,
+                wall_seconds_per_row=rocs_seconds / rows,
+                baseline=meta.get("baseline"),
+            )
+        except (ValueError, KeyError, OSError):
+            continue
+    return None
+
+
+def _component_columns(frame: pd.DataFrame) -> tuple[str, str]:
+    """Resolve per-row generation and alignment/I/O timing column names."""
+    generation = next(
+        (
+            name
+            for name in (
+                "generation_minimization_seconds",
+                "generation_seconds",
+            )
+            if name in frame.columns
+        ),
+        None,
+    )
+    alignment = (
+        "alignment_io_seconds" if "alignment_io_seconds" in frame.columns else None
+    )
+    return generation, alignment
+
+
 def render_reward_pareto(
     frame: pd.DataFrame,
     summary: pd.DataFrame,
@@ -1591,14 +1665,41 @@ def render_reward_pareto(
     keys: tuple[str, ...],
     warning: str = "",
 ) -> None:
-    """Render Pareto score-vs-time frontier and signed anchor gaps."""
+    """Render Pareto score-vs-time frontier and signed anchor gaps.
+
+    The x-axis uses the per-input **p95** scoring seconds (straggler-aware:
+    an RL epoch's wall-clock is bounded by its slowest worker chunk), with the
+    mean shown as faint companion markers. Per-input times are isolated serial
+    single-molecule calls and systematically underestimate live RL cost; the
+    measured live-RL reference and its calibration-vs-RL factor are printed in
+    the banner and a top axis projects epoch minutes for a canonical sprint
+    configuration (p95 x 500 samples / 4 workers).
+    """
+    # Merge per-row component timings (older runs name the column
+    # generation_seconds) so the cost structure is visible even when the saved
+    # summary predates those columns.
+    generation, alignment = _component_columns(frame)
+    group_keys = list(keys[1:])
+    if generation and alignment:
+        components = frame.groupby(group_keys, sort=True).agg(
+            mean_generation_minimization_seconds=(generation, "mean"),
+            mean_alignment_io_seconds=(alignment, "mean"),
+        )
+        for column in (
+            "mean_generation_minimization_seconds",
+            "mean_alignment_io_seconds",
+        ):
+            if column not in summary.columns:
+                summary = summary.merge(
+                    components[[column]], left_on=group_keys, right_index=True, how="left"
+                )
     dominated = []
     for _, row in summary.iterrows():
         other = (
-            summary.mean_seconds.le(row.mean_seconds)
+            summary.p95_seconds.le(row.p95_seconds)
             & summary["mean"].ge(row["mean"])
             & (
-                summary.mean_seconds.lt(row.mean_seconds)
+                summary.p95_seconds.lt(row.p95_seconds)
                 | summary["mean"].gt(row["mean"])
             )
         )
@@ -1623,15 +1724,43 @@ def render_reward_pareto(
         .reset_index()
     )
     summary = summary.merge(gaps, on=list(keys[1:]))
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
+
+    reference = rl_reference_measurement(output) or FALLBACK_RL_REFERENCE
+    baseline = reference.get("baseline")
+    factor = reference.get("factor")
+    if factor is None and baseline:
+        cell = summary[
+            summary.method.eq(baseline.get("method"))
+            & summary.reference_cap.eq(baseline.get("reference_cap"))
+            & summary.candidate_attempts.eq(baseline.get("candidate_attempts"))
+        ]
+        calibration_mean = float(cell.mean_seconds.iloc[0]) if len(cell) else None
+        if calibration_mean:
+            factor = reference["serial_equivalent_seconds_per_row"] / calibration_mean
+    factor_text = (
+        f"{factor:.1f}x" if factor else "unknown (no matching calibration cell)"
+    )
+
+    fig, axes = plt.subplots(1, 3, figsize=(21, 7), constrained_layout=True)
+    frontier, gap_axis, structure = axes
+    method_colors = dict(zip(summary.method.unique(), plt.cm.tab10.colors))
     for method, group in summary.groupby("method"):
-        points = axes[0].scatter(
-            group.mean_seconds, group["mean"], s=30, alpha=0.65, label=labels[method]
+        color = method_colors[method]
+        frontier.scatter(
+            group.mean_seconds,
+            group["mean"],
+            s=18,
+            alpha=0.30,
+            color=color,
+            marker="v",
+        )
+        points = frontier.scatter(
+            group.p95_seconds, group["mean"], s=30, alpha=0.65, label=labels[method]
         )
         color = points.get_facecolors()[0]
-        front = group[group.pareto].sort_values("mean_seconds")
-        axes[0].scatter(
-            front.mean_seconds,
+        front = group[group.pareto].sort_values("p95_seconds")
+        frontier.scatter(
+            front.p95_seconds,
             front["mean"],
             s=100,
             facecolors="none",
@@ -1640,43 +1769,106 @@ def render_reward_pareto(
         )
         for _, row in front.iterrows():
             cap = "all" if row.reference_cap == 0 else str(int(row.reference_cap))
-            axes[0].annotate(
-                f"K{cap}/C{int(row.candidate_attempts)}",
-                (row.mean_seconds, row["mean"]),
+            gen_share = ""
+            if "mean_generation_minimization_seconds" in row and pd.notna(
+                row.get("mean_generation_minimization_seconds")
+            ):
+                total = (
+                    row.mean_generation_minimization_seconds
+                    + row.mean_alignment_io_seconds
+                )
+                if total > 0:
+                    gen_share = (
+                        f" · {row.mean_generation_minimization_seconds / total:.0%} gen"
+                    )
+            frontier.annotate(
+                f"K{cap}/C{int(row.candidate_attempts)}{gen_share}",
+                (row.p95_seconds, row["mean"]),
                 xytext=(4, 4),
                 textcoords="offset points",
                 fontsize=8,
             )
-        axes[1].scatter(
-            group.mean_seconds,
+        gap_axis.scatter(
+            group.p95_seconds,
             group.p95_gap,
             s=30,
-            color=color,
+            color=method_colors[method],
             alpha=0.65,
             label=labels[method],
         )
-    axes[0].axhline(
+    frontier.axhline(
         0.95,
         color="black",
         linestyle="--",
         linewidth=1,
         label="Chosen mean target 0.95",
     )
-    axes[0].set_ylabel("Mean self-recovery ROCS")
-    axes[0].set_title("Observed score–time frontier; circles mark nondominated cells")
-    axes[1].set_ylabel(
+    frontier.set_ylabel("Mean self-recovery ROCS")
+    frontier.set_title(
+        "Score-time frontier on p95 seconds (straggler-aware);\n"
+        "faint triangles mark the mean, circles mark nondominated cells"
+    )
+    gap_axis.set_ylabel(
         f"95th-percentile signed score gap to same-method C{anchor_attempts}/all"
     )
-    axes[1].set_title("Large-score-loss tail relative to a finite sampled anchor")
-    for ax in axes:
+    gap_axis.set_title("Large-score-loss tail relative to a finite sampled anchor")
+
+    # Top axis: projected RL epoch minutes for a canonical sprint configuration.
+    scale = RL_PROJECTION_SAMPLES / RL_PROJECTION_WORKERS / 60.0
+    projected = frontier.secondary_xaxis(
+        "top", functions=(lambda s: s * scale, lambda m: m / scale)
+    )
+    projected.set_xlabel(
+        f"Projected RL epoch minutes (p95 x {RL_PROJECTION_SAMPLES} samples"
+        f" / {RL_PROJECTION_WORKERS} workers; apply the {factor_text} factor above)"
+    )
+    for ax in (frontier, gap_axis):
         ax.set_xscale("log")
-        ax.set_xlabel("Mean measured per-input scoring seconds")
+        ax.set_xlabel(
+            "Per-input scoring seconds (p95) - isolated serial calls, NOT RL time"
+        )
         ax.grid(alpha=0.2)
         ax.legend(fontsize=9)
+
+    # Cost structure of the nondominated cells: candidate generation and
+    # minimization versus ROCS alignment plus scorer I/O.
+    front_cells = summary[summary.pareto].sort_values("mean_seconds")
+    if {"mean_generation_minimization_seconds", "mean_alignment_io_seconds"} <= set(
+        front_cells.columns
+    ):
+        labels_y = [
+            f"{labels[row.method]} K"
+            f"{'all' if row.reference_cap == 0 else int(row.reference_cap)}"
+            f"/C{int(row.candidate_attempts)}"
+            for row in front_cells.itertuples()
+        ]
+        y_pos = np.arange(len(front_cells))
+        structure.barh(
+            y_pos,
+            front_cells.mean_generation_minimization_seconds,
+            color="#31688e",
+            label="Candidate generation + minimization",
+        )
+        structure.barh(
+            y_pos,
+            front_cells.mean_alignment_io_seconds,
+            left=front_cells.mean_generation_minimization_seconds,
+            color="#35b779",
+            label="ROCS alignment + scorer I/O",
+        )
+        structure.set_yticks(y_pos, labels_y, fontsize=8)
+        structure.set_xlabel("Mean per-input seconds (serial component sum)")
+        structure.set_title("Cost structure of nondominated cells")
+        structure.legend(fontsize=9)
+        structure.grid(alpha=0.2, axis="x")
     fig.suptitle(
         f"{warning}Development-panel trade-offs · lower time and lower score gap preferred\n"
+        f"Per-input times are isolated serial single-molecule calls, not RL epoch time · "
+        f"measured live-RL reference: {reference['provenance']}, "
+        f"{reference['serial_equivalent_seconds_per_row']:.2f} s/row serial-equivalent "
+        f"-> calibration underestimates RL by ~{factor_text}\n"
         "Reference/candidate methods matched; this is not biological accuracy or RL improvement",
-        fontsize=14,
+        fontsize=13,
     )
     fig.savefig(output / "pareto.png", dpi=170)
     fig.savefig(output / "pareto.svg")

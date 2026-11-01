@@ -125,6 +125,27 @@ def measure_case(
         diverse_prefix=max(positive_caps, default=12),
     )
 
+    # Untimed warm-up: pay one-time per-process initialisation (rdShapeAlign C++
+    # lazy setup, MMFF parameter tables, SDF I/O machinery) before the timed
+    # grid, so it cannot contaminate one randomly shuffled cell per molecule.
+    warmup_seconds = 0.0
+    warmup_method = next((m for m in methods if pools.get(m)), None)
+    if warmup_method is not None and not detail["color_excluded"]:
+        warmup = create_rocs_scorer(
+            pools[warmup_method][:1],
+            max_conformers=5,
+            max_isomers=CANDIDATE_ISOMER_CAP,
+            random_seed=CANDIDATE_SEED,
+            minimize_candidates=warmup_method != "etkdg",
+            optimization=METHODS[warmup_method],
+            timeout=10,
+            conformer_threads=1,
+            n_jobs=1,
+        )
+        tick = time.perf_counter()
+        warmup.getScores([case["smiles"]])
+        warmup_seconds = time.perf_counter() - tick
+
     ordered = list(settings)
     np.random.default_rng(17_000 + molecule_id).shuffle(ordered)
     rows: list[dict[str, Any]] = []
@@ -228,6 +249,8 @@ def measure_case(
     frame = pd.DataFrame(rows).sort_values(list(KEYS)).reset_index(drop=True)
     frame.to_csv(directory / "scores.csv.gz", index=False)
     detail.update(
+        warmup_method=warmup_method,
+        warmup_seconds=warmup_seconds,
         case={
             key: (int(val) if isinstance(val, np.integer) else val)
             for key, val in case.items()
@@ -590,13 +613,25 @@ def render_reward_calibration(output: Path) -> None:
         if status == "superseded_seed_overlap"
         else ""
     )
+    # Derive the measured grid from the saved summary so older runs (whose
+    # candidate/cap constants differ from the current module defaults) remain
+    # renderable; module constants are only defaults for new measurements.
+    grid_caps = tuple(
+        sorted((int(cap) for cap in summary.reference_cap.unique()), key=lambda c: (c == 0, c))
+    )
+    grid_candidates = tuple(
+        sorted(int(count) for count in summary.candidate_attempts.unique())
+    )
+    grid_methods = {
+        method: METHODS[method] for method in METHODS if method in set(summary.method)
+    }
     render_reward_heatmaps(
         summary,
         output,
-        methods=METHODS,
+        methods=grid_methods,
         labels=LABELS,
-        caps=CAPS,
-        candidates=CANDIDATES,
+        caps=grid_caps,
+        candidates=grid_candidates,
         warning=warning,
     )
     render_reward_pareto(

@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): Primary cluster for multi-arm reinforcement learning training and GPU compute. Managed via `_david/code/metacentrum/grid.py`.
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/tests -v` (Currently 74/74 passing).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/tests -v` (Currently 77/77 passing).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -64,6 +64,7 @@ In `tutorial/advanced/rocs/egcg/final_out/eps0.1/executed_eps0.1.ipynb`, supervi
 - In `CandidateConformerGenerator._embed_batch_to_sdf` ([`_david/code/chemistry.py`](code/chemistry.py)), conformer embedding previously ran in a serial Python loop in the main process, capping throughput at $\sim 0.34\text{ mol/s}$ and causing idle CPU cores.
 - **The Fix**: Parallelized candidate embedding via chunked multiprocessing pools (`pool_context().Pool`) with `params.numThreads = 1` inside worker processes. Achieves exact bit-for-bit parity (`diff <= 1e-8`) and scales throughput with core count.
 - **Pareto Trade-off**: Unminimized ETKDGv3 ($C=30, K=1$) has $\rho = 0.978$ rank correlation with MMFF94s-minimized candidates ($C=50, K=4$) on the 128-drug panel, while running $4\times\text{--}5\times$ faster (~3.8h vs ~16.5h for 50 epochs).
+- **Calibration-Seconds ≠ RL-Seconds (2026-11-01)**: reward-calibration per-input seconds are isolated serial single-molecule calls on DrugCentral drugs; the measured live-RL reference (dichtator smoke, MMFF94s ε78.4 K4/C20, 2 workers) ran **≈3.2× slower per row** (6.07 vs 1.88 s serial-equivalent) because RNN-prior molecules carry unassigned stereocenters (I≤4 enumeration) and straggler chunks bound epoch wall-clock. Never read the Pareto x-axis as RL epoch time; use the p95 axis and the printed RL factor (`visualization.rl_reference_measurement`).
 
 ---
 
@@ -82,15 +83,16 @@ _david/
 │   ├── schema.py, utils.py            # Standard column names and hardware job allocation
 │   ├── visualization.py               # 8 publication-grade diagnostics & trajectory figures
 │   ├── conformer/                     # Conformer calibration, batch probes, and results.md
-│   │   ├── batch_probe.py             # Realistic multi-core batch scoring benchmark
+│   │   ├── batch_probe.py              # Realistic multi-core batch scoring benchmark
 │   │   ├── drug_panel.py              # DrugCentral curation for self-recovery
+│   │   ├── panel_figures.py           # 128-drug stratified figure (3 panels; D removed 2026-11-01)
 │   │   ├── results.md                 # Conformer research findings & decision record
 │   │   └── reward_calibration.py      # Historical singleton Pareto benchmark
 │   └── metacentrum/                   # MetaCentrum grid submission and cluster orchestration
 │       ├── grid.py                    # MetaCentrumGridManager, CLI, and grid generators
 │       ├── job_template.sh            # PBS Pro cluster execution script
 │       └── scripts/                   # Standalone submission scripts (h1..h4, submit_all)
-├── tests/                             # 74 unit and regression tests (100% passing)
+├── tests/                             # 77 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 
