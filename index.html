@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DrugEx Thesis Time Tracker</title>
+  <title>DrugEx Thesis Work & Time Tracker</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #090a0f;
-      --card-bg: rgba(22, 27, 34, 0.7);
+      --card-bg: rgba(22, 27, 34, 0.75);
       --card-border: rgba(255, 255, 255, 0.08);
       --accent: #38bdf8;
       --accent-purple: #a855f7;
@@ -21,23 +21,25 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Inter', -apple-system, sans-serif;
-      background: radial-gradient(circle at 50% 0%, #171d2d, var(--bg) 60%);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle at 50% 0%, #171d2d, var(--bg) 65%);
       color: var(--text);
       min-height: 100vh;
       padding: 2.5rem 1.5rem;
     }
     .container {
-      max-width: 1200px;
+      max-width: 1280px;
       margin: 0 auto;
     }
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 2.5rem;
+      margin-bottom: 2rem;
       border-bottom: 1px solid var(--card-border);
       padding-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
     }
     .title-group h1 {
       font-size: 1.875rem;
@@ -50,24 +52,37 @@
     .title-group p {
       color: var(--text-muted);
       font-size: 0.875rem;
-      margin-top: 0.25rem;
+      margin-top: 0.35rem;
+    }
+    .badge-group {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
     }
     .badge {
       display: inline-flex;
       align-items: center;
       padding: 0.35rem 0.85rem;
       border-radius: 9999px;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      color: var(--accent);
       font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
+    .badge-primary {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: var(--accent);
+    }
+    .badge-purple {
+      background: rgba(168, 85, 247, 0.12);
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      color: var(--accent-purple);
+    }
+
     .grid-kpis {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 1.25rem;
       margin-bottom: 2.5rem;
     }
@@ -84,11 +99,11 @@
       border-color: rgba(255, 255, 255, 0.18);
     }
     .kpi-label {
-      font-size: 0.8rem;
-      font-weight: 500;
+      font-size: 0.75rem;
+      font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
       margin-bottom: 0.5rem;
     }
     .kpi-val {
@@ -97,9 +112,10 @@
       letter-spacing: -0.03em;
     }
     .kpi-sub {
-      font-size: 0.75rem;
+      font-size: 0.78rem;
       color: var(--text-muted);
-      margin-top: 0.35rem;
+      margin-top: 0.4rem;
+      line-height: 1.4;
     }
     .progress-bar-container {
       background: rgba(255,255,255,0.06);
@@ -113,31 +129,71 @@
       height: 100%;
       transition: width 0.5s ease;
     }
-    .section-title {
-      font-size: 1.25rem;
-      font-weight: 600;
-      margin-bottom: 1rem;
+
+    /* Controls & Filters */
+    .controls-bar {
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 0.5rem;
+      margin-top: 2rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
     }
-    .table-container {
+    .filter-pills {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .pill {
+      padding: 0.4rem 0.9rem;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .pill:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+    .pill.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* Modern Table Architecture with Sticky Headers & Container Queries */
+    .table-wrapper {
+      overflow: auto;
+      max-inline-size: 100%;
+      max-block-size: 550px;
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 14px;
-      overflow-x: auto;
       margin-bottom: 2.5rem;
       backdrop-filter: blur(12px);
+      container-type: inline-size;
     }
     table {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 0;
       text-align: left;
       font-size: 0.85rem;
     }
+    thead {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 2;
+    }
     th {
-      padding: 0.85rem 1.25rem;
-      background: rgba(255,255,255,0.03);
+      padding: 0.9rem 1.25rem;
+      background: #111520;
       color: var(--text-muted);
       font-weight: 600;
       text-transform: uppercase;
@@ -146,7 +202,7 @@
       border-bottom: 1px solid var(--card-border);
     }
     td {
-      padding: 1rem 1.25rem;
+      padding: 0.9rem 1.25rem;
       border-bottom: 1px solid rgba(255,255,255,0.04);
       color: #cbd5e1;
     }
@@ -161,6 +217,100 @@
       border-radius: 4px;
       color: var(--accent);
     }
+
+    .tag-steered {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+    }
+    .tag-auto {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--accent-amber);
+    }
+    .tag-subagent {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: rgba(168, 85, 247, 0.15);
+      color: var(--accent-purple);
+    }
+    .tag-idle {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+    }
+
+    /* Day-by-Day Timeline Cards */
+    .timeline-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      margin-bottom: 3rem;
+    }
+    .timeline-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.25rem 1.5rem;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.2s ease;
+    }
+    .timeline-card:hover {
+      border-color: rgba(56, 189, 248, 0.3);
+    }
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .timeline-date {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #fff;
+    }
+    .timeline-metrics {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .timeline-details {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+    .commit-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
+      margin-right: 0.4rem;
+      margin-bottom: 0.4rem;
+    }
+
     footer {
       text-align: center;
       color: var(--text-muted);
@@ -176,189 +326,1179 @@
     <header>
       <div class="title-group">
         <h1>DrugEx Thesis Work & Time Tracker</h1>
-        <p>Continuous automated audit across Tablet, Remote Compute, and LLM Engineering</p>
+        <p>Continuous automated audit across Tablet, Remote Compute, Antigravity & t3code</p>
       </div>
-      <div class="badge">Vercel Ready</div>
+      <div class="badge-group">
+        <span class="badge badge-primary">WSL & Win Synced</span>
+        <span class="badge badge-purple">Vercel Ready</span>
+      </div>
     </header>
 
     <div class="grid-kpis">
       <div class="card" style="border-top: 3px solid var(--accent);">
-        <div class="kpi-label">Grand Total Thesis Effort</div>
-        <div class="kpi-val" style="color: #fff;">210.65 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
-        <div class="kpi-sub">Equivalent to ~5.3 full-time work weeks</div>
+        <div class="kpi-label">Core Human Thesis Effort</div>
+        <div class="kpi-val" style="color: #fff;">231.83 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
+        <div class="kpi-sub">De-duplicated human study, pair-programming & dev (~5.8 full-time weeks; 286.34h component sum)</div>
         <div class="progress-bar-container">
-          <div class="progress-fill" style="width: 7.353429859957275%; background: var(--accent-purple);" title="Notewise"></div>
-          <div class="progress-fill" style="width: 47.975314502729645%; background: var(--accent-emerald);" title="Dichtator"></div>
-          <div class="progress-fill" style="width: 44.671255637313074%; background: var(--accent);" title="LLM Workspaces"></div>
+          <div class="progress-fill" style="width: 6.681620152698098%; background: var(--accent-purple);" title="Tablet Reading"></div>
+          <div class="progress-fill" style="width: 81.69779579864556%; background: var(--accent);" title="Interactive AI Steered"></div>
+          <div class="progress-fill" style="width: 35.13350299788638%; background: var(--accent-emerald);" title="Dichtator Dev"></div>
         </div>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--accent-amber);">
+        <div class="kpi-label">Autonomous AI Compute</div>
+        <div class="kpi-val" style="color: var(--accent-amber);">14.01 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
+        <div class="kpi-sub">7.66h autonomous loops & subagents (overnight/batch)</div>
       </div>
 
       <div class="card" style="border-top: 3px solid var(--accent-purple);">
         <div class="kpi-label">Tablet Study & Reading</div>
         <div class="kpi-val" style="color: var(--accent-purple);">15.49 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
-        <div class="kpi-sub">12.91h raw + 20% reading buffer</div>
+        <div class="kpi-sub">12.91h raw active writing + 20% contemplation buffer</div>
       </div>
 
       <div class="card" style="border-top: 3px solid var(--accent-emerald);">
         <div class="kpi-label">Dichtator / VPN Tunnel</div>
-        <div class="kpi-val" style="color: var(--accent-emerald);">101.06 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
-        <div class="kpi-sub">51 sessions to vpn.vscht.cz</div>
-      </div>
-
-      <div class="card" style="border-top: 3px solid var(--accent);">
-        <div class="kpi-label">LLM Engineering</div>
-        <div class="kpi-val" style="color: var(--accent);">94.1 <span style="font-size: 1.2rem; font-weight: 500;">hrs</span></div>
-        <div class="kpi-sub">72926 steps across 254 workspaces (+10% buffer)</div>
+        <div class="kpi-val" style="color: var(--accent-emerald);">81.45h <span style="font-size: 1.0rem; color: var(--text-muted);">dev / 185.98h tunnel</span></div>
+        <div class="kpi-sub">68 sessions (99.16h filtered background uptime)</div>
       </div>
     </div>
 
-    <div class="section-title">Antigravity Thesis Workspaces & Subagent Sweeps</div>
-    <div class="table-container">
-      <table>
+    <!-- Day-by-Day Timeline Section -->
+    <div class="controls-bar">
+      <h2 style="font-size: 1.25rem; font-weight: 600;">Day-by-Day Timeline & Verifiable Proof-of-Work</h2>
+      <span style="font-size: 0.8rem; color: var(--text-muted);">372 research days documented</span>
+    </div>
+
+    <div class="timeline-container">
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-11-01</div>
+          <div class="timeline-metrics">2.72 hrs human effort (4.46h AI dev &bull; 0.78h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, Developer Environment & Cisco VPN Orchestration, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics</div>
+          <span class="commit-pill"><code>5293122</code> fix(conformer): honest Pareto RL timing; regenerate drug-pan</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "whats our state of meta computing?..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-31</div>
+          <div class="timeline-metrics">13.8 hrs human effort (19.29h AI dev &bull; 6.34h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Agent Architecture, Context Briefings & Documentation, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, Developer Environment & Cisco VPN Orchestration, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring, Chapter 4: HPC Training Grid & Scalability, Methodology & Autonomous Agent Engineering</div>
+          <span class="commit-pill"><code>95d4650</code> docs(onboarding): add supervisor's successful EGCG run as go</span> <span class="commit-pill"><code>ad09cd5</code> docs(onboarding): add high-yield repo briefing for incoming </span> <span class="commit-pill"><code>2f3e686</code> docs: document gpu_long sprint job IDs and 4-cpu configurati</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "So i changed the default settings in config,py - and i commited them in dichtator - our ne..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-30</div>
+          <div class="timeline-metrics">9.66 hrs human effort (11.5h AI dev &bull; 7.97h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring</div>
+          <span class="commit-pill"><code>775eff3</code> Calibrate Harrington ROCS anchors to (0.2, 0.6) and set beta</span> <span class="commit-pill"><code>b8e11c7</code> Calibrate timeout_seconds default from 30 to 60s in Pipeline</span> <span class="commit-pill"><code>533ddbf</code> Expose --timeout in pipeline CLI and set timeout_seconds=30 </span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "test
+
+<ADDITIONAL_METADATA>
+The current local time is: 2026-10-30T23:24:23+01:00.
+</ADDITI..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-29</div>
+          <div class="timeline-metrics">11.65 hrs human effort (12.63h AI dev &bull; 10.56h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Agent Architecture, Context Briefings & Documentation, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring, Methodology & Autonomous Agent Engineering</div>
+          <span class="commit-pill"><code>1ac9950</code> Refactor _david/code for modularity and PipelineConfig proje</span> <span class="commit-pill"><code>31bf51d</code> docs(skills): update conformer runbook with empirical proof </span> <span class="commit-pill"><code>92a8603</code> fix(chemistry): preserve AllProps alongside CoordsAsDouble w</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "test123
+
+<ADDITIONAL_METADATA>
+The current local time is: 2026-10-29T17:23:54+01:00.
+</ADD..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-28</div>
+          <div class="timeline-metrics">6.23 hrs human effort (3.25h AI dev &bull; 4.41h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring, Chapter 4: HPC Training Grid & Scalability</div>
+          <span class="commit-pill"><code>d6cff5f</code> Allow the retained-reference analysis to validate against th</span> <span class="commit-pill"><code>3851d69</code> Check reconstructed candidate masks before reducing referenc</span> <span class="commit-pill"><code>96f1a3f</code> Restore retained reference count as a saved-data comparison</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "1) garante we are not-hackable when we full open to users and internet /modern-web-guidanc..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-27</div>
+          <div class="timeline-metrics">5.84 hrs human effort (6.07h AI dev &bull; 3.26h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics</div>
+          <span class="commit-pill"><code>d7860f4</code> fix(thesis): use the same minimized SDF representation in st</span> <span class="commit-pill"><code>7039298</code> Clarify conformer plots and add 5, 15 and 20 candidate budge</span> <span class="commit-pill"><code>d0d280e</code> feat(thesis): make candidate MMFF94 minimization opt-in</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "You have new completly epic plan - that will take a long time
+- your task is for each pres..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-26</div>
+          <div class="timeline-metrics">6.55 hrs human effort (4.91h AI dev &bull; 4.81h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Agent Architecture, Context Briefings & Documentation, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 4: HPC Training Grid & Scalability, Methodology & Autonomous Agent Engineering</div>
+          <span class="commit-pill"><code>89bb279</code> docs: remove stale agent instructions and correct research h</span> <span class="commit-pill"><code>fb1d1e4</code> docs: onboard Codex with verified DrugEx context and archive</span> <span class="commit-pill"><code>9261af8</code> refactor(code-review-prep): sanitize legacy imports, resolve</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "btw sould we addd bars of fetures we had previously in vizualization?
+ps: i saw we just de..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-25</div>
+          <div class="timeline-metrics">5.52 hrs human effort (5.82h AI dev &bull; 3.08h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Agent Architecture, Context Briefings & Documentation, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Methodology & Autonomous Agent Engineering</div>
+          <span class="commit-pill"><code>c0f9597</code> refactor(build): restore scripts/drugex entry point, purge d</span> <span class="commit-pill"><code>d4a4144</code> chore(gitignore): ignore IDE directories (.vscode, .idea)</span> <span class="commit-pill"><code>ccf9535</code> chore(gitignore): consolidate single root .gitignore and eli</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "So 1 last think before moving to RNN, we need to clean up folders with "output/archive" an..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-24</div>
+          <div class="timeline-metrics">1.63 hrs human effort (1.63h AI dev &bull; 0.47h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;"></div>
+          
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "btw 1 last think before going RNN - could we give some model just 1C and let him be imegan..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-22</div>
+          <div class="timeline-metrics">6.45 hrs human effort (6.15h AI dev &bull; 3.72h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics</div>
+          <span class="commit-pill"><code>016dd69</code> docs(rl): cite Loshchilov & Hutter (ICLR 2017) for cosine ex</span> <span class="commit-pill"><code>0027933</code> feat(config): sync user updates to config defaults and prune</span> <span class="commit-pill"><code>f803dab</code> feat(pipeline): add max-conformers CLI option and Run 15 lau</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "Now impage promts takes too long
+- in markdown - just leave 7 newlines space
+- make kapito..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-21</div>
+          <div class="timeline-metrics">13.74 hrs human effort (9.14h AI dev &bull; 8.81h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Agent Architecture, Context Briefings & Documentation, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring, Methodology & Autonomous Agent Engineering</div>
+          <span class="commit-pill"><code>3bf61a9</code> feat(orchestrator): add chain_run13.sh for Harrington Desira</span> <span class="commit-pill"><code>bdb0f4d</code> feat(orchestrator): add chain_run12.sh</span> <span class="commit-pill"><code>ad39767</code> fix(tests): update expected default thresholds to 0.70 in te</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "I want all the study playlist/mini-courses in sub-page coursis (not when i start watching ..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-20</div>
+          <div class="timeline-metrics">2.24 hrs human effort (2.43h AI dev &bull; 0.0h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;"></div>
+          
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "Or whats are te diferefence
+1) multi-scale RECAP/BRICS + Murcko portfolio
+2) drugex native..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-19</div>
+          <div class="timeline-metrics">1.3 hrs human effort (1.3h AI dev &bull; 0.0h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Core `_david` Pipeline Engineering & Clean Code, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;"></div>
+          
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "COuld you repare chat bef40d77-47ae-4d5c-b10f-2de039e29a6e with anti //wsl.local script?
+
+..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-18</div>
+          <div class="timeline-metrics">2.04 hrs human effort (2.37h AI dev &bull; 0.7h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics</div>
+          <span class="commit-pill"><code>2b620ac</code> feat(ensemble): calibrate Hawkins tiers for up to 10 conform</span> <span class="commit-pill"><code>af9d944</code> feat(config): wire max_reference_conformers, agile sample si</span> <span class="commit-pill"><code>00b972c</code> feat(config): calibrate n_samples=100, val_samples=50, and b</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "I think we have outdated and over-specified /drugex-dichtator 
+- keep it clean and to the ..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-17</div>
+          <div class="timeline-metrics">14.48 hrs human effort (12.07h AI dev &bull; 7.78h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Agent Architecture, Context Briefings & Documentation, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring, Chapter 4: HPC Training Grid & Scalability, Methodology & Autonomous Agent Engineering</div>
+          <span class="commit-pill"><code>8a7b9a2</code> docs(agents): update AGENTS.md architecture and clean legacy</span> <span class="commit-pill"><code>1a900b2</code> fix(config): retain create_directories method on RunPaths</span> <span class="commit-pill"><code>9717472</code> refactor: consolidate visualization, simplify hardware/envir</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "0) add # code coment why are we using ".max() <= 1.05"
+1) use "SmoothClippedScore(upper_x=..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-16</div>
+          <div class="timeline-metrics">13.16 hrs human effort (18.68h AI dev &bull; 12.08h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics</div>
+          <span class="commit-pill"><code>164ef52</code> refactor: rename DataSchema to std as requested by user</span> <span class="commit-pill"><code>0e8e988</code> feat: establish DataSchema as single source of truth for col</span> <span class="commit-pill"><code>7eee925</code> feat: add gallery generator for lead structure images</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "Current UI in Suggest doesnt realy support mobile
+
+<ADDITIONAL_METADATA>
+The current local..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-15</div>
+          <div class="timeline-metrics">7.39 hrs human effort (8.36h AI dev &bull; 6.68h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;"></div>
+          
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "Well but we have whole script to prepare cyclic and acylic molecules - could we even "full..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-14</div>
+          <div class="timeline-metrics">5.72 hrs human effort (7.71h AI dev &bull; 0.0h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;"></div>
+          <span class="commit-pill"><code>7a022a2</code> chore(environment): remove unused deque import and clean com</span> <span class="commit-pill"><code>1d70232</code> final acylcic</span> <span class="commit-pill"><code>c2e5368</code> refactor(environment): simplify acyclic backbone extraction </span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "How would you describe dedication to readability, first principles and academic rigor in e..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-13</div>
+          <div class="timeline-metrics">7.3 hrs human effort (8.37h AI dev &bull; 0.0h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring</div>
+          <span class="commit-pill"><code>5c9f29b</code> refactor(environment): rewrite acyclic backbone BFS with exp</span> <span class="commit-pill"><code>a98a2a1</code> refactor(environment): implement pure Bemis-Murcko carbon-cl</span> <span class="commit-pill"><code>b2d14ea</code> refactor(environment): clean up _is_passable_bridge with rea</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "Take a deep look at: "_david/code/environment.py"
+
+How to bulletproof:
+Assert mol.GetNumCo..."</em></div>
+        </div>
+      </div>
+      <div class="timeline-card">
+        <div class="timeline-header">
+          <div class="timeline-date">2026-10-12</div>
+          <div class="timeline-metrics">1.05 hrs human effort (1.05h AI dev &bull; 0.0h VS Code SSH)</div>
+        </div>
+        <div class="timeline-details">
+          <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.35rem;">3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration</div>
+          <div style="font-size: 0.78rem; color: var(--accent-purple); margin-bottom: 0.5rem;">Mapping: Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring</div>
+          <span class="commit-pill"><code>2dee02e</code> feat(types): add PEP 561 py.typed marker and package-data st</span> <span class="commit-pill"><code>509f5be</code> refactor(environment): clean up load_query_molecule with EAF</span> <span class="commit-pill"><code>7f8c965</code> docs(environment): annotate ROCS conformer budget and timeou</span> 
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #94a3b8;"><em>Directive: "or could we rewrite it more cleanly?
+
+<ADDITIONAL_METADATA>
+The current local time is: 202..."</em></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Workspaces Section -->
+    <div class="controls-bar">
+      <h2 style="font-size: 1.25rem; font-weight: 600;">AI Workspaces & Subagent Trajectories</h2>
+      <div class="filter-pills" id="ai-filter-pills">
+        <button class="pill active" data-filter="all">All (44)</button>
+        <button class="pill" data-filter="interactive_steered">Steered (14)</button>
+        <button class="pill" data-filter="autonomous_loop">Overnight Loops (0)</button>
+        <button class="pill" data-filter="subagent">Subagents (21)</button>
+      </div>
+    </div>
+
+    <div class="table-wrapper" role="region" tabindex="0" aria-label="AI Engineering Workspaces">
+      <table id="ai-table">
         <thead>
           <tr>
-            <th>Workspace / Conversation</th>
+            <th>Workspace / Thread</th>
+            <th>Platform</th>
+            <th>Category</th>
             <th>Start (Local)</th>
-            <th>Duration</th>
+            <th>Steered & Crafting</th>
+            <th>Autonomous</th>
             <th>Steps</th>
-            <th>Primary Topics</th>
-            <th>Initial User Request</th>
+            <th>User Requests</th>
+            <th>Initial Request / Objective</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td><code>aa252ee9...</code></td>
-            <td>2026-10-15 16:03:25</td>
+          <tr data-cat="interactive_steered">
+            <td><code>t3-8a6d8237-89</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">t3code (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-11-01 14:46:07</td>
+            <td><strong>54.1 min</strong></td>
+            <td>1s</td>
+            <td>8</td>
+            <td>4</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="What would you decide to do in this sittuasion [Analyze pulled sprint timing results](t3-context://v">What would you decide to do in this sittuasion [Analyze pulled sprint timing results](t3-context://v</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>1f425855-d6fd-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (Win)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-11-01 14:39:46</td>
+            <td><strong>1.2h</strong></td>
+            <td>1s</td>
+            <td>499</td>
+            <td>4</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="/goal  So our todays task will be to update "C:\Users\kolar\Desktop\windows_native_projects\develope">/goal  So our todays task will be to update "C:\Users\kolar\Desktop\windows_native_projects\develope</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>t3-3f4700e1-9b</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">t3code (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-11-01 12:57:58</td>
+            <td><strong>1.4h</strong></td>
+            <td>1s</td>
+            <td>47</td>
+            <td>11</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="[Fix Pareto timing charts and panels](t3-context://v1/thread/thread_5dc07f7e-6d5a-431b-8a3b-a9501494">[Fix Pareto timing charts and panels](t3-context://v1/thread/thread_5dc07f7e-6d5a-431b-8a3b-a9501494</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>t3-5dc07f7e-6d</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">t3code (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-31 23:37:15</td>
+            <td><strong>1.1h</strong></td>
+            <td>1s</td>
+            <td>52</td>
+            <td>5</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Hello GLM-5.3 For start, have a current DrugEx state in "DrugEx/_david/onboarding/OPUS_REPO_BRIEFING">Hello GLM-5.3 For start, have a current DrugEx state in "DrugEx/_david/onboarding/OPUS_REPO_BRIEFING</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>t3-00dbe29d-16</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">t3code (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-31 23:32:28</td>
+            <td><strong>29.3 min</strong></td>
+            <td>1s</td>
+            <td>10</td>
+            <td>5</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Hello GLM-5.3 For start, have a current DrugEx state in "DrugEx/_david/onboarding/OPUS_REPO_BRIEFING">Hello GLM-5.3 For start, have a current DrugEx state in "DrugEx/_david/onboarding/OPUS_REPO_BRIEFING</td>
+          </tr>
+          <tr data-cat="mixed">
+            <td><code>t3-thread:prov</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">t3code (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-31 23:23:51</td>
+            <td><strong>25.7 min</strong></td>
+            <td>1s</td>
+            <td>4</td>
+            <td>1</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Check the current state of the MetaCentrum HPC RL sprint (4-hypothesis EGCG sprint, PBS jobs 2517000">Check the current state of the MetaCentrum HPC RL sprint (4-hypothesis EGCG sprint, PBS jobs 2517000</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>t3-e5d2ab1b-2e</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">t3code (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-31 21:53:07</td>
+            <td><strong>1.4h</strong></td>
+            <td>1s</td>
+            <td>28</td>
+            <td>8</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="So i need to to import to Open code where i have my GLM model all our settings, like skils etc /gril">So i need to to import to Open code where i have my GLM model all our settings, like skils etc /gril</td>
+          </tr>
+          <tr data-cat="mixed">
+            <td><code>c78bace0-d534-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-31 21:38:58</td>
+            <td><strong>35.3 min</strong></td>
+            <td>1s</td>
+            <td>126</td>
+            <td>1</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="I was hoping for somting more detailed  <ADDITIONAL_METADATA> The current local time is: 2026-10-31T">I was hoping for somting more detailed  <ADDITIONAL_METADATA> The current local time is: 2026-10-31T</td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>4195e11c-3408-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 21:31:45</td>
+            <td><strong>1s</strong></td>
+            <td>6.4 min</td>
+            <td>94</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="mixed">
+            <td><code>d5009cd0-53a7-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-31 21:31:25</td>
+            <td><strong>36.1 min</strong></td>
+            <td>1s</td>
+            <td>43</td>
+            <td>1</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="subagent finishe  <ADDITIONAL_METADATA> The current local time is: 2026-10-31T23:18:25+01:00. </ADDI">subagent finishe  <ADDITIONAL_METADATA> The current local time is: 2026-10-31T23:18:25+01:00. </ADDI</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>t3-55e8b1d0-d1</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">t3code (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-31 21:21:57</td>
+            <td><strong>1.8h</strong></td>
+            <td>1s</td>
+            <td>23</td>
+            <td>10</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Hello, what are you capabilites in DrugEx - ligand based?">Hello, what are you capabilites in DrugEx - ligand based?</td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>886a1eff-8b03-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 20:54:48</td>
+            <td><strong>1s</strong></td>
+            <td>1 min</td>
+            <td>19</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>7e7c49c1-fe5c-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 20:54:26</td>
+            <td><strong>1s</strong></td>
+            <td>1 min</td>
+            <td>5</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>f118791a-9c4f-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 20:54:12</td>
+            <td><strong>1s</strong></td>
+            <td>1 min</td>
+            <td>15</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>1fec7d27-1638-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (Win)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 19:58:39</td>
+            <td><strong>1s</strong></td>
             <td>2.6 min</td>
-            <td><strong>62</strong></td>
-            <td><code>david.py</code> <code>pipelines/schemas</code> <code>docstrings/types</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>
+            <td>69</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>5a871dff...</code></td>
-            <td>2026-10-15 16:02:52</td>
+          <tr data-cat="subagent">
+            <td><code>f34247db-1672-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (Win)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 19:33:55</td>
+            <td><strong>1s</strong></td>
+            <td>24.3 min</td>
+            <td>461</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>b0ca57ef-7e28-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (Win)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 19:33:45</td>
+            <td><strong>1s</strong></td>
+            <td>24.9 min</td>
+            <td>12</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>94a98ebb-8c57-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 19:30:39</td>
+            <td><strong>1s</strong></td>
+            <td>2 min</td>
+            <td>64</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>8c755b7d-3c4b-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 19:30:25</td>
+            <td><strong>1s</strong></td>
             <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>core</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+            <td>6</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>96c2097a...</code></td>
-            <td>2026-10-15 15:46:59</td>
-            <td>0.2h</td>
-            <td><strong>180</strong></td>
-            <td><code>pipelines/schemas</code> <code>docstrings/types</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>
+          <tr data-cat="subagent">
+            <td><code>ff045b4d-857c-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 10:27:37</td>
+            <td><strong>1s</strong></td>
+            <td>13.5 min</td>
+            <td>250</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>58057d37...</code></td>
-            <td>2026-10-15 15:46:48</td>
-            <td>0.3h</td>
-            <td><strong>12</strong></td>
-            <td><code>pipelines/schemas</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>
+          <tr data-cat="subagent">
+            <td><code>40fa114d-c5f2-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 10:13:31</td>
+            <td><strong>1s</strong></td>
+            <td>13.5 min</td>
+            <td>279</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>97e3e4be...</code></td>
-            <td>2026-10-15 12:16:31</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>core</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="subagent">
+            <td><code>5222f0f1-01eb-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 10:13:13</td>
+            <td><strong>1s</strong></td>
+            <td>28.4 min</td>
+            <td>18</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>1e07ed0a...</code></td>
-            <td>2026-10-14 22:08:12</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>core</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="subagent">
+            <td><code>0523c792-0d4f-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 03:14:03</td>
+            <td><strong>1s</strong></td>
+            <td>20.2 min</td>
+            <td>365</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>85dfd688...</code></td>
-            <td>2026-10-14 21:46:51</td>
-            <td>0.3h</td>
-            <td><strong>242</strong></td>
-            <td><code>david.py</code> <code>pipelines/schemas</code> <code>docstrings/types</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"># Objective: Comprehensive Audit of Cross-OS Shell Bridging, CLI Parsing & Command Execution Anti-Pa</td>
+          <tr data-cat="subagent">
+            <td><code>240fed83-3676-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 02:55:22</td>
+            <td><strong>1s</strong></td>
+            <td>18.1 min</td>
+            <td>274</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>bd7bb022...</code></td>
-            <td>2026-10-14 09:57:02</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>docstrings/types</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="subagent">
+            <td><code>cffd1189-6926-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 02:55:03</td>
+            <td><strong>1s</strong></td>
+            <td>39.7 min</td>
+            <td>18</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>7d8a5454...</code></td>
-            <td>2026-10-13 20:23:56</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>core</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="subagent">
+            <td><code>b3b7ede1-8676-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 02:13:35</td>
+            <td><strong>1s</strong></td>
+            <td>37 min</td>
+            <td>747</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>d87dd0cc...</code></td>
-            <td>2026-10-13 19:42:43</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>pipelines/schemas</code> <code>docstrings/types</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="mixed">
+            <td><code>57554baf-5107-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-31 01:48:07</td>
+            <td><strong>29.3 min</strong></td>
+            <td>1s</td>
+            <td>335</td>
+            <td>1</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="you can use /schedule for waiting  <ADDITIONAL_METADATA> The current local time is: 2026-10-31T03:08">you can use /schedule for waiting  <ADDITIONAL_METADATA> The current local time is: 2026-10-31T03:08</td>
           </tr>
-          <tr>
-            <td><code>689fefdc...</code></td>
-            <td>2026-10-13 18:43:32</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>pipelines/schemas</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="subagent">
+            <td><code>ff7df7c1-ded5-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 01:47:53</td>
+            <td><strong>1s</strong></td>
+            <td>1.1h</td>
+            <td>18</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>d44c9ef8...</code></td>
-            <td>2026-10-13 18:32:17</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>pipelines/schemas</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="mixed">
+            <td><code>e70035fb-e534-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-31 01:37:06</td>
+            <td><strong>35.9 min</strong></td>
+            <td>1s</td>
+            <td>133</td>
+            <td>1</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="btw we sould update only _david/code/ and probably mainly _david/code/conformer/  <ADDITIONAL_METADA">btw we sould update only _david/code/ and probably mainly _david/code/conformer/  <ADDITIONAL_METADA</td>
           </tr>
-          <tr>
-            <td><code>c0c5294c...</code></td>
-            <td>2026-10-13 17:38:58</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>pipelines/schemas</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="subagent">
+            <td><code>d3af71ec-8ffd-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 01:29:56</td>
+            <td><strong>1s</strong></td>
+            <td>5.2 min</td>
+            <td>106</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
           </tr>
-          <tr>
-            <td><code>9102e8d0...</code></td>
-            <td>2026-10-12 00:20:35</td>
-            <td>1 min</td>
-            <td><strong>2</strong></td>
-            <td><code>core</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This is a side question from the user. You MUST answer directly in a single response. Your tools are</td>
+          <tr data-cat="mixed">
+            <td><code>3af604df-dd6e-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-31 01:29:37</td>
+            <td><strong>34.7 min</strong></td>
+            <td>1s</td>
+            <td>30</td>
+            <td>2</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="btwi toled subagen: "btw we sould update only _david/code/ and probably mainly _david/code/conformer">btwi toled subagen: "btw we sould update only _david/code/ and probably mainly _david/code/conformer</td>
           </tr>
-          <tr>
-            <td><code>e5071ef9...</code></td>
-            <td>2026-10-11 22:16:30</td>
-            <td>0.2h</td>
-            <td><strong>181</strong></td>
-            <td><code>david.py</code> <code>pipelines/schemas</code> <code>docstrings/types</code></td>
-            <td style="max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>
+          <tr data-cat="subagent">
+            <td><code>3b8e8162-dc12-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 01:10:02</td>
+            <td><strong>1s</strong></td>
+            <td>7.3 min</td>
+            <td>125</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>4e12b73e-8ed5-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 01:09:32</td>
+            <td><strong>1s</strong></td>
+            <td>7.8 min</td>
+            <td>8</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="subagent">
+            <td><code>d6932156-1a9a-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-subagent">Subagent</span></td>
+            <td>2026-10-31 00:54:36</td>
+            <td><strong>1s</strong></td>
+            <td>21.4 min</td>
+            <td>434</td>
+            <td>0</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title=""></td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>d68f842e-7596-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-31 00:05:48</td>
+            <td><strong>1.3h</strong></td>
+            <td>1s</td>
+            <td>1077</td>
+            <td>4</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="btw /drug-design-science   <ADDITIONAL_METADATA> The current local time is: 2026-10-31T01:06:54+01:0">btw /drug-design-science   <ADDITIONAL_METADATA> The current local time is: 2026-10-31T01:06:54+01:0</td>
+          </tr>
+          <tr data-cat="mixed">
+            <td><code>49f5ac4a-36ad-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-31 00:05:32</td>
+            <td><strong>29 min</strong></td>
+            <td>1s</td>
+            <td>27</td>
+            <td>1</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="btw i just got email: """ PBS JOB 25149854.pbs-m1.metacentrum.cz@pbs-m1.metacentrum.cz         PBS ">btw i just got email: """ PBS JOB 25149854.pbs-m1.metacentrum.cz@pbs-m1.metacentrum.cz         PBS </td>
+          </tr>
+          <tr data-cat="mixed">
+            <td><code>cdbf4b6f-fb57-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-30 23:09:45</td>
+            <td><strong>25.1 min</strong></td>
+            <td>1s</td>
+            <td>10</td>
+            <td>1</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Dear Claude Opus 5.5 (Medium in antigravity harnes equivalent) /drug-design-science  - i think we ca">Dear Claude Opus 5.5 (Medium in antigravity harnes equivalent) /drug-design-science  - i think we ca</td>
+          </tr>
+          <tr data-cat="mixed">
+            <td><code>c566a755-3c1f-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Mixed</span></td>
+            <td>2026-10-29 18:03:41</td>
+            <td><strong>35.8 min</strong></td>
+            <td>1s</td>
+            <td>69</td>
+            <td>2</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="The MCP server "drug-design_biomolecular_structure_viewer_mcp" from plugin "drug-design" failed to s">The MCP server "drug-design_biomolecular_structure_viewer_mcp" from plugin "drug-design" failed to s</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>ae4f5d24-9925-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (Win)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-11 13:31:26</td>
+            <td><strong>8.4h</strong></td>
+            <td>1s</td>
+            <td>1544</td>
+            <td>35</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="You are an expert computational chemist and Python tooling engineer specializing in Python typing (P">You are an expert computational chemist and Python tooling engineer specializing in Python typing (P</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>da453742-0a19-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-11 09:42:32</td>
+            <td><strong>24.7h</strong></td>
+            <td>1s</td>
+            <td>4632</td>
+            <td>132</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="You are now dot files orchestration read /wsl-ide-dotfiles (this might be outdated) and look at the ">You are now dot files orchestration read /wsl-ide-dotfiles (this might be outdated) and look at the </td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>3c0732c1-95a4-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-10 16:16:18</td>
+            <td><strong>92h</strong></td>
+            <td>1s</td>
+            <td>23600</td>
+            <td>604</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="In this chat we will be working in /drugex-dichtator on drugex  Its time to acctualy read code in dr">In this chat we will be working in /drugex-dichtator on drugex  Its time to acctualy read code in dr</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>f73584b6-8447-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (WSL)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-10-03 15:55:28</td>
+            <td><strong>7.2h</strong></td>
+            <td>1s</td>
+            <td>1010</td>
+            <td>21</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="You will be expert in drugex_edu/docs - read the agent.md here - i am planning to remove detailed do">You will be expert in drugex_edu/docs - read the agent.md here - i am planning to remove detailed do</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>93511ab1-0c65-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (Win)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-08-12 11:20:45</td>
+            <td><strong>30.2h</strong></td>
+            <td>1s</td>
+            <td>10497</td>
+            <td>232</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="/wsl-first  1) Plan "Vylepšit otázku" button doesnt make a popup (it sould) and it is on print (it s">/wsl-first  1) Plan "Vylepšit otázku" button doesnt make a popup (it sould) and it is on print (it s</td>
+          </tr>
+          <tr data-cat="interactive_steered">
+            <td><code>3c83ca09-6c14-</code></td>
+            <td><span style="font-size: 0.75rem; color: var(--text-muted);">Antigravity (Win)</span></td>
+            <td><span class="tag-steered">Steered</span></td>
+            <td>2026-07-25 14:29:48</td>
+            <td><strong>35.4h</strong></td>
+            <td>1s</td>
+            <td>8404</td>
+            <td>184</td>
+            <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Unexpected token '<', "<!DOCTYPE "... is not valid JSON. Read more at https://errors.authjs.dev#auth">Unexpected token '<', "<!DOCTYPE "... is not valid JSON. Read more at https://errors.authjs.dev#auth</td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div class="section-title">Tablet Reading Sessions (Notewise Protobuf Milestones)</div>
-    <div class="table-container">
+    <!-- Dichtator Sessions Section -->
+    <div class="controls-bar">
+      <h2 style="font-size: 1.25rem; font-weight: 600;">Dichtator VPN Sessions & Reconciliation</h2>
+      <div class="filter-pills" id="dich-filter-pills">
+        <button class="pill active" data-dfilter="all">All (68)</button>
+        <button class="pill" data-dfilter="steered">Active Dev (47)</button>
+        <button class="pill" data-dfilter="autonomous">Autonomous Compute (1)</button>
+        <button class="pill" data-dfilter="idle">Idle Tunnel (20)</button>
+      </div>
+    </div>
+
+    <div class="table-wrapper" role="region" tabindex="0" aria-label="Dichtator Sessions">
+      <table id="dich-table">
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Category</th>
+            <th>Start Time</th>
+            <th>Total Uptime</th>
+            <th>Active Dev</th>
+            <th>Autonomous AI</th>
+            <th>Idle Uptime</th>
+            <th>Network</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr data-dcat="steered">
+            <td><code>dich-202611011346</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-11-01 13:46:22</td>
+            <td><strong>0.77h</strong></td>
+            <td>0.77h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="idle">
+            <td><code>dich-202611010112</code></td>
+            <td><span class="tag-idle">Idle Tunnel</span></td>
+            <td>2026-11-01 01:12:19</td>
+            <td><strong>0.01h</strong></td>
+            <td>0.01h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610312108</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-31 21:08:38</td>
+            <td><strong>0.56h</strong></td>
+            <td>0.56h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610312103</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-31 21:03:11</td>
+            <td><strong>0.08h</strong></td>
+            <td>0.08h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610312019</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-31 20:19:14</td>
+            <td><strong>0.69h</strong></td>
+            <td>0.69h</td>
+            <td>0.49h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610312012</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-31 20:12:52</td>
+            <td><strong>0.09h</strong></td>
+            <td>0.09h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610311933</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-31 19:33:40</td>
+            <td><strong>0.28h</strong></td>
+            <td>0.28h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610311218</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-31 12:18:02</td>
+            <td><strong>7.25h</strong></td>
+            <td>1.72h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">5.53h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610311156</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-31 11:56:17</td>
+            <td><strong>0.36h</strong></td>
+            <td>0.36h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610310915</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-31 09:15:29</td>
+            <td><strong>2.56h</strong></td>
+            <td>2.56h</td>
+            <td>0.49h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610302323</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-30 23:23:12</td>
+            <td><strong>9.87h</strong></td>
+            <td>4.3h</td>
+            <td>2.31h</td>
+            <td style="color: var(--text-muted);">3.27h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="idle">
+            <td><code>dich-202610301836</code></td>
+            <td><span class="tag-idle">Idle Tunnel</span></td>
+            <td>2026-10-30 18:36:24</td>
+            <td><strong>0.14h</strong></td>
+            <td>0.0h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.14h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="idle">
+            <td><code>dich-202610301657</code></td>
+            <td><span class="tag-idle">Idle Tunnel</span></td>
+            <td>2026-10-30 16:57:47</td>
+            <td><strong>0.06h</strong></td>
+            <td>0.06h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610301118</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-30 11:18:26</td>
+            <td><strong>0.35h</strong></td>
+            <td>0.17h</td>
+            <td>0.01h</td>
+            <td style="color: var(--text-muted);">0.18h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="idle">
+            <td><code>dich-202610300929</code></td>
+            <td><span class="tag-idle">Idle Tunnel</span></td>
+            <td>2026-10-30 09:29:48</td>
+            <td><strong>1.18h</strong></td>
+            <td>0.0h</td>
+            <td>0.01h</td>
+            <td style="color: var(--text-muted);">1.17h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610300302</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-30 03:02:17</td>
+            <td><strong>6.46h</strong></td>
+            <td>1.17h</td>
+            <td>0.03h</td>
+            <td style="color: var(--text-muted);">5.25h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610300012</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-30 00:12:38</td>
+            <td><strong>2.52h</strong></td>
+            <td>2.27h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.25h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610292344</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-29 23:44:47</td>
+            <td><strong>0.46h</strong></td>
+            <td>0.3h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.16h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610291610</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-29 16:10:52</td>
+            <td><strong>7.56h</strong></td>
+            <td>4.46h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">3.1h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610291347</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-29 13:47:57</td>
+            <td><strong>2.38h</strong></td>
+            <td>2.38h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="idle">
+            <td><code>dich-202610291343</code></td>
+            <td><span class="tag-idle">Idle Tunnel</span></td>
+            <td>2026-10-29 13:43:34</td>
+            <td><strong>0.07h</strong></td>
+            <td>0.0h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.07h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610290211</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-29 02:11:54</td>
+            <td><strong>11.53h</strong></td>
+            <td>3.0h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">8.53h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="idle">
+            <td><code>dich-202610290044</code></td>
+            <td><span class="tag-idle">Idle Tunnel</span></td>
+            <td>2026-10-29 00:44:22</td>
+            <td><strong>1.44h</strong></td>
+            <td>0.42h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">1.02h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610281912</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-28 19:12:24</td>
+            <td><strong>4.58h</strong></td>
+            <td>3.0h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">1.58h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610280029</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-28 00:29:46</td>
+            <td><strong>17.83h</strong></td>
+            <td>1.41h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">16.42h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="idle">
+            <td><code>dich-202610280010</code></td>
+            <td><span class="tag-idle">Idle Tunnel</span></td>
+            <td>2026-10-28 00:10:51</td>
+            <td><strong>0.01h</strong></td>
+            <td>0.0h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.01h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="idle">
+            <td><code>dich-202610272253</code></td>
+            <td><span class="tag-idle">Idle Tunnel</span></td>
+            <td>2026-10-27 22:53:38</td>
+            <td><strong>1.28h</strong></td>
+            <td>0.09h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">1.19h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610271738</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-27 17:38:36</td>
+            <td><strong>3.92h</strong></td>
+            <td>1.41h</td>
+            <td>0.96h</td>
+            <td style="color: var(--text-muted);">1.55h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="autonomous">
+            <td><code>dich-202610271539</code></td>
+            <td><span class="tag-auto">Autonomous</span></td>
+            <td>2026-10-27 15:39:59</td>
+            <td><strong>0.2h</strong></td>
+            <td>0.0h</td>
+            <td>0.19h</td>
+            <td style="color: var(--text-muted);">0.0h</td>
+            <td>vscht.cz</td>
+          </tr>
+          <tr data-dcat="steered">
+            <td><code>dich-202610271414</code></td>
+            <td><span class="tag-steered">Active Dev</span></td>
+            <td>2026-10-27 14:14:58</td>
+            <td><strong>0.76h</strong></td>
+            <td>0.47h</td>
+            <td>0.0h</td>
+            <td style="color: var(--text-muted);">0.28h</td>
+            <td>vscht.cz</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Tablet Reading Section -->
+    <div class="controls-bar">
+      <h2 style="font-size: 1.25rem; font-weight: 600;">Tablet Reading Sessions (Notewise Protobuf)</h2>
+    </div>
+    <div class="table-wrapper" role="region" tabindex="0" aria-label="Tablet Reading Sessions">
       <table>
         <thead>
           <tr>
             <th>Session</th>
             <th>Start Time</th>
-            <th>Duration</th>
-            <th>Strokes / Notes</th>
+            <th>Active Reading</th>
+            <th>Effective Study (+20%)</th>
+            <th>Annotations / Strokes</th>
             <th>Pages Touched</th>
           </tr>
         </thead>
@@ -367,114 +1507,203 @@
             <td>Session 30</td>
             <td>2026-09-21 23:52:31</td>
             <td>12.4 min</td>
-            <td><strong>73</strong> annotations</td>
+            <td><strong>14.9 min</strong></td>
+            <td>73</td>
             <td>2 pages</td>
           </tr>
           <tr>
             <td>Session 29</td>
             <td>2026-09-21 22:22:54</td>
             <td>79.3 min</td>
-            <td><strong>490</strong> annotations</td>
+            <td><strong>95.2 min</strong></td>
+            <td>490</td>
             <td>9 pages</td>
           </tr>
           <tr>
             <td>Session 28</td>
             <td>2026-09-21 21:07:45</td>
             <td>45.3 min</td>
-            <td><strong>269</strong> annotations</td>
+            <td><strong>54.4 min</strong></td>
+            <td>269</td>
             <td>5 pages</td>
           </tr>
           <tr>
             <td>Session 27</td>
             <td>2026-09-21 20:43:13</td>
             <td>11.5 min</td>
-            <td><strong>91</strong> annotations</td>
+            <td><strong>13.8 min</strong></td>
+            <td>91</td>
             <td>2 pages</td>
           </tr>
           <tr>
             <td>Session 26</td>
             <td>2026-09-21 19:47:01</td>
             <td>18.8 min</td>
-            <td><strong>175</strong> annotations</td>
+            <td><strong>22.6 min</strong></td>
+            <td>175</td>
             <td>2 pages</td>
           </tr>
           <tr>
             <td>Session 25</td>
             <td>2026-09-21 01:44:36</td>
             <td>18.7 min</td>
-            <td><strong>118</strong> annotations</td>
+            <td><strong>22.4 min</strong></td>
+            <td>118</td>
             <td>3 pages</td>
           </tr>
           <tr>
             <td>Session 24</td>
             <td>2026-09-20 16:58:00</td>
             <td>13.1 min</td>
-            <td><strong>48</strong> annotations</td>
+            <td><strong>15.7 min</strong></td>
+            <td>48</td>
             <td>2 pages</td>
           </tr>
           <tr>
             <td>Session 23</td>
             <td>2026-09-20 14:12:28</td>
             <td>82.7 min</td>
-            <td><strong>479</strong> annotations</td>
+            <td><strong>99.2 min</strong></td>
+            <td>479</td>
             <td>5 pages</td>
           </tr>
           <tr>
             <td>Session 22</td>
             <td>2026-09-20 10:45:29</td>
             <td>9.7 min</td>
-            <td><strong>60</strong> annotations</td>
+            <td><strong>11.7 min</strong></td>
+            <td>60</td>
             <td>2 pages</td>
           </tr>
           <tr>
             <td>Session 21</td>
             <td>2026-09-20 00:09:26</td>
             <td>73.7 min</td>
-            <td><strong>299</strong> annotations</td>
+            <td><strong>88.4 min</strong></td>
+            <td>299</td>
             <td>4 pages</td>
           </tr>
           <tr>
             <td>Session 20</td>
             <td>2026-09-19 21:17:51</td>
             <td>37.5 min</td>
-            <td><strong>237</strong> annotations</td>
+            <td><strong>45.0 min</strong></td>
+            <td>237</td>
             <td>5 pages</td>
           </tr>
           <tr>
             <td>Session 19</td>
             <td>2026-09-19 20:40:19</td>
             <td>2.4 min</td>
-            <td><strong>144</strong> annotations</td>
+            <td><strong>2.9 min</strong></td>
+            <td>144</td>
             <td>1 pages</td>
           </tr>
           <tr>
             <td>Session 18</td>
             <td>2026-09-19 19:56:12</td>
             <td>26.0 min</td>
-            <td><strong>311</strong> annotations</td>
+            <td><strong>31.2 min</strong></td>
+            <td>311</td>
             <td>3 pages</td>
           </tr>
           <tr>
             <td>Session 17</td>
             <td>2026-09-19 18:48:39</td>
             <td>15.0 min</td>
-            <td><strong>136</strong> annotations</td>
+            <td><strong>17.9 min</strong></td>
+            <td>136</td>
             <td>1 pages</td>
           </tr>
           <tr>
             <td>Session 16</td>
             <td>2026-09-19 16:52:59</td>
             <td>6.3 min</td>
-            <td><strong>48</strong> annotations</td>
+            <td><strong>7.6 min</strong></td>
+            <td>48</td>
             <td>2 pages</td>
+          </tr>
+          <tr>
+            <td>Session 15</td>
+            <td>2026-09-19 15:41:07</td>
+            <td>9.4 min</td>
+            <td><strong>11.3 min</strong></td>
+            <td>127</td>
+            <td>2 pages</td>
+          </tr>
+          <tr>
+            <td>Session 14</td>
+            <td>2026-09-19 14:46:57</td>
+            <td>27.2 min</td>
+            <td><strong>32.7 min</strong></td>
+            <td>272</td>
+            <td>3 pages</td>
+          </tr>
+          <tr>
+            <td>Session 13</td>
+            <td>2026-09-19 13:05:45</td>
+            <td>2.2 min</td>
+            <td><strong>2.6 min</strong></td>
+            <td>31</td>
+            <td>1 pages</td>
+          </tr>
+          <tr>
+            <td>Session 12</td>
+            <td>2026-09-18 22:20:08</td>
+            <td>7.1 min</td>
+            <td><strong>8.5 min</strong></td>
+            <td>12</td>
+            <td>1 pages</td>
+          </tr>
+          <tr>
+            <td>Session 11</td>
+            <td>2026-09-18 21:58:42</td>
+            <td>4.3 min</td>
+            <td><strong>5.2 min</strong></td>
+            <td>37</td>
+            <td>1 pages</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <footer>
-      DrugEx Thesis Automated Tracking System &bull; Single Source of Truth
+      DrugEx Thesis Automated Tracking System &bull; Unified Windows & WSL Analytics
     </footer>
   </div>
+
+  <script>
+    // Client-side filtering for AI table
+    document.querySelectorAll('#ai-filter-pills button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#ai-filter-pills button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const f = btn.getAttribute('data-filter');
+        document.querySelectorAll('#ai-table tbody tr').forEach(tr => {
+          if (f === 'all' || tr.getAttribute('data-cat') === f) {
+            tr.style.display = '';
+          } else {
+            tr.style.display = 'none';
+          }
+        });
+      });
+    });
+
+    // Client-side filtering for Dichtator table
+    document.querySelectorAll('#dich-filter-pills button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#dich-filter-pills button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const f = btn.getAttribute('data-dfilter');
+        document.querySelectorAll('#dich-table tbody tr').forEach(tr => {
+          if (f === 'all' || tr.getAttribute('data-dcat') === f) {
+            tr.style.display = '';
+          } else {
+            tr.style.display = 'none';
+          }
+        });
+      });
+    });
+  </script>
 </body>
 </html>
