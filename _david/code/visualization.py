@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from drugex.training.scorers.sascorer import calculateScore as calculate_sa_score
 from rdkit import Chem, DataStructs
-from rdkit.Chem import Descriptors, Draw, Lipinski, QED, rdDepictor, rdMolDescriptors
+from rdkit.Chem import AllChem, Descriptors, Draw, Lipinski, QED, rdDepictor, rdFMCS, rdMolDescriptors, rdShapeAlign
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from scipy.stats import gaussian_kde
 
@@ -359,11 +359,96 @@ def render_before_after_distributions(
     return target_png
 
 
+def compute_2d_skyline(
+    x: np.ndarray,
+    y: np.ndarray,
+    maximize_x: bool = True,
+    maximize_y: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute empirical non-dominated 2D skyline (step-wise frontier) without unphysical splines."""
+    pts = np.column_stack([x, y])
+    valid = ~np.isnan(pts).any(axis=1)
+    pts = pts[valid]
+    if len(pts) == 0:
+        return np.array([]), np.array([])
+
+    sx = pts[:, 0] if maximize_x else -pts[:, 0]
+    sy = pts[:, 1] if maximize_y else -pts[:, 1]
+
+    order = np.lexsort((-sy, -sx))
+    sorted_pts = pts[order]
+    sorted_sy = sy[order]
+
+    skyline = []
+    max_sy_so_far = -np.inf
+    for pt, cur_sy in zip(sorted_pts, sorted_sy):
+        if cur_sy > max_sy_so_far:
+            skyline.append(pt)
+            max_sy_so_far = cur_sy
+
+    skyline_arr = np.array(skyline)
+    if len(skyline_arr) == 0:
+        return np.array([]), np.array([])
+    skyline_arr = skyline_arr[np.argsort(skyline_arr[:, 0])]
+    return skyline_arr[:, 0], skyline_arr[:, 1]
+
+
+def compute_3d_pareto_mask(
+    rocs: np.ndarray,
+    sa: np.ndarray,
+    qed: np.ndarray,
+) -> np.ndarray:
+    """Identify true 3D Pareto-optimal leads across (ROCS maximize, SA minimize, QED maximize)."""
+    pts = np.column_stack([rocs, -sa, qed])
+    n = len(pts)
+    is_pareto = np.ones(n, dtype=bool)
+    for i in range(n):
+        if not is_pareto[i]:
+            continue
+        diff = pts - pts[i]
+        dominates = (diff >= 0).all(axis=1) & (diff > 0).any(axis=1)
+        if dominates.any():
+            is_pareto[i] = False
+    return is_pareto
+
+
+def _overlay_prior_contours(ax: plt.Axes, bx: np.ndarray, by: np.ndarray) -> None:
+    """Overlay 50% and 90% bivariate density contours of prior baseline population."""
+    valid = (~np.isnan(bx)) & (~np.isnan(by))
+    bx_v = bx[valid]
+    by_v = by[valid]
+    if len(bx_v) < 30 or np.all(bx_v == bx_v[0]) or np.all(by_v == by_v[0]):
+        return
+    try:
+        kde = gaussian_kde(np.vstack([bx_v, by_v]))
+        xi, yi = np.mgrid[bx_v.min():bx_v.max():50j, by_v.min():by_v.max():50j]
+        zi = kde(np.vstack([xi.flatten(), yi.flatten()])).reshape(xi.shape)
+
+        v_sorted = np.sort(zi.flatten())[::-1]
+        cum = np.cumsum(v_sorted)
+        cum /= cum[-1]
+        lvl_50 = v_sorted[np.searchsorted(cum, 0.50)]
+        lvl_90 = v_sorted[np.searchsorted(cum, 0.90)]
+
+        ax.contour(
+            xi, yi, zi,
+            levels=[lvl_90, lvl_50],
+            colors=["#64748b", "#334155"],
+            linestyles=["--", "-."],
+            linewidths=[1.1, 1.4],
+            alpha=0.75,
+            zorder=2,
+        )
+    except Exception:
+        pass
+
+
 def render_multiobjective_tradeoffs(
     df_after: pd.DataFrame,
     output_png: Path | str,
+    df_before: pd.DataFrame | None = None,
 ) -> Path:
-    """Render 1x3 scatter plots showing Pareto trade-off frontiers between objectives."""
+    """Render 1x3 scatter plots showing empirical Pareto frontiers, 3D optimal stars, and prior density contours."""
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
@@ -371,9 +456,15 @@ def render_multiobjective_tradeoffs(
     if df_clean.empty:
         return target_png
 
+    b_clean = (
+        unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
+        if df_before is not None and not df_before.empty and std.VALID in df_before.columns
+        else (unscale_to_physical_metrics(df_before) if df_before is not None and not df_before.empty else None)
+    )
+
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5.5), dpi=250)
     fig.suptitle(
-        "Multi-Objective Optimization Trade-Offs & Compromise Frontiers",
+        "Multi-Objective Optimization Trade-Offs, Step-Wise Skylines & 3D Pareto Leads",
         fontsize=14,
         fontweight="bold",
         y=0.98,
@@ -385,81 +476,121 @@ def render_multiobjective_tradeoffs(
     ).values
     qed = df_clean.get(std.QED, pd.Series(0.0, index=df_clean.index)).values
 
-    # Panel 1: ROCS vs. SA
+    # True 3D Pareto optimal set
+    pareto_mask = compute_3d_pareto_mask(rocs, sa, qed)
+    p3_rocs = rocs[pareto_mask]
+    p3_sa = sa[pareto_mask]
+    p3_qed = qed[pareto_mask]
+
+    b_rocs = b_clean.get(std.ROCS, pd.Series(dtype=float)).values if b_clean is not None else np.array([])
+    b_sa = (
+        b_clean.get("Raw_SA", b_clean.get(std.SA, pd.Series(dtype=float))).values
+        if b_clean is not None
+        else np.array([])
+    )
+    b_qed = b_clean.get(std.QED, pd.Series(dtype=float)).values if b_clean is not None else np.array([])
+
+    # Panel 1: ROCS vs. SA (ROCS max, SA min)
+    if len(b_rocs) > 0 and len(b_sa) > 0:
+        _overlay_prior_contours(ax1, b_rocs, b_sa)
     sc1 = ax1.scatter(
-        rocs, sa, c=qed, cmap="viridis", alpha=0.6, edgecolors="none", s=25
+        rocs, sa, c=qed, cmap="viridis", alpha=0.55, edgecolors="none", s=25, zorder=3
     )
     cbar1 = fig.colorbar(sc1, ax=ax1)
-    cbar1.set_label("QED", fontsize=9)
-    ax1.axvline(
-        0.70,
-        color="#dc2626",
-        linestyle="--",
-        linewidth=1.2,
-        label="ROCS Threshold (0.70)",
-    )
-    ax1.axhline(
-        4.50, color="#2563eb", linestyle="--", linewidth=1.2, label="SA Ceiling (4.50)"
-    )
-    ax1.set_title(
-        "(A) 3D Shape (ROCS) vs. Synthesizability (SA)", fontsize=11, fontweight="bold"
-    )
-    ax1.set_xlabel("ROCS TanimotoCombo")
-    ax1.set_ylabel("Raw SA Score (lower=easier)")
-    ax1.grid(True, linestyle=":", alpha=0.4)
-    ax1.legend(loc="upper right", fontsize=8.5)
+    cbar1.set_label("QED (Evaluated)", fontsize=9)
 
-    # Panel 2: ROCS vs. QED
+    sk1_x, sk1_y = compute_2d_skyline(rocs, sa, maximize_x=True, maximize_y=False)
+    if len(sk1_x) > 0:
+        ax1.plot(
+            sk1_x, sk1_y,
+            drawstyle="steps-post",
+            color="#b91c1c",
+            linewidth=2.2,
+            zorder=4,
+            label="2D Empirical Skyline",
+        )
+    if len(p3_rocs) > 0:
+        ax1.scatter(
+            p3_rocs, p3_sa,
+            marker="*", s=140, facecolors="#f59e0b", edgecolors="#78350f",
+            linewidth=1.0, zorder=5, label=f"True 3D Pareto ({len(p3_rocs)})",
+        )
+
+    ax1.axvline(0.70, color="#dc2626", linestyle="--", linewidth=1.2, alpha=0.7, label="ROCS Target (0.70)")
+    ax1.axhline(4.50, color="#2563eb", linestyle="--", linewidth=1.2, alpha=0.7, label="SA Ceiling (4.50)")
+    ax1.set_title("(A) 3D Shape (ROCS) vs. Synthesizability (SA)", fontsize=11, fontweight="bold")
+    ax1.set_xlabel("ROCS TanimotoCombo (higher=better)")
+    ax1.set_ylabel("Raw SA Score (lower=better)")
+    ax1.grid(True, linestyle=":", alpha=0.4)
+    ax1.legend(loc="upper right", fontsize=8.0)
+
+    # Panel 2: ROCS vs. QED (ROCS max, QED max)
+    if len(b_rocs) > 0 and len(b_qed) > 0:
+        _overlay_prior_contours(ax2, b_rocs, b_qed)
     sc2 = ax2.scatter(
-        rocs, qed, c=sa, cmap="plasma_r", alpha=0.6, edgecolors="none", s=25
+        rocs, qed, c=sa, cmap="plasma_r", alpha=0.55, edgecolors="none", s=25, zorder=3
     )
     cbar2 = fig.colorbar(sc2, ax=ax2)
-    cbar2.set_label("Raw SA", fontsize=9)
-    ax2.axvline(
-        0.70,
-        color="#dc2626",
-        linestyle="--",
-        linewidth=1.2,
-        label="ROCS Threshold (0.70)",
-    )
-    ax2.axhline(
-        0.50,
-        color="#2563eb",
-        linestyle="--",
-        linewidth=1.2,
-        label="QED Threshold (0.50)",
-    )
-    ax2.set_title(
-        "(B) 3D Shape (ROCS) vs. Drug-Likeness (QED)", fontsize=11, fontweight="bold"
-    )
-    ax2.set_xlabel("ROCS TanimotoCombo")
-    ax2.set_ylabel("QED Score")
-    ax2.grid(True, linestyle=":", alpha=0.4)
-    ax2.legend(loc="lower right", fontsize=8.5)
+    cbar2.set_label("Raw SA Score", fontsize=9)
 
-    # Panel 3: SA vs. QED
-    sc3 = ax3.scatter(sa, qed, c=rocs, cmap="turbo", alpha=0.6, edgecolors="none", s=25)
+    sk2_x, sk2_y = compute_2d_skyline(rocs, qed, maximize_x=True, maximize_y=True)
+    if len(sk2_x) > 0:
+        ax2.plot(
+            sk2_x, sk2_y,
+            drawstyle="steps-post",
+            color="#b91c1c",
+            linewidth=2.2,
+            zorder=4,
+            label="2D Empirical Skyline",
+        )
+    if len(p3_rocs) > 0:
+        ax2.scatter(
+            p3_rocs, p3_qed,
+            marker="*", s=140, facecolors="#f59e0b", edgecolors="#78350f",
+            linewidth=1.0, zorder=5, label=f"True 3D Pareto ({len(p3_rocs)})",
+        )
+
+    ax2.axvline(0.70, color="#dc2626", linestyle="--", linewidth=1.2, alpha=0.7, label="ROCS Target (0.70)")
+    ax2.axhline(0.50, color="#2563eb", linestyle="--", linewidth=1.2, alpha=0.7, label="QED Threshold (0.50)")
+    ax2.set_title("(B) 3D Shape (ROCS) vs. Drug-Likeness (QED)", fontsize=11, fontweight="bold")
+    ax2.set_xlabel("ROCS TanimotoCombo (higher=better)")
+    ax2.set_ylabel("QED Score (higher=better)")
+    ax2.grid(True, linestyle=":", alpha=0.4)
+    ax2.legend(loc="lower right", fontsize=8.0)
+
+    # Panel 3: SA vs. QED (SA min, QED max)
+    if len(b_sa) > 0 and len(b_qed) > 0:
+        _overlay_prior_contours(ax3, b_sa, b_qed)
+    sc3 = ax3.scatter(
+        sa, qed, c=rocs, cmap="turbo", alpha=0.55, edgecolors="none", s=25, zorder=3
+    )
     cbar3 = fig.colorbar(sc3, ax=ax3)
-    cbar3.set_label("ROCS", fontsize=9)
-    ax3.axvline(
-        4.50, color="#2563eb", linestyle="--", linewidth=1.2, label="SA Ceiling (4.50)"
-    )
-    ax3.axhline(
-        0.50,
-        color="#dc2626",
-        linestyle="--",
-        linewidth=1.2,
-        label="QED Threshold (0.50)",
-    )
-    ax3.set_title(
-        "(C) Synthesizability (SA) vs. Drug-Likeness (QED)",
-        fontsize=11,
-        fontweight="bold",
-    )
-    ax3.set_xlabel("Raw SA Score")
-    ax3.set_ylabel("QED Score")
+    cbar3.set_label("ROCS TanimotoCombo", fontsize=9)
+
+    sk3_x, sk3_y = compute_2d_skyline(sa, qed, maximize_x=False, maximize_y=True)
+    if len(sk3_x) > 0:
+        ax3.plot(
+            sk3_x, sk3_y,
+            drawstyle="steps-post",
+            color="#b91c1c",
+            linewidth=2.2,
+            zorder=4,
+            label="2D Empirical Skyline",
+        )
+    if len(p3_sa) > 0:
+        ax3.scatter(
+            p3_sa, p3_qed,
+            marker="*", s=140, facecolors="#f59e0b", edgecolors="#78350f",
+            linewidth=1.0, zorder=5, label=f"True 3D Pareto ({len(p3_sa)})",
+        )
+
+    ax3.axvline(4.50, color="#2563eb", linestyle="--", linewidth=1.2, alpha=0.7, label="SA Ceiling (4.50)")
+    ax3.axhline(0.50, color="#dc2626", linestyle="--", linewidth=1.2, alpha=0.7, label="QED Threshold (0.50)")
+    ax3.set_title("(C) Synthesizability (SA) vs. Drug-Likeness (QED)", fontsize=11, fontweight="bold")
+    ax3.set_xlabel("Raw SA Score (lower=better)")
+    ax3.set_ylabel("QED Score (higher=better)")
     ax3.grid(True, linestyle=":", alpha=0.4)
-    ax3.legend(loc="upper right", fontsize=8.5)
+    ax3.legend(loc="upper right", fontsize=8.0)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
@@ -496,21 +627,30 @@ def render_training_trajectories(
             if base_cand.is_file():
                 smiles_p = base_cand
 
+    # Compute detailed per-epoch percentiles & cumulative p95 from smiles file if present
+    p95_series = None
+    cum_p95_series = None
     if smiles_p and smiles_p.is_file():
         try:
             sm_df = pd.read_csv(smiles_p, sep="\t")
             if "Epoch" in sm_df.columns:
-                cols_to_mean = [c for c in ["ROCS", "SA", "QED"] if c in sm_df.columns]
-                if cols_to_mean:
-                    ep_means = sm_df.groupby("Epoch")[cols_to_mean].mean().reset_index()
-                    for col in cols_to_mean:
+                cols_to_agg = [c for c in ["ROCS", "SA", "QED"] if c in sm_df.columns]
+                if cols_to_agg:
+                    ep_means = sm_df.groupby("Epoch")[cols_to_agg].mean().reset_index()
+                    for col in cols_to_agg:
                         df[col] = df["Epoch"].map(ep_means.set_index("Epoch")[col])
+                if "ROCS" in sm_df.columns:
+                    ep_p95 = sm_df.groupby("Epoch")["ROCS"].quantile(0.95)
+                    p95_series = df["Epoch"].map(ep_p95)
+                    # Cumulative maximum of p95
+                    cum_p95_vals = np.maximum.accumulate(p95_series.dropna().values)
+                    cum_p95_series = pd.Series(cum_p95_vals, index=p95_series.dropna().index)
         except Exception:
             pass
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 8.5), dpi=250)
     fig.suptitle(
-        "SequenceRNN Reinforcement Learning Training Dynamics",
+        "SequenceRNN Reinforcement Learning Dynamics & Convergence Diagnostics",
         fontsize=14,
         fontweight="bold",
         y=0.98,
@@ -518,11 +658,40 @@ def render_training_trajectories(
 
     epochs = df["Epoch"]
 
+    # Determine Best Checkpoint and Early Stopping Epochs
+    stop_epoch = int(epochs.max())
+    best_epoch = stop_epoch
+    if "avg_amean" in df.columns and not df["avg_amean"].dropna().empty:
+        best_epoch = int(df.loc[df["avg_amean"].idxmax(), "Epoch"])
+    elif "desired_ratio" in df.columns and not df["desired_ratio"].dropna().empty:
+        best_epoch = int(df.loc[df["desired_ratio"].idxmax(), "Epoch"])
+
+    def _mark_events(ax: plt.Axes, is_legend: bool = False) -> None:
+        ax.axvline(
+            best_epoch,
+            color="#16a34a",
+            linestyle="--",
+            linewidth=1.4,
+            alpha=0.85,
+            label=f"Best Checkpoint (Ep {best_epoch})" if is_legend else "",
+            zorder=2,
+        )
+        ax.axvline(
+            stop_epoch,
+            color="#dc2626",
+            linestyle=":",
+            linewidth=1.4,
+            alpha=0.85,
+            label=f"Early Stop (Ep {stop_epoch})" if is_legend else "",
+            zorder=2,
+        )
+
     # Panel 1: Loss & Mean Objective Score
     ax1 = axes[0, 0]
+    _mark_events(ax1, is_legend=True)
     if "loss_train" in df.columns:
         ax1.plot(
-            epochs, df["loss_train"], color="#dc2626", linewidth=1.8, label="Train Loss"
+            epochs, df["loss_train"], color="#dc2626", linewidth=1.8, label="Train Loss", zorder=3
         )
     if "avg_amean" in df.columns:
         ax1.plot(
@@ -531,16 +700,18 @@ def render_training_trajectories(
             color="#2563eb",
             linewidth=1.8,
             label="Avg Arithmetic Mean",
+            zorder=3,
         )
     ax1.set_title(
         "(A) Training Loss & Mean Objective Score", fontsize=11, fontweight="bold"
     )
     ax1.set_xlabel("Epoch")
     ax1.grid(True, linestyle=":", alpha=0.4)
-    ax1.legend(loc="best", fontsize=8.5)
+    ax1.legend(loc="best", fontsize=8.0)
 
     # Panel 2: Desired & Valid Ratio
     ax2 = axes[0, 1]
+    _mark_events(ax2)
     if "valid_ratio" in df.columns:
         ax2.plot(
             epochs,
@@ -548,6 +719,7 @@ def render_training_trajectories(
             color="#10b981",
             linewidth=1.8,
             label="Valid Ratio",
+            zorder=3,
         )
     if "desired_ratio" in df.columns:
         ax2.plot(
@@ -556,6 +728,7 @@ def render_training_trajectories(
             color="#8b5cf6",
             linewidth=2.0,
             label="Desired Ratio",
+            zorder=3,
         )
     if "unique_ratio" in df.columns:
         ax2.plot(
@@ -565,6 +738,7 @@ def render_training_trajectories(
             linewidth=1.5,
             linestyle="--",
             label="Unique Ratio",
+            zorder=3,
         )
     ax2.set_title(
         "(B) Validity, Uniqueness & Desired Ratio", fontsize=11, fontweight="bold"
@@ -572,19 +746,34 @@ def render_training_trajectories(
     ax2.set_xlabel("Epoch")
     ax2.set_ylim(-0.05, 1.05)
     ax2.grid(True, linestyle=":", alpha=0.4)
-    ax2.legend(loc="best", fontsize=8.5)
+    ax2.legend(loc="best", fontsize=8.0)
 
-    # Panel 3: Individual Objective Dynamics (FIXED)
+    # Panel 3: Individual Objective Dynamics (with cumulative p95 ceiling)
     ax3 = axes[1, 0]
+    _mark_events(ax3)
     plotted_objs = False
     for col, color, lbl in [
-        ("ROCS", "#2563eb", "ROCS Shape"),
-        ("SA", "#10b981", "SA Desirability"),
-        ("QED", "#f59e0b", "QED Drug-likeness"),
+        ("ROCS", "#2563eb", "ROCS Shape Mean"),
+        ("SA", "#10b981", "SA Desirability Mean"),
+        ("QED", "#f59e0b", "QED Drug-Likeness Mean"),
     ]:
         if col in df.columns and not df[col].dropna().empty:
-            ax3.plot(epochs, df[col], color=color, linewidth=2.0, label=lbl)
+            ax3.plot(epochs, df[col], color=color, linewidth=2.0, label=lbl, zorder=3)
             plotted_objs = True
+
+    if cum_p95_series is not None and not cum_p95_series.empty:
+        valid_ep = df.loc[cum_p95_series.index, "Epoch"]
+        ax3.plot(
+            valid_ep,
+            cum_p95_series.values,
+            color="#4338ca",
+            linewidth=1.6,
+            linestyle="-.",
+            label="ROCS Cumulative p95 Ceiling",
+            zorder=4,
+        )
+        plotted_objs = True
+
     if not plotted_objs and "avg_gmean" in df.columns:
         ax3.plot(
             epochs,
@@ -592,20 +781,22 @@ def render_training_trajectories(
             color="#8b5cf6",
             linewidth=1.8,
             label="Avg Geometric Mean",
+            zorder=3,
         )
         plotted_objs = True
 
     ax3.set_title(
-        "(C) Multi-Objective Desirability Evolution", fontsize=11, fontweight="bold"
+        "(C) Multi-Objective Desirability & Upper Ceiling Progression", fontsize=11, fontweight="bold"
     )
     ax3.set_xlabel("Epoch")
-    ax3.set_ylabel("Objective Score")
+    ax3.set_ylabel("Score")
     ax3.grid(True, linestyle=":", alpha=0.4)
     if plotted_objs:
-        ax3.legend(loc="best", fontsize=8.5)
+        ax3.legend(loc="best", fontsize=8.0)
 
     # Panel 4: Exploration Rate (Epsilon) Schedule
     ax4 = axes[1, 1]
+    _mark_events(ax4)
     if "epsilon" in df.columns:
         ax4.plot(
             epochs,
@@ -613,6 +804,7 @@ def render_training_trajectories(
             color="#ea580c",
             linewidth=2.0,
             label="Epsilon (Noise)",
+            zorder=3,
         )
     else:
         ax4.axhline(
@@ -621,12 +813,13 @@ def render_training_trajectories(
             linestyle="--",
             linewidth=1.8,
             label="Constant Epsilon (0.05)",
+            zorder=3,
         )
     ax4.set_title("(D) Exploration Rate Schedule (ε)", fontsize=11, fontweight="bold")
     ax4.set_xlabel("Epoch")
     ax4.set_ylim(0.0, 0.30)
     ax4.grid(True, linestyle=":", alpha=0.4)
-    ax4.legend(loc="best", fontsize=8.5)
+    ax4.legend(loc="best", fontsize=8.0)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
@@ -754,7 +947,7 @@ def render_unfavorable_features_diagnostics(
 
 
 class AlignedDepicter:
-    """Renders 2D molecular depictions and prioritized lead cards aligned onto a shared Murcko core template."""
+    """Renders 2D molecular depictions and prioritized lead cards aligned onto a shared Murcko core template or MCS."""
 
     def __init__(self, reference: str | Chem.Mol | None) -> None:
         self.ref_mol = (
@@ -770,14 +963,45 @@ class AlignedDepicter:
             self.ref_core = self.ref_mol
 
     def align_molecule(self, mol: Chem.Mol) -> Chem.Mol:
-        """Compute aligned 2D coordinates for mol matching the reference scaffold."""
+        """Compute aligned 2D coordinates for mol matching the reference scaffold with MCS fallback."""
         mol_copy = Chem.Mol(mol)
         rdDepictor.Compute2DCoords(mol_copy)
-        if self.ref_core and mol_copy.HasSubstructMatch(self.ref_core):
+
+        # 1. Try Murcko core match
+        if (
+            self.ref_core
+            and self.ref_core.GetNumHeavyAtoms() > 0
+            and mol_copy.HasSubstructMatch(self.ref_core)
+        ):
             try:
                 rdDepictor.GenerateDepictionMatching2DStructure(mol_copy, self.ref_core)
+                return mol_copy
             except Exception:
                 pass
+
+        # 2. MCS fallback if Murcko core does not match (threshold: >= 6 heavy atoms)
+        if self.ref_mol and self.ref_mol.GetNumHeavyAtoms() >= 6:
+            try:
+                mcs_res = rdFMCS.FindMCS(
+                    [self.ref_mol, mol_copy],
+                    ringMatchesRingOnly=True,
+                    completeRingsOnly=True,
+                    timeout=1,
+                )
+                if mcs_res and mcs_res.numAtoms >= 6:
+                    mcs_core = Chem.MolFromSmarts(mcs_res.smartsString)
+                    if (
+                        mcs_core
+                        and self.ref_mol.HasSubstructMatch(mcs_core)
+                        and mol_copy.HasSubstructMatch(mcs_core)
+                    ):
+                        rdDepictor.GenerateDepictionMatching2DStructure(
+                            mol_copy, self.ref_mol
+                        )
+                        return mol_copy
+            except Exception:
+                pass
+
         return mol_copy
 
     def render_leads(
@@ -786,69 +1010,228 @@ class AlignedDepicter:
         output_png: Path | str | None = None,
         max_leads: int = 5,
     ) -> Path | None:
-        """Render aligned 2D chemical structure cards with true physical metrics."""
+        """Render aligned 2D chemical structure cards with color-coded property badges."""
         target_png = Path(output_png) if output_png else Path("lead_structures_2d.png")
         target_png.parent.mkdir(parents=True, exist_ok=True)
 
-        plot_mols: list[Chem.Mol] = []
-        plot_legends: list[str] = []
+        cards_data: list[dict[str, Any]] = []
 
+        # Reference molecule card
         if self.ref_mol is not None:
             ref_clean = Chem.RemoveHs(Chem.Mol(self.ref_mol))
-            plot_mols.append(self.align_molecule(ref_clean))
             hac = int(ref_clean.GetNumHeavyAtoms())
             mw = float(Descriptors.MolWt(ref_clean))
             qed_val = float(QED.qed(ref_clean))
             sa_val = float(calculate_sa_score(ref_clean))
-            plot_legends.append(
-                f"TARGET QUERY SEED\nHAC: {hac} | MW: {mw:.1f}\nQED: {qed_val:.2f} | SA: {sa_val:.2f}"
+            cards_data.append(
+                {
+                    "mol": self.align_molecule(ref_clean),
+                    "title": "TARGET QUERY SEED",
+                    "is_seed": True,
+                    "rocs": None,
+                    "sa": sa_val,
+                    "qed": qed_val,
+                    "mw": mw,
+                    "hac": hac,
+                    "delta_hac": 0,
+                    "sim": 1.0,
+                }
             )
+
+        # Lead cards
+        seed_hac = cards_data[0]["hac"] if cards_data else 33
+        seed_fp = (
+            rdMolDescriptors.GetMorganFingerprintAsBitVect(self.ref_mol, 2, nBits=2048)
+            if self.ref_mol
+            else None
+        )
 
         if isinstance(molecules, pd.DataFrame):
             df_leads = molecules.head(max_leads)
-            seed_fp = (
-                rdMolDescriptors.GetMorganFingerprintAsBitVect(
-                    self.ref_mol, 2, nBits=2048
-                )
-                if self.ref_mol
-                else None
-            )
             for rank_num, (_, row) in enumerate(df_leads.iterrows(), start=1):
                 smi = str(row.get(std.SMILES, ""))
                 m = Chem.MolFromSmiles(smi)
                 if m is not None:
-                    plot_mols.append(self.align_molecule(m))
+                    m_clean = Chem.RemoveHs(m)
+                    m_aligned = self.align_molecule(m_clean)
+                    hac = int(m_clean.GetNumHeavyAtoms())
+                    mw = float(row.get(std.MW, Descriptors.MolWt(m_clean)))
                     rocs = float(row.get(std.ROCS, 0.0))
                     sa = float(row.get("Raw_SA", row.get(std.SA, 0.0)))
                     qed_val = float(row.get(std.QED, 0.0))
-                    mw = float(row.get(std.MW, Descriptors.MolWt(m)))
+                    lead_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
+                        m_clean, 2, nBits=2048
+                    )
                     sim = (
-                        float(
-                            DataStructs.TanimotoSimilarity(
-                                seed_fp,
-                                rdMolDescriptors.GetMorganFingerprintAsBitVect(
-                                    m, 2, nBits=2048
-                                ),
-                            )
-                        )
+                        float(DataStructs.TanimotoSimilarity(seed_fp, lead_fp))
                         if seed_fp
                         else 0.0
                     )
-                    plot_legends.append(
-                        f"LEAD #{rank_num}\nROCS: {rocs:.3f} | SA: {sa:.2f}\nQED: {qed_val:.2f} | MW: {mw:.1f}\nECFP4 Sim: {sim:.2f}"
+                    cards_data.append(
+                        {
+                            "mol": m_aligned,
+                            "title": f"LEAD #{rank_num}",
+                            "is_seed": False,
+                            "rocs": rocs,
+                            "sa": sa,
+                            "qed": qed_val,
+                            "mw": mw,
+                            "hac": hac,
+                            "delta_hac": hac - seed_hac,
+                            "sim": sim,
+                        }
                     )
 
-        if not plot_mols:
+        if not cards_data:
             return None
 
-        img = Draw.MolsToGridImage(
-            plot_mols,
-            molsPerRow=min(6, len(plot_mols)),
-            subImgSize=(340, 260),
-            legends=plot_legends,
-            useSVG=False,
+        # Build Matplotlib multi-card figure with color-coded property badges
+        n_cards = len(cards_data)
+        fig, axes = plt.subplots(1, n_cards, figsize=(3.8 * n_cards, 5.4), dpi=250)
+        if n_cards == 1:
+            axes = [axes]
+
+        fig.suptitle(
+            "Prioritized Lead Chemical Structures (Aligned 2D Topology & Score Badges)",
+            fontsize=13,
+            fontweight="bold",
+            y=0.98,
         )
-        img.save(str(target_png))
+
+        for ax, card in zip(axes, cards_data):
+            img = Draw.MolToImage(card["mol"], size=(340, 240))
+            ax.imshow(img)
+            ax.axis("off")
+
+            header_color = "#1e3a8a" if card["is_seed"] else "#1e293b"
+            ax.text(
+                0.5,
+                -0.05,
+                card["title"],
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=10.5,
+                fontweight="bold",
+                color=header_color,
+            )
+
+            if card["is_seed"]:
+                line1 = f"HAC: {card['hac']}  |  MW: {card['mw']:.1f} Da"
+                line2 = f"SA: {card['sa']:.2f}  |  QED: {card['qed']:.2f}"
+                ax.text(
+                    0.5,
+                    -0.16,
+                    line1,
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=8.5,
+                    fontweight="medium",
+                    bbox=dict(
+                        boxstyle="round,pad=0.25",
+                        facecolor="#f1f5f9",
+                        edgecolor="#cbd5e1",
+                        linewidth=0.8,
+                    ),
+                )
+                ax.text(
+                    0.5,
+                    -0.28,
+                    line2,
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=8.5,
+                    fontweight="medium",
+                    bbox=dict(
+                        boxstyle="round,pad=0.25",
+                        facecolor="#f1f5f9",
+                        edgecolor="#cbd5e1",
+                        linewidth=0.8,
+                    ),
+                )
+            else:
+                rocs_c = (
+                    "#dcfce7"
+                    if card["rocs"] >= 1.0
+                    else ("#dbeafe" if card["rocs"] >= 0.70 else "#f1f5f9")
+                )
+                rocs_e = (
+                    "#15803d"
+                    if card["rocs"] >= 1.0
+                    else ("#2563eb" if card["rocs"] >= 0.70 else "#94a3b8")
+                )
+
+                sa_c = (
+                    "#dcfce7"
+                    if card["sa"] <= 3.0
+                    else ("#fef3c7" if card["sa"] <= 4.5 else "#fee2e2")
+                )
+                sa_e = (
+                    "#15803d"
+                    if card["sa"] <= 3.0
+                    else ("#b45309" if card["sa"] <= 4.5 else "#dc2626")
+                )
+
+                dh = card["delta_hac"]
+                dh_c = (
+                    "#dcfce7"
+                    if abs(dh) <= 3
+                    else ("#fee2e2" if dh < -3 else "#dbeafe")
+                )
+                dh_e = (
+                    "#15803d"
+                    if abs(dh) <= 3
+                    else ("#dc2626" if dh < -3 else "#2563eb")
+                )
+
+                ax.text(
+                    0.5,
+                    -0.16,
+                    f"ROCS: {card['rocs']:.3f}   SA: {card['sa']:.2f}",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=8.5,
+                    fontweight="bold",
+                    bbox=dict(
+                        boxstyle="round,pad=0.25",
+                        facecolor=rocs_c,
+                        edgecolor=rocs_e,
+                        linewidth=1.0,
+                    ),
+                )
+                ax.text(
+                    0.5,
+                    -0.28,
+                    f"QED: {card['qed']:.2f}   ΔHAC: {dh:+d} (MW: {card['mw']:.0f})",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=8.2,
+                    fontweight="medium",
+                    bbox=dict(
+                        boxstyle="round,pad=0.25",
+                        facecolor=dh_c,
+                        edgecolor=dh_e,
+                        linewidth=0.9,
+                    ),
+                )
+                ax.text(
+                    0.5,
+                    -0.39,
+                    f"ECFP4 Sim to Seed: {card['sim']:.2f}",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=8.0,
+                    color="#475569",
+                )
+
+        plt.subplots_adjust(top=0.90, bottom=0.18, wspace=0.15)
+        plt.savefig(target_png, dpi=250, bbox_inches="tight")
+        plt.close(fig)
         return target_png
 
 
@@ -1151,6 +1534,408 @@ def render_rocs_shape_vs_color_decomposition(
     ax2.set_ylabel("ROCS TanimotoCombo")
     ax2.grid(True, linestyle=":", alpha=0.4)
     ax2.legend(loc="upper left", fontsize=8.5)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(target_png, dpi=250, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+def render_lead_to_seed_3d_superposition(
+    top_leads: pd.DataFrame,
+    ref_sdf_or_mol: Path | str | Chem.Mol,
+    output_png: Path | str,
+    output_sdf: Path | str | None = None,
+    max_leads: int = 5,
+) -> Path:
+    """Align top de novo chemical leads onto the 3D reference query seed in 3D, export SDF, and render 3D superposition."""
+    target_png = Path(output_png)
+    target_png.parent.mkdir(parents=True, exist_ok=True)
+
+    # 1. Load reference 3D molecule
+    ref_mol: Chem.Mol | None = None
+    if isinstance(ref_sdf_or_mol, Chem.Mol):
+        ref_mol = Chem.Mol(ref_sdf_or_mol)
+    elif isinstance(ref_sdf_or_mol, (str, Path)) and Path(ref_sdf_or_mol).is_file():
+        suppl = Chem.SDMolSupplier(str(ref_sdf_or_mol), removeHs=False)
+        ref_mol = next((m for m in suppl if m is not None), None)
+    elif isinstance(ref_sdf_or_mol, str):
+        ref_mol = Chem.MolFromSmiles(ref_sdf_or_mol)
+
+    if ref_mol is None:
+        return target_png
+
+    ref_heavy = Chem.RemoveHs(Chem.Mol(ref_mol))
+    if ref_heavy.GetNumConformers() == 0:
+        ref_heavy_h = Chem.AddHs(ref_heavy)
+        AllChem.EmbedMolecule(ref_heavy_h, AllChem.ETKDGv3())
+        ref_heavy = Chem.RemoveHs(ref_heavy_h)
+
+    # 2. Embed and align top leads
+    aligned_leads: list[tuple[Chem.Mol, dict[str, Any]]] = []
+    seed_hac = ref_heavy.GetNumHeavyAtoms()
+
+    for rank, (_, row) in enumerate(top_leads.head(max_leads).iterrows(), start=1):
+        smi = str(row.get(std.SMILES, ""))
+        mol = Chem.MolFromSmiles(smi)
+        if mol is None:
+            continue
+        mol_h = Chem.AddHs(mol)
+        params = AllChem.ETKDGv3()
+        params.randomSeed = 42 + rank
+        cid = AllChem.EmbedMolecule(mol_h, params)
+        if cid < 0:
+            cid = AllChem.EmbedMolecule(mol_h)
+        if cid >= 0:
+            try:
+                AllChem.MMFFOptimizeMolecule(mol_h, maxIters=200)
+            except Exception:
+                pass
+
+        lead_heavy = Chem.RemoveHs(mol_h)
+        if lead_heavy.GetNumConformers() == 0:
+            continue
+
+        try:
+            align_tuple = rdShapeAlign.AlignMol(ref_heavy, lead_heavy)
+            shape_score = float(align_tuple[0])
+            color_score = float(align_tuple[1])
+        except Exception:
+            shape_score, color_score = 0.0, 0.0
+
+        lead_hac = lead_heavy.GetNumHeavyAtoms()
+        mw = float(row.get(std.MW, Descriptors.MolWt(lead_heavy)))
+        rocs = float(row.get(std.ROCS, 0.0))
+        sa = float(row.get("Raw_SA", row.get(std.SA, 0.0)))
+        qed = float(row.get(std.QED, 0.0))
+
+        props = {
+            "Rank": rank,
+            "SMILES": smi,
+            "ROCS": rocs,
+            "SA": sa,
+            "QED": qed,
+            "MW": mw,
+            "HAC": lead_hac,
+            "Delta_HAC": lead_hac - seed_hac,
+            "ShapeScore": shape_score,
+            "ColorScore": color_score,
+        }
+        aligned_leads.append((lead_heavy, props))
+
+    # 3. Export SDF if requested
+    if output_sdf:
+        sdf_path = Path(output_sdf)
+        sdf_path.parent.mkdir(parents=True, exist_ok=True)
+        writer = Chem.SDWriter(str(sdf_path))
+        ref_out = Chem.Mol(ref_heavy)
+        ref_out.SetProp("_Name", "TARGET_QUERY_SEED")
+        ref_out.SetProp("HAC", str(seed_hac))
+        ref_out.SetProp("MW", f"{Descriptors.MolWt(ref_heavy):.1f}")
+        writer.write(ref_out)
+
+        for lead_mol, props in aligned_leads:
+            m_out = Chem.Mol(lead_mol)
+            m_out.SetProp("_Name", f"LEAD_{props['Rank']}")
+            for k, v in props.items():
+                m_out.SetProp(str(k), str(v))
+            writer.write(m_out)
+        writer.close()
+
+    # 4. Render 3-panel 3D Superposition Figure
+    fig = plt.figure(figsize=(16, 5.5), dpi=250)
+    fig.suptitle(
+        "3D Molecular Superposition: Target Query Seed vs. Prioritized De Novo Leads",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    def _draw_3d(
+        ax: Any,
+        mol: Chem.Mol,
+        color: str,
+        alpha: float = 0.8,
+        lw: float = 1.3,
+        s: float = 14,
+    ) -> None:
+        conf = mol.GetConformer()
+        pts = conf.GetPositions()
+        for b in mol.GetBonds():
+            i, j = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            ax.plot(
+                [pts[i, 0], pts[j, 0]],
+                [pts[i, 1], pts[j, 1]],
+                [pts[i, 2], pts[j, 2]],
+                color=color,
+                linewidth=lw,
+                alpha=alpha,
+            )
+        ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], color=color, s=s, alpha=alpha)
+
+    # Panel A: Reference Seed Only
+    ax1 = fig.add_subplot(1, 3, 1, projection="3d")
+    _draw_3d(ax1, ref_heavy, color="#2563eb", alpha=0.9, lw=1.6, s=18)
+    ax1.set_title(
+        f"(A) Target Query Seed (3D Conformer)\nHAC = {seed_hac} | MW = {Descriptors.MolWt(ref_heavy):.1f} Da",
+        fontsize=11,
+        fontweight="bold",
+        pad=10,
+    )
+    ax1.view_init(elev=20, azim=40)
+    ax1.set_axis_off()
+
+    # Panel B: Top Lead #1 Aligned onto Seed
+    ax2 = fig.add_subplot(1, 3, 2, projection="3d")
+    _draw_3d(ax2, ref_heavy, color="#94a3b8", alpha=0.45, lw=1.2, s=10)
+    if aligned_leads:
+        lead1, p1 = aligned_leads[0]
+        _draw_3d(ax2, lead1, color="#16a34a", alpha=0.9, lw=1.6, s=18)
+        ax2.set_title(
+            f"(B) Top Lead #1 Aligned to Seed\nROCS = {p1['ROCS']:.3f} | Shape Score = {p1['ShapeScore']:.2f}\nΔHAC = {p1['Delta_HAC']:+d} | SA = {p1['SA']:.2f}",
+            fontsize=10.5,
+            fontweight="bold",
+            pad=10,
+        )
+    else:
+        ax2.set_title("(B) Top Lead #1", fontsize=11, fontweight="bold", pad=10)
+    ax2.view_init(elev=20, azim=40)
+    ax2.set_axis_off()
+
+    # Panel C: Superposition of All Top Leads Aligned onto Seed
+    ax3 = fig.add_subplot(1, 3, 3, projection="3d")
+    _draw_3d(ax3, ref_heavy, color="#1e293b", alpha=0.6, lw=1.5, s=14)
+    lead_colors = ["#16a34a", "#2563eb", "#ea580c", "#8b5cf6", "#d97706"]
+    for i, (l_mol, p) in enumerate(aligned_leads):
+        c = lead_colors[i % len(lead_colors)]
+        _draw_3d(ax3, l_mol, color=c, alpha=0.75, lw=1.3, s=12)
+
+    ax3.set_title(
+        f"(C) Superposition Ensemble ({len(aligned_leads)} Leads)\nAligned via 3D Shape & Features",
+        fontsize=11,
+        fontweight="bold",
+        pad=10,
+    )
+    ax3.view_init(elev=20, azim=40)
+    ax3.set_axis_off()
+
+    plt.tight_layout()
+    plt.savefig(target_png, dpi=250, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+def render_antishrinkage_diagnostic(
+    df_after: pd.DataFrame,
+    output_png: Path | str,
+    df_before: pd.DataFrame | None = None,
+    ref_smiles: str = "",
+) -> Path:
+    """Render anti-shrinkage diagnostic: ΔHAC vs ROCS 4-quadrant joint distribution and shrinkage exploit rate."""
+    target_png = Path(output_png)
+    target_png.parent.mkdir(parents=True, exist_ok=True)
+
+    a_clean = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
+    if a_clean.empty:
+        return target_png
+
+    b_clean = (
+        unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
+        if df_before is not None
+        and not df_before.empty
+        and std.VALID in df_before.columns
+        else (
+            unscale_to_physical_metrics(df_before)
+            if df_before is not None and not df_before.empty
+            else None
+        )
+    )
+
+    ref_m = Chem.MolFromSmiles(ref_smiles) if ref_smiles else None
+    ref_hac = int(ref_m.GetNumHeavyAtoms()) if ref_m else 33
+
+    def _get_hac(df: pd.DataFrame) -> np.ndarray:
+        if std.HAC in df.columns:
+            return df[std.HAC].values.astype(float)
+        hacs = []
+        for s in df.get(std.SMILES, []):
+            m = Chem.MolFromSmiles(str(s))
+            hacs.append(m.GetNumHeavyAtoms() if m else np.nan)
+        return np.array(hacs)
+
+    a_hac = _get_hac(a_clean)
+    a_delta_hac = a_hac - ref_hac
+    a_rocs = a_clean.get(std.ROCS, pd.Series(0.0, index=a_clean.index)).values
+
+    rocs_threshold = 1.0
+    if (
+        b_clean is not None
+        and std.ROCS in b_clean.columns
+        and not b_clean[std.ROCS].dropna().empty
+    ):
+        calc_thresh = float(np.nanpercentile(b_clean[std.ROCS], 90))
+        if not np.isnan(calc_thresh) and calc_thresh >= 0.5:
+            rocs_threshold = calc_thresh
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6.0), dpi=250)
+    fig.suptitle(
+        "Medicinal Chemistry Anti-Shrinkage & Size Drift Diagnostic (ΔHAC vs. 3D ROCS)",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    # Panel A: 4-Quadrant Joint Scatter
+    ax1.axvspan(-3, 3, color="#16a34a", alpha=0.12, label="Isosteric Zone (|ΔHAC| ≤ 3)")
+    ax1.axvline(-3, color="#dc2626", linestyle="--", linewidth=1.1, alpha=0.7)
+    ax1.axvline(3, color="#2563eb", linestyle="--", linewidth=1.1, alpha=0.7)
+    ax1.axhline(
+        rocs_threshold,
+        color="#475569",
+        linestyle=":",
+        linewidth=1.2,
+        label=f"High-ROCS Threshold ({rocs_threshold:.2f})",
+    )
+
+    sa_vals = a_clean.get(
+        "Raw_SA", a_clean.get(std.SA, pd.Series(5.0, index=a_clean.index))
+    ).values
+    qed_vals = a_clean.get(std.QED, pd.Series(0.5, index=a_clean.index)).values
+    is_pareto = compute_3d_pareto_mask(a_rocs, sa_vals, qed_vals)
+
+    ax1.scatter(
+        a_delta_hac[~is_pareto],
+        a_rocs[~is_pareto],
+        color="#0284c7",
+        alpha=0.55,
+        s=24,
+        edgecolors="none",
+        label=f"Reinforced Candidates (N={len(a_clean)})",
+        zorder=3,
+    )
+    if is_pareto.any():
+        ax1.scatter(
+            a_delta_hac[is_pareto],
+            a_rocs[is_pareto],
+            color="#eab308",
+            edgecolors="#713f12",
+            linewidths=1.0,
+            s=85,
+            marker="*",
+            label=f"3D Pareto Leads (N={int(is_pareto.sum())})",
+            zorder=4,
+        )
+
+    high_rocs_mask = a_rocs >= rocs_threshold
+    n_high = int(high_rocs_mask.sum())
+    n_shrink_exploit = int((high_rocs_mask & (a_delta_hac < -3)).sum())
+    n_isosteric = int((high_rocs_mask & (np.abs(a_delta_hac) <= 3)).sum())
+    shrink_rate = (n_shrink_exploit / n_high * 100.0) if n_high > 0 else 0.0
+
+    text_exploit = f"Shrinkage Exploits: {n_shrink_exploit} ({shrink_rate:.1f}%)\n[Reward Gaming Risk]"
+    ax1.text(
+        0.04,
+        0.94,
+        text_exploit,
+        transform=ax1.transAxes,
+        fontsize=9.0,
+        fontweight="bold",
+        va="top",
+        color="#be123c",
+        bbox=dict(
+            boxstyle="round,pad=0.3",
+            facecolor="#ffe4e6",
+            edgecolor="#f43f5e",
+            alpha=0.9,
+        ),
+    )
+
+    text_iso = f"Isosteric Hits: {n_isosteric}\n[Target Size Match]"
+    ax1.text(
+        0.50,
+        0.94,
+        text_iso,
+        transform=ax1.transAxes,
+        fontsize=9.0,
+        fontweight="bold",
+        ha="center",
+        va="top",
+        color="#15803d",
+        bbox=dict(
+            boxstyle="round,pad=0.3",
+            facecolor="#dcfce7",
+            edgecolor="#22c55e",
+            alpha=0.9,
+        ),
+    )
+
+    ax1.set_title(
+        f"(A) ΔHAC vs. 3D ROCS (Shrinkage Exploit Rate = {shrink_rate:.1f}%)",
+        fontsize=11,
+        fontweight="bold",
+    )
+    ax1.set_xlabel("Δ Heavy Atom Count vs. Seed (ΔHAC)")
+    ax1.set_ylabel("3D ROCS TanimotoCombo")
+    ax1.grid(True, linestyle=":", alpha=0.4)
+    ax1.legend(loc="lower left", fontsize=8.0)
+
+    # Panel B: ΔHAC Density Distribution
+    ax2.axvspan(-3, 3, color="#16a34a", alpha=0.12, label="Isosteric Zone (|ΔHAC| ≤ 3)")
+    ax2.axvline(
+        0,
+        color="#1e293b",
+        linestyle="-",
+        linewidth=1.3,
+        label=f"Seed Size (HAC = {ref_hac})",
+    )
+
+    min_dh = np.nanmin(a_delta_hac) if len(a_delta_hac) > 0 else -10
+    max_dh = np.nanmax(a_delta_hac) if len(a_delta_hac) > 0 else 10
+    bins = np.arange(min_dh - 1, max_dh + 2, 1)
+
+    if b_clean is not None:
+        b_hac = _get_hac(b_clean)
+        b_delta_hac = b_hac - ref_hac
+        ax2.hist(
+            b_delta_hac[np.isfinite(b_delta_hac)],
+            bins=bins,
+            density=True,
+            alpha=0.45,
+            color="#64748b",
+            edgecolor="#334155",
+            label="Baseline Prior",
+        )
+
+    ax2.hist(
+        a_delta_hac[np.isfinite(a_delta_hac)],
+        bins=bins,
+        density=True,
+        alpha=0.60,
+        color="#2563eb",
+        edgecolor="#1e3a8a",
+        label="Reinforced Agent",
+    )
+
+    a_med_dhac = (
+        float(np.nanmedian(a_delta_hac)) if len(a_delta_hac) > 0 else 0.0
+    )
+    ax2.axvline(
+        a_med_dhac,
+        color="#2563eb",
+        linestyle="--",
+        linewidth=1.5,
+        label=f"Reinforced Median ΔHAC ({a_med_dhac:+.1f})",
+    )
+
+    ax2.set_title(
+        "(B) Heavy Atom Shift Distribution vs. Prior",
+        fontsize=11,
+        fontweight="bold",
+    )
+    ax2.set_xlabel("Δ Heavy Atom Count vs. Seed (ΔHAC)")
+    ax2.set_ylabel("Density")
+    ax2.grid(True, linestyle=":", alpha=0.4)
+    ax2.legend(loc="upper right", fontsize=8.0)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
@@ -1539,6 +2324,7 @@ class ResultAnalyzer:
         render_multiobjective_tradeoffs(
             df_after=df_after_clean,
             output_png=self.paths.figures_dir / "02_multiobjective_tradeoffs.png",
+            df_before=df_before_clean,
         )
 
         # Figure 3: 03_training_trajectories.png (with FIXED Panel C)
@@ -1592,6 +2378,27 @@ class ResultAnalyzer:
             ref_smiles=ref_smiles,
         )
 
+        # Figure 10: 10_lead_to_seed_3d_superposition.png & top_leads_aligned_to_seed.sdf
+        query_sdf = self.paths.raw_data_dir / "query_molecule_3d.sdf"
+        ref_3d_target = query_sdf if query_sdf.is_file() else ref_smiles
+        render_lead_to_seed_3d_superposition(
+            top_leads=df_sorted.head(5),
+            ref_sdf_or_mol=ref_3d_target,
+            output_png=self.paths.figures_dir
+            / "10_lead_to_seed_3d_superposition.png",
+            output_sdf=self.paths.figures_dir / "top_leads_aligned_to_seed.sdf",
+            max_leads=5,
+        )
+
+        # Figure 11: 11_antishrinkage_diagnostic.png
+        render_antishrinkage_diagnostic(
+            df_after=df_after_clean,
+            output_png=self.paths.figures_dir
+            / "11_antishrinkage_diagnostic.png",
+            df_before=df_before_clean,
+            ref_smiles=ref_smiles,
+        )
+
         # Write summary.md
         summary_md = self.paths.root / "summary.md"
         top5 = df_sorted.head(5)
@@ -1627,14 +2434,17 @@ class ResultAnalyzer:
                 "",
                 "## Publication Figures & Diagnostics",
                 "- [01 Before vs. After Distributions (KDE + 95% CI)](figures/01_before_after_distributions.png)",
-                "- [02 Multi-Objective Trade-Offs (Pareto Scatters)](figures/02_multiobjective_tradeoffs.png)",
-                "- [03 Training Trajectories (RL Dynamics)](figures/03_training_trajectories.png)",
+                "- [02 Multi-Objective Trade-Offs (Empirical Skylines & 3D Pareto)](figures/02_multiobjective_tradeoffs.png)",
+                "- [03 Training Trajectories (RL Dynamics & Convergence Diagnostics)](figures/03_training_trajectories.png)",
                 "- [04 Unfavorable Features Diagnostics (Size Drift & Mode Collapse)](figures/04_diagnostic_unfavorable_features.png)",
-                "- [05 Prioritized Lead Structures Gallery (Aligned 2D Cards)](figures/05_lead_structures_gallery.png)",
+                "- [05 Prioritized Lead Structures Gallery (Aligned 2D Cards & Badges)](figures/05_lead_structures_gallery.png)",
                 "- [06 Relative Property Shifts Tornado Plot (Δ%)](figures/06_relative_property_shifts_tornado.png)",
                 "- [07 Bemis-Murcko Scaffold Diversity & Core Dominance](figures/07_bemis_murcko_scaffold_diversity.png)",
                 "- [08 ROCS Feature Decomposition & Molecular Size](figures/08_rocs_shape_vs_color_decomposition.png)",
+                "- [10 3D Lead-to-Seed Superposition & Mol* Poses](figures/10_lead_to_seed_3d_superposition.png)",
+                "- [11 Anti-Shrinkage & ΔHAC Reward Exploitation Diagnostic](figures/11_antishrinkage_diagnostic.png)",
                 "- [3D Conformer Ensemble Superposition](figures/reference_3d_superposition.png)",
+                "- [Aligned 3D Superposition Structures (SDF)](figures/top_leads_aligned_to_seed.sdf)",
                 "- [Top Prioritized Leads (TSV)](top_prioritized_leads.tsv)",
                 "- [Comparison Scorecard (CSV)](comparison_scorecard.csv)",
                 "",
