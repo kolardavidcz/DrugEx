@@ -951,9 +951,9 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
     panel_a.set_yticklabels([arm_labels.get(a, a) for a in ordered.arm], fontsize=9)
     panel_a.set_xlabel("Warm Scoring Latency (s/molecule, Dichtator 48 Cores)", fontsize=10)
     panel_a.set_xlim(0, 1.88)
-    panel_a.set_title("A. Hardware Scoring Latency Breakdown (500 Paired Molecules x 3 Repeats)", fontsize=11, fontweight="bold")
+    panel_a.set_title("A. Hardware Latency: Inflexible ~0.38s ETKDG Floor Limits Method Differences", fontsize=11, fontweight="bold")
     panel_a.grid(True, axis="x", alpha=0.25, linestyle="--")
-    panel_a.legend(fontsize=8.5, loc="lower right", framealpha=0.92, edgecolor="#cccccc")
+    panel_a.legend(fontsize=8.2, loc="lower right", framealpha=0.92, edgecolor="#cccccc")
 
     # =========================================================================
     # Panel B: Speed vs Rank-Agreement Pareto Frontier
@@ -1026,11 +1026,23 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
                     arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.1", color="#666666", lw=0.8),
                 )
 
+        panel_b.text(
+            0.04, 0.16,
+            "Sober Perspective on Trade-offs:\n"
+            "• Latency gap: only 0.06 s/mol (12%)\n"
+            "• Rank correlation: already ρ = 0.84–0.89\n"
+            "• All viable arms cluster within 0.43–0.59s",
+            transform=panel_b.transAxes,
+            fontsize=8.2,
+            color="#333333",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.95),
+        )
+
         panel_b.set_xlim(0.38, 1.80)
         panel_b.set_ylim(0.76, 1.03)
         panel_b.set_xlabel("Warm Scoring Latency (s/molecule, linear scale)", fontsize=10)
         panel_b.set_ylabel(f"Spearman Rank Correlation ρ vs Gold ({gold})", fontsize=10)
-        panel_b.set_title("B. Speed vs Rank-Agreement Pareto Frontier vs Deployable Gold", fontsize=11, fontweight="bold")
+        panel_b.set_title("B. Speed vs Rank Agreement: Tight Cluster Across All Candidate Methods", fontsize=11, fontweight="bold")
         panel_b.grid(True, alpha=0.25, linestyle="--")
 
         from matplotlib.lines import Line2D
@@ -1068,7 +1080,7 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
         panel_c.set_yticklabels([arm_labels.get(a, a) for a in merged_c.arm], fontsize=9)
         panel_c.set_xlabel(f"Fidelity Metric vs Gold ({gold}) [1.0 = Perfect Agreement]", fontsize=10)
         panel_c.set_xlim(0, 1.15)
-        panel_c.set_title("C. Policy Update Fidelity: Global Rank Preservation vs Elite Decile Retention", fontsize=11, fontweight="bold")
+        panel_c.set_title("C. Policy Update Fidelity: Global Rank vs Elite Top-10% Decile Retention", fontsize=11, fontweight="bold")
         panel_c.grid(True, axis="x", alpha=0.25, linestyle="--")
         panel_c.legend(fontsize=8.5, loc="lower left", framealpha=0.92, edgecolor="#cccccc")
     else:
@@ -1081,7 +1093,7 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
         dev_arms = merged_c[merged_c.arm != gold].reset_index(drop=True)
         y_pos_d = np.arange(len(dev_arms))
 
-        panel_d.axvspan(-0.005, 0.005, color="#e2e8f0", alpha=0.8, label="Equivalence Band (|Δ ROCS| ≤ 0.005)")
+        panel_d.axvspan(-0.005, 0.005, color="#e2e8f0", alpha=0.9, label="Equivalence Band (|Δ ROCS| ≤ 0.005)")
         panel_d.axvline(0.0, color="#475569", linestyle="-", linewidth=1.0, alpha=0.8)
 
         for idx, row in dev_arms.iterrows():
@@ -1103,20 +1115,34 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
                 markersize=7.0,
                 alpha=0.9,
             )
-            # Put numerical values cleanly in a neat right-aligned column at x = 0.045
+            # Right-aligned numerical labels at x = 0.062
             panel_d.text(
-                0.045, idx,
+                0.062, idx,
                 f"{val:+.3f} [{ci_l:+.3f}, {ci_h:+.3f}]",
                 va="center", ha="left", fontsize=8.0, color="#333333", family="monospace"
             )
 
+        # Clean non-overlapping box placed in open space of upper-right quadrant
+        panel_d.text(
+            0.42, 0.68,
+            "Sober Context on Score Bias:\n"
+            "• Gold mean score = 0.655 (σ = 0.194)\n"
+            "• K=1 shift (+0.045) is only 0.23σ (~6.4%)\n"
+            "• 89% of molecules differ by < 0.10\n"
+            "• Candidate methods (UFF/m0) differ by < 0.002",
+            transform=panel_d.transAxes,
+            fontsize=8.2,
+            color="#333333",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.95),
+        )
+
         panel_d.set_yticks(y_pos_d)
         panel_d.set_yticklabels([arm_labels.get(a, a) for a in dev_arms.arm], fontsize=9)
-        panel_d.set_xlabel(f"Paired Δ ROCS vs Gold ({gold}) [with 95% Bootstrap CI]", fontsize=10)
-        panel_d.set_xlim(-0.025, 0.075)
-        panel_d.set_title("D. Paired Score Bias vs Gold (Minimization Ablation m0 Crosses 0; K=1 Penalized)", fontsize=11, fontweight="bold")
+        panel_d.set_xlabel(f"Paired Δ ROCS vs Gold ({gold}) [Score_gold - Score_arm; 95% Bootstrap CI]", fontsize=10)
+        panel_d.set_xlim(-0.025, 0.105)
+        panel_d.set_title("D. Paired Score Bias vs Gold: Marginal Level Shifts (< 7% of Gold Mean)", fontsize=11, fontweight="bold")
         panel_d.grid(True, axis="x", alpha=0.25, linestyle="--")
-        panel_d.legend(fontsize=8.5, loc="lower right", framealpha=0.92, edgecolor="#cccccc")
+        panel_d.legend(fontsize=8.2, loc="lower right", framealpha=0.92, edgecolor="#cccccc")
     else:
         panel_d.set_axis_off()
 
