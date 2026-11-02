@@ -32,6 +32,7 @@ class DecayingSequenceExplorer(SequenceExplorer):
         batch_size: int | None = None,
         epsilon: float | None = None,
         epsilon_end: float | None = None,
+        decay_start_epoch: int | None = None,
         decay_epochs: int | None = None,
         decay_type: str | None = None,
         use_decay: bool | None = None,
@@ -45,6 +46,11 @@ class DecayingSequenceExplorer(SequenceExplorer):
         active_batch = cfg.batch_size if batch_size is None else batch_size
         active_eps = cfg.epsilon if epsilon is None else epsilon
         active_eps_end = cfg.epsilon_end if epsilon_end is None else epsilon_end
+        active_decay_start = (
+            cfg.decay_start_epoch
+            if decay_start_epoch is None
+            else decay_start_epoch
+        )
         active_decay_epochs = cfg.decay_epochs if decay_epochs is None else decay_epochs
         active_decay_type = cfg.decay_type if decay_type is None else decay_type
         active_use_decay = cfg.use_epsilon_decay if use_decay is None else use_decay
@@ -66,6 +72,7 @@ class DecayingSequenceExplorer(SequenceExplorer):
         )
         self.epsilon_start: float = float(active_eps)
         self.epsilon_end: float = float(active_eps_end)
+        self.decay_start_epoch: int = int(active_decay_start)
         self.decay_epochs: int = int(active_decay_epochs)
         self.decay_type: str = str(active_decay_type).lower()
         self.use_decay: bool = bool(active_use_decay)
@@ -73,14 +80,16 @@ class DecayingSequenceExplorer(SequenceExplorer):
 
     def get_decayed_epsilon(self, epoch: int) -> float:
         """Compute scheduled exploration noise epsilon for the given 1-based epoch."""
-        if not self.use_decay or self.decay_epochs <= 1:
+        if not self.use_decay or self.decay_epochs <= self.decay_start_epoch:
+            return self.epsilon_start
+        if epoch <= self.decay_start_epoch:
             return self.epsilon_start
         if epoch >= self.decay_epochs:
             return self.epsilon_end
-        if epoch <= 1:
-            return self.epsilon_start
 
-        progress = (epoch - 1) / (self.decay_epochs - 1)
+        progress = (epoch - self.decay_start_epoch) / (
+            self.decay_epochs - self.decay_start_epoch
+        )
         if self.decay_type == "linear":
             return self.epsilon_start + progress * (
                 self.epsilon_end - self.epsilon_start

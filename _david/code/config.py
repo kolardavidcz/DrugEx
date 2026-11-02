@@ -43,7 +43,8 @@ class PipelineConfig:
     # Exploration Noise (Epsilon)
     epsilon: float = 0.05  # Prior-mutation exploration rate
     epsilon_end: float = 0.0  # Terminal exploration floor
-    decay_epochs: int = 50
+    decay_start_epoch: int = 1  # Epoch where decay begins (stays at epsilon until this epoch)
+    decay_epochs: int = 50  # Epoch where decay finishes reaching epsilon_end
     decay_type: str = "cosine"  # ^ ["cosine", "linear"]
     use_epsilon_decay: bool = False  # ^ [True, False]
 
@@ -177,6 +178,7 @@ class PipelineConfig:
         if self.use_epsilon_decay:
             base.update(
                 epsilon_end=self.epsilon_end,
+                decay_start_epoch=self.decay_start_epoch,
                 decay_epochs=self.decay_epochs,
                 decay_type=self.decay_type,
                 use_decay=True,

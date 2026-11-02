@@ -331,6 +331,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Terminal exploration rate (default: {defaults.epsilon_end})",
     )
     parser.add_argument(
+        "--decay-start-epoch",
+        type=int,
+        default=defaults.decay_start_epoch,
+        help=f"Epoch where epsilon decay begins (default: {defaults.decay_start_epoch})",
+    )
+    parser.add_argument(
         "--decay-epochs",
         type=int,
         default=defaults.decay_epochs,
@@ -572,6 +578,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         epsilon=args.epsilon,
         epsilon_end=args.epsilon_end,
         use_epsilon_decay=args.use_decay,
+        decay_start_epoch=args.decay_start_epoch,
         decay_epochs=args.decay_epochs,
         decay_type=args.decay_type,
         beta=args.beta,

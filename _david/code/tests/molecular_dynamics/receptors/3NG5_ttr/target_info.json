@@ -1,0 +1,27 @@
+{
+    "target_id": "3NG5_ttr",
+    "pdb_id": "3NG5",
+    "common_name": "Transthyretin V30M (TTR)",
+    "uniprot_id": "P02766",
+    "biological_class": "Transport / Carrier Protein (Non-enzymatic)",
+    "ec_number": null,
+    "resolution_angstrom": 1.7,
+    "experimental_method": "X-ray Diffraction",
+    "functional_role": "Plasma amyloid transport tetramer; kinetic quaternary stabilization against dissociation",
+    "native_ligand_resname": "KDH",
+    "native_ligand_chain": "A",
+    "native_ligand_seqid": 128,
+    "box_center": [
+        1.077,
+        18.279,
+        -12.043
+    ],
+    "box_size": [
+        25.109,
+        22.035,
+        27.209
+    ],
+    "receptor_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3NG5_ttr/receptor.pdbqt",
+    "native_kdh_pdb": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3NG5_ttr/native_kdh.pdb",
+    "native_kdh_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3NG5_ttr/native_kdh.pdbqt"
+}

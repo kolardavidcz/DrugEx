@@ -1,0 +1,83 @@
+{
+    "3OOB_pin1": {
+        "target_id": "3OOB_pin1",
+        "pdb_id": "3OOB",
+        "common_name": "Pin1 (Peptidyl-prolyl cis-trans isomerase)",
+        "uniprot_id": "Q13526",
+        "biological_class": "Isomerase (EC 5.2.1.8)",
+        "ec_number": "5.2.1.8",
+        "resolution_angstrom": 1.89,
+        "experimental_method": "X-ray Diffraction",
+        "functional_role": "Oncogenic signaling isomerase; competitive active-site inhibition (Lys63/Arg69 contacts)",
+        "native_ligand_resname": "KDH",
+        "native_ligand_chain": "A",
+        "native_ligand_seqid": 402,
+        "box_center": [
+            30.05,
+            -0.679,
+            44.133
+        ],
+        "box_size": [
+            26.101,
+            24.905,
+            23.719
+        ],
+        "receptor_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3OOB_pin1/receptor.pdbqt",
+        "native_kdh_pdb": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3OOB_pin1/native_kdh.pdb",
+        "native_kdh_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3OOB_pin1/native_kdh.pdbqt"
+    },
+    "3NG5_ttr": {
+        "target_id": "3NG5_ttr",
+        "pdb_id": "3NG5",
+        "common_name": "Transthyretin V30M (TTR)",
+        "uniprot_id": "P02766",
+        "biological_class": "Transport / Carrier Protein (Non-enzymatic)",
+        "ec_number": null,
+        "resolution_angstrom": 1.7,
+        "experimental_method": "X-ray Diffraction",
+        "functional_role": "Plasma amyloid transport tetramer; kinetic quaternary stabilization against dissociation",
+        "native_ligand_resname": "KDH",
+        "native_ligand_chain": "A",
+        "native_ligand_seqid": 128,
+        "box_center": [
+            1.077,
+            18.279,
+            -12.043
+        ],
+        "box_size": [
+            25.109,
+            22.035,
+            27.209
+        ],
+        "receptor_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3NG5_ttr/receptor.pdbqt",
+        "native_kdh_pdb": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3NG5_ttr/native_kdh.pdb",
+        "native_kdh_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/3NG5_ttr/native_kdh.pdbqt"
+    },
+    "8ZVP_sirt6": {
+        "target_id": "8ZVP_sirt6",
+        "pdb_id": "8ZVP",
+        "common_name": "Sirtuin 6 (SIRT6 Deacylase)",
+        "uniprot_id": "Q8N6T7",
+        "biological_class": "Hydrolase (EC 3.5.1.- / EC 2.3.1.-)",
+        "ec_number": "3.5.1.-",
+        "resolution_angstrom": 2.5,
+        "experimental_method": "X-ray Diffraction",
+        "functional_role": "Chromatin modifier / longevity deacetylase; allosteric pocket modulation with ADP-ribose",
+        "native_ligand_resname": "KDH",
+        "native_ligand_chain": "A",
+        "native_ligand_seqid": 403,
+        "box_center": [
+            -25.097,
+            -26.822,
+            -17.088
+        ],
+        "box_size": [
+            22.612,
+            26.272,
+            26.695
+        ],
+        "receptor_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/8ZVP_sirt6/receptor.pdbqt",
+        "native_kdh_pdb": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/8ZVP_sirt6/native_kdh.pdb",
+        "native_kdh_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/8ZVP_sirt6/native_kdh.pdbqt"
+    }
+}
