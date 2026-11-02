@@ -103,15 +103,34 @@ export PYTHONPATH="$SCRATCHDIR/DrugEx:${PYTHONPATH:-}"
 # Scratch has no .git; record the staged release revision for manifests.
 export DRUGEX_SOURCE_REVISION="$(basename "$SOURCE_DIR")"
 
-# Pretrained Papyrus05.5 SMILES-RNN: resolved by the module via
-# PROJECT_ROOT/tutorial/data/models/pretrained (rsynced with the source tree,
-# same fallback the h1 sprint script relies on).
+# Pretrained Papyrus05.5 SMILES-RNN: the checkpoint is NOT tracked in git and
+# is absent from both the storage repo and staged releases (verified live over
+# SSH 2026-11-02), so stage it from the storage copy into the tutorial path the
+# module's resolve_pretrained_paths() probes (same source as the h1 sprint
+# script's $STORAGE_DIR/models fallback), then fail fast before any walltime
+# is spent if the resolver still cannot find it.
+MODEL_DIR="$SCRATCHDIR/DrugEx/tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT"
+if [[ -f "$STORAGE_DIR/models/Papyrus05.5_smiles_rnn_PT.pkg" ]]; then
+    mkdir -p "$MODEL_DIR"
+    cp -f "$STORAGE_DIR/models/Papyrus05.5_smiles_rnn_PT.pkg" \
+          "$STORAGE_DIR/models/Papyrus05.5_smiles_rnn_PT.vocab" "$MODEL_DIR/"
+elif [[ ! -f "$MODEL_DIR/Papyrus05.5_smiles_rnn_PT.pkg" ]]; then
+    echo "Pretrained Papyrus05.5 checkpoint missing: no $STORAGE_DIR/models copy and none in scratch" >&2
+    exit 1
+fi
+"$PYTHON" -c "from _david.code.config import PipelineConfig; PipelineConfig().resolve_pretrained_paths()" \
+    || { echo "Pretrained model unresolved in scratch" >&2; exit 1; }
 
 echo "Host: $(hostname) | CPUs: $(nproc) | Revision: $DRUGEX_SOURCE_REVISION"
-echo "Starting RL batch calibration (6 arms, 500 samples, 3 repeats, 5 epochs)..."
+echo "Starting RL batch calibration (3 arms, 500 samples, 3 repeats, 5 epochs)..."
 
+# Conservative arm set: the two production-decision cells plus the matched
+# minimization pair (identical K/C, minimization only; reviewer C1). The
+# k=all full-bank arms cost ~35-190 h each at 4 CPUs (reviewer D-2) and must
+# be split into separate jobs (or run on ncpus=16) before being added here.
 "$PYTHON" -u -m _david.code.conformer.rl_batch_calibration \
     --output "$OUT_DIR" \
+    --arms etkdg:1:30,mmff_high_dielectric:4:20,mmff_high_dielectric:1:30 \
     --samples 500 \
     --repeats 3 \
     --epochs 5 \

@@ -852,14 +852,20 @@ def main() -> None:
         return
 
     args.output.mkdir(parents=True, exist_ok=True)
+    # Force forkserver BEFORE any torch/pool use in this parent: the prior
+    # sampler's optimizer init defaults DRUGEX_MP_CONTEXT to fork (utils only
+    # sets it when unset), and prepare_shared_references opens pools in this
+    # process after torch is initialized — a fork-after-threads hang hazard
+    # for an unattended run. Setting it here wins over every later setdefault.
+    os.environ["DRUGEX_MP_CONTEXT"] = "forkserver"
     batch_file = sample_prior_batch(args.output, samples=args.samples, gpu=args.gpu)
     prepare_shared_references(
         args.output, tuple(dict.fromkeys(arm.method for arm in arms))
     )
     environment = dict(os.environ)
-    # Force forkserver: sample_prior_batch's optimizer initialization may
-    # have set DRUGEX_MP_CONTEXT=fork in this parent process, which would
-    # otherwise silently propagate to every child.
+    # Forkserver for every child regardless of parent state (the parent's
+    # early assignment above is already forkserver; this keeps children
+    # correct even if that ever changes).
     environment["DRUGEX_MP_CONTEXT"] = "forkserver"
     environment["MPLBACKEND"] = "Agg"
 
