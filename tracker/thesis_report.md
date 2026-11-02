@@ -1,18 +1,18 @@
 # DrugEx Thesis Work & Time Tracking Report
 
-*Generated on: 2026-11-01 16:26:27*
+*Generated on: 2026-11-02 16:45:06*
 
 ## Executive Summary
 
 | Tracking Pillar | Breakdown & Metric | Multiplier | Effective Thesis Effort |
 | :--- | :--- | :--- | :--- |
 | **Tablet Reading ([Notewise](file:///C:/Users/kolar/Downloads/Mobile%20Devices/DrugEx.notewise))** | 12.91h active writing / annotation | **+20%** buffer | **15.49 hours** |
-| **Interactive AI Pair-Programming** | 172.18h active steering, prompt drafting & reading | **+10%** review buffer | **189.4 hours** |
-| **Remote Dev & VS Code SSH (Dichtator)** | 81.45h active dev, `#NOTES` & code review | 1.0× direct | **81.45 hours** |
-| *Raw Disaggregated Sum* | *Sum across all 3 pillars before interval de-duplication* | | *286.34 hours* |
-| **CORE HUMAN THESIS EFFORT** | **De-duplicated non-overlapping human timeline (no dual-device double-counting)** | | **231.83 hours** |
-| **Autonomous AI Research Loops** | 7.66h unattended batch runs, pareto benchmarks | 1.0× compute | *14.01 hours (Compute)* |
-| **Idle Cisco VPN Tunnel Uptime** | 99.16h background connection without active steps | 0.0× filtered | *99.16 hours (Idle)* |
+| **Interactive AI Pair-Programming** | 179.83h active steering, prompt drafting & reading | **+10%** review buffer | **197.81 hours** |
+| **Remote Dev & VS Code SSH (Dichtator)** | 63.57h active dev, `#NOTES` & code review | 1.0× direct | **63.57 hours** |
+| *Raw Disaggregated Sum* | *Sum across all 3 pillars before interval de-duplication* | | *276.87 hours* |
+| **CORE HUMAN THESIS EFFORT** | **De-duplicated non-overlapping human timeline (no dual-device double-counting)** | | **242.55 hours** |
+| **Autonomous AI Research Loops** | 8.92h unattended batch runs, pareto benchmarks | 1.0× compute | *15.34 hours (Compute)* |
+| **Idle Cisco VPN Tunnel Uptime** | 96.65h background connection without active steps | 0.0× filtered | *96.65 hours (Idle)* |
 
 ---
 
@@ -20,7 +20,19 @@
 
 This ledger chronologically documents daily thesis effort backed by concrete empirical proofs (Git commit hashes, generated report artifacts, prompt excerpts, and Notewise strokes).
 
-### Date: `2026-11-01` (2.72h Human Effort | 0.0h AI Compute)
+### Date: `2026-11-02` (5.48h Human Effort | 1.26h AI Compute)
+- **Primary Focus**: 3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, Developer Environment & Cisco VPN Orchestration, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration
+- **Thesis Chapter Mapping**: *Chapter 2: Conformer Ensembles & 3D Physics*
+- **Verifiable Git Commits**:
+  - [`809abd4`](https://github.com/fulopjoz/DrugEx/commit/809abd4): docs(conformer): record overnight rl_batch_calibration outcome and gold-arm rank-agreement result
+  - [`3eae416`](https://github.com/fulopjoz/DrugEx/commit/3eae416): feat(cluster): add and submit Sprint H7 (Tversky scaffold hop), H8 (beta penalization), and H9 (epsilon decay)
+  - [`c178c9c`](https://github.com/fulopjoz/DrugEx/commit/c178c9c): gitignore: exclude _david/thesis_tracking/ (private workload-proof extraction pipeline with message excerpts)
+  - [`1a736bf`](https://github.com/fulopjoz/DrugEx/commit/1a736bf): feat(cluster): prepare and submit Run H6 multi-conformer reference ensemble
+- **Key Steering Directives**:
+  - *"our notebok doesnt have nvidia GPU, nor relaiable epic CPU (but you can tray it overnight, but i don..."*
+  - *"so as we are confident about accuracy of our code method - i want to critical review (both of methio..."*
+
+### Date: `2026-11-01` (8.7h Human Effort | 0.0h AI Compute)
 - **Primary Focus**: 3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, Developer Environment & Cisco VPN Orchestration, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration
 - **Thesis Chapter Mapping**: *Chapter 2: Conformer Ensembles & 3D Physics*
 - **Verifiable Git Commits**:
@@ -200,7 +212,7 @@ ps: i saw we just deleted a lo..."*
   - *"1) set max_reference_conformers to someting meanigfull
 2) is there someting we sould try next (i set..."*
 
-### Date: `2026-10-17` (14.48h Human Effort | 0.0h AI Compute)
+### Date: `2026-10-17` (14.15h Human Effort | 0.0h AI Compute)
 - **Primary Focus**: 3D Conformer Generation & Hawkins Tiers, Agent Architecture, Context Briefings & Documentation, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration
 - **Thesis Chapter Mapping**: *Chapter 2: Conformer Ensembles & 3D Physics, Chapter 3: Multi-Objective RL & Scoring, Chapter 4: HPC Training Grid & Scalability, Methodology & Autonomous Agent Engineering*
 - **Verifiable Git Commits**:
@@ -213,7 +225,7 @@ ps: i saw we just deleted a lo..."*
 1) use "SmoothClippedScore(upper_x=3.5,lower_..."*
   - *"1) we souldnt have a tests that checks if we set our hyperparamethers 1 way or another - delete any ..."*
 
-### Date: `2026-10-16` (13.16h Human Effort | 0.0h AI Compute)
+### Date: `2026-10-16` (12.81h Human Effort | 0.0h AI Compute)
 - **Primary Focus**: 3D Conformer Generation & Hawkins Tiers, Conformer Pareto Timing & Physics Optimization, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration
 - **Thesis Chapter Mapping**: *Chapter 2: Conformer Ensembles & 3D Physics*
 - **Verifiable Git Commits**:
@@ -231,7 +243,7 @@ The current local time is: ..."*
 <ADDITIONAL_METADATA>
 The current local time is: 2026-10-16..."*
 
-### Date: `2026-10-15` (7.39h Human Effort | 0.0h AI Compute)
+### Date: `2026-10-15` (7.33h Human Effort | 0.0h AI Compute)
 - **Primary Focus**: 3D Conformer Generation & Hawkins Tiers, Core `_david` Pipeline Engineering & Clean Code, HPC Cluster Sprint Orchestration, HPC MetaCentrum PBS Grid & Cluster Execution, Pareto-Optimal Frontier Analysis, ROCS & Multi-Objective Reward Calibration
 - **Thesis Chapter Mapping**: *General Methodology*
 - **Key Steering Directives**:
@@ -331,18 +343,6 @@ The current local..."*
   - *"I would like to say, that we are dooing small updates to showcase scripts
 - if we want to make edits..."*
 
-### Date: `2026-10-07` (2.0h Human Effort | 0.0h AI Compute)
-- **Primary Focus**: Agent Architecture, Context Briefings & Documentation, ROCS & Multi-Objective Reward Calibration
-- **Thesis Chapter Mapping**: *Chapter 3: Multi-Objective RL & Scoring, Methodology & Autonomous Agent Engineering*
-- **Verifiable Git Commits**:
-  - [`520a7c9`](https://github.com/fulopjoz/DrugEx/commit/520a7c9): chore(testing): archive subagent empirical verification and requirements suites to output/archive/subagent_adversarial_tests
-  - [`cc3b514`](https://github.com/fulopjoz/DrugEx/commit/cc3b514): fix(telemetry): define total_mem before mem_get_info check in get_gpu_telemetry
-  - [`6c07853`](https://github.com/fulopjoz/DrugEx/commit/6c07853): fix(gpu): import os in GraphTransformer.py for DRUGEX_GPU inspection
-  - [`f22b7e8`](https://github.com/fulopjoz/DrugEx/commit/f22b7e8): feat(gpu): dynamic free VRAM probing and automatic GPU selection across Blackwell devices
-- **Key Steering Directives**:
-  - *"Make the (mobile phone mode) - even more dark + minimal function (and if there has to be extrimly mi..."*
-  - *"I didnt mean to make app more minimalistic etc. - I want jjust tbe "POcket mode" to be even more dar..."*
-
 ---
 
 ## 2. Tablet Reading Breakdown (Notewise)
@@ -358,27 +358,29 @@ The current local..."*
 
 ## 3. Remote Compute & Dichtator Sessions
 
-- **Total Connection Time Logged**: **185.98 hours** across **68 sessions**.
-- **Interactive Dev, `#NOTES` & Code Review**: **81.45 hours**
-- **Autonomous Remote Compute**: **6.35 hours**
-- **Idle Tunnel Uptime (filtered)**: **99.16 hours**
+- **Total Connection Time Logged**: **165.66 hours** across **66 sessions**.
+- **Interactive Dev, `#NOTES` & Code Review**: **63.57 hours**
+- **Autonomous Remote Compute**: **6.42 hours**
+- **Idle Tunnel Uptime (filtered)**: **96.65 hours**
 
 ---
 
 ## 4. AI Engineering & LLM Workspaces (Antigravity & t3code)
 
-- **Total Tracked Workspaces/Threads**: **44**
-- **Total Execution Steps**: **55595**
-- **Active Interactive Steering & Prompt Crafting**: **172.18 hours** (189.4h with +10% review buffer)
-- **Autonomous Loops & Batch Execution**: **7.66 hours**
+- **Total Tracked Workspaces/Threads**: **46**
+- **Total Execution Steps**: **56054**
+- **Active Interactive Steering & Prompt Crafting**: **179.83 hours** (197.81h with +10% review buffer)
+- **Autonomous Loops & Batch Execution**: **8.92 hours**
 
 ### Key Workspaces Tracked:
-- **`t3-8a6d8237-89`** (t3code (WSL), 54.1 min steered, 1s auto, 8 steps): What would you decide to do in this sittuasion [Analyze pulled sprint timing res...
-- **`1f425855-d6fd-`** (Antigravity (Win), 1.2h steered, 1s auto, 499 steps): /goal  So our todays task will be to update "C:\Users\kolar\Desktop\windows_nati...
-- **`t3-3f4700e1-9b`** (t3code (WSL), 1.4h steered, 1s auto, 47 steps): [Fix Pareto timing charts and panels](t3-context://v1/thread/thread_5dc07f7e-6d5...
-- **`t3-5dc07f7e-6d`** (t3code (WSL), 1.1h steered, 1s auto, 52 steps): Hello GLM-5.3 For start, have a current DrugEx state in "DrugEx/_david/onboardin...
+- **`t3-thread:prov`** (t3code (WSL), 43 min steered, 1s auto, 3 steps): CRITICAL PEER REVIEW (read-only — do NOT edit any files) of methodology AND impl...
+- **`t3-thread:dele`** (t3code (WSL), 25 min steered, 1s auto, 1 steps): Act as the research sub-agent for this task.  You are an expert software enginee...
+- **`t3-1b1a9d72-b0`** (t3code (WSL), 4.2h steered, 1s auto, 109 steps): [THESIS_TRACKING_MASTER_DOSSIER.md](t3-context://v1/file/file_6d254a01-1015-4e94...
+- **`t3-8a6d8237-89`** (t3code (WSL), 4.7h steered, 1s auto, 64 steps): What would you decide to do in this sittuasion [Analyze pulled sprint timing res...
+- **`1f425855-d6fd-`** (Antigravity (Win), 2.4h steered, 1s auto, 645 steps): /goal  So our todays task will be to update "C:\Users\kolar\Desktop\windows_nati...
+- **`t3-3f4700e1-9b`** (t3code (WSL), 1.9h steered, 1s auto, 51 steps): [Fix Pareto timing charts and panels](t3-context://v1/thread/thread_5dc07f7e-6d5...
+- **`t3-5dc07f7e-6d`** (t3code (WSL), 4.9h steered, 1s auto, 196 steps): Hello GLM-5.3 For start, have a current DrugEx state in "DrugEx/_david/onboardin...
 - **`t3-00dbe29d-16`** (t3code (WSL), 29.3 min steered, 1s auto, 10 steps): Hello GLM-5.3 For start, have a current DrugEx state in "DrugEx/_david/onboardin...
-- **`t3-thread:prov`** (t3code (WSL), 25.7 min steered, 1s auto, 4 steps): Check the current state of the MetaCentrum HPC RL sprint (4-hypothesis EGCG spri...
 - **`t3-e5d2ab1b-2e`** (t3code (WSL), 1.4h steered, 1s auto, 28 steps): So i need to to import to Open code where i have my GLM model all our settings, ...
 - **`c78bace0-d534-`** (Antigravity (WSL), 35.3 min steered, 1s auto, 126 steps): I was hoping for somting more detailed  <ADDITIONAL_METADATA> The current local ...
 - **`4195e11c-3408-`** (Antigravity (WSL), 1s steered, 6.4 min auto, 94 steps): ...
@@ -391,5 +393,3 @@ The current local..."*
 - **`f34247db-1672-`** (Antigravity (Win), 1s steered, 24.3 min auto, 461 steps): ...
 - **`b0ca57ef-7e28-`** (Antigravity (Win), 1s steered, 24.9 min auto, 12 steps): ...
 - **`94a98ebb-8c57-`** (Antigravity (WSL), 1s steered, 2 min auto, 64 steps): ...
-- **`8c755b7d-3c4b-`** (Antigravity (WSL), 1s steered, 1 min auto, 6 steps): ...
-- **`ff045b4d-857c-`** (Antigravity (WSL), 1s steered, 13.5 min auto, 250 steps): ...
