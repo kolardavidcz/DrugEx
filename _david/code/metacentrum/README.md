@@ -1,166 +1,267 @@
-# MetaCentrum & Remote Cluster Operations Guide
+# MetaCentrum & Remote Cluster Operations Tutorial & Cheat Sheet
 
-A practical, single-source cheat sheet for executing, monitoring, and synchronizing DrugEx reinforcement learning runs across **MetaCentrum PBS Pro**, **Remote Dichtator (RTX PRO 4000)**, and **Local WSL**.
+A comprehensive, copy-paste ready reference guide for monitoring jobs, inspecting training epochs and logs, comparing queue lengths, and synchronizing code/results across **MetaCentrum PBS Pro**, **Remote Dichtator (RTX PRO 4000)**, and **Local WSL**.
 
 ---
 
-## 1. Quick Reference: Hosts & Environments
+## 1. Quick Host Reference
 
-| Target | SSH Host Alias | Root Directory | Python Virtualenv | Hardware Profile |
+| Target Host | SSH Host Alias | Root Path | Python Environment | Hardware |
 | :--- | :--- | :--- | :--- | :--- |
-| **MetaCentrum** | `meta` / `perun` | `/storage/brno2/brno2/kolardavidcz/DrugEx` | `.../.venv/bin/python` | PBS Pro GPU cluster (`gpu`, `p2e_1d`) |
-| **Dichtator** | `dichtator` | `/home/kolarv/DrugEx` | `/home/kolarv/DrugEx/.venv/bin/python` | 48 CPUs, 128 GB RAM, 2x RTX PRO 4000 (24 GB) |
-| **Local WSL** | `localhost` | `/home/kolar/DrugEx` | `/home/kolar/DrugEx/.venv/bin/python` | Development & Visualization orchestration |
+| **MetaCentrum** | `meta` / `perun` | `/storage/brno2/brno2/kolardavidcz/DrugEx` | `.../.venv/bin/python` | PBS Pro cluster (CPU & GPU nodes) |
+| **Dichtator** | `dichtator` | `/home/kolarv/DrugEx` | `.../.venv/bin/python` | 48 CPUs, 128 GB RAM, 2x RTX PRO 4000 (Blackwell, 24GB) |
+| **Local WSL** | `localhost` | `/home/kolar/DrugEx` | `.../.venv/bin/python` | Local development & visualization |
 
 ---
 
-## 2. MetaCentrum: Checking Queue & Active Runs
+## 2. Queue Status: Tracking Your Jobs
 
-### Check All Your Jobs
+### Check Your Active Jobs (One-liner)
 ```bash
 ssh meta "qstat -u kolardavidcz"
 ```
-*Job states: `Q` = Queued (waiting for GPU node), `R` = Running, `E` = Exiting / transferring results.*
+* **Job States**:
+  * `Q` = **Queued** (Waiting in queue for an available node)
+  * `R` = **Running** (Currently executing on a compute node)
+  * `E` = **Exiting** (Finished computation, flushing logs/rsyncing back)
+  * `H` = **Held** (Job is placed on hold)
 
-### Detailed Status & Finding Execution Node
+### Full Job Details (Find Worker Node, Memory & Walltime)
 ```bash
-# Find which worker node (e.g., elmu1-24) is running your job
-ssh meta "qstat -f <JOB_ID> | grep exec_host"
-```
+ssh meta "qstat -f <JOB_ID>"
 
-### Check GPU Utilization on the Running Worker Node
-```bash
-# Example if job is running on worker node elmu1-24:
-ssh meta "ssh elmu1-24 'nvidia-smi'"
+# Quick filter: See which worker node (e.g. elmu1-24) is executing your job
+ssh meta "qstat -f <JOB_ID> | grep -E '(exec_host|resources_used|Job_Name)'"
 ```
 
 ### Cancel a Job
 ```bash
 ssh meta "qdel <JOB_ID>"
+
+# Cancel all your jobs at once
+ssh meta "qselect -u kolardavidcz | xargs qdel"
 ```
 
 ---
 
-## 3. Real-Time Run Monitoring: Epochs, Metrics & Scores
+## 3. Queue Comparisons: Queue Length & Waiting Times
 
-### A. Live Epoch Tracking (Active Running Job)
-While training runs on a worker node's local scratch, progress is recorded in `execution.log` and `models/SequenceRNN_reinforced_fit.tsv`:
+MetaCentrum has many queues. By default, jobs with `:ngpus=1` route to `gpu`, which often has **thousands of waiting jobs**. CPU queues like `p2e_1d` or `q_4h` have **almost zero wait time**.
 
+### Compare Queue Lengths (Running vs Waiting)
+Filter out internal reservation queues to see real cluster queues:
 ```bash
-# 1. View latest training epochs, reward, and losses directly from worker scratch:
-ssh meta "ssh <EXEC_HOST> 'tail -n 20 /scratch*/kolardavidcz/job_<JOB_ID>/output/models/SequenceRNN_reinforced_fit.tsv'"
-
-# 2. Live policy gradient progress bar:
-ssh meta "ssh <EXEC_HOST> 'grep -v RuntimeWarning /scratch*/kolardavidcz/job_<JOB_ID>/output/execution.log | tail -n 25'"
+ssh meta "qstat -q | grep -v '^M[0-9]'"
 ```
 
-### B. View Completed Run Results (Scorecards & Diagnostics)
-Once a run finishes, output is automatically rsync'd to `/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/`:
-
+### Compare Relevant Queues for DrugEx
 ```bash
-# List all run directories on cluster storage:
-ssh meta "ls -l /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/"
-
-# View final comparison scorecard (ROCS tail, QED, SA, HAC, Validity):
-ssh meta "cat /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/<RUN_NAME>/comparison_scorecard.csv"
-
-# Read markdown scientific summary:
-ssh meta "cat /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/<RUN_NAME>/summary.md"
-
-# Check epoch fit progression of a finished run:
-ssh meta "tail -n 15 /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/<RUN_NAME>/models/SequenceRNN_reinforced_fit.tsv"
+ssh meta "qstat -q | grep -E '^(Queue|gpu|q_4h|q_1d|p2e_1d)'"
 ```
 
----
+| Queue | Typical Walltime | Hardware Profile | Queued (Wait Time) | Best For |
+| :--- | :--- | :--- | :--- | :--- |
+| **`p2e_1d`** | 24 hours | Fast multi-core CPU (`ncpus=16`) | **0 – 10 jobs (< 1 min wait)** | **Fastest for CPU ROCS RL** |
+| **`q_4h`** | 4 hours | Fast turnaround CPU (`ncpus=16`) | **10 – 30 jobs (< 5 min wait)** | Short exploration / sanity checks |
+| **`q_1d`** | 24 hours | Standard CPU cluster | Moderate wait | Long standard CPU runs |
+| **`gpu`** | 24–48 hours | GPU nodes (`ngpus=1`) | **1,500 – 2,200 jobs (Hours/Days wait)** | Large GPU training (only if required) |
 
-## 4. Submitting New Training Runs
-
-All submission scripts reside in `_david/code/metacentrum/scripts/`:
-
+### Inspect What Is in a Specific Queue
 ```bash
-# Submit specific hypothesis script:
-ssh meta "qsub /storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/metacentrum/scripts/h7_tversky_scaffold_hop.sh"
-ssh meta "qsub /storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/metacentrum/scripts/h8_beta_baseline_penalization.sh"
-ssh meta "qsub /storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/metacentrum/scripts/h9_dynamic_epsilon_decay.sh"
+# See all jobs waiting or running in the GPU queue
+ssh meta "qstat gpu"
+
+# See all jobs in the fast 4-hour CPU queue
+ssh meta "qstat q_4h"
+
+# See queue limits, priority, and enabled nodes
+ssh meta "qstat -Qf q_4h"
 ```
 
 ---
 
-## 5. Synchronization Workflows (WSL $\leftrightarrow$ MetaCentrum $\leftrightarrow$ Dichtator)
+## 4. Live Epoch Tracking & Last 10 Lines of Runs
 
-### A. WSL $\leftrightarrow$ MetaCentrum Sync
+### A. Automated 1-Step Live Epoch Monitor (Easiest)
+We created a dedicated monitor script that finds the worker host of every running job and displays its latest training epochs automatically:
+```bash
+ssh meta "python3 /storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/metacentrum/monitor_live_epochs.py"
+```
+
+### B. Manually View Live Epochs from a Running Job (Worker Scratch)
+While a job is running, its output lives in the worker node's local `/scratch*/` space:
+```bash
+# 1. Find the worker hostname
+HOST=$(ssh meta "qstat -f <JOB_ID> | grep 'exec_host =' | cut -d'/' -f1 | awk '{print \$NF}'")
+echo "Running on $HOST"
+
+# 2. View the last 10 training epochs (epoch, loss, reward):
+ssh meta "ssh $HOST 'tail -n 10 /scratch*/kolardavidcz/job_<JOB_ID>/output/models/SequenceRNN_reinforced_fit.tsv'"
+
+# 3. View the last 10 lines of the live execution log (policy progress & sampling):
+ssh meta "ssh $HOST 'grep -v RuntimeWarning /scratch*/kolardavidcz/job_<JOB_ID>/output/execution.log | tail -n 10'"
+```
+
+### C. View Last 10 Lines for ALL Finished / Stored Runs
+Completed runs are stored in `/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/`:
+
+#### 1. List All Available Runs
+```bash
+ssh meta "ls -ld /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*"
+```
+
+#### 2. Loop & Print Last 10 Epochs for Every Finished Run
+```bash
+ssh meta '
+for run in /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*; do
+  if [ -f "$run/models/SequenceRNN_reinforced_fit.tsv" ]; then
+    echo "=================================================================="
+    echo "RUN: $(basename "$run")"
+    echo "=================================================================="
+    tail -n 10 "$run/models/SequenceRNN_reinforced_fit.tsv"
+    echo ""
+  fi
+done
+'
+```
+
+#### 3. Loop & Print Final Scorecards (ROCS Tail, SA, QED, HAC) for Every Run
+```bash
+ssh meta '
+for run in /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*; do
+  if [ -f "$run/comparison_scorecard.csv" ]; then
+    echo "=== $(basename "$run") ==="
+    cat "$run/comparison_scorecard.csv"
+    echo ""
+  fi
+done
+'
+```
+
+#### 4. View Last 10 Lines of Execution Log for a Specific Run
+```bash
+ssh meta "tail -n 10 /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/<RUN_NAME>/execution.log"
+```
+
+---
+
+## 5. Bidirectional Synchronization
+
+### A. WSL $\leftrightarrow$ MetaCentrum
 
 ```bash
-# --- PUSH CODE: Send modified code from local WSL to MetaCentrum ---
+# ---------------------------------------------------------
+# 1. PUSH CODE (WSL -> MetaCentrum)
+# Sends updated code while ignoring virtualenvs and output
+# ---------------------------------------------------------
 rsync -avz --exclude='.venv' --exclude='_david/output' --exclude='*.log' \
-    _david/code/ meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/
+    /home/kolar/DrugEx/_david/code/ meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/
 
-# --- PULL RUN RESULTS: Download scorecards, logs & generated figures to WSL ---
-# (Excludes heavy 22MB .pkg model checkpoints for fast download)
+# ---------------------------------------------------------
+# 2. PULL RUN RESULTS (MetaCentrum -> WSL)
+# Fast sync: pulls scorecards, figures, and CSVs (skips 22MB .pkg weights)
+# ---------------------------------------------------------
 rsync -avz --exclude='*.pkg' \
-    meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/ _david/output/
+    meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/ /home/kolar/DrugEx/_david/output/
 
-# --- PULL EVERYTHING (including model weights): ---
+# ---------------------------------------------------------
+# 3. PULL SPECIFIC RUN WITH ALL CHECKPOINTS (MetaCentrum -> WSL)
+# ---------------------------------------------------------
 rsync -avz \
-    meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/<RUN_NAME>/ _david/output/<RUN_NAME>/
+    meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/<RUN_NAME>/ /home/kolar/DrugEx/_david/output/<RUN_NAME>/
 ```
 
 ---
 
-### B. WSL $\leftrightarrow$ Dichtator Sync
+### B. WSL $\leftrightarrow$ Dichtator
 
 > [!IMPORTANT]
 > **Zero-Disruption VPN Rule**: Never reconnect or restart Cisco AnyConnect VPN while active. Test connection with `ssh -o BatchMode=yes -o ConnectTimeout=5 dichtator "echo OK"` before syncing.
 
-#### Option 1: Fast Rsync Sync (Recommended for quick code edits & testing)
+#### Option 1: Fast Rsync (Recommended)
 ```bash
-# --- PUSH CODE from WSL to Dichtator ---
+# ---------------------------------------------------------
+# 1. PUSH CODE (WSL -> Dichtator)
+# ---------------------------------------------------------
 rsync -avz --exclude='.venv' --exclude='_david/output' --exclude='*.log' \
-    _david/code/ dichtator:~/DrugEx/_david/code/
+    /home/kolar/DrugEx/_david/code/ dichtator:~/DrugEx/_david/code/
 
-# --- PULL RUN RESULTS from Dichtator to WSL ---
+# ---------------------------------------------------------
+# 2. PULL RESULTS (Dichtator -> WSL)
+# ---------------------------------------------------------
 rsync -avz --exclude='*.pkg' \
-    dichtator:~/DrugEx/_david/output/ _david/output/
+    dichtator:~/DrugEx/_david/output/ /home/kolar/DrugEx/_david/output/
+
+# ---------------------------------------------------------
+# 3. PUSH RESULTS (WSL -> Dichtator)
+# If you want to mirror results generated on MetaCentrum to Dichtator
+# ---------------------------------------------------------
+rsync -avz --exclude='*.pkg' \
+    /home/kolar/DrugEx/_david/output/ dichtator:~/DrugEx/_david/output/
 ```
 
 #### Option 2: Git Remote Sync
 ```bash
-# Push committed local changes to remote dichtator branch:
+# Push committed changes to Dichtator
 git push dichtator main
 
-# Pull remote commits from dichtator into local WSL:
+# Pull changes from Dichtator
 git pull dichtator main
 ```
 
 ---
 
-## 6. Productive Shell Aliases (Add to `~/.bashrc`)
+## 6. Remote Dichtator Inspection
 
-Copy these functions into your local WSL `~/.bashrc` to monitor and sync with simple one-word commands:
+Dichtator has 48 CPU cores, 128 GB RAM, and dual Blackwell GPUs (2x 24GB).
 
 ```bash
-# --- MetaCentrum Helpers ---
-alias meta-jobs='ssh meta "qstat -u kolardavidcz"'
-alias meta-runs='ssh meta "ls -la /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/"'
+# Check GPU utilization & free RAM on Dichtator
+ssh -o BatchMode=yes dichtator "nvidia-smi && free -h"
 
-# Sync code to MetaCentrum:
+# Check running Python processes on Dichtator
+ssh -o BatchMode=yes dichtator "ps aux | grep python | grep -v grep"
+
+# Interactive SSH login to Dichtator workspace
+ssh -t dichtator "cd ~/DrugEx && bash"
+```
+
+---
+
+## 7. Productive `.bashrc` Aliases (1-Word Commands)
+
+Add these aliases to your local WSL `~/.bashrc` (`nano ~/.bashrc`):
+
+```bash
+# ==============================================================================
+# DrugEx Remote Operations Aliases
+# ==============================================================================
+
+# --- MetaCentrum ---
+alias meta-jobs='ssh meta "qstat -u kolardavidcz"'
+alias meta-queues='ssh meta "qstat -q | grep -v \"^M[0-9]\""'
+alias meta-runs='ssh meta "ls -ld /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*"'
+alias meta-live='ssh meta "python3 /storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/metacentrum/monitor_live_epochs.py"'
+
 meta-push() {
     rsync -avz --exclude='.venv' --exclude='_david/output' --exclude='*.log' \
         /home/kolar/DrugEx/_david/code/ meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/
 }
 
-# Pull results and figures from MetaCentrum:
 meta-pull() {
     rsync -avz --exclude='*.pkg' \
         meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/ /home/kolar/DrugEx/_david/output/
 }
 
-# View scorecard of a run: meta-scorecard sprint_h2_without_qed_harrington
-meta-scorecard() {
-    ssh meta "cat /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/$1/comparison_scorecard.csv"
+meta-scorecards() {
+    ssh meta 'for r in /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*; do if [ -f "$r/comparison_scorecard.csv" ]; then echo "=== $(basename "$r") ==="; cat "$r/comparison_scorecard.csv"; echo ""; fi; done'
 }
 
-# --- Dichtator Helpers ---
+meta-epochs() {
+    ssh meta 'for r in /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*; do if [ -f "$r/models/SequenceRNN_reinforced_fit.tsv" ]; then echo "=== $(basename "$r") ==="; tail -n 10 "$r/models/SequenceRNN_reinforced_fit.tsv"; echo ""; fi; done'
+}
+
+# --- Dichtator ---
 alias dichtator-status='ssh -o BatchMode=yes dichtator "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv && free -h"'
 alias dichtator-ssh='ssh -t dichtator "cd ~/DrugEx && bash"'
 
@@ -175,7 +276,7 @@ dichtator-pull() {
 }
 ```
 
-After updating `~/.bashrc`, run:
+Then activate them:
 ```bash
 source ~/.bashrc
 ```
