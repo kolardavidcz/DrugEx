@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); color: var(--foreground, #f8fafc); padding: 4px 0; background: transparent; }
+.cal-root { background: var(--card, #1e293b); border: 1px solid var(--border, #334155); border-radius: var(--radius, 8px); padding: 14px; }
+.top-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border, #334155); }
+.title-area h2 { font-size: 1.05rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
+.title-area .sub { font-size: 0.70rem; color: var(--muted-foreground, #94a3b8); margin-top: 2px; }
+.mode-toggle-bar { display: flex; align-items: center; gap: 6px; background: rgba(15,23,42,0.8); border: 1px solid #334155; padding: 3px; border-radius: 6px; }
+.mode-btn { background: transparent; color: #94a3b8; border: none; padding: 4px 10px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.mode-btn.active { background: #0284c7; color: #fff; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.mode-btn:hover:not(.active) { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+.metric-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.m-pill { background: rgba(15,23,42,0.6); border: 1px solid var(--border, #334155); padding: 2px 7px; border-radius: 4px; font-size: 0.65rem; }
+.m-pill b { color: #38bdf8; font-family: var(--font-mono); }
+.controls-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.week-nav { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.nav-arrow, .week-btn, .jump-btn { background: var(--secondary, #334155); color: var(--muted-foreground, #94a3b8); border: 1px solid transparent; border-radius: 4px; padding: 3px 8px; font-size: 0.66rem; font-weight: 600; cursor: pointer; }
+.nav-arrow:hover, .week-btn:hover, .jump-btn:hover { background: #475569; color: #fff; }
+.week-btn.active { background: #0284c7; color: #fff; border-color: #38bdf8; font-weight: 700; }
+.jump-links { display: flex; align-items: center; gap: 4px; font-size: 0.63rem; color: var(--muted-foreground, #94a3b8); }
+.filter-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; padding: 6px 10px; background: rgba(15,23,42,0.6); border-radius: 4px; font-size: 0.66rem; align-items: center; }
+.filter-chip { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; transition: opacity 0.15s; }
+.filter-chip.off { opacity: 0.3; filter: grayscale(1); }
+.f-dot { width: 8px; height: 8px; border-radius: 2px; }
+.dichtator-banner { margin-bottom: 8px; padding: 5px 9px; background: rgba(16,185,129,0.1); border: 1px dashed rgba(16,185,129,0.4); border-radius: 4px; font-size: 0.64rem; color: #a7f3d0; display: flex; justify-content: space-between; align-items: center; }
+.week-summary-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.ws-title { font-size: 0.80rem; font-weight: 700; color: #38bdf8; }
+.ws-stats { font-size: 0.66rem; color: var(--muted-foreground, #94a3b8); font-family: var(--font-mono); }
+.cal-frame { border: 1px solid var(--border, #334155); border-radius: 6px; background: rgba(15,23,42,0.4); overflow: hidden; }
+.cal-sticky-header { display: grid; grid-template-columns: 44px repeat(7, 1fr); background: var(--card, #1e293b); border-bottom: 2px solid var(--border, #334155); position: relative; z-index: 10; }
+.gutter-hdr { display: flex; align-items: center; justify-content: center; font-size: 0.58rem; color: var(--muted-foreground, #64748b); border-right: 1px solid var(--border, #334155); font-family: var(--font-mono); }
+.day-hdr { text-align: center; padding: 5px 2px; border-right: 1px solid rgba(51,65,85,0.6); }
+.day-hdr:last-child { border-right: none; }
+.d-abbr { font-size: 0.60rem; font-weight: 700; text-transform: uppercase; color: var(--muted-foreground, #94a3b8); }
+.d-date { font-size: 0.88rem; font-weight: 800; color: #fff; line-height: 1.1; }
+.d-hours { font-size: 0.60rem; color: #38bdf8; font-family: var(--font-mono); font-weight: 600; }
+.cal-scroll-body { height: 460px; overflow-y: scroll; overflow-x: hidden; position: relative; scroll-behavior: smooth; }
+.cal-grid-content { display: grid; grid-template-columns: 44px repeat(7, 1fr); height: 1056px; position: relative; }
+.time-gutter { border-right: 1px solid var(--border, #334155); position: relative; background: rgba(15,23,42,0.7); }
+.time-slot-label { position: absolute; right: 5px; font-size: 0.58rem; font-family: var(--font-mono); color: var(--muted-foreground, #64748b); transform: translateY(-50%); }
+.day-col { position: relative; height: 100%; border-right: 1px solid rgba(51,65,85,0.4); background-image: linear-gradient(to bottom, rgba(51,65,85,0.5) 1px, transparent 1px), linear-gradient(to bottom, rgba(51,65,85,0.2) 1px, transparent 1px); background-size: 100% 44px, 100% 22px; }
+.day-col:last-child { border-right: none; }
+.cal-event { position: absolute; border-radius: 4px; padding: 2px 4px; cursor: pointer; overflow: hidden; transition: transform 0.12s, box-shadow 0.12s; z-index: 2; box-shadow: 0 1px 3px rgba(0,0,0,0.4); font-size: 0.60rem; line-height: 1.15; }
+.cal-event:hover { transform: scale(1.02); z-index: 20 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.8); }
+.ev-top { display: flex; justify-content: space-between; align-items: baseline; gap: 2px; }
+.ev-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-len { font-family: var(--font-mono); font-size: 0.55rem; opacity: 0.85; flex-shrink: 0; }
+.ev-desc { font-size: 0.55rem; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+
+.type-tablet { background: rgba(139,92,246,0.9); border: 1px solid #a78bfa; border-left: 3px solid #c4b5fd; color: #fff; }
+.type-dichtator { background: rgba(16,185,129,0.9); border: 1px solid #34d399; border-left: 3px solid #6ee7b7; color: #fff; }
+.type-ai { background: rgba(2,132,199,0.9); border: 1px solid #38bdf8; border-left: 3px solid #7dd3fc; color: #fff; }
+.type-edu { background: rgba(217,119,6,0.9); border: 1px solid #f59e0b; border-left: 3px solid #fde68a; color: #fff; }
+.type-infra { background: rgba(225,29,72,0.85); border: 1px solid #f43f5e; border-left: 3px solid #fda4af; color: #fff; }
+.type-compute { background: rgba(100,116,139,0.8); border: 1px dashed #cbd5e1; border-left: 3px solid #e2e8f0; color: #f1f5f9; }
+
+.detail-drawer { margin-top: 8px; padding: 6px 10px; background: rgba(15,23,42,0.8); border: 1px solid var(--border, #334155); border-radius: 4px; display: flex; justify-content: space-between; align-items: center; font-size: 0.65rem; }
+.dd-left { display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.dd-title { font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-meta { color: var(--muted-foreground, #94a3b8); font-size: 0.60rem; }
+.dd-badge { background: #0284c7; color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 600; font-family: var(--font-mono); font-size: 0.60rem; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div class="cal-root">
+  <div class="top-header">
+    <div class="title-area">
+      <h2>DrugEx Bachelor Thesis Hourly Calendar</h2>
+      <div class="sub">Candidate: David Kolář • UCT Prague (VŠCHT Praha) • 3D Hawkins Conformers, ROCS Alignment & Pareto RL</div>
+      <div class="metric-pills">
+        <div class="m-pill">Mode: <b id="pill-mode-lbl">Strict Committee Floor</b></div>
+        <div class="m-pill">Total Net: <b id="pill-tot-net">195.3h</b></div>
+        <div class="m-pill">Live Dichtator Dev: <b>81.5h</b></div>
+        <div class="m-pill">Machine Compute: <b>14.0h (0.0x)</b></div>
+        <div class="m-pill">Idle Tunnel Discarded: <b>99.2h (0.0x)</b></div>
+        <div class="m-pill">Sleep Rest Window: <b>04:00–09:30 CET</b></div>
+      </div>
+    </div>
+    <div class="mode-toggle-bar">
+      <button class="mode-btn active" id="btn-mode-strict" onclick="setMode('strict')">Mode 1: Strict Committee Floor (195.3h)</button>
+      <button class="mode-btn" id="btn-mode-relaxed" onclick="setMode('relaxed')">Mode 2: Comprehensive Immersion (385.2h)</button>
+    </div>
+  </div>
+
+  <div class="dichtator-banner">
+    <div><strong>Remote HPC Development Protocol:</strong> Candidate developed directly via VS Code Remote-SSH on <code>dichtator</code> without daily git commits (telemetry verified via Cisco AnyConnect VPN sessions).</div>
+    <div style="font-family:var(--font-mono); opacity:0.85;">185.98h Tunnel • 81.45h Steered Dev • 99.16h Idle Discarded</div>
+  </div>
+
+  <div class="controls-bar">
+    <div class="week-nav" id="week-nav-bar"></div>
+    <div class="jump-links">
+      <span>Jump:</span>
+      <button class="jump-btn" onclick="jumpToHour(8)">08:00</button>
+      <button class="jump-btn" onclick="jumpToHour(12)">12:00</button>
+      <button class="jump-btn" onclick="jumpToHour(18)">18:00</button>
+      <button class="jump-btn" onclick="jumpToHour(22)">22:00</button>
+      <button class="jump-btn" onclick="jumpToHour(0)">00:00</button>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <div class="filter-chip" id="flt-dichtator" onclick="toggleStream('dichtator')">
+      <div class="f-dot" style="background:#10b981;"></div>
+      <span>Remote GPU Dev (Dichtator SSH)</span>
+    </div>
+    <div class="filter-chip" id="flt-ai" onclick="toggleStream('ai')">
+      <div class="f-dot" style="background:#0284c7;"></div>
+      <span>AI Architecture & Conformer Steering</span>
+    </div>
+    <div class="filter-chip" id="flt-tablet" onclick="toggleStream('tablet')">
+      <div class="f-dot" style="background:#8b5cf6;"></div>
+      <span>Tablet Math (Notewise)</span>
+    </div>
+    <div class="filter-chip" id="flt-edu" onclick="toggleStream('edu')">
+      <div class="f-dot" style="background:#d97706;"></div>
+      <span>Edu Guide & Podcast App</span>
+    </div>
+    <div class="filter-chip" id="flt-infra" onclick="toggleStream('infra')">
+      <div class="f-dot" style="background:#e11d48;"></div>
+      <span>HPC Tooling & WSL2</span>
+    </div>
+    <div class="filter-chip" id="flt-compute" onclick="toggleStream('compute')">
+      <div class="f-dot" style="background:#64748b;"></div>
+      <span>HPC Batch Compute (PBS Pro 0.0x)</span>
+    </div>
+  </div>
+
+  <div class="week-summary-row">
+    <div class="ws-title" id="week-title-display">Week Title</div>
+    <div class="ws-stats" id="week-stats-display">Net: 0.0h</div>
+  </div>
+
+  <div class="cal-frame">
+    <div class="cal-sticky-header">
+      <div class="gutter-hdr">CET</div>
+      <div class="day-hdr" id="dhdr-0"><div class="d-abbr">Mon</div><div class="d-date" id="ddate-0">--</div><div class="d-hours" id="dhrs-0">0.0h</div></div>
+      <div class="day-hdr" id="dhdr-1"><div class="d-abbr">Tue</div><div class="d-date" id="ddate-1">--</div><div class="d-hours" id="dhrs-1">0.0h</div></div>
+      <div class="day-hdr" id="dhdr-2"><div class="d-abbr">Wed</div><div class="d-date" id="ddate-2">--</div><div class="d-hours" id="dhrs-2">0.0h</div></div>
+      <div class="day-hdr" id="dhdr-3"><div class="d-abbr">Thu</div><div class="d-date" id="ddate-3">--</div><div class="d-hours" id="dhrs-3">0.0h</div></div>
+      <div class="day-hdr" id="dhdr-4"><div class="d-abbr">Fri</div><div class="d-date" id="ddate-4">--</div><div class="d-hours" id="dhrs-4">0.0h</div></div>
+      <div class="day-hdr" id="dhdr-5"><div class="d-abbr">Sat</div><div class="d-date" id="ddate-5">--</div><div class="d-hours" id="dhrs-5">0.0h</div></div>
+      <div class="day-hdr" id="dhdr-6"><div class="d-abbr">Sun</div><div class="d-date" id="ddate-6">--</div><div class="d-hours" id="dhrs-6">0.0h</div></div>
+    </div>
+    <div class="cal-scroll-body" id="cal-scroll-body">
+      <div class="cal-grid-content">
+        <div class="time-gutter" id="time-gutter"></div>
+        <div class="day-col" id="col-0"></div>
+        <div class="day-col" id="col-1"></div>
+        <div class="day-col" id="col-2"></div>
+        <div class="day-col" id="col-3"></div>
+        <div class="day-col" id="col-4"></div>
+        <div class="day-col" id="col-5"></div>
+        <div class="day-col" id="col-6"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="detail-drawer">
+    <div class="dd-left">
+      <div class="dd-title" id="dd-title">Select an event block to inspect technical telemetry</div>
+      <div class="dd-meta" id="dd-meta">All events verified across Notewise, Cisco AnyConnect VPN, and Antigravity execution logs.</div>
+    </div>
+    <div class="dd-badge" id="dd-badge">Audited Telemetry</div>
+  </div>
+</div>
+
+<script>
+var WEEKS = [{"k": "2026-10-26", "lbl": "Week 7: Oct 26 \u2013 Nov 01", "focus": "MetaCentrum PBS 4-Hypothesis Sprint, Decoy Benchmarking & Honest Pareto RL", "days": [{"name": "Mon", "date": "26 Oct", "iso": "2026-10-26"}, {"name": "Tue", "date": "27 Oct", "iso": "2026-10-27"}, {"name": "Wed", "date": "28 Oct", "iso": "2026-10-28"}, {"name": "Thu", "date": "29 Oct", "iso": "2026-10-29"}, {"name": "Fri", "date": "30 Oct", "iso": "2026-10-30"}, {"name": "Sat", "date": "31 Oct", "iso": "2026-10-31"}, {"name": "Sun", "date": "01 Nov", "iso": "2026-11-01"}], "durs_strict": [4.5, 1.2, 0.0, 4.4, 8.5, 4.6, 0.0], "durs_relaxed": [4.5, 1.2, 0.6, 6.4, 8.5, 10.4, 3.6], "tot_strict": 23.2, "tot_relaxed": 35.2, "evs": [[0, 9.95, 0.62, "ai", "AI Architecture Steering", "09:57\u201310:34", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [0, 13.78, 2.24, "ai", "AI Architecture Steering", "13:47\u201316:02", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [0, 21.83, 1.6, "ai", "AI Architecture Steering", "21:50\u201323:26", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [1, 10.83, 0.75, "ai", "AI Architecture Steering", "10:50\u201311:35", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [1, 17.65, 0.45, "ai", "AI Architecture Steering", "17:39\u201318:06", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 6.15, 0.3, "compute", "HPC Batch Compute (PBS Pro)", "06:09 CET", "Autonomous Tokenization Check & SMILES Grammar Probe", 0.0, 100.0, true], [2, 23.3, 0.64, "infra", "HPC / Environment Tooling", "23:18\u201323:57", "conformer: Active steering & verification (da453742)", 0.0, 100.0, false], [3, 0.48, 0.67, "infra", "HPC / Environment Tooling", "00:29\u201301:09", "conformer: Active steering & verification (da453742)", 0.0, 100.0, false], [3, 6.0, 0.35, "compute", "HPC Batch Compute (PBS Pro)", "06:00 CET", "Autonomous Papyrus Auto-Discovery Ingestion Pipeline", 0.0, 100.0, true], [3, 15.23, 0.89, "ai", "AI Architecture Steering", "15:14\u201316:08", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [3, 15.5, 1.38, "infra", "HPC / Environment Tooling", "15:30\u201316:53", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false], [3, 16.13, 0.3, "ai", "AI Architecture Steering", "16:08\u201316:26", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [3, 17.12, 2.4, "infra", "HPC / Environment Tooling", "17:07\u201319:31", "conformer: Active steering & verification (da453742)", 0.0, 25.0, false], [3, 17.15, 0.56, "ai", "Conformer Physics", "17:09\u201317:43", "conformer: Active steering & verification (f73584b6)", 25.0, 25.0, true], [3, 17.15, 0.55, "ai", "Conformer Physics", "17:09\u201317:42", "conformer: Active steering & verification (ae4f5d24)", 50.0, 25.0, true], [3, 17.15, 0.42, "ai", "AI Architecture Steering", "17:09\u201317:34", "conformer: Active steering & verification (3c0732c1)", 75.0, 25.0, true], [3, 18.12, 0.73, "ai", "AI Architecture Steering", "18:07\u201318:51", "conformer: Active steering & verification (3c0732c1)", 33.3, 33.3, true], [3, 18.8, 0.6, "infra", "Conformer Physics", "18:48\u201319:24", "DrugEx Research: Active steering & verification (c566a755)", 66.7, 33.3, false], [3, 19.13, 0.57, "ai", "AI Architecture Steering", "19:08\u201319:43", "conformer: Active steering & verification (3c0732c1)", 33.3, 33.3, true], [3, 19.55, 0.3, "infra", "HPC / Environment Tooling", "19:33\u201319:51", "conformer: Active steering & verification (da453742)", 0.0, 50.0, false], [3, 20.02, 0.3, "ai", "AI Architecture Steering", "20:01\u201320:19", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [3, 23.02, 1.03, "ai", "AI Architecture Steering", "23:01\u201300:02", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 0.45, 0.62, "ai", "AI Architecture Steering", "00:27\u201301:04", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 1.07, 3.13, "ai", "AI Architecture Steering", "01:04\u201304:12", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 5.5, 0.4, "compute", "HPC Batch Compute (PBS Pro)", "05:30 CET", "Autonomous Model Evaluation Worker Loop on MetaCentrum", 0.0, 100.0, true], [4, 11.47, 0.2, "ai", "AI Architecture Steering", "11:28\u201311:38", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 16.72, 0.43, "ai", "AI Architecture Steering", "16:43\u201317:08", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 23.15, 1.24, "ai", "Conformer Physics", "23:09\u201300:23", "conformer: Active steering & verification (f73584b6)", 0.0, 33.3, true], [4, 23.2, 4.06, "ai", "AI Architecture Steering", "23:12\u201303:16", "conformer: Active steering & verification (3c0732c1)", 33.3, 33.3, true], [4, 23.9, 0.42, "infra", "Conformer Physics", "23:54\u201300:19", "rocs: Active steering & verification (cdbf4b6f)", 66.7, 33.3, false], [5, 0.85, 1.01, "infra", "Conformer Physics", "00:51\u201301:52", "conformer: Active steering & verification (d68f842e)", 0.0, 100.0, false], [5, 1.88, 0.3, "infra", "Conformer Physics", "01:53\u201302:11", "conformer: Active steering & verification (d68f842e)", 0.0, 50.0, false], [5, 1.95, 0.48, "infra", "Conformer Physics", "01:57\u201302:26", "conformer: Active steering & verification (49f5ac4a)", 50.0, 50.0, false], [5, 2.45, 0.6, "infra", "Conformer Physics", "02:27\u201303:03", "conformer: Active steering & verification (e70035fb)", 0.0, 33.3, false], [5, 2.48, 0.58, "infra", "Conformer Physics", "02:29\u201303:03", "conformer: Active steering & verification (3af604df)", 33.3, 33.3, false], [5, 2.88, 0.49, "infra", "Conformer Physics", "02:53\u201303:23", "conformer: Active steering & verification (57554baf)", 66.7, 33.3, false], [5, 6.0, 0.15, "compute", "HPC Batch Compute (PBS Pro)", "06:00 CET", "PBS Batch Job 25170006 \u2014 Conformer Generation Benchmark", 0.0, 100.0, true], [5, 6.2, 0.2, "compute", "HPC Batch Compute (PBS Pro)", "06:12 CET", "PBS Batch Job 25170007 \u2014 MMFF94s Dielectric Minimization", 0.0, 100.0, true], [5, 6.45, 0.25, "compute", "HPC Batch Compute (PBS Pro)", "06:27 CET", "PBS Batch Job 25170008 \u2014 ROCS 3D Color Shape Overlap Probe", 0.0, 100.0, true], [5, 7.15, 0.25, "compute", "HPC Batch Compute (PBS Pro)", "07:09 CET", "PBS Batch Job 25170009 \u2014 Multi-Objective RL Episode Convergence", 0.0, 100.0, true], [5, 10.85, 0.52, "ai", "AI Architecture Steering", "10:51\u201311:22", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [5, 11.7, 0.96, "ai", "AI Architecture Steering", "11:42\u201312:40", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [5, 15.6, 0.62, "ai", "AI Architecture Steering", "15:36\u201316:13", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [5, 18.83, 0.9, "ai", "AI Architecture Steering", "18:50\u201319:44", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [5, 19.33, 3.89, "infra", "HPC / Environment Tooling", "19:20\u201323:13", "conformer: Active steering & verification (da453742)", 20.0, 20.0, false], [5, 21.25, 1.56, "ai", "AI Architecture Steering", "21:15\u201322:49", "conformer: Active steering & verification (3c0732c1)", 0.0, 33.3, true], [5, 22.23, 0.3, "infra", "Conformer Physics", "22:14\u201322:32", "conformer: Active steering & verification (t3-55e8b)", 66.7, 33.3, false], [5, 22.75, 1.09, "infra", "Conformer Physics", "22:45\u201323:51", "conformer: Active steering & verification (t3-e5d2a)", 40.0, 20.0, false], [5, 23.05, 0.6, "infra", "Conformer Physics", "23:03\u201323:39", "conformer: Active steering & verification (d5009cd0)", 0.0, 20.0, false], [5, 23.07, 0.59, "infra", "Conformer Physics", "23:04\u201323:39", "conformer: Active steering & verification (c78bace0)", 60.0, 20.0, false], [5, 23.18, 1.46, "infra", "Conformer Physics", "23:11\u201300:39", "conformer: Active steering & verification (t3-55e8b)", 80.0, 20.0, false], [5, 23.85, 0.3, "infra", "Conformer Physics", "23:51\u201300:09", "conformer: Active steering & verification (t3-e5d2a)", 0.0, 20.0, false], [6, 0.13, 0.43, "infra", "Conformer Physics", "00:08\u201300:34", "david.py: Active steering & verification (t3-threa)", 0.0, 33.3, false], [6, 0.28, 0.49, "infra", "Conformer Physics", "00:17\u201300:46", "conformer: Active steering & verification (t3-00dbe)", 33.3, 33.3, false], [6, 0.37, 0.48, "infra", "Conformer Physics", "00:22\u201300:51", "conformer: Active steering & verification (t3-5dc07)", 66.7, 33.3, false], [6, 0.68, 0.57, "infra", "HPC / Environment Tooling", "00:41\u201301:15", "conformer: Active steering & verification (da453742)", 0.0, 33.3, false], [6, 1.2, 0.3, "infra", "Conformer Physics", "01:12\u201301:30", "conformer: Active steering & verification (t3-5dc07)", 50.0, 50.0, false], [6, 13.7, 0.94, "infra", "Conformer Physics", "13:42\u201314:39", "conformer: Active steering & verification (t3-3f470)", 0.0, 50.0, false], [6, 13.72, 0.33, "infra", "Conformer Physics", "13:43\u201314:03", "conformer: Active steering & verification (t3-5dc07)", 50.0, 50.0, false], [6, 15.4, 0.87, "infra", "Conformer Physics", "15:24\u201316:17", "conformer: Active steering & verification (1f425855)", 0.0, 33.3, false], [6, 15.52, 0.9, "infra", "Conformer Physics", "15:31\u201316:25", "conformer: Active steering & verification (t3-8a6d8)", 33.3, 33.3, false], [6, 15.57, 0.41, "infra", "Conformer Physics", "15:34\u201315:59", "conformer: Active steering & verification (t3-3f470)", 66.7, 33.3, false], [6, 16.43, 0.3, "infra", "Conformer Physics", "16:26\u201316:44", "conformer: Active steering & verification (1f425855)", 0.0, 100.0, false]]}, {"k": "2026-10-19", "lbl": "Week 6: Oct 19 \u2013 Oct 25", "focus": "HPC Standalone Grid Automation, Job Templates & Kerberos Keep-Alive", "days": [{"name": "Mon", "date": "19 Oct", "iso": "2026-10-19"}, {"name": "Tue", "date": "20 Oct", "iso": "2026-10-20"}, {"name": "Wed", "date": "21 Oct", "iso": "2026-10-21"}, {"name": "Thu", "date": "22 Oct", "iso": "2026-10-22"}, {"name": "Fri", "date": "23 Oct", "iso": "2026-10-23"}, {"name": "Sat", "date": "24 Oct", "iso": "2026-10-24"}, {"name": "Sun", "date": "25 Oct", "iso": "2026-10-25"}], "durs_strict": [0.0, 0.0, 7.5, 5.2, 0.0, 0.6, 4.7], "durs_relaxed": [0.6, 0.6, 7.8, 5.8, 0.0, 1.5, 5.1], "tot_strict": 18.0, "tot_relaxed": 21.4, "evs": [[0, 23.45, 0.62, "infra", "HPC / Environment Tooling", "23:27\u201300:04", "conformer: Active steering & verification (da453742)", 0.0, 100.0, false], [1, 1.75, 0.57, "infra", "HPC / Environment Tooling", "01:45\u201302:19", "conformer: Active steering & verification (da453742)", 0.0, 100.0, false], [2, 0.45, 0.49, "infra", "HPC / Environment Tooling", "00:27\u201300:56", "conformer: Active steering & verification (da453742)", 0.0, 50.0, false], [2, 0.8, 1.72, "ai", "AI Architecture Steering", "00:48\u201302:31", "conformer: Active steering & verification (3c0732c1)", 50.0, 50.0, true], [2, 10.4, 0.3, "ai", "AI Architecture Steering", "10:24\u201310:42", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 10.95, 1.31, "ai", "AI Architecture Steering", "10:57\u201312:15", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 13.27, 0.92, "ai", "AI Architecture Steering", "13:16\u201314:11", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 15.57, 0.45, "ai", "AI Architecture Steering", "15:34\u201316:01", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 16.93, 0.3, "ai", "AI Architecture Steering", "16:56\u201317:14", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 18.0, 0.47, "ai", "AI Architecture Steering", "18:00\u201318:28", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 19.82, 0.3, "ai", "AI Architecture Steering", "19:49\u201320:07", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 20.35, 1.04, "ai", "AI Architecture Steering", "20:21\u201321:24", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 21.42, 0.64, "ai", "AI Architecture Steering", "21:25\u201322:04", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [3, 0.08, 0.68, "ai", "AI Architecture Steering", "00:05\u201300:46", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [3, 1.9, 0.42, "ai", "AI Architecture Steering", "01:54\u201302:19", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [3, 2.78, 1.31, "ai", "AI Architecture Steering", "02:47\u201304:05", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [3, 2.85, 0.9, "infra", "HPC / Environment Tooling", "02:51\u201303:45", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false], [3, 10.5, 0.3, "ai", "AI Architecture Steering", "10:30\u201310:48", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [3, 11.3, 1.94, "ai", "AI Architecture Steering", "11:18\u201313:14", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [3, 14.5, 0.56, "ai", "AI Architecture Steering", "14:30\u201315:04", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [3, 15.1, 0.58, "infra", "HPC / Environment Tooling", "15:06\u201315:41", "conformer: Active steering & verification (da453742)", 0.0, 100.0, false], [5, 19.38, 0.89, "infra", "HPC / Environment Tooling", "19:23\u201320:16", "conformer: Active steering & verification (da453742)", 0.0, 100.0, false], [5, 21.38, 0.6, "ai", "AI Architecture Steering", "21:23\u201321:59", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [6, 20.12, 0.55, "infra", "HPC / Environment Tooling", "20:07\u201320:40", "conformer: Active steering & verification (da453742)", 0.0, 50.0, false], [6, 20.47, 0.63, "ai", "AI Architecture Steering", "20:28\u201321:05", "conformer: Active steering & verification (3c0732c1)", 50.0, 50.0, true], [6, 21.12, 0.3, "ai", "AI Architecture Steering", "21:07\u201321:25", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [6, 22.03, 3.81, "ai", "AI Architecture Steering", "22:02\u201301:51", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true]]}, {"k": "2026-10-12", "lbl": "Week 5: Oct 12 \u2013 Oct 18", "focus": "CCR2 Multi-Objective ROCS Scoring Snapshot, Docking Validations & CDPKit Probes", "days": [{"name": "Mon", "date": "12 Oct", "iso": "2026-10-12"}, {"name": "Tue", "date": "13 Oct", "iso": "2026-10-13"}, {"name": "Wed", "date": "14 Oct", "iso": "2026-10-14"}, {"name": "Thu", "date": "15 Oct", "iso": "2026-10-15"}, {"name": "Fri", "date": "16 Oct", "iso": "2026-10-16"}, {"name": "Sat", "date": "17 Oct", "iso": "2026-10-17"}, {"name": "Sun", "date": "18 Oct", "iso": "2026-10-18"}], "durs_strict": [1.0, 5.0, 5.0, 6.7, 12.0, 6.8, 4.8], "durs_relaxed": [1.0, 6.2, 5.3, 6.7, 12.6, 6.8, 4.8], "tot_strict": 41.3, "tot_relaxed": 43.4, "evs": [[0, 2.08, 0.96, "ai", "Conformer Physics", "02:05\u201303:03", "conformer: Active steering & verification (ae4f5d24)", 0.0, 100.0, true], [1, 16.6, 1.2, "infra", "HPC / Environment Tooling", "16:36\u201317:48", "conformer: Active steering & verification (da453742)", 0.0, 100.0, false], [1, 19.65, 5.0, "ai", "AI Architecture Steering", "19:39\u201301:05", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [1, 19.92, 0.46, "infra", "HPC / Environment Tooling", "19:55\u201320:23", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false], [1, 23.23, 0.52, "ai", "Conformer Physics", "23:14\u201323:45", "conformer: Active steering & verification (ae4f5d24)", 50.0, 50.0, true], [2, 11.33, 0.87, "ai", "AI Architecture Steering", "11:20\u201312:12", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [2, 11.53, 0.59, "ai", "Conformer Physics", "11:32\u201312:07", "conformer: Active steering & verification (ae4f5d24)", 50.0, 50.0, true], [2, 13.0, 0.89, "ai", "AI Architecture Steering", "13:00\u201313:54", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 22.27, 1.0, "ai", "AI Architecture Steering", "22:16\u201323:16", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [2, 23.28, 0.3, "ai", "AI Architecture Steering", "23:17\u201323:35", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [2, 23.5, 0.94, "infra", "HPC / Environment Tooling", "23:30\u201300:26", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false], [2, 23.85, 1.99, "ai", "AI Architecture Steering", "23:51\u201301:51", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [3, 0.62, 0.43, "ai", "Conformer Physics", "00:37\u201301:03", "conformer: Active steering & verification (ae4f5d24)", 0.0, 100.0, true], [3, 12.27, 4.73, "ai", "AI Architecture Steering", "12:16\u201317:00", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [3, 13.62, 0.5, "infra", "HPC / Environment Tooling", "13:37\u201314:07", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false], [3, 14.17, 0.3, "infra", "HPC / Environment Tooling", "14:10\u201314:28", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false], [3, 17.4, 1.23, "ai", "AI Architecture Steering", "17:24\u201318:38", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [3, 18.67, 0.3, "ai", "AI Architecture Steering", "18:40\u201318:58", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 1.07, 0.54, "ai", "AI Architecture Steering", "01:04\u201301:37", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 14.43, 0.65, "ai", "AI Architecture Steering", "14:26\u201315:05", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 15.5, 2.68, "ai", "AI Architecture Steering", "15:30\u201318:10", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [4, 17.03, 0.68, "infra", "HPC / Environment Tooling", "17:02\u201317:43", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false], [4, 18.28, 3.59, "ai", "AI Architecture Steering", "18:17\u201321:52", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [4, 22.03, 1.08, "infra", "HPC / Environment Tooling", "22:02\u201323:07", "conformer: Active steering & verification (da453742)", 0.0, 33.3, false], [4, 22.62, 0.61, "ai", "Conformer Physics", "22:37\u201323:14", "conformer: Active steering & verification (ae4f5d24)", 33.3, 33.3, true], [4, 22.75, 4.4, "ai", "AI Architecture Steering", "22:45\u201303:09", "conformer: Active steering & verification (3c0732c1)", 66.7, 33.3, true], [5, 0.62, 1.15, "ai", "Conformer Physics", "00:37\u201301:47", "conformer: Active steering & verification (ae4f5d24)", 0.0, 100.0, true], [5, 2.77, 0.61, "ai", "Conformer Physics", "02:46\u201303:23", "conformer: Active steering & verification (ae4f5d24)", 0.0, 100.0, true], [5, 12.13, 0.63, "ai", "AI Architecture Steering", "12:08\u201312:46", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [5, 13.17, 0.98, "ai", "AI Architecture Steering", "13:10\u201314:09", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [5, 13.72, 0.56, "infra", "HPC / Environment Tooling", "13:43\u201314:16", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false], [5, 14.15, 1.73, "ai", "AI Architecture Steering", "14:09\u201315:53", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [5, 14.7, 0.46, "ai", "Conformer Physics", "14:42\u201315:10", "conformer: Active steering & verification (ae4f5d24)", 50.0, 50.0, true], [5, 16.53, 0.8, "ai", "AI Architecture Steering", "16:32\u201317:20", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [5, 22.37, 0.63, "ai", "AI Architecture Steering", "22:22\u201323:00", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [5, 23.03, 0.3, "ai", "AI Architecture Steering", "23:02\u201323:20", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [6, 0.12, 0.42, "ai", "AI Architecture Steering", "00:07\u201300:32", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [6, 0.55, 3.15, "ai", "AI Architecture Steering", "00:33\u201303:42", "conformer: Active steering & verification (3c0732c1)", 0.0, 33.3, true], [6, 1.87, 0.7, "ai", "Conformer Physics", "01:52\u201302:34", "conformer: Active steering & verification (ae4f5d24)", 33.3, 33.3, true], [6, 2.3, 0.63, "infra", "HPC / Environment Tooling", "02:18\u201302:55", "conformer: Active steering & verification (da453742)", 66.7, 33.3, false], [6, 2.6, 0.3, "ai", "Conformer Physics", "02:36\u201302:54", "conformer: Active steering & verification (ae4f5d24)", 33.3, 33.3, true], [6, 13.82, 1.23, "ai", "AI Architecture Steering", "13:49\u201315:02", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true]]}, {"k": "2026-10-05", "lbl": "Week 4: Oct 05 \u2013 Oct 11", "focus": "Receptor-Molecule Binding Affinity, Desirability Gates & Training Management", "days": [{"name": "Mon", "date": "05 Oct", "iso": "2026-10-05"}, {"name": "Tue", "date": "06 Oct", "iso": "2026-10-06"}, {"name": "Wed", "date": "07 Oct", "iso": "2026-10-07"}, {"name": "Thu", "date": "08 Oct", "iso": "2026-10-08"}, {"name": "Fri", "date": "09 Oct", "iso": "2026-10-09"}, {"name": "Sat", "date": "10 Oct", "iso": "2026-10-10"}, {"name": "Sun", "date": "11 Oct", "iso": "2026-10-11"}], "durs_strict": [0.0, 0.0, 0.0, 1.5, 1.3, 2.6, 9.7], "durs_relaxed": [0.4, 0.0, 3.6, 2.7, 3.5, 5.8, 10.2], "tot_strict": 15.1, "tot_relaxed": 26.2, "evs": [[0, 0.17, 0.39, "edu", "Educational Guide / Podcast App", "00:10\u201300:33", "worn we have hardcoded:         nitro_smarts = \"[$([NX3](=O)=O),$([NX3+](=O)[O-]; update if its in test we can have original:\n\"\"\"\n   def test_scaffold_substructur", 0.0, 100.0, false], [2, 11.2, 0.71, "edu", "Educational Guide / Podcast App", "11:12\u201311:55", "We drained all of our tokens again (and we have meetings tommorow)\n- what is our; We drained all of our tokens again (and we have meetings tommorow)\n- what is our", 0.0, 100.0, false], [2, 12.38, 0.99, "edu", "Educational Guide / Podcast App", "12:23\u201313:22", "MY new agent.md:\n\"\"\"\n**Batchlor thesis strictness**: My batchlor thesis is ligan; enything rigarding GPU/cuda needs to be tested in /drugex-dichtator \n \n \nThe cur", 0.0, 100.0, false], [2, 21.42, 1.85, "edu", "Educational Guide / Podcast App", "21:25\u201323:16", "1) Not all function supports Parallel Conformer Gen - some of them need 1 and br; Also all /outputs sould be in .gitignore\n \n \nThe current local time is: 2026-10-", 0.0, 100.0, false], [3, 21.53, 0.42, "ai", "Conformer Physics", "21:32\u201321:57", "conformer: Active steering & verification (f73584b6)", 0.0, 100.0, true], [3, 21.97, 2.0, "edu", "Educational Guide / Podcast App", "21:58\u201323:58", "- Why do we have satch a small disirebility (do we have stric tresholds?) - (and; How can we mesure real connection to receptor (i have 2 recpetors) need to test ", 0.0, 50.0, false], [3, 23.12, 1.11, "ai", "Conformer Physics", "23:07\u201300:13", "conformer: Active steering & verification (f73584b6)", 50.0, 50.0, true], [4, 1.12, 0.42, "ai", "Conformer Physics", "01:07\u201301:32", "conformer: Active steering & verification (f73584b6)", 0.0, 50.0, true], [4, 1.48, 1.63, "edu", "Educational Guide / Podcast App", "01:29\u201303:07", "\"3. Deconstructing Pharmacophore Concepts & fulopjoz/pharmacophore-toolkit\"?\nbtw; before that, i think i lost 1 important reserch output (there is non in standart", 50.0, 50.0, false], [4, 13.03, 0.66, "edu", "Educational Guide / Podcast App", "13:02\u201313:41", "1) make the graph automaticly plot all mesured stats (so we dont run into having; add more explanation to \"/home/kolarv/DrugEx/_david/code/anti_cheating_rewards.p", 0.0, 100.0, false], [4, 20.42, 0.3, "ai", "Conformer Physics", "20:25\u201320:43", "conformer: Active steering & verification (f73584b6)", 0.0, 100.0, true], [4, 20.92, 0.56, "ai", "Conformer Physics", "20:55\u201321:28", "conformer: Active steering & verification (f73584b6)", 0.0, 100.0, true], [5, 2.33, 1.25, "edu", "Educational Guide / Podcast App", "02:20\u201303:36", "For todays overhight run i want you to \n1) decrease significantly tresholds, so ; For todays overhight run i want you to \n1) decrease significantly tresholds, so ", 0.0, 100.0, false], [5, 11.93, 0.37, "edu", "Educational Guide / Podcast App", "11:56\u201312:18", "Run new test all 35 epochs (with drop off)\r\n1) no properties - just 3D RDKit and; 0) add quick readme.md files to each of new test folder\nRun new test all 35 epoc", 0.0, 100.0, false], [5, 14.48, 0.75, "edu", "Educational Guide / Podcast App", "14:29\u201315:14", "We are currently hitting a lot of cuda out of memory errors, we sould pouse it\n ; bruh just run the commands\n \n \nThe current local time is: 2026-10-10T14:36:21+02", 0.0, 100.0, false], [5, 15.75, 0.41, "edu", "Educational Guide / Podcast App", "15:45\u201316:10", "1) read brain of \"9190ea7f-864f-48c0-9ebb-e8b6aa32511a\" agen\n2) continue with tr; No first look up at chat \"9190ea7f-864f-48c0-9ebb-e8b6aa32511a\" read it, then do", 0.0, 100.0, false], [5, 17.58, 0.77, "edu", "Educational Guide / Podcast App", "17:35\u201318:22", "can you fix that chat - there might be someting wrong with the chat history/json; btw becouse when i open the chat antigrvaity goes blank\n \n \nThe current local ti", 0.0, 50.0, false], [5, 18.02, 0.73, "ai", "AI Architecture Steering", "18:01\u201318:44", "conformer: Active steering & verification (3c0732c1)", 50.0, 50.0, true], [5, 19.28, 1.16, "ai", "AI Architecture Steering", "19:17\u201320:27", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [5, 20.5, 0.73, "ai", "AI Architecture Steering", "20:30\u201321:14", "conformer: Active steering & verification (3c0732c1)", 0.0, 100.0, true], [6, 11.45, 0.51, "infra", "HPC / Environment Tooling", "11:27\u201311:58", "conformer: Active steering & verification (da453742)", 0.0, 100.0, false], [6, 15.08, 5.0, "ai", "AI Architecture Steering", "15:05\u201320:06", "conformer: Active steering & verification (3c0732c1)", 0.0, 33.3, true], [6, 15.27, 0.55, "ai", "Conformer Physics", "15:16\u201315:49", "conformer: Active steering & verification (ae4f5d24)", 50.0, 50.0, true], [6, 15.93, 2.5, "infra", "HPC / Environment Tooling", "15:56\u201318:26", "conformer: Active steering & verification (da453742)", 33.3, 33.3, false], [6, 16.1, 0.3, "ai", "Conformer Physics", "16:06\u201316:24", "conformer: Active steering & verification (ae4f5d24)", 66.7, 33.3, true], [6, 16.9, 0.64, "ai", "Conformer Physics", "16:54\u201317:32", "conformer: Active steering & verification (ae4f5d24)", 66.7, 33.3, true], [6, 22.73, 4.73, "ai", "AI Architecture Steering", "22:44\u201303:27", "conformer: Active steering & verification (3c0732c1)", 0.0, 50.0, true], [6, 23.97, 0.86, "infra", "HPC / Environment Tooling", "23:58\u201300:50", "conformer: Active steering & verification (da453742)", 50.0, 50.0, false]]}, {"k": "2026-09-28", "lbl": "Week 3: Sep 28 \u2013 Oct 04", "focus": "Conformer MMFF94s Minimization Suite, Papyrus Auto-Discovery & SequenceRNN Debugging", "days": [{"name": "Mon", "date": "28 Sep", "iso": "2026-09-28"}, {"name": "Tue", "date": "29 Sep", "iso": "2026-09-29"}, {"name": "Wed", "date": "30 Sep", "iso": "2026-09-30"}, {"name": "Thu", "date": "01 Oct", "iso": "2026-10-01"}, {"name": "Fri", "date": "02 Oct", "iso": "2026-10-02"}, {"name": "Sat", "date": "03 Oct", "iso": "2026-10-03"}, {"name": "Sun", "date": "04 Oct", "iso": "2026-10-04"}], "durs_strict": [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.6], "durs_relaxed": [0.0, 1.2, 0.4, 4.6, 6.8, 5.5, 3.3], "tot_strict": 2.6, "tot_relaxed": 21.8, "evs": [[1, 22.78, 1.16, "edu", "Educational Guide / Podcast App", "22:47\u201323:57", "Make me an explanetery 10-20 (or more) page quide\n- why did we chose arichtcture; - Make it good ctr+p (print) material (eg. good page spliting (even in code/para", 0.0, 100.0, false], [2, 14.17, 0.37, "edu", "Educational Guide / Podcast App", "14:10\u201314:33", "/drugex-dichtator is not accesable (server down) - can  think we have a local co; okk its already in drugex_edu/repo (even pipline.py) is there  \n \nThe current lo", 0.0, 100.0, false], [3, 12.52, 2.83, "edu", "Educational Guide / Podcast App", "12:31\u201315:21", "now it /drugex-dichtator works again - did we ever run a propper run?\n \n \nThe cu; So youse our butet proof code\nif not /boost check logic of steps in our programe", 0.0, 100.0, false], [3, 21.5, 1.75, "edu", "Educational Guide / Podcast App", "21:30\u201323:15", "/boost Implement this and make sure we didn't make any bugs - we could do one mo; i think we are done\n \n \nThe current local time is: 2026-10-01T22:11:48+02:00.", 0.0, 100.0, false], [4, 0.52, 0.63, "edu", "Educational Guide / Podcast App", "00:31\u201301:09", "/boost \n1) check we have implmented places that we can monitor our pipilne\n2) ru; /boost Give subagents enought/all context\n1) check we have implmented places tha", 0.0, 100.0, false], [4, 9.7, 1.27, "edu", "Educational Guide / Podcast App", "09:42\u201310:59", "..\rCreating fragment-molecule pairs (batch processing):   0%|          | 0/1 [00; Dont frget about coding excelecy i have in my agent.md\n- pre check the pipiline\n", 0.0, 100.0, false], [4, 11.7, 0.33, "edu", "Educational Guide / Podcast App", "11:42\u201312:02", "check the state\n \n \nThe current local time is: 2026-10-02T11:47:38+02:00.", 0.0, 100.0, false], [4, 13.87, 1.63, "edu", "Educational Guide / Podcast App", "13:52\u201315:30", "Apply it and search for more hyper-parameters, that we sould optimize. We have w; didnt we just achived better proggres with stricter 3d shape hyperparamethers?\n ", 0.0, 100.0, false], [4, 16.22, 2.0, "edu", "Educational Guide / Podcast App", "16:13\u201318:13", "Run the pipiline and verify\n \n \nThe current local time is: 2026-10-02T16:18:50+0; Run the our pipiline (full version no test version) and verify\n \n \nThe current l", 0.0, 100.0, false], [4, 19.18, 0.59, "edu", "Educational Guide / Podcast App", "19:11\u201319:46", "Comments on artifact URI: file:///c%3A/Users/kolar/.gemini/antigravity/brain/919; Comments on artifact URI: file:///c%3A/Users/kolar/.gemini/antigravity/brain/919", 0.0, 100.0, false], [4, 22.55, 0.33, "edu", "Educational Guide / Podcast App", "22:33\u201322:53", "Lats talk this out first\n- i get the ponint of generating many different Core Sc", 0.0, 100.0, false], [5, 11.63, 1.53, "edu", "Educational Guide / Podcast App", "11:38\u201313:10", "Current test are too somplistic that doesnt realy test anyting - make only menai; btw not sure witch agent trigger it, but i just selected VSL as deaful for .wav ", 0.0, 100.0, false], [5, 14.13, 0.48, "edu", "Educational Guide / Podcast App", "14:08\u201314:37", "our current test are non-sence\n \n \nThe current local time is: 2026-10-03T14:13:5; our current test are non-sence - some synthatica jargen, whithout acctualy testi", 0.0, 100.0, false], [5, 17.57, 0.33, "edu", "Educational Guide / Podcast App", "17:34\u201317:54", "If you already solve following message continue with original work\n\"\"\"\nYou can s", 0.0, 50.0, false], [5, 17.67, 0.57, "ai", "Conformer Physics", "17:40\u201318:14", "conformer: Active steering & verification (f73584b6)", 50.0, 50.0, true], [5, 18.53, 0.3, "ai", "Conformer Physics", "18:32\u201318:50", "conformer: Active steering & verification (f73584b6)", 0.0, 50.0, true], [5, 18.55, 0.33, "edu", "Educational Guide / Podcast App", "18:33\u201318:53", "I had to switch account: Continue where we stoped: Run five independent verifica", 50.0, 50.0, false], [5, 19.1, 0.56, "ai", "Conformer Physics", "19:06\u201319:40", "conformer: Active steering & verification (f73584b6)", 0.0, 100.0, true], [5, 19.97, 0.59, "ai", "Conformer Physics", "19:58\u201320:34", "conformer: Active steering & verification (f73584b6)", 0.0, 100.0, true], [5, 21.95, 0.98, "edu", "Educational Guide / Podcast App", "21:57\u201322:56", "zsh:1: command not found: Returns\n \n \nThe current local time is: 2026-10-03T22:0; in ~/build_project/drugex_edu/repo i am running agents that work on improvement ", 0.0, 100.0, false], [5, 23.78, 0.39, "edu", "Educational Guide / Podcast App", "23:47\u201300:11", "A lot of agents are duing simple strip the origianl docstring (keeping only the ; A lot of agents are duing simple strip the origianl docstring (keeping only the ", 0.0, 100.0, false], [6, 15.43, 0.56, "ai", "Conformer Physics", "15:26\u201316:00", "conformer: Active steering & verification (f73584b6)", 0.0, 50.0, true], [6, 15.63, 0.33, "edu", "Educational Guide / Podcast App", "15:38\u201315:58", "Sorry i had to switch accounts, continue\n \n \nThe current local time is: 2026-10-", 50.0, 50.0, false], [6, 23.43, 0.38, "edu", "Educational Guide / Podcast App", "23:26\u201323:49", "Sorry i had to switch accounts, continue\n \n \nThe current local time is: 2026-10-; Sorry i had to switch accounts, continue\n \n \nThe current local time is: 2026-10-", 0.0, 100.0, false], [6, 23.93, 2.33, "edu", "Educational Guide / Podcast App", "23:56\u201302:15", "not all files are striped\n \n \nThe current local time is: 2026-10-04T00:01:02+02:; Yess delegate to ochestrator, taht we need these agent-high-value information\n \n", 0.0, 100.0, false]]}, {"k": "2026-09-21", "lbl": "Week 2: Sep 21 \u2013 Sep 27", "focus": "ROCS 3D Color Scoring Merge, Retrosynthetic Accessibility & DrugEx EDU Podcast Tooling", "days": [{"name": "Mon", "date": "21 Sep", "iso": "2026-09-21"}, {"name": "Tue", "date": "22 Sep", "iso": "2026-09-22"}, {"name": "Wed", "date": "23 Sep", "iso": "2026-09-23"}, {"name": "Thu", "date": "24 Sep", "iso": "2026-09-24"}, {"name": "Fri", "date": "25 Sep", "iso": "2026-09-25"}, {"name": "Sat", "date": "26 Sep", "iso": "2026-09-26"}, {"name": "Sun", "date": "27 Sep", "iso": "2026-09-27"}], "durs_strict": [3.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "durs_relaxed": [3.2, 0.0, 5.7, 5.2, 6.0, 0.5, 4.3], "tot_strict": 3.2, "tot_relaxed": 24.9, "evs": [[0, 1.73, 0.31, "tablet", "Tablet Math Derivation", "01:44\u201302:03", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (19m)", 0.0, 100.0, true], [0, 19.78, 0.31, "tablet", "Tablet Math Derivation", "19:47\u201320:05", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (19m)", 0.0, 100.0, true], [0, 20.72, 0.25, "tablet", "Tablet Math Derivation", "20:43\u201320:54", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [0, 21.12, 0.76, "tablet", "Tablet Math Derivation", "21:07\u201321:53", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (45m)", 0.0, 100.0, true], [0, 22.37, 1.32, "tablet", "Tablet Math Derivation", "22:22\u201323:42", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (79m)", 0.0, 100.0, true], [0, 23.87, 0.25, "tablet", "Tablet Math Derivation", "23:52\u201300:04", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [2, 13.95, 1.45, "edu", "Educational Guide / Podcast App", "13:57\u201315:24", "Your task is to fix this folder and its git\n- podcast - just local old files (yo; Continue\n \n \nThe current local time is: 2026-09-23T14:10:46+02:00.", 0.0, 50.0, false], [2, 14.17, 0.83, "infra", "HPC / Environment Tooling", "14:10\u201315:00", "/wsl-first \ncrate in this drugex foler readme, instructing how to get to /drugex; /wsl-first \ncrate in this drugex foler readme, instructing how to get to /drugex", 50.0, 50.0, false], [2, 17.95, 1.31, "edu", "Educational Guide / Podcast App", "17:57\u201319:15", "For each method of learning\n \n \nThe current local time is: 2026-09-23T18:02:07+0; 1) Make the main page more compact\n2) Side panel is in sub-pages take too much s", 0.0, 100.0, false], [2, 21.25, 2.32, "edu", "Educational Guide / Podcast App", "21:15\u201323:34", "1) btw NEVER use emoji in our poject\n2) from now on we dont need special vercel ; /boost Imrpove\"Executable Example\r\" seccion - if possibale non of the showcase s", 0.0, 50.0, false], [2, 22.85, 1.31, "infra", "HPC / Environment Tooling", "22:51\u201300:10", "So 1) make /home/kolarv/DrugEx/_david/receptor_similar/receptor_similar.py use o; Procced btw for standartization use Standardization (i think, but im not sure - ", 50.0, 50.0, false], [3, 1.37, 1.67, "edu", "Educational Guide / Podcast App", "01:22\u201303:02", "Contienue becouse of \"This conversation grew too large, so the history before th; Contienue becouse of \"This conversation grew too large, so the history before th", 0.0, 50.0, false], [3, 1.38, 1.15, "infra", "HPC / Environment Tooling", "01:23\u201302:32", "wsl scp /home/kolar/learn_projects/drugex/.scratch_receptor_similar.py dichtator; wsl scp /home/kolar/learn_projects/drugex/.scratch_receptor_similar.py dichtator", 50.0, 50.0, false], [3, 13.17, 0.33, "edu", "Educational Guide / Podcast App", "13:10\u201313:30", "Make all abstract classes more gray\n \n \nThe current local time is: 2026-09-24T13", 0.0, 100.0, false], [3, 15.88, 0.33, "infra", "HPC / Environment Tooling", "15:53\u201316:13", "import to david all idrugex modules, so i can just in code write always namespac", 0.0, 100.0, false], [3, 17.07, 2.49, "infra", "HPC / Environment Tooling", "17:04\u201319:34", "/boost \nMake a more documnentation - as user doesnt need to write everyting from; **Task**: /boost \nMake a more documnentation - as user doesnt need to write ever", 0.0, 50.0, false], [3, 17.9, 0.33, "edu", "Educational Guide / Podcast App", "17:54\u201318:14", "/boost \r\nMake a more documnentation - as user doesnt need to write everyting fro", 50.0, 50.0, false], [3, 23.95, 0.42, "infra", "HPC / Environment Tooling", "23:57\u201300:22", "are we enought benevolent when we imput only 1/few SMILES? (as it souldnt be muc; Pure Soft Ranking (Recommended):\r\n\n \n \nThe current local time is: 2026-09-24T00:", 0.0, 100.0, false], [4, 0.13, 1.81, "edu", "Educational Guide / Podcast App", "00:08\u201301:57", "in secion Member Functions also include methods (like __init__\r\n\n \n \nThe current; in secion Member Functions also include methods (like __init__\r\n\n \n \nThe current", 0.0, 100.0, false], [4, 9.63, 0.96, "edu", "Educational Guide / Podcast App", "09:38\u201310:35", "No need for extra visual checking :)\n \n \nThe current local time is: 2026-09-25T0; 1) i want to re-designe doc page\n- make the tags like \"DrugEx 3.4+\", \r\"SMILES Ca", 0.0, 100.0, false], [4, 14.55, 3.05, "infra", "HPC / Environment Tooling", "14:33\u201317:36", "clean coding clean this _david/old_s*it_that_still_wouldnt_work_anyways.py (like; FOr this special type - write types only inparameters, dont write dcstrings  don", 0.0, 50.0, false], [4, 17.08, 0.71, "edu", "Educational Guide / Podcast App", "17:05\u201317:48", "at /drugex-dichtator  look at _david/AGENTS.md\nMove the transfer learning we use; i didnt have the BRICS, i know its a way to garante synthesibility - is it nativ", 50.0, 50.0, false], [5, 23.72, 0.48, "edu", "Educational Guide / Podcast App", "23:43\u201300:11", "and doesnt just SA score make the same, hiwever BRICS limuts the imagination of ; How do we know BRICS has not bed effect on our model? (i gues its cool that its ", 0.0, 100.0, false], [6, 0.57, 0.57, "infra", "HPC / Environment Tooling", "00:34\u201301:09", "Add here all the 3d graph stuff\n \n \nThe current local time is: 2026-09-27T00:39:; I would like to say that we souldnt reinforcment learning on \"train_dataset\" but", 0.0, 100.0, false], [6, 14.27, 2.78, "infra", "HPC / Environment Tooling", "14:16\u201317:03", "I hread RAS score is better the SA Score\n- but how can i implent this scorer in ; Oki will test it out.\n\nAboyt QSPRpred - we havemacube learnng for that - however", 0.0, 50.0, false], [6, 14.67, 3.32, "edu", "Educational Guide / Podcast App", "14:40\u201317:59", "on line 382, implement complete RetrosyntheticAccessibilityScorer with const hyp; As for GraphTransformer cant generate from nothing (and best we can give his is ", 50.0, 50.0, false]]}, {"k": "2026-09-14", "lbl": "Week 1: Sep 14 \u2013 Sep 20", "focus": "PEP 484 Architecture Modernization, Constructor Docstrings & Notewise Tablet Derivations", "days": [{"name": "Mon", "date": "14 Sep", "iso": "2026-09-14"}, {"name": "Tue", "date": "15 Sep", "iso": "2026-09-15"}, {"name": "Wed", "date": "16 Sep", "iso": "2026-09-16"}, {"name": "Thu", "date": "17 Sep", "iso": "2026-09-17"}, {"name": "Fri", "date": "18 Sep", "iso": "2026-09-18"}, {"name": "Sat", "date": "19 Sep", "iso": "2026-09-19"}, {"name": "Sun", "date": "20 Sep", "iso": "2026-09-20"}], "durs_strict": [0.0, 0.0, 0.0, 4.5, 1.0, 2.8, 3.1], "durs_relaxed": [0.0, 0.0, 0.0, 4.5, 1.0, 2.8, 3.1], "tot_strict": 11.4, "tot_relaxed": 11.4, "evs": [[3, 15.22, 0.25, "tablet", "Tablet Math Derivation", "15:13\u201315:27", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [3, 16.68, 0.25, "tablet", "Tablet Math Derivation", "16:41\u201316:48", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [3, 17.68, 0.81, "tablet", "Tablet Math Derivation", "17:41\u201318:29", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (49m)", 0.0, 100.0, true], [3, 18.73, 0.8, "tablet", "Tablet Math Derivation", "18:44\u201319:33", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (48m)", 0.0, 100.0, true], [3, 19.78, 0.25, "tablet", "Tablet Math Derivation", "19:47\u201319:58", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [3, 20.9, 0.69, "tablet", "Tablet Math Derivation", "20:54\u201321:36", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (41m)", 0.0, 100.0, true], [3, 21.98, 0.25, "tablet", "Tablet Math Derivation", "21:59\u201321:59", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 50.0, true], [3, 22.2, 0.28, "tablet", "Tablet Math Derivation", "22:12\u201322:30", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (17m)", 50.0, 50.0, true], [3, 22.75, 0.91, "tablet", "Tablet Math Derivation", "22:45\u201323:40", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (54m)", 0.0, 100.0, true], [4, 21.32, 0.49, "tablet", "Tablet Math Derivation", "21:19\u201321:48", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (29m)", 0.0, 100.0, true], [4, 21.97, 0.25, "tablet", "Tablet Math Derivation", "21:58\u201322:03", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [4, 22.33, 0.25, "tablet", "Tablet Math Derivation", "22:20\u201322:27", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [5, 13.08, 0.25, "tablet", "Tablet Math Derivation", "13:05\u201313:07", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [5, 14.77, 0.45, "tablet", "Tablet Math Derivation", "14:46\u201315:14", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (27m)", 0.0, 100.0, true], [5, 15.68, 0.25, "tablet", "Tablet Math Derivation", "15:41\u201315:50", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [5, 16.87, 0.25, "tablet", "Tablet Math Derivation", "16:52\u201316:59", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [5, 18.8, 0.25, "tablet", "Tablet Math Derivation", "18:48\u201319:03", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [5, 19.93, 0.43, "tablet", "Tablet Math Derivation", "19:56\u201320:22", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (26m)", 0.0, 100.0, true], [5, 20.67, 0.25, "tablet", "Tablet Math Derivation", "20:40\u201320:42", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [5, 21.28, 0.62, "tablet", "Tablet Math Derivation", "21:17\u201321:55", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (37m)", 0.0, 100.0, true], [6, 0.15, 1.23, "tablet", "Tablet Math Derivation", "00:09\u201301:23", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (74m)", 0.0, 100.0, true], [6, 10.75, 0.25, "tablet", "Tablet Math Derivation", "10:45\u201310:55", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true], [6, 14.2, 1.38, "tablet", "Tablet Math Derivation", "14:12\u201315:35", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (83m)", 0.0, 100.0, true], [6, 16.97, 0.25, "tablet", "Tablet Math Derivation", "16:58\u201317:11", "Notewise tablet derivation: MMFF94s dielectric shielding formulas & coordinate matrices (15m)", 0.0, 100.0, true]]}];
+var currentWeekIdx = 0;
+var currentMode = 'strict';
+var HOUR_H = 44;
+var TOTAL_H = 24 * HOUR_H;
+
+function initGutter() {
+  var tg = document.getElementById('time-gutter');
+  var s = '';
+  for (var h = 0; h < 24; h++) {
+    var str = (h < 10 ? '0' : '') + h + ':00';
+    var topPx = h * HOUR_H;
+    s += '<div class="time-slot-label" style="top:' + topPx + 'px;">' + str + '</div>';
+  }
+  tg.innerHTML = s;
+}
+
+function initNav() {
+  var nb = document.getElementById('week-nav-bar');
+  var s = '<button class="nav-arrow" onclick="navWeek(-1)">&larr;</button>';
+  for (var i = 0; i < WEEKS.length; i++) {
+    var act = i === 0 ? ' active' : '';
+    var lbl = WEEKS[i].lbl.split(':')[0];
+    s += '<button class="week-btn' + act + '" id="btn-' + i + '" onclick="selectWeek(' + i + ')">' + lbl + '</button>';
+  }
+  s += '<button class="nav-arrow" onclick="navWeek(1)">&rarr;</button>';
+  nb.innerHTML = s;
+}
+
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('btn-mode-strict').classList.toggle('active', mode === 'strict');
+  document.getElementById('btn-mode-relaxed').classList.toggle('active', mode === 'relaxed');
+  document.getElementById('pill-mode-lbl').textContent = mode === 'strict' ? 'Strict Committee Floor' : 'Comprehensive Immersion';
+  document.getElementById('pill-tot-net').textContent = mode === 'strict' ? '195.3h' : '385.2h';
+  
+  // Show/hide edu & infra in filter row based on mode
+  renderWeek(currentWeekIdx);
+}
+
+function renderWeek(idx) {
+  currentWeekIdx = idx;
+  var w = WEEKS[idx];
+  document.getElementById('week-title-display').textContent = w.lbl + ': ' + w.focus;
+  var tot = currentMode === 'strict' ? w.tot_strict : w.tot_relaxed;
+  document.getElementById('week-stats-display').textContent = 'Net Non-Overlapping: ' + tot.toFixed(1) + 'h (' + (currentMode === 'strict' ? 'Committee Mode' : 'Comprehensive Mode') + ')';
+
+  for (var i = 0; i < WEEKS.length; i++) {
+    var b = document.getElementById('btn-' + i);
+    if (b) b.classList.toggle('active', i === idx);
+  }
+
+  for (var d = 0; d < 7; d++) {
+    document.getElementById('ddate-' + d).textContent = w.days[d].date;
+    var dur = currentMode === 'strict' ? w.durs_strict[d] : w.durs_relaxed[d];
+    document.getElementById('dhrs-' + d).textContent = dur.toFixed(1) + 'h';
+    document.getElementById('col-' + d).innerHTML = '';
+  }
+
+  for (var j = 0; j < w.evs.length; j++) {
+    var e = w.evs[j];
+    var day = e[0];
+    var start = e[1];
+    var dur = e[2];
+    var type = e[3];
+    var title = e[4];
+    var time = e[5];
+    var detail = e[6];
+    var left_p = e[7];
+    var width_p = e[8];
+    var is_strict = e[9];
+
+    if (currentMode === 'strict' && !is_strict && type !== 'compute') continue;
+
+    var col = document.getElementById('col-' + day);
+    if (!col) continue;
+
+    var top_px = Math.round(start * HOUR_H);
+    var height_px = Math.max(18, Math.round(dur * HOUR_H));
+
+    var evDiv = document.createElement('div');
+    evDiv.className = 'cal-event type-' + type;
+    evDiv.style.top = top_px + 'px';
+    evDiv.style.height = height_px + 'px';
+    evDiv.style.left = left_p + '%';
+    evDiv.style.width = width_p + '%';
+
+    evDiv.setAttribute('data-title', title);
+    evDiv.setAttribute('data-time', time);
+    evDiv.setAttribute('data-dur', dur.toFixed(1) + 'h');
+    evDiv.setAttribute('data-type', type);
+    evDiv.setAttribute('data-detail', detail);
+
+    var dur_str = dur.toFixed(1) + 'h';
+    var inner = '<div class="ev-top"><div class="ev-name">' + title + '</div><div class="ev-len">' + dur_str + '</div></div>';
+    if (height_px >= 32) {
+      inner += '<div class="ev-desc">' + detail + '</div>';
+    }
+    evDiv.innerHTML = inner;
+    col.appendChild(evDiv);
+  }
+}
+
+function selectWeek(idx) { renderWeek(idx); }
+function navWeek(dir) {
+  var n = currentWeekIdx + dir;
+  if (n >= 0 && n < WEEKS.length) {
+    renderWeek(n);
+  }
+}
+
+function jumpToHour(hour) {
+  var sb = document.getElementById('cal-scroll-body');
+  if (sb) sb.scrollTop = hour * HOUR_H;
+}
+
+function toggleStream(streamType) {
+  var chip = document.getElementById('flt-' + streamType);
+  var isOff = chip.classList.toggle('off');
+  var evs = document.querySelectorAll('.type-' + streamType);
+  for (var i = 0; i < evs.length; i++) {
+    evs[i].style.display = isOff ? 'none' : 'block';
+  }
+}
+
+document.querySelector('.cal-root').addEventListener('click', function(e) {
+  var ev = e.target.closest('.cal-event');
+  if (!ev) return;
+  var title = ev.getAttribute('data-title') || '';
+  var time = ev.getAttribute('data-time') || '';
+  var dur = ev.getAttribute('data-dur') || '';
+  var type = ev.getAttribute('data-type') || '';
+  var detail = ev.getAttribute('data-detail') || '';
+  var typeLabels = {
+    'tablet': 'Tablet Math Derivation (Notewise)',
+    'dichtator': 'Remote GPU Dev (Dichtator SSH)',
+    'ai': 'AI Architecture & Conformer Steering',
+    'edu': 'Educational Guide & Podcast Tooling',
+    'infra': 'HPC Infrastructure & Tooling',
+    'compute': 'HPC Batch Compute (PBS Pro 0.0x)'
+  };
+  document.getElementById('dd-title').textContent = title + ' (' + dur + ')';
+  document.getElementById('dd-meta').textContent = (typeLabels[type] || type) + ' • ' + (time ? time + ' CET • ' : '') + detail;
+  document.getElementById('dd-badge').textContent = dur + ' Active';
+});
+
+initGutter();
+initNav();
+renderWeek(0);
+jumpToHour(8);
+</script>
+</body>
+</html>

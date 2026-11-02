@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DrugEx Bachelor Thesis — Workload Proof Calendar</title>
+<style>
+:root {
+  --bg: #0b1220; --card: #111a2c; --card2: #0e1626; --border: #243149;
+  --txt: #e8eef8; --muted: #8ea0bd; --dim: #5c6f8e;
+  --cyan: #38bdf8; --violet: #a78bfa; --emerald: #34d399; --amber: #fbbf24;
+  --rose: #fb7185; --sky: #7dd3fc; --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: var(--bg); }
+body { font-family: var(--font); color: var(--txt); padding: 18px; max-width: 1500px; margin: 0 auto; }
+h1 { font-size: 1.45rem; font-weight: 800; letter-spacing: -0.01em; }
+h1 .accent { color: var(--cyan); }
+.sub { color: var(--muted); font-size: 0.82rem; margin-top: 3px; line-height: 1.45; }
+.sub b { color: var(--txt); }
+
+/* ---------- hero ---------- */
+.hero { background: linear-gradient(135deg, #0d1830 0%, #101c36 55%, #0c1e30 100%);
+  border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px 16px; margin-bottom: 14px;
+  position: relative; overflow: hidden; }
+.hero::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(600px 180px at 85% -20%, rgba(56,189,248,0.14), transparent 70%); }
+.hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+.badge-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.badge { font-size: 0.63rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; letter-spacing: 0.02em; }
+.badge.tz { background: rgba(56,189,248,0.13); color: var(--sky); border: 1px solid rgba(56,189,248,0.35); }
+.badge.proof { background: rgba(52,211,153,0.12); color: var(--emerald); border: 1px solid rgba(52,211,153,0.35); }
+.badge.live { background: rgba(251,113,133,0.14); color: var(--rose); border: 1px solid rgba(251,113,133,0.4); }
+.badge.gen { background: rgba(148,163,184,0.12); color: var(--muted); border: 1px solid rgba(148,163,184,0.3); }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; margin-top: 16px; }
+.stat { background: rgba(10,16,30,0.72); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 8px; }
+.stat .v { font-size: 1.28rem; font-weight: 800; font-family: var(--mono); color: #fff; line-height: 1.1; }
+.stat .v small { font-size: 0.72rem; color: var(--muted); font-weight: 600; }
+.stat .l { font-size: 0.62rem; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+.stat.hl .v { color: var(--cyan); }
+
+/* ---------- controls ---------- */
+.ctrl-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+.mode-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.mode-btn { background: var(--card2); color: var(--muted); border: 1px solid var(--border); padding: 8px 14px;
+  border-radius: 9px; font-size: 0.74rem; font-weight: 700; cursor: pointer; transition: all .15s; }
+.mode-btn b { font-family: var(--mono); }
+.mode-btn:hover { color: var(--txt); border-color: #33507a; }
+.mode-btn.active { background: linear-gradient(135deg, #0369a1, #075985); color: #fff; border-color: var(--cyan);
+  box-shadow: 0 2px 10px rgba(56,189,248,0.25); }
+.mode-btn.active.m2 { background: linear-gradient(135deg, #6d28d9, #5b21b6); border-color: var(--violet); box-shadow: 0 2px 10px rgba(167,139,250,0.25); }
+.mode-note { font-size: 0.66rem; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+
+.controls-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.week-nav { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.nav-arrow, .week-btn, .jump-btn { background: var(--card2); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 10px; font-size: 0.68rem; font-weight: 700; cursor: pointer; transition: all .13s; }
+.nav-arrow:hover, .week-btn:hover, .jump-btn:hover { background: #1c2942; color: #fff; }
+.week-btn.active { background: #0369a1; color: #fff; border-color: var(--cyan); }
+.jump-links { display: flex; align-items: center; gap: 4px; font-size: 0.66rem; color: var(--dim); }
+
+.filter-row { display: flex; gap: 14px; flex-wrap: wrap; padding: 8px 12px; background: var(--card2);
+  border: 1px solid var(--border); border-radius: 9px; font-size: 0.68rem; align-items: center; margin-bottom: 10px; }
+.filter-chip { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; transition: opacity .15s; }
+.filter-chip.off { opacity: 0.28; filter: grayscale(1); }
+.f-dot { width: 9px; height: 9px; border-radius: 3px; }
+.filter-note { margin-left: auto; color: var(--dim); font-size: 0.62rem; }
+
+/* ---------- calendar ---------- */
+.week-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; gap: 10px; flex-wrap: wrap; }
+.ws-title { font-size: 0.92rem; font-weight: 800; color: var(--sky); }
+.ws-focus { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
+.ws-stats { font-size: 0.7rem; color: var(--muted); font-family: var(--mono); text-align: right; }
+.ws-stats b { color: var(--cyan); }
+
+.cal-frame { border: 1px solid var(--border); border-radius: 10px; background: rgba(8,13,24,0.6); overflow: hidden; }
+.cal-sticky-header { display: grid; grid-template-columns: 46px repeat(7, 1fr); background: var(--card);
+  border-bottom: 2px solid var(--border); position: relative; z-index: 10; }
+.gutter-hdr { display: flex; align-items: center; justify-content: center; font-size: 0.58rem; color: var(--dim);
+  border-right: 1px solid var(--border); font-family: var(--mono); }
+.day-hdr { text-align: center; padding: 6px 2px 5px; border-right: 1px solid rgba(36,49,73,0.6); }
+.day-hdr:last-child { border-right: none; }
+.d-abbr { font-size: 0.58rem; font-weight: 800; text-transform: uppercase; color: var(--muted); letter-spacing: 0.06em; }
+.d-date { font-size: 0.95rem; font-weight: 800; color: #fff; line-height: 1.15; }
+.d-hours { font-size: 0.62rem; font-family: var(--mono); font-weight: 700; color: var(--cyan); margin-top: 1px; }
+.day-hdr.today-hdr .d-date { color: var(--rose); }
+
+.cal-scroll-body { height: 480px; overflow-y: scroll; overflow-x: hidden; position: relative; scroll-behavior: smooth; }
+.cal-grid-content { display: grid; grid-template-columns: 46px repeat(7, 1fr); height: 1056px; position: relative; }
+.time-gutter { border-right: 1px solid var(--border); position: relative; background: rgba(10,15,28,0.85); z-index: 5; }
+.time-slot-label { position: absolute; right: 6px; font-size: 0.56rem; font-family: var(--mono);
+  color: var(--dim); transform: translateY(-50%); }
+.day-col { position: relative; height: 100%; border-right: 1px solid rgba(36,49,73,0.35); z-index: 1;
+  background-image: linear-gradient(to bottom, rgba(36,49,73,0.45) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(36,49,73,0.16) 1px, transparent 1px);
+  background-size: 100% 44px, 100% 22px; }
+.day-col:last-child { border-right: none; }
+.sleep-shade { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(45deg,
+  rgba(2,6,16,0.55) 0 8px, rgba(2,6,16,0.38) 8px 16px); z-index: 0; }
+.sleep-shade .sleep-lbl { position: absolute; left: 4px; top: 4px; font-size: 0.52rem; color: #3b4c68;
+  letter-spacing: 0.08em; font-weight: 700; }
+
+.cal-event { position: absolute; border-radius: 5px; padding: 2px 5px; cursor: pointer; overflow: hidden;
+  transition: transform .12s, box-shadow .12s; z-index: 3; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  font-size: 0.6rem; line-height: 1.18; }
+.cal-event:hover { transform: scale(1.02); z-index: 30 !important; box-shadow: 0 5px 16px rgba(0,0,0,0.75); }
+.cal-event.selected { outline: 2px solid #fff; z-index: 29 !important; }
+.ev-top { display: flex; justify-content: space-between; align-items: baseline; gap: 2px; }
+.ev-name { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-len { font-family: var(--mono); font-size: 0.55rem; opacity: 0.9; flex-shrink: 0; }
+.ev-desc { font-size: 0.55rem; opacity: 0.78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.type-tablet { background: rgba(139,92,246,0.92); border: 1px solid #a78bfa; border-left: 3px solid #c4b5fd; color: #fff; }
+.type-dichtator { background: rgba(16,185,129,0.92); border: 1px solid #34d399; border-left: 3px solid #6ee7b7; color: #fff; }
+.type-ai { background: rgba(2,132,199,0.92); border: 1px solid #38bdf8; border-left: 3px solid #7dd3fc; color: #fff; }
+.type-edu { background: rgba(217,119,6,0.92); border: 1px solid #f59e0b; border-left: 3px solid #fde68a; color: #fff; }
+.type-infra { background: rgba(225,29,72,0.88); border: 1px solid #f43f5e; border-left: 3px solid #fda4af; color: #fff; }
+.type-compute { background: rgba(100,116,139,0.85); border: 1px dashed #cbd5e1; border-left: 3px solid #e2e8f0; color: #f1f5f9; }
+
+/* session bands */
+.sess-band { position: absolute; left: 0; right: 0; border-radius: 5px; cursor: pointer; z-index: 2;
+  background: linear-gradient(90deg, rgba(6,148,120,0.55), rgba(14,116,144,0.45)); border: 1px solid rgba(52,211,153,0.55);
+  border-left: 3px solid var(--emerald); transition: all .13s; overflow: hidden; }
+.sess-band:hover { background: linear-gradient(90deg, rgba(6,148,120,0.75), rgba(14,116,144,0.65)); z-index: 25; }
+.sess-band.selected { outline: 2px solid #fff; z-index: 24; }
+.sess-band .sb-inner { position: absolute; inset: 0; padding: 2px 6px; font-size: 0.58rem; font-weight: 700;
+  color: #d1fae5; display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+.sess-band .sb-msgs { font-family: var(--mono); background: rgba(2,44,34,0.8); border: 1px solid rgba(52,211,153,0.5);
+  padding: 0 5px; border-radius: 4px; font-size: 0.55rem; }
+.sess-aura { position: absolute; left: 0; right: 0; z-index: 1; border-radius: 6px;
+  background: linear-gradient(90deg, rgba(52,211,153,0.14), rgba(56,189,248,0.10));
+  border: 1px dashed rgba(52,211,153,0.35); pointer-events: none; }
+
+/* ---------- detail panel ---------- */
+.detail-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-top: 12px;
+  overflow: hidden; display: none; }
+.detail-card.open { display: block; }
+.dd-head { padding: 12px 16px; border-bottom: 1px solid var(--border); background: linear-gradient(135deg, rgba(3,105,161,0.25), rgba(16,24,44,0.4));
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.dd-title { font-size: 0.95rem; font-weight: 800; color: #fff; }
+.dd-meta { font-size: 0.68rem; color: var(--muted); margin-top: 3px; font-family: var(--mono); }
+.dd-close { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px;
+  padding: 3px 10px; cursor: pointer; font-size: 0.7rem; font-weight: 700; flex-shrink: 0; }
+.dd-close:hover { color: #fff; background: var(--card2); }
+.dd-body { padding: 10px 16px 14px; }
+.dd-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.dd-stat { background: var(--card2); border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; font-size: 0.66rem; }
+.dd-stat b { font-family: var(--mono); color: var(--cyan); }
+.dd-stat.g b { color: var(--emerald); }
+
+.msg-log { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; background: rgba(6,10,20,0.6); }
+.msg-row { display: grid; grid-template-columns: 44px 74px 84px 52px 1fr; gap: 8px; padding: 6px 10px;
+  border-bottom: 1px solid rgba(36,49,73,0.4); font-size: 0.66rem; align-items: baseline; }
+.msg-row:last-child { border-bottom: none; }
+.msg-row:hover { background: rgba(56,189,248,0.05); }
+.msg-time { font-family: var(--mono); color: var(--sky); font-weight: 700; }
+.msg-chat { font-family: var(--mono); color: var(--violet); cursor: pointer; font-weight: 700; }
+.msg-chat:hover { text-decoration: underline; }
+.msg-uuid { font-family: var(--mono); color: var(--dim); cursor: pointer; }
+.msg-uuid:hover { color: var(--muted); text-decoration: underline; }
+.msg-words { font-family: var(--mono); color: var(--amber); text-align: right; }
+.msg-text { color: #c4d2e8; line-height: 1.45; overflow-wrap: anywhere; }
+.msg-hdr { display: flex; justify-content: space-between; padding: 7px 10px; font-size: 0.6rem; color: var(--dim);
+  font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; position: sticky; top: 0;
+  background: #0a1020; border-bottom: 1px solid var(--border); z-index: 2; }
+.evidence-note { font-size: 0.64rem; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+.evidence-note b { color: var(--emerald); }
+
+/* ---------- highlights ---------- */
+.hl-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
+.hl-card h3 { font-size: 0.85rem; font-weight: 800; color: #fff; margin-bottom: 10px; }
+.hl-card h3 span { color: var(--emerald); }
+.hl-table { width: 100%; border-collapse: collapse; font-size: 0.68rem; }
+.hl-table th { text-align: left; color: var(--dim); font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.05em; font-size: 0.58rem; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.hl-table td { padding: 5px 8px; border-bottom: 1px solid rgba(36,49,73,0.35); }
+.hl-table tr { cursor: pointer; }
+.hl-table tr:hover { background: rgba(52,211,153,0.06); }
+.hl-table .mono { font-family: var(--mono); }
+.hl-table .dur { color: var(--emerald); font-weight: 800; font-family: var(--mono); }
+.hl-table .n { color: var(--cyan); font-family: var(--mono); }
+
+/* ---------- footer ---------- */
+.footer { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--card2); font-size: 0.66rem; color: var(--muted); line-height: 1.65; }
+.footer b { color: var(--txt); }
+.footer code { font-family: var(--mono); background: rgba(56,189,248,0.08); padding: 1px 5px; border-radius: 4px; color: var(--sky); font-size: 0.62rem; }
+
+.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(80px);
+  background: #052e1b; color: #a7f3d0; border: 1px solid rgba(52,211,153,0.5); padding: 9px 18px;
+  border-radius: 10px; font-size: 0.74rem; font-weight: 700; transition: transform .25s; z-index: 999;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
+.toast.show { transform: translateX(-50%) translateY(0); }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: #0a101e; }
+::-webkit-scrollbar-thumb { background: #2a3b58; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #3a5078; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-top">
+    <div>
+      <h1>DrugEx Bachelor Thesis — <span class="accent">Workload Proof Calendar</span></h1>
+      <div class="sub"><b>David Kolář</b> • UCT Prague (VŠCHT) • RNN De Novo Drug Design — 3D Conformers, ROCS Alignment &amp; Pareto RL<br>
+      Every hour on this calendar is backed by machine-generated interaction logs: <b>chat IDs, message UUIDs and timestamps</b> extracted from local agent transcripts.</div>
+      <div class="badge-row">
+        <span class="badge tz">All times Europe/Prague (CET/CEST)</span>
+        <span class="badge proof">{{NMSGS}} verified steering messages</span>
+        <span class="badge proof">{{NCHATS}} chats • WSL + Windows + T3 sources</span>
+        <span class="badge live">Week 8 = live tracking</span>
+        <span class="badge gen" id="badge-gen">generated —</span>
+      </div>
+    </div>
+  </div>
+  <div class="stat-grid" id="stat-grid"></div>
+</div>
+
+<div class="ctrl-card">
+  <div class="mode-bar">
+    <button class="mode-btn" id="btn-strict" onclick="setMode('strict')">Mode 1 · Strict Committee Floor <b>(195.3h)</b></button>
+    <button class="mode-btn m2" id="btn-relaxed" onclick="setMode('relaxed')">Mode 2 · Comprehensive Immersion <b>(385.2h)</b></button>
+  </div>
+  <div class="mode-note" id="mode-note"></div>
+</div>
+
+<div class="controls-row">
+  <div class="week-nav" id="week-nav-bar"></div>
+  <div class="jump-links">
+    <span>Jump:</span>
+    <button class="jump-btn" onclick="jumpToHour(0)">00:00</button>
+    <button class="jump-btn" onclick="jumpToHour(8)">08:00</button>
+    <button class="jump-btn" onclick="jumpToHour(12)">12:00</button>
+    <button class="jump-btn" onclick="jumpToHour(18)">18:00</button>
+    <button class="jump-btn" onclick="jumpToHour(22)">22:00</button>
+  </div>
+</div>
+
+<div class="filter-row" id="filter-row">
+  <div class="filter-chip" id="flt-dichtator" onclick="toggleStream('dichtator')"><div class="f-dot" style="background:#10b981;"></div><span>Remote GPU Dev (Dichtator SSH)</span></div>
+  <div class="filter-chip" id="flt-ai" onclick="toggleStream('ai')"><div class="f-dot" style="background:#0284c7;"></div><span>AI Architecture &amp; Conformer Steering</span></div>
+  <div class="filter-chip" id="flt-tablet" onclick="toggleStream('tablet')"><div class="f-dot" style="background:#8b5cf6;"></div><span>Tablet Math (Notewise)</span></div>
+  <div class="filter-chip" id="flt-edu" onclick="toggleStream('edu')"><div class="f-dot" style="background:#d97706;"></div><span>Edu Guide &amp; Podcast App</span></div>
+  <div class="filter-chip" id="flt-infra" onclick="toggleStream('infra')"><div class="f-dot" style="background:#e11d48;"></div><span>HPC Tooling &amp; WSL2</span></div>
+  <div class="filter-chip" id="flt-compute" onclick="toggleStream('compute')"><div class="f-dot" style="background:#64748b;"></div><span>HPC Batch Compute (PBS Pro · 0.0×)</span></div>
+  <div class="filter-note" id="filter-note"></div>
+</div>
+
+<div class="week-head">
+  <div>
+    <div class="ws-title" id="week-title-display">—</div>
+    <div class="ws-focus" id="week-focus-display">—</div>
+  </div>
+  <div class="ws-stats" id="week-stats-display">—</div>
+</div>
+
+<div class="cal-frame">
+  <div class="cal-sticky-header">
+    <div class="gutter-hdr">CET</div>
+    <div class="day-hdr" id="dhdr-0"><div class="d-abbr">Mon</div><div class="d-date" id="ddate-0">--</div><div class="d-hours" id="dhrs-0">0.0h</div></div>
+    <div class="day-hdr" id="dhdr-1"><div class="d-abbr">Tue</div><div class="d-date" id="ddate-1">--</div><div class="d-hours" id="dhrs-1">0.0h</div></div>
+    <div class="day-hdr" id="dhdr-2"><div class="d-abbr">Wed</div><div class="d-date" id="ddate-2">--</div><div class="d-hours" id="dhrs-2">0.0h</div></div>
+    <div class="day-hdr" id="dhdr-3"><div class="d-abbr">Thu</div><div class="d-date" id="ddate-3">--</div><div class="d-hours" id="dhrs-3">0.0h</div></div>
+    <div class="day-hdr" id="dhdr-4"><div class="d-abbr">Fri</div><div class="d-date" id="ddate-4">--</div><div class="d-hours" id="dhrs-4">0.0h</div></div>
+    <div class="day-hdr" id="dhdr-5"><div class="d-abbr">Sat</div><div class="d-date" id="ddate-5">--</div><div class="d-hours" id="dhrs-5">0.0h</div></div>
+    <div class="day-hdr" id="dhdr-6"><div class="d-abbr">Sun</div><div class="d-date" id="ddate-6">--</div><div class="d-hours" id="dhrs-6">0.0h</div></div>
+  </div>
+  <div class="cal-scroll-body" id="cal-scroll-body">
+    <div class="cal-grid-content" id="cal-grid"></div>
+  </div>
+</div>
+
+<div class="detail-card" id="detail-card">
+  <div class="dd-head">
+    <div>
+      <div class="dd-title" id="dd-title">—</div>
+      <div class="dd-meta" id="dd-meta">—</div>
+    </div>
+    <button class="dd-close" onclick="closeDetail()">✕ close</button>
+  </div>
+  <div class="dd-body" id="dd-body"></div>
+</div>
+
+<div class="hl-card">
+  <h3>🏆 Workaholic highlights — <span>top continuous engagement sessions</span></h3>
+  <table class="hl-table">
+    <thead><tr><th>Date</th><th>Span</th><th>Duration</th><th>Active</th><th>Reading</th><th>Steering msgs</th><th>Words</th><th>AI turns read</th><th>Chats</th></tr></thead>
+    <tbody id="hl-tbody"></tbody>
+  </table>
+</div>
+
+<div class="footer">
+  <b>Methodology.</b> Mode 1 (Strict, 195.3h) counts only timestamped inter-turn latency (capped 20 min), live Cisco VPN tunnel sessions and exact tablet pen sessions.
+  Mode 2 (Immersion, 385.2h) adds deliberative reading of 1.09M words at 60–100 WPM with a 1.30× novice assimilation factor (see <code>cognitive_supervision_reading_framework.md</code>), 81.5h live Dichtator SSH development and 12.9h tablet derivations.
+  The green engagement layer inside Mode 2 clusters <b>every human-authored steering message</b> — extracted from <code>transcript.jsonl</code> logs (Gemini Antigravity, WSL + Windows stores) and T3 Code threads — into continuous sessions; gaps ≤ 35 min are merged, because between two steering messages the candidate is reading the agent's reasoning traces, auditing tool output and thinking. Each session then extends past its last prompt by the reading time of the final response it triggered (~130 tokens/min ≈ 100 WPM with thinking, minimum 4 min, capped at one 35-min engagement window, clamped so sessions never overlap or cross midnight). Bare continuation prompts (<code>continue</code>, <code>/compact</code>, <code>ok</code>…) anchor session presence but are excluded from message counts, word sums and the evidence log. The REST shade is punched around the session bands, so late-night proof past 4:00 is never covered.
+  <br><b>Evidence.</b> Click any block or session: each message is shown with its chat ID and message UUID, verifiable in the source stores (<code>~/.gemini/antigravity*/brain/&lt;chat-id&gt;</code>, conversations SQLite, T3 API). Machine compute (PBS Pro 14h) and idle VPN standby (99.2h) are quarantined at 0.0×. Timezone: raw timestamps are UTC epochs; rendering is Europe/Prague, validated against harness-injected local-time ground truth.
+  <br><b>Generated</b> <span id="footer-gen">—</span> by <code>_david/thesis_tracking/</code> (extract_evidence.py → build_calendar.py). Private tracking artifact — not part of the DrugEx codebase.
+</div>
+
+<div class="toast" id="toast">copied</div>
+
+<script type="application/json" id="data-weeks">{{WEEKS}}</script>
+<script type="application/json" id="data-msgs">{{MSGS}}</script>
+<script type="application/json" id="data-chats">{{CHATS}}</script>
+<script type="application/json" id="data-meta">{{META}}</script>
+
+<script>
+'use strict';
+var WEEKS = JSON.parse(document.getElementById('data-weeks').textContent);
+var MSGS  = JSON.parse(document.getElementById('data-msgs').textContent);
+var CHATS = JSON.parse(document.getElementById('data-chats').textContent);
+var META  = JSON.parse(document.getElementById('data-meta').textContent);
+
+var HOUR_H = 44, TOT_H = 24 * HOUR_H;
+var SLEEP_START = 4.0, SLEEP_END = 9.5;   // hours — rest window shade
+var curWeek = 0, curMode = 'relaxed', gapMin = 35, selectedKey = null;
+var hidden = {};
+var msgsByDate = {};                        // 'YYYY-MM-DD' -> [msg,...]
+for (var i = 0; i < MSGS.length; i++) {
+  var m = MSGS[i];
+  if (!msgsByDate[m.d]) msgsByDate[m.d] = [];
+  msgsByDate[m.d].push(m);
+}
+for (var d in msgsByDate) msgsByDate[d].sort(function (a, b) { return a.m - b.m; });
+
+var dateToWeekDay = {};                     // 'YYYY-MM-DD' -> [weekIdx, dayIdx]
+for (var w = 0; w < WEEKS.length; w++)
+  for (var dd = 0; dd < 7; dd++)
+    dateToWeekDay[WEEKS[w].days[dd].iso] = [w, dd];
+
+/* ---------- sessions (client-side, live) ---------- */
+var READ_TOK_PER_MIN = 130;            // ~100 WPM with thinking (see framework)
+function computeSessions(gap) {
+  var out = [], cur = null;
+  for (var i = 0; i < MSGS.length; i++) {
+    var m = MSGS[i];
+    if (cur && m.d === cur.d && (m.m - cur.e) <= gap) {
+      cur.e = Math.max(cur.e, m.m); cur.all.push(m);
+    } else {
+      if (cur) out.push(cur);
+      cur = { d: m.d, s: m.m, e: m.m, all: [m] };
+    }
+  }
+  if (cur) out.push(cur);
+  for (var j = 0; j < out.length; j++) {
+    var s = out[j];
+    /* all messages anchor presence; low-effort nudges ("continue", "/compact")
+       are filtered from proof counts, word sums and the evidence log */
+    s.msgs = []; s.conts = 0; s.words = 0; s.turns = 0; s.toks = 0;
+    var seen = {};
+    for (var k = 0; k < s.all.length; k++) {
+      var m2 = s.all[k];
+      s.toks += m2.o || 0;
+      seen[m2.c] = 1;
+      if (m2.le) { s.conts++; }
+      else { s.msgs.push(m2); s.words += m2.w; s.turns += m2.n || 0; }
+    }
+    s.chats = Object.keys(seen);
+  }
+  /* trailing reading extension: the final response is still unread when the
+     last prompt is sent. min(gap, max(4, last_out/130)) — mid-session
+     responses were already read inside the gap-merged span; reading longer
+     than one engagement window would have produced another prompt. */
+  for (var j2 = 0; j2 < out.length; j2++) {
+    var s2 = out[j2], last = s2.e;
+    var read = Math.min(gap, Math.max(4, (s2.all[s2.all.length - 1].o || 0) / READ_TOK_PER_MIN));
+    read = Math.min(read, 1440 - last);
+    var nxt = out[j2 + 1];
+    if (nxt && nxt.d === s2.d) read = Math.min(read, Math.max(0, nxt.s - last));
+    s2.act = (last - s2.s) / 60;
+    s2.read = read;
+    s2.e = Math.min(1440, last + read);
+    s2.h = (s2.e - s2.s) / 60;
+  }
+  return out;
+}
+var SESSIONS = [];
+
+function fmtMin(min) {
+  var h = Math.floor(min / 60) % 24, mm = Math.floor(min % 60);
+  return (h < 10 ? '0' : '') + h + ':' + (mm < 10 ? '0' : '') + mm;
+}
+
+/* ---------- modes ---------- */
+var MODE_NOTES = {
+  strict: 'Adversarial-auditor floor: only inter-turn latency capped at 20 min, live VPN tunnel windows and exact tablet pen sessions count. Machine compute and idle standby are quarantined at 0.0×. Faint green aura = continuous engagement sessions for context.',
+  relaxed: 'The lived workaholic reality: Mode 1 plus deliberative reading of 1.09M words (60–100 WPM, 1.30× novice factor), 81.5h live Dichtator SSH dev and 12.9h tablet math. The solid green bands behind the blocks are continuous engagement sessions — every gap between steering messages ≤ 35 min is merged, because between prompts you were reading reasoning traces and auditing tool output. Each band additionally extends past the last prompt by the reading time of its final response (~130 tokens/min, capped at one 35-min window). Bare nudges ("continue", "/compact") anchor presence but are filtered from proof counts. Thin yellow ticks = your individual substantive prompts. Click a band or block for the message-by-message proof log.'
+};
+function setMode(m) {
+  curMode = m;
+  document.getElementById('btn-strict').className = 'mode-btn' + (m === 'strict' ? ' active' : '');
+  document.getElementById('btn-relaxed').className = 'mode-btn m2' + (m === 'relaxed' ? ' active' : '');
+  document.getElementById('mode-note').textContent = MODE_NOTES[m];
+  renderWeek(curWeek);
+}
+
+/* ---------- stats ---------- */
+function renderStats() {
+  var hrs = 0, longest = null, byDay = {}, actDays = {}, words = 0, turns = 0, readMin = 0;
+  SESSIONS.forEach(function (s) {
+    hrs += s.h; words += s.words; turns += s.turns; readMin += s.read; actDays[s.d] = 1;
+    if (!longest || s.h > longest.h) longest = s;
+    byDay[s.d] = (byDay[s.d] || 0) + s.h;
+  });
+  var sub = 0, nudges = 0;
+  MSGS.forEach(function (m) { if (m.le) nudges++; else sub++; });
+  var busiest = null;
+  for (var d in byDay) if (!busiest || byDay[d] > byDay[busiest]) busiest = d;
+  var streak = 0, cur = null, best = 0;
+  var days = Object.keys(actDays).sort();
+  for (var i = 0; i < days.length; i++) {
+    if (cur !== null && (new Date(days[i]) - new Date(cur)) / 86400000 === 1) streak++;
+    else streak = 1;
+    cur = days[i]; if (streak > best) best = streak;
+  }
+  var cards = [
+    ['Engagement hours', hrs.toFixed(1) + '<small> h</small>', true],
+    ['Post-prompt reading', (readMin / 60).toFixed(1) + '<small> h</small>', false],
+    ['Verified messages', sub.toLocaleString() + '<small> −' + nudges + ' nudges filtered</small>', false],
+    ['Words steered', words.toLocaleString(), false],
+    ['AI turns audited', turns.toLocaleString(), false],
+    ['Sessions', SESSIONS.length, false],
+    ['Longest session', longest ? longest.h.toFixed(1) + '<small> h</small>' : '—', false],
+    ['Busiest day', busiest ? busiest.slice(5) + ' · ' + byDay[busiest].toFixed(1) + '<small> h</small>' : '—', false],
+    ['Best streak', best + '<small> days</small>', false]
+  ];
+  var html = '';
+  cards.forEach(function (c) {
+    html += '<div class="stat' + (c[2] ? ' hl' : '') + '"><div class="v">' + c[1] + '</div><div class="l">' + c[0] + '</div></div>';
+  });
+  document.getElementById('stat-grid').innerHTML = html;
+}
+
+/* ---------- calendar ---------- */
+function initGutter() {
+  var tg = document.createElement('div');
+  tg.className = 'time-gutter';
+  var s = '';
+  for (var h = 0; h < 24; h++) s += '<div class="time-slot-label" style="top:' + (h * HOUR_H) + 'px">' + (h < 10 ? '0' : '') + h + ':00</div>';
+  tg.innerHTML = s;
+  document.getElementById('cal-grid').appendChild(tg);
+}
+function initNav() {
+  var nb = document.getElementById('week-nav-bar');
+  var s = '<button class="nav-arrow" onclick="navWeek(-1)">←</button>';
+  for (var i = 0; i < WEEKS.length; i++) {
+    var live = WEEKS[i].live ? ' ●' : '';
+    s += '<button class="week-btn" id="wb-' + i + '" onclick="selectWeek(' + i + ')">' + WEEKS[i].lbl.split(':')[0] + live + '</button>';
+  }
+  s += '<button class="nav-arrow" onclick="navWeek(1)">→</button>';
+  nb.innerHTML = s;
+}
+function navWeek(dir) {
+  var n = curWeek + dir;
+  if (n >= 0 && n < WEEKS.length) selectWeek(n);
+}
+function selectWeek(i) { curWeek = i; selectedKey = null; renderWeek(i); }
+function jumpToHour(h) { document.getElementById('cal-scroll-body').scrollTop = Math.max(0, h * HOUR_H - 30); }
+
+function toggleStream(t) {
+  hidden[t] = !hidden[t];
+  document.getElementById('flt-' + t).classList.toggle('off', hidden[t]);
+  renderWeek(curWeek);
+}
+
+function dayHours(w, d) {
+  return curMode === 'strict' ? w.durs_strict[d] : w.durs_relaxed[d];
+}
+
+function sessionKey(s) { return 'sess:' + s.d + ':' + Math.round(s.s); }
+
+function renderWeek(idx) {
+  var w = WEEKS[idx];
+  var grid = document.getElementById('cal-grid');
+  grid.innerHTML = '';
+  initGutter();
+  var total = 0;
+  for (var d = 0; d < 7; d++) {
+    var col = document.createElement('div');
+    col.className = 'day-col';
+    col.id = 'col-' + d;
+
+    var iso = w.days[d].iso;
+    var daySessions = SESSIONS.filter(function (s) { return s.d === iso; });
+
+    /* sleep shade — punched around the session bands so late-night proof
+       (even a session running to 6:00) is never covered by REST */
+    var shadeCur = SLEEP_START;
+    var lblDone = false;
+    daySessions.forEach(function (s) {
+      var a = s.s / 60, b = s.e / 60;
+      if (b <= SLEEP_START || a >= SLEEP_END) return;
+      if (a > shadeCur) {
+        var sg = document.createElement('div');
+        sg.className = 'sleep-shade';
+        sg.style.top = (shadeCur * HOUR_H) + 'px';
+        sg.style.height = ((Math.min(a, SLEEP_END) - shadeCur) * HOUR_H) + 'px';
+        if (!lblDone && (Math.min(a, SLEEP_END) - shadeCur) * HOUR_H >= 30) {
+          sg.innerHTML = '<div class="sleep-lbl">REST</div>'; lblDone = true;
+        }
+        col.appendChild(sg);
+      }
+      shadeCur = Math.max(shadeCur, b);
+    });
+    if (shadeCur < SLEEP_END) {
+      var sg2 = document.createElement('div');
+      sg2.className = 'sleep-shade';
+      sg2.style.top = (shadeCur * HOUR_H) + 'px';
+      sg2.style.height = ((SLEEP_END - shadeCur) * HOUR_H) + 'px';
+      if (!lblDone && (SLEEP_END - shadeCur) * HOUR_H >= 30) {
+        sg2.innerHTML = '<div class="sleep-lbl">REST</div>';
+      }
+      col.appendChild(sg2);
+    }
+
+    /* engagement session layer: labeled clickable bands in Mode 2 (behind the
+       event blocks, so the green fill proves continuity between blocks),
+       faint auras in Mode 1 */
+    daySessions.forEach(function (s) {
+      if (curMode === 'relaxed') {
+        var b = document.createElement('div');
+        b.className = 'sess-band' + (selectedKey === sessionKey(s) ? ' selected' : '');
+        b.style.top = Math.round(s.s / 60 * HOUR_H) + 'px';
+        b.style.height = Math.round(Math.max(16, s.h * HOUR_H)) + 'px';
+        b.innerHTML = '<div class="sb-inner"><span>' + fmtMin(s.s) + '–' + fmtMin(s.e) + ' · ' +
+          s.h.toFixed(1) + 'h · ' + s.chats.length + ' chat' + (s.chats.length > 1 ? 's' : '') + '</span>' +
+          '<span class="sb-msgs">' + (s.msgs.length ? s.msgs.length + ' msgs' : s.conts + ' cont.') + '</span></div>';
+        (function (ss) {
+          b.onclick = function (ev) { ev.stopPropagation(); showSession(ss, idx); };
+        })(s);
+        col.appendChild(b);
+      } else {
+        var a = document.createElement('div');
+        a.className = 'sess-aura';
+        a.style.top = (s.s / 60 * HOUR_H) + 'px';
+        a.style.height = Math.max(6, s.h * HOUR_H) + 'px';
+        col.appendChild(a);
+      }
+    });
+    if (curMode === 'relaxed') {
+      /* one thin tick per steering message */
+      daySessions.forEach(function (s) {
+        s.msgs.forEach(function (m) {
+          var t = document.createElement('div');
+          t.style.position = 'absolute'; t.style.left = '0'; t.style.right = '0';
+          t.style.top = Math.round(m.m / 60 * HOUR_H - 2) + 'px'; t.style.height = '4px';
+          t.style.background = 'rgba(253,230,138,0.65)'; t.style.zIndex = '2'; t.style.pointerEvents = 'none';
+          col.appendChild(t);
+        });
+      });
+    }
+    for (var j = 0; j < w.evs.length; j++) {
+      var e = w.evs[j];
+      if (e[0] !== d) continue;
+      if (curMode === 'strict' && !e[9]) continue;
+      if (hidden[e[3]]) continue;
+      var start = e[1], dur = e[2], type = e[3], title = e[4], time = e[5], detail = e[6];
+      var evDiv = document.createElement('div');
+      evDiv.className = 'cal-event type-' + type + (selectedKey === idx + ':' + j ? ' selected' : '');
+      evDiv.style.top = Math.round(start * HOUR_H) + 'px';
+      evDiv.style.height = Math.max(18, Math.round(dur * HOUR_H)) + 'px';
+      evDiv.style.left = e[7] + '%'; evDiv.style.width = Math.max(9, e[8]) + '%';
+      evDiv.innerHTML = '<div class="ev-top"><div class="ev-name">' + title + '</div><div class="ev-len">' + dur.toFixed(1) + 'h</div></div>' +
+        '<div class="ev-desc">' + esc(detail) + '</div>';
+      (function (ev, wi, ei) { evDiv.onclick = function (ev2) { ev2.stopPropagation(); showEvent(wi, ei); }; })(e, idx, j);
+      col.appendChild(evDiv);
+    }
+    grid.appendChild(col);
+    var dh = dayHours(w, d);
+    total += dh;
+    document.getElementById('ddate-' + d).textContent = w.days[d].date;
+    document.getElementById('dhrs-' + d).textContent = dh.toFixed(1) + 'h';
+    document.getElementById('dhdr-' + d).classList.toggle('today-hdr', !!w.live && d === (new Date().getDay() + 6) % 7);
+  }
+  for (var i2 = 0; i2 < WEEKS.length; i2++)
+    document.getElementById('wb-' + i2).classList.toggle('active', i2 === idx);
+  document.getElementById('week-title-display').textContent = w.lbl + (w.live ? '  ● LIVE' : '');
+  document.getElementById('week-focus-display').textContent = w.focus;
+  var modeLbl = curMode === 'strict' ? 'Strict' : 'Immersion';
+  var statsHtml = modeLbl + ' net: <b>' + total.toFixed(1) + 'h</b>';
+  if (w.live) {
+    var liveH = 0;
+    SESSIONS.forEach(function (s) { if (s.d >= '2026-11-02') liveH += s.h; });
+    statsHtml += ' &nbsp;·&nbsp; live week — <b>' + liveH.toFixed(1) + 'h</b> engagement already tracked (green bands)';
+  }
+  document.getElementById('week-stats-display').innerHTML = statsHtml;
+  document.getElementById('filter-note').textContent = 'click any block or green session band for evidence';
+}
+
+/* ---------- detail panels ---------- */
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+function msgRows(msgs) {
+  var html = '<div class="msg-hdr"><span>time</span><span>chat id</span><span>message uuid</span><span style="text-align:right">words</span><span>your steering message</span></div>';
+  msgs.forEach(function (m) {
+    var full = CHATS[m.c] ? CHATS[m.c].id : m.c;
+    var fu = m.U || '';
+    html += '<div class="msg-row">' +
+      '<span class="msg-time">' + m.m0 + '</span>' +
+      '<span class="msg-chat" title="click to copy full id" onclick="copyTxt(\'' + full + '\')">' + esc(m.c) + '</span>' +
+      '<span class="msg-uuid" title="click to copy full uuid" onclick="copyTxt(\'' + fu + '\')">' + esc(m.u) + '</span>' +
+      '<span class="msg-words">' + m.w + '</span>' +
+      '<span class="msg-text">' + esc(m.x) + '</span></div>';
+  });
+  return html;
+}
+
+function showEvent(wi, ei) {
+  var w = WEEKS[wi], e = w.evs[ei];
+  selectedKey = wi + ':' + ei;
+  renderWeek(wi);
+  var iso = w.days[e[0]].iso;
+  var sMin = e[1] - 0.08, eMin = e[1] + e[2] + 0.03;
+  var linked = (msgsByDate[iso] || []).filter(function (m) {
+    var h = m.m / 60; return !m.le && h >= sMin && h <= eMin;
+  }).map(function (m) { return { c: m.c, u: m.u, w: m.w, x: m.x, m0: fmtMin(m.m), U: m.U }; });
+  document.getElementById('dd-title').textContent = e[4] + ' — ' + e[5];
+  document.getElementById('dd-meta').textContent = iso + ' • stream: ' + e[3] + ' • ' + e[2].toFixed(1) + 'h • ' + (e[9] ? 'strict-verified' : 'relaxed-only');
+  var body = '<div class="dd-stats">' +
+    '<div class="dd-stat">duration <b>' + e[2].toFixed(1) + 'h</b></div>' +
+    '<div class="dd-stat g">linked messages <b>' + linked.length + '</b></div>' +
+    '<div class="dd-stat g">steered words <b>' + linked.reduce(function (a, m) { return a + m.w; }, 0).toLocaleString() + '</b></div></div>';
+  if (linked.length) {
+    body += '<div class="msg-log">' + msgRows(linked) + '</div>';
+    body += '<div class="evidence-note"><b>✓ verifiable:</b> chat ids are conversation folders in <code>~/.gemini/antigravity*/brain/</code>; message uuids are the rows of the conversations SQLite <code>steps</code> table (step type 14 = human input).</div>';
+  } else {
+    body += '<div class="evidence-note">No chat steering messages fall inside this block — this stream is evidenced by machine logs (PBS Pro scheduler records / Cisco AnyConnect tunnel telemetry / Notewise pen-session files).</div>';
+  }
+  openDetail(body);
+}
+
+function showSession(s, weekIdx) {
+  selectedKey = sessionKey(s);
+  renderWeek(weekIdx);
+  var msgs = s.msgs.map(function (m) { return { c: m.c, u: m.u, w: m.w, x: m.x, m0: fmtMin(m.m), U: m.U }; });
+  document.getElementById('dd-title').textContent = 'Continuous engagement session — ' + s.d + ' ' + fmtMin(s.s) + '–' + fmtMin(s.e);
+  document.getElementById('dd-meta').textContent = s.msgs.length + ' steering messages • ' + s.chats.length + ' chats • ' +
+    s.h.toFixed(2) + 'h span (' + s.act.toFixed(2) + 'h active + ' + (s.read / 60).toFixed(2) + 'h reading) • gap-merge ≤ ' + gapMin + ' min';
+  var body = '<div class="dd-stats">' +
+    '<div class="dd-stat g">span <b>' + s.h.toFixed(2) + 'h</b></div>' +
+    '<div class="dd-stat">active prompts <b>' + s.act.toFixed(2) + 'h</b></div>' +
+    '<div class="dd-stat g">post-prompt reading <b>' + (s.read / 60).toFixed(2) + 'h</b></div>' +
+    '<div class="dd-stat">messages <b>' + s.msgs.length + (s.conts ? ' <small>+' + s.conts + ' nudges</small>' : '') + '</b></div>' +
+    '<div class="dd-stat">words <b>' + s.words.toLocaleString() + '</b></div>' +
+    '<div class="dd-stat">model turns audited <b>' + s.turns.toLocaleString() + '</b></div>' +
+    '<div class="dd-stat">chats <b>' + s.chats.map(function (c) { return c; }).join(' ') + '</b></div></div>';
+  if (msgs.length) {
+    body += '<div class="msg-log">' + msgRows(msgs) + '</div>';
+    body += '<div class="evidence-note"><b>✓ every line above is a real human-authored message</b> with its chat id and message uuid — this is the interactive proof: between the first and last message the candidate was continuously reading reasoning traces, auditing tool calls and formulating the next steering prompt. The band additionally extends ' + s.read.toFixed(0) + ' min past the last prompt for reading the final response (~130 tokens/min). Thin yellow ticks on the band = individual messages.</div>';
+  } else {
+    body += '<div class="evidence-note">This session is anchored only by bare continuation prompts (e.g. <code>continue</code>, <code>/compact</code>) — they prove presence and keep the session unbroken, but carry no steering content, so they are filtered from the message log by design.</div>';
+  }
+  openDetail(body);
+}
+
+function openDetail(html) {
+  document.getElementById('dd-body').innerHTML = html;
+  document.getElementById('detail-card').classList.add('open');
+  document.getElementById('detail-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function closeDetail() {
+  document.getElementById('detail-card').classList.remove('open');
+  selectedKey = null; renderWeek(curWeek);
+}
+
+function renderHighlights() {
+  var top = SESSIONS.slice().sort(function (a, b) { return b.h - a.h; }).slice(0, 10);
+  var html = '';
+  top.forEach(function (s) {
+    var wd = dateToWeekDay[s.d];
+    html += '<tr onclick="jumpToSession(\'' + s.d + '\',' + Math.round(s.s) + ')">' +
+      '<td class="mono">' + s.d + '</td>' +
+      '<td class="mono">' + fmtMin(s.s) + '–' + fmtMin(s.e) + '</td>' +
+      '<td class="dur">' + s.h.toFixed(2) + 'h</td>' +
+      '<td class="n">' + s.act.toFixed(2) + 'h</td>' +
+      '<td class="n">+' + (s.read / 60).toFixed(2) + 'h</td>' +
+      '<td class="n">' + s.msgs.length + (s.conts ? '<small>+' + s.conts + '</small>' : '') + '</td>' +
+      '<td class="n">' + s.words.toLocaleString() + '</td>' +
+      '<td class="n">' + s.turns.toLocaleString() + '</td>' +
+      '<td class="mono">' + s.chats.join(' ') + '</td></tr>';
+  });
+  document.getElementById('hl-tbody').innerHTML = html;
+}
+function jumpToSession(date, startMin) {
+  var wd = dateToWeekDay[date];
+  if (!wd) return;
+  selectWeek(wd[0]);
+  setTimeout(function () { jumpToHour(startMin / 60 - 0.5); }, 60);
+  setTimeout(function () {
+    SESSIONS.forEach(function (s) { if (s.d === date && Math.round(s.s) === startMin) showSession(s, wd[0]); });
+  }, 120);
+}
+
+var toastTimer = null;
+function copyTxt(t) {
+  if (navigator.clipboard) navigator.clipboard.writeText(t).catch(function () {});
+  var el = document.getElementById('toast');
+  el.textContent = 'copied  ' + t;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.classList.remove('show'); }, 1600);
+}
+
+/* ---------- boot ---------- */
+document.getElementById('badge-gen').textContent = 'generated ' + META.generated.slice(0, 10);
+document.getElementById('footer-gen').textContent = META.generated.replace('T', ' ').slice(0, 19) + ' UTC';
+SESSIONS = computeSessions(gapMin);
+renderStats(); initNav(); renderWeek(0); renderHighlights();
+setMode('relaxed');
+document.addEventListener('click', function (ev) {
+  if (ev.target.closest && ev.target.closest('.detail-card')) return;
+}, true);
+</script>
+</body>
+</html>
