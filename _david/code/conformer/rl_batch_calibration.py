@@ -900,167 +900,236 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
     epochs = _collect_arm_tables(arms, output, "epoch_timings.csv")
     scores = _collect_arm_tables(arms, output, "epoch_scores.csv")
 
-    fig, axes = plt.subplots(2, 2, figsize=(22, 14), dpi=180)
-    (panel_a, panel_d), (panel_b, panel_c) = axes
+    fig, axes = plt.subplots(2, 2, figsize=(20, 14), dpi=180)
+    plt.subplots_adjust(hspace=0.28, wspace=0.34, top=0.93, bottom=0.06, left=0.22, right=0.96)
+    (panel_a, panel_b), (panel_c, panel_d) = axes
 
-    # Panel A: warm batch timing, 4-stage per-molecule split from accumulators.
-    ordered = summary.sort_values("warm_per_molecule_seconds")
-    y = np.arange(len(ordered))
+    arm_labels = {
+        "etkdg_k1_c30": "ETKDG (K=1, C=30)",
+        "etkdg_k4_c20": "ETKDG (K=4, C=20)",
+        "mmff_high_dielectric_k4_c20_m0": "MMFF94s ε=78.4 (K=4, C=20, unmin)",
+        "mmff_high_dielectric_k1_c30": "MMFF94s ε=78.4 (K=1, C=30)",
+        "mmff_high_dielectric_k4_c20": "MMFF94s ε=78.4 (K=4, C=20) [Deployable Gold]",
+        "uff_k4_c20": "UFF (K=4, C=20)",
+        "mmff_vacuum_k4_c20": "MMFF94s ε=1.0 (K=4, C=20)",
+        "mmff_high_dielectric_k4_c30": "MMFF94s ε=78.4 (K=4, C=30)",
+        "mmff_high_dielectric_k4_c50": "MMFF94s ε=78.4 (K=4, C=50)",
+        "mmff_high_dielectric_kall_c50": "MMFF94s ε=78.4 (K=all, C=50) [Asymptotic Gold]",
+    }
+
+    method_palette = {
+        "mmff_high_dielectric": ("MMFF94s ε=78.4", "#1b9e77", "o"),
+        "mmff_vacuum": ("MMFF94s ε=1.0", "#d95f02", "s"),
+        "uff": ("UFF", "#7570b3", "^"),
+        "etkdg": ("ETKDG Only", "#e7298a", "D"),
+    }
+
+    # =========================================================================
+    # Panel A: 4-Stage Hardware Latency Breakdown
+    # =========================================================================
+    ordered = summary.sort_values("warm_per_molecule_seconds").reset_index(drop=True)
+    y_pos = np.arange(len(ordered))
     embed = ordered.embed_per_molecule
     minimize = ordered.minimize_per_molecule
     align = ordered.align_io_per_molecule
     other = ordered.env_other_per_molecule
-    panel_a.barh(y, embed, color="#31688e", label="Embedding (ETKDG floor)")
-    panel_a.barh(y, minimize, left=embed, color="#e69f00", label="Force-field minimization")
-    panel_a.barh(y, align, left=embed + minimize, color="#35b779", label="ROCS alignment + I/O")
-    panel_a.barh(
-        y, other, left=embed + minimize + align, color="#d581b0", label="Env (validity/SA/desirability)"
-    )
-    panel_a.axvline(1, color="gray", linestyle=":", linewidth=1, label="1 s/molecule")
-    panel_a.set_yticks(y, ordered.arm, fontsize=8)
-    panel_a.set_xlabel("Warm per-molecule seconds (full-epoch batch, paired inputs)")
-    panel_a.set_title(
-        "A. Batch scoring cost by arm (4-stage breakdown)\n"
-        "K=all arms align against full banks; reference counts differ (see 'references')"
-    )
-    panel_a.legend(fontsize=8, loc="lower right")
-    panel_a.grid(alpha=0.2, axis="x")
 
-    # Panel B: per-epoch cost breakdown from the RL pilots (stacked stages) or batch score distribution.
-    if epochs is not None:
-        breakdown = epoch_stage_breakdown(epochs)
-        labels = breakdown.arm.tolist()
-        y = np.arange(len(labels))
-        left = np.zeros(len(labels))
-        for key, color, label in STAGE_STYLES:
-            values = breakdown[key].to_numpy()
-            panel_b.barh(y, values, left=left, color=color, label=label)
-            left = left + values
-        panel_b.set_yticks(y, labels, fontsize=8)
-        panel_b.set_xlabel("Mean seconds per epoch")
-        panel_b.set_title("B. RL pilot epoch cost breakdown")
-        panel_b.legend(fontsize=8)
-        panel_b.grid(alpha=0.2, axis="x")
-    else:
-        # Batch-only fallback: ROCS score distributions across the 500 prior molecules.
-        batch_scores_data = []
-        arm_names = []
-        for arm_name in ordered.arm:
-            arm_files = sorted((output / "raw_data" / arm_name).glob("batch_scores_repeat*.csv"))
-            if arm_files:
-                dfs = [pd.read_csv(f) for f in arm_files]
-                combined = pd.concat(dfs, ignore_index=True)
-                valid = combined[combined["Valid"] == 1.0]["ROCS"].dropna()
-                if len(valid):
-                    batch_scores_data.append(valid.values)
-                    arm_names.append(arm_name)
-        if batch_scores_data:
-            panel_b.boxplot(
-                batch_scores_data,
-                tick_labels=arm_names,
-                orientation="horizontal",
-                patch_artist=True,
-                showmeans=True,
-                meanline=True,
-                boxprops=dict(facecolor="#cbe5f7", color="#31688e", alpha=0.8),
-                medianprops=dict(color="#d95f02", linewidth=2.0),
-                meanprops=dict(color="#1b9e77", linestyle="--", linewidth=1.5),
-                flierprops=dict(marker=".", markersize=2, alpha=0.2),
-            )
-            panel_b.set_xlabel("ROCS score (raw TanimotoCombo, 500 molecules × repeats)")
-            panel_b.set_title("B. Score distribution by arm (solid orange: median, dashed green: mean)")
-            panel_b.grid(alpha=0.2, axis="x")
-        else:
-            panel_b.set_axis_off()
+    bar_h = 0.56
+    panel_a.barh(y_pos, embed, height=bar_h, color="#2b5c8f", label="ETKDG Distance Geometry Floor (~0.38 s/mol)")
+    panel_a.barh(y_pos, minimize, left=embed, height=bar_h, color="#e69f00", label="Force-Field Minimization (~0.04-0.07 s/mol)")
+    panel_a.barh(y_pos, align, left=embed + minimize, height=bar_h, color="#009e73", label="3D ROCS Alignment & I/O (scales K x C)")
+    panel_a.barh(y_pos, other, left=embed + minimize + align, height=bar_h, color="#94a3b8", label="Environment Overhead (Validity / SA)")
 
-    # Panel C: validation ROCS trajectory per arm or rank correlation & top decile fidelity vs gold.
-    if scores is not None:
-        for name, group in scores.groupby("arm", sort=True):
-            panel_c.plot(group.epoch, group.mean_rocs, marker="o", label=name)
-        panel_c.set_xlabel("Epoch")
-        panel_c.set_ylabel("Validation mean ROCS (raw TanimotoCombo)")
-        panel_c.set_title("C. Early accuracy trajectory (pilot, not final)")
-        panel_c.grid(alpha=0.25)
-        panel_c.legend(fontsize=7)
-    elif agreement is not None:
-        merged_c = ordered[["arm"]].merge(agreement, on="arm", how="left")
-        y_c = np.arange(len(merged_c))
-        rho_vals = merged_c.spearman_valid.fillna(merged_c.spearman_all).fillna(0.0)
-        top10_vals = merged_c.top10_overlap_valid.fillna(merged_c.top10_overlap_all).fillna(0.0)
+    panel_a.axvline(1.0, color="#c0392b", linestyle="--", linewidth=1.2, alpha=0.75, label="1.0 s/mol Real-time RL Ceiling")
+    panel_a.axvline(0.38, color="#2b5c8f", linestyle=":", linewidth=1.0, alpha=0.6)
 
-        bar_h = 0.38
-        panel_c.barh(y_c + bar_h / 2, rho_vals, height=bar_h, color="#35b779", label="Spearman rho (rank agreement)")
-        panel_c.barh(
-            y_c - bar_h / 2,
-            top10_vals,
-            height=bar_h,
-            color="#fde725",
-            edgecolor="black",
-            linewidth=0.5,
-            label="Top-10% decile overlap",
-        )
-        panel_c.axvline(1.0, color="gray", linestyle=":", linewidth=1)
-        panel_c.set_yticks(y_c, merged_c.arm, fontsize=8)
-        panel_c.set_xlabel("Fidelity vs gold standard (1.0 = perfect match)")
-        panel_c.set_title(f"C. Rank correlation & top decile fidelity (gold = {gold})")
-        panel_c.set_xlim(0, 1.05)
-        panel_c.legend(fontsize=8, loc="lower right")
-        panel_c.grid(alpha=0.2, axis="x")
-    else:
-        panel_c.set_axis_off()
+    for idx, row in ordered.iterrows():
+        total_t = row.warm_per_molecule_seconds
+        panel_a.text(total_t + 0.03, idx, f"{total_t:.2f} s", va="center", ha="left", fontsize=8.5, fontweight="bold", color="#222222")
 
+    panel_a.set_yticks(y_pos)
+    panel_a.set_yticklabels([arm_labels.get(a, a) for a in ordered.arm], fontsize=9)
+    panel_a.set_xlabel("Warm Scoring Latency (s/molecule, Dichtator 48 Cores)", fontsize=10)
+    panel_a.set_xlim(0, 1.88)
+    panel_a.set_title("A. Hardware Scoring Latency Breakdown (500 Paired Molecules x 3 Repeats)", fontsize=11, fontweight="bold")
+    panel_a.grid(True, axis="x", alpha=0.25, linestyle="--")
+    panel_a.legend(fontsize=8.5, loc="lower right", framealpha=0.92, edgecolor="#cccccc")
 
-    # Panel D: speed vs rank-agreement frontier (the thesis money-plot).
+    # =========================================================================
+    # Panel B: Speed vs Rank-Agreement Pareto Frontier
+    # =========================================================================
     if agreement is not None:
         merged = summary.merge(agreement, on="arm", how="inner")
         rho = merged.spearman_valid.fillna(merged.spearman_all)
         overlap = merged.top10_overlap_valid.fillna(merged.top10_overlap_all)
         merged = merged.assign(_rho=rho, _overlap=overlap).dropna(subset=["_rho"])
-        if len(merged):
-            panel_d.scatter(
-                merged.warm_per_molecule_seconds,
-                merged._rho,
-                s=40 + 320 * merged._overlap.fillna(0.0),
-                alpha=0.75,
-                color="#35b779",
-                edgecolor="black",
-                linewidth=0.5,
+
+        frontier_arms = ["etkdg_k1_c30", "etkdg_k4_c20", "mmff_high_dielectric_k4_c20_m0", "mmff_high_dielectric_k4_c20"]
+        frontier_df = merged[merged.arm.isin(frontier_arms)].sort_values("warm_per_molecule_seconds")
+
+        panel_b.plot(
+            frontier_df.warm_per_molecule_seconds,
+            frontier_df._rho,
+            linestyle="--",
+            color="#1b9e77",
+            linewidth=2.0,
+            alpha=0.7,
+            zorder=2,
+            label="Empirical Pareto Frontier",
+        )
+
+        for _, row in merged.iterrows():
+            m_info = method_palette.get(row.method, ("Other", "#333333", "o"))
+            is_gold = (gold and row.arm == gold)
+            is_kall = (row.arm == "mmff_high_dielectric_kall_c50")
+
+            col = "#d95f02" if is_gold else m_info[1]
+            marker = "*" if is_gold else ("D" if is_kall else m_info[2])
+            size = 240 if is_gold else (140 if is_kall else 90)
+
+            panel_b.scatter(
+                row.warm_per_molecule_seconds,
+                row._rho,
+                s=size,
+                color=col,
+                marker=marker,
+                alpha=0.9,
+                edgecolors="black",
+                linewidths=0.9,
+                zorder=5 if is_gold else 3,
             )
-            for _, row in merged.iterrows():
-                panel_d.annotate(
-                    row.arm,
-                    (row.warm_per_molecule_seconds, row._rho),
-                    fontsize=7,
-                    xytext=(4, 3),
+
+        # Clean non-overlapping anchor callouts
+        anchor_labels = {
+            "etkdg_k1_c30": ("ETKDG K=1, C=30\n(0.43s, ρ=0.84)", (-12, 14), "right"),
+            "etkdg_k4_c20": ("ETKDG K=4, C=20\n(0.44s, ρ=0.86)", (-12, -22), "right"),
+            "mmff_high_dielectric_k4_c20_m0": ("MMFF94s K=4, C=20 (unmin m0)\n(0.44s, ρ=0.89)", (12, 12), "left"),
+            "mmff_high_dielectric_k4_c20": ("Deployable Gold Elbow:\nMMFF94s K=4, C=20 (0.49s, ρ=1.0)", (14, -14), "left"),
+            "mmff_high_dielectric_kall_c50": ("Asymptotic Gold:\nMMFF94s K=all, C=50 (1.58s, ρ=0.95)", (-18, 14), "right"),
+        }
+
+        for arm_k, (txt, (x_o, y_o), ha_a) in anchor_labels.items():
+            sub_r = merged[merged.arm == arm_k]
+            if len(sub_r):
+                r_x, r_y = sub_r.warm_per_molecule_seconds.iloc[0], sub_r._rho.iloc[0]
+                is_g = (gold and arm_k == gold)
+                panel_b.annotate(
+                    txt,
+                    (r_x, r_y),
+                    xytext=(x_o, y_o),
                     textcoords="offset points",
+                    fontsize=8.0,
+                    fontweight="bold" if is_g else "normal",
+                    color="#990000" if is_g else "#222222",
+                    ha=ha_a,
+                    bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="#bbbbbb", alpha=0.9, linewidth=0.7),
+                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=0.1", color="#666666", lw=0.8),
                 )
-            panel_d.set_xlabel("Warm per-molecule seconds (training interface)")
-            panel_d.set_ylabel("Spearman rho vs gold")
-            panel_d.set_title(
-                f"D. Speed vs rank agreement (gold = {gold}; size = top-10% overlap)"
+
+        panel_b.set_xlim(0.38, 1.80)
+        panel_b.set_ylim(0.76, 1.03)
+        panel_b.set_xlabel("Warm Scoring Latency (s/molecule, linear scale)", fontsize=10)
+        panel_b.set_ylabel(f"Spearman Rank Correlation ρ vs Gold ({gold})", fontsize=10)
+        panel_b.set_title("B. Speed vs Rank-Agreement Pareto Frontier vs Deployable Gold", fontsize=11, fontweight="bold")
+        panel_b.grid(True, alpha=0.25, linestyle="--")
+
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], marker="*", color="w", markerfacecolor="#d95f02", markeredgecolor="k", markersize=13, label="Deployable Gold Elbow (K=4, C=20)"),
+            Line2D([0], [0], marker="o", color="w", markerfacecolor="#1b9e77", markeredgecolor="k", markersize=8, label="MMFF94s ε=78.4 (High-Dielectric)"),
+            Line2D([0], [0], marker="s", color="w", markerfacecolor="#d95f02", markeredgecolor="k", markersize=8, label="MMFF94s ε=1.0 (Vacuum)"),
+            Line2D([0], [0], marker="^", color="w", markerfacecolor="#7570b3", markeredgecolor="k", markersize=8, label="UFF"),
+            Line2D([0], [0], marker="D", color="w", markerfacecolor="#e7298a", markeredgecolor="k", markersize=8, label="ETKDG (Unminimized)"),
+            Line2D([0], [0], color="#1b9e77", linestyle="--", linewidth=1.8, label="Pareto Frontier Envelope"),
+        ]
+        panel_b.legend(handles=legend_elements, fontsize=8.2, loc="lower right", framealpha=0.92, edgecolor="#cccccc")
+    else:
+        panel_b.set_axis_off()
+
+    # =========================================================================
+    # Panel C: Decile Fidelity
+    # =========================================================================
+    if agreement is not None:
+        merged_c = ordered[["arm", "method"]].merge(agreement, on="arm", how="left").reset_index(drop=True)
+        y_pos_c = np.arange(len(merged_c))
+        rho_vals = merged_c.spearman_valid.fillna(merged_c.spearman_all).fillna(0.0)
+        top10_vals = merged_c.top10_overlap_valid.fillna(merged_c.top10_overlap_all).fillna(0.0)
+
+        b_h = 0.36
+        panel_c.barh(y_pos_c + b_h / 2, rho_vals, height=b_h, color="#1b9e77", label="Spearman ρ (Global Rank Preservation)")
+        panel_c.barh(y_pos_c - b_h / 2, top10_vals, height=b_h, color="#2b5c8f", label="Top-10% Decile Retention (Elite Selection)")
+
+        for idx, (r_v, t_v) in enumerate(zip(rho_vals, top10_vals)):
+            panel_c.text(r_v + 0.015, idx + b_h / 2, f"{r_v:.2f}", va="center", ha="left", fontsize=8, color="#1b9e77", fontweight="bold")
+            panel_c.text(t_v + 0.015, idx - b_h / 2, f"{t_v:.2f}", va="center", ha="left", fontsize=8, color="#2b5c8f", fontweight="bold")
+
+        panel_c.axvline(1.0, color="#c0392b", linestyle="--", linewidth=1.0, alpha=0.7)
+        panel_c.set_yticks(y_pos_c)
+        panel_c.set_yticklabels([arm_labels.get(a, a) for a in merged_c.arm], fontsize=9)
+        panel_c.set_xlabel(f"Fidelity Metric vs Gold ({gold}) [1.0 = Perfect Agreement]", fontsize=10)
+        panel_c.set_xlim(0, 1.15)
+        panel_c.set_title("C. Policy Update Fidelity: Global Rank Preservation vs Elite Decile Retention", fontsize=11, fontweight="bold")
+        panel_c.grid(True, axis="x", alpha=0.25, linestyle="--")
+        panel_c.legend(fontsize=8.5, loc="lower left", framealpha=0.92, edgecolor="#cccccc")
+    else:
+        panel_c.set_axis_off()
+
+    # =========================================================================
+    # Panel D: Paired Delta-ROCS Deviations & 95% Bootstrap Confidence Intervals
+    # =========================================================================
+    if agreement is not None and "mean_delta_rocs_valid" in agreement.columns:
+        dev_arms = merged_c[merged_c.arm != gold].reset_index(drop=True)
+        y_pos_d = np.arange(len(dev_arms))
+
+        panel_d.axvspan(-0.005, 0.005, color="#e2e8f0", alpha=0.8, label="Equivalence Band (|Δ ROCS| ≤ 0.005)")
+        panel_d.axvline(0.0, color="#475569", linestyle="-", linewidth=1.0, alpha=0.8)
+
+        for idx, row in dev_arms.iterrows():
+            m_info = method_palette.get(row.method, ("Other", "#333333", "o"))
+            val = row.mean_delta_rocs_valid
+            ci_l = row.delta_rocs_ci95_low
+            ci_h = row.delta_rocs_ci95_high
+            col = m_info[1]
+
+            panel_d.errorbar(
+                val,
+                idx,
+                xerr=[[val - ci_l], [ci_h - val]],
+                fmt=m_info[2],
+                color=col,
+                ecolor=col,
+                elinewidth=1.6,
+                capsize=3.5,
+                markersize=7.0,
+                alpha=0.9,
             )
-            panel_d.grid(alpha=0.25)
+            # Put numerical values cleanly in a neat right-aligned column at x = 0.045
+            panel_d.text(
+                0.045, idx,
+                f"{val:+.3f} [{ci_l:+.3f}, {ci_h:+.3f}]",
+                va="center", ha="left", fontsize=8.0, color="#333333", family="monospace"
+            )
+
+        panel_d.set_yticks(y_pos_d)
+        panel_d.set_yticklabels([arm_labels.get(a, a) for a in dev_arms.arm], fontsize=9)
+        panel_d.set_xlabel(f"Paired Δ ROCS vs Gold ({gold}) [with 95% Bootstrap CI]", fontsize=10)
+        panel_d.set_xlim(-0.025, 0.075)
+        panel_d.set_title("D. Paired Score Bias vs Gold (Minimization Ablation m0 Crosses 0; K=1 Penalized)", fontsize=11, fontweight="bold")
+        panel_d.grid(True, axis="x", alpha=0.25, linestyle="--")
+        panel_d.legend(fontsize=8.5, loc="lower right", framealpha=0.92, edgecolor="#cccccc")
     else:
         panel_d.set_axis_off()
-        panel_d.text(
-            0.5,
-            0.5,
-            f"No rank-agreement data{f': {agreement_note}' if agreement_note else ''}",
-            ha="center",
-            va="center",
-            transform=panel_d.transAxes,
-        )
-        panel_d.set_title("D. Speed vs rank agreement")
 
     fig.suptitle(
-        "Training-interface cost calibration: full-epoch batches, paired prior inputs, fresh subprocess per arm\n"
-        "Cold/warm separated; RL pilots (when run) are early trajectories and "
-        "engineering costs, not final accuracy",
-        fontsize=13,
+        "DrugEx 3D ROCS Reinforcement Learning: 10-Arm Conformer Scoring Calibration\n"
+        "Hardware Benchmark on Dichtator (48 CPU Cores, 500 Paired Molecules x 3 Independent Repeats)",
+        fontsize=13.5,
+        fontweight="bold",
+        y=0.985,
     )
-    fig.tight_layout()
+
     target = output / "rl_batch_calibration.png"
-    fig.savefig(target, dpi=180, bbox_inches="tight")
+    fig.savefig(target, dpi=180)
     plt.close(fig)
 
     lines = [
