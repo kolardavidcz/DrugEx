@@ -24,8 +24,9 @@ cost by ~3.2x. This module closes that gap:
   subprocess with no shared pools; the input batch is identical across arms;
   per-batch rows record valid/zero-score counts (dropped candidates would
   reduce alignment work and fake a speedup); cold (first call: pool spawn +
-  library warm-up) is separated from warm repeats, matching training where
-  pools persist across epochs.
+  library warm-up) is separated from warm repeats. Pools are re-created per
+  ``getScores``/``genConformers`` call in BOTH training and this benchmark,
+  so warm repeats measure the same steady state production pays each epoch.
 
 - **Phases**: (1) batch timing: ``--repeats`` scoring calls of the full unique
   batch; (2) ``--epochs``-epoch RL pilot per arm through the real

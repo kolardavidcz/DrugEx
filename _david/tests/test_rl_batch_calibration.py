@@ -125,7 +125,7 @@ class SprintConfigTest(unittest.TestCase):
             Arm("etkdg", 1, 30), samples=500, epochs=5, gpu=0
         )
         self.assertEqual(config.max_conformers, 30)
-        self.assertTrue(config.max_isomers, 4)
+        self.assertEqual(config.max_isomers, 4)
         self.assertFalse(config.minimize_candidates)
         self.assertEqual(config.epsilon, 0.05)
         self.assertFalse(config.use_epsilon_decay)

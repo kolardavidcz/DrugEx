@@ -94,13 +94,6 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 
 mkdir -p "$OUT_DIR" "$SCRATCHDIR/DrugEx"
-# Resume support: pull previously completed arms back into scratch so the
-# module's per-arm complete.json markers skip them; a walltime-killed job
-# can simply be resubmitted and continues where it stopped.
-if [[ -d "$RESULTS_DIR/raw_data" ]]; then
-    rsync -a "$RESULTS_DIR/" "$OUT_DIR/" \
-        || echo "Warning: could not restore previous results from $RESULTS_DIR" >&2
-fi
 rsync -a --exclude='.venv' --exclude='_david/output' "$SOURCE_DIR/" "$SCRATCHDIR/DrugEx/"
 cd "$SCRATCHDIR/DrugEx"
 
