@@ -903,28 +903,30 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
     fig, axes = plt.subplots(2, 2, figsize=(22, 14), dpi=180)
     (panel_a, panel_d), (panel_b, panel_c) = axes
 
-    # Panel A: warm batch timing, per-molecule stage split from accumulators.
+    # Panel A: warm batch timing, 4-stage per-molecule split from accumulators.
     ordered = summary.sort_values("warm_per_molecule_seconds")
     y = np.arange(len(ordered))
-    gen = ordered.gen_per_molecule
+    embed = ordered.embed_per_molecule
+    minimize = ordered.minimize_per_molecule
     align = ordered.align_io_per_molecule
     other = ordered.env_other_per_molecule
-    panel_a.barh(y, gen, color="#31688e", label="Candidate generation + minimization")
-    panel_a.barh(y, align, left=gen, color="#35b779", label="ROCS alignment + I/O")
+    panel_a.barh(y, embed, color="#31688e", label="Embedding (ETKDG floor)")
+    panel_a.barh(y, minimize, left=embed, color="#e69f00", label="Force-field minimization")
+    panel_a.barh(y, align, left=embed + minimize, color="#35b779", label="ROCS alignment + I/O")
     panel_a.barh(
-        y, other, left=gen + align, color="#d581b0", label="Env (validity/SA/desirability)"
+        y, other, left=embed + minimize + align, color="#d581b0", label="Env (validity/SA/desirability)"
     )
     panel_a.axvline(1, color="gray", linestyle=":", linewidth=1, label="1 s/molecule")
     panel_a.set_yticks(y, ordered.arm, fontsize=8)
     panel_a.set_xlabel("Warm per-molecule seconds (full-epoch batch, paired inputs)")
     panel_a.set_title(
-        "A. Batch scoring cost by arm (training interface)\n"
+        "A. Batch scoring cost by arm (4-stage breakdown)\n"
         "K=all arms align against full banks; reference counts differ (see 'references')"
     )
-    panel_a.legend(fontsize=8)
+    panel_a.legend(fontsize=8, loc="lower right")
     panel_a.grid(alpha=0.2, axis="x")
 
-    # Panel B: per-epoch cost breakdown from the RL pilots (stacked stages).
+    # Panel B: per-epoch cost breakdown from the RL pilots (stacked stages) or batch score distribution.
     if epochs is not None:
         breakdown = epoch_stage_breakdown(epochs)
         labels = breakdown.arm.tolist()
@@ -939,8 +941,39 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
         panel_b.set_title("B. RL pilot epoch cost breakdown")
         panel_b.legend(fontsize=8)
         panel_b.grid(alpha=0.2, axis="x")
+    else:
+        # Batch-only fallback: ROCS score distributions across the 500 prior molecules.
+        batch_scores_data = []
+        arm_names = []
+        for arm_name in ordered.arm:
+            arm_files = sorted((output / "raw_data" / arm_name).glob("batch_scores_repeat*.csv"))
+            if arm_files:
+                dfs = [pd.read_csv(f) for f in arm_files]
+                combined = pd.concat(dfs, ignore_index=True)
+                valid = combined[combined["Valid"] == 1.0]["ROCS"].dropna()
+                if len(valid):
+                    batch_scores_data.append(valid.values)
+                    arm_names.append(arm_name)
+        if batch_scores_data:
+            panel_b.boxplot(
+                batch_scores_data,
+                tick_labels=arm_names,
+                orientation="horizontal",
+                patch_artist=True,
+                showmeans=True,
+                meanline=True,
+                boxprops=dict(facecolor="#cbe5f7", color="#31688e", alpha=0.8),
+                medianprops=dict(color="#d95f02", linewidth=2.0),
+                meanprops=dict(color="#1b9e77", linestyle="--", linewidth=1.5),
+                flierprops=dict(marker=".", markersize=2, alpha=0.2),
+            )
+            panel_b.set_xlabel("ROCS score (raw TanimotoCombo, 500 molecules × repeats)")
+            panel_b.set_title("B. Score distribution by arm (solid orange: median, dashed green: mean)")
+            panel_b.grid(alpha=0.2, axis="x")
+        else:
+            panel_b.set_axis_off()
 
-    # Panel C: validation ROCS trajectory per arm.
+    # Panel C: validation ROCS trajectory per arm or rank correlation & top decile fidelity vs gold.
     if scores is not None:
         for name, group in scores.groupby("arm", sort=True):
             panel_c.plot(group.epoch, group.mean_rocs, marker="o", label=name)
@@ -949,6 +982,33 @@ def render_cost_summary(output: Path, gold: str | None = None) -> Path:
         panel_c.set_title("C. Early accuracy trajectory (pilot, not final)")
         panel_c.grid(alpha=0.25)
         panel_c.legend(fontsize=7)
+    elif agreement is not None:
+        merged_c = ordered[["arm"]].merge(agreement, on="arm", how="left")
+        y_c = np.arange(len(merged_c))
+        rho_vals = merged_c.spearman_valid.fillna(merged_c.spearman_all).fillna(0.0)
+        top10_vals = merged_c.top10_overlap_valid.fillna(merged_c.top10_overlap_all).fillna(0.0)
+
+        bar_h = 0.38
+        panel_c.barh(y_c + bar_h / 2, rho_vals, height=bar_h, color="#35b779", label="Spearman rho (rank agreement)")
+        panel_c.barh(
+            y_c - bar_h / 2,
+            top10_vals,
+            height=bar_h,
+            color="#fde725",
+            edgecolor="black",
+            linewidth=0.5,
+            label="Top-10% decile overlap",
+        )
+        panel_c.axvline(1.0, color="gray", linestyle=":", linewidth=1)
+        panel_c.set_yticks(y_c, merged_c.arm, fontsize=8)
+        panel_c.set_xlabel("Fidelity vs gold standard (1.0 = perfect match)")
+        panel_c.set_title(f"C. Rank correlation & top decile fidelity (gold = {gold})")
+        panel_c.set_xlim(0, 1.05)
+        panel_c.legend(fontsize=8, loc="lower right")
+        panel_c.grid(alpha=0.2, axis="x")
+    else:
+        panel_c.set_axis_off()
+
 
     # Panel D: speed vs rank-agreement frontier (the thesis money-plot).
     if agreement is not None:
