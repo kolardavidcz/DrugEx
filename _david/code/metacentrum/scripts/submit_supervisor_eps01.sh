@@ -6,7 +6,6 @@
 #PBS -N supervisor_eps0.1
 #PBS -l select=1:ncpus=16:mem=32gb:scratch_local=15gb:ngpus=1
 #PBS -l walltime=04:00:00
-#PBS -q q_4h
 #PBS -j oe
 
 set -euo pipefail
