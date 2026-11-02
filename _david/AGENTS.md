@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): Primary cluster for multi-arm reinforcement learning training and GPU compute. Managed via `_david/code/metacentrum/grid.py`.
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/tests -v` (Currently 77/77 passing).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/tests -v` (Currently 91/91 passing).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -85,14 +85,18 @@ _david/
 │   ├── conformer/                     # Conformer calibration, batch probes, and results.md
 │   │   ├── batch_probe.py              # Realistic multi-core batch scoring benchmark
 │   │   ├── drug_panel.py              # DrugCentral curation for self-recovery
+│   │   ├── mega.py                    # Cross-method conformer/ROCS mega-analysis
 │   │   ├── panel_figures.py           # 128-drug stratified figure (3 panels; D removed 2026-11-01)
+│   │   ├── reference_bank.py          # Diversity-ordered reference banks (R50/I8)
 │   │   ├── results.md                 # Conformer research findings & decision record
-│   │   └── reward_calibration.py      # Historical singleton Pareto benchmark
+│   │   ├── reward_calibration.py      # Historical singleton Pareto benchmark
+│   │   ├── rl_batch_calibration.py    # 1:1 training-interface cost & early-accuracy calibration
+│   │   └── rl_cost_probe.py            # Live-RL epoch cost reference (dichtator smoke)
 │   └── metacentrum/                   # MetaCentrum grid submission and cluster orchestration
 │       ├── grid.py                    # MetaCentrumGridManager, CLI, and grid generators
 │       ├── job_template.sh            # PBS Pro cluster execution script
-│       └── scripts/                   # Standalone submission scripts (h1..h4, submit_all)
-├── tests/                             # 77 unit and regression tests (100% passing)
+│       └── scripts/                   # Standalone submission scripts (h1..h4, rl_batch_calibration)
+├── tests/                             # 91 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 

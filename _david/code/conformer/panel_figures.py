@@ -49,6 +49,7 @@ from _david.code.conformer.visualization import (  # noqa: E402
 )
 
 FIGURE_NAME = "drug_panel_stratified_vs_trimmed.png"
+STATE_FIGURE_NAME = "calibration_state_overview.png"
 MANIFEST_NAME = "drug_panel_figure_manifest.json"
 SOURCES: tuple[str, ...] = (
     "_david/code/conformer/panel_figures.py",
@@ -309,6 +310,145 @@ def write_figure_manifest(output: Path, calibration: Path, rl_note: str) -> Path
     return target
 
 
+def render_calibration_state(
+    dev: pd.DataFrame,
+    confirmation: pd.DataFrame,
+    output: Path,
+    *,
+    rl_note: str,
+) -> Path:
+    """Render the current calibration state: coverage, frontier, validation.
+
+    Panel A: measured development grid per method (mean ROCS per K x C cell,
+    confirmation-validated shortlist cells outlined).
+    Panel B: score vs p95-time frontier with shortlist cells starred.
+    Panel C: development vs confirmation mean ROCS on the shortlist cells.
+    """
+    cap_order = [1, 2, 4, 8, 12, 0]
+    cap_labels = {cap: ("all" if cap == 0 else f"K{cap}") for cap in cap_order}
+    shortlist = set(
+        zip(confirmation.method, confirmation.reference_cap, confirmation.candidate_attempts)
+    )
+    fig = plt.figure(figsize=(22, 8), dpi=180)
+    outer = fig.add_gridspec(1, 3, width_ratios=[1.45, 1.0, 0.9], wspace=0.28)
+    grid_a = outer[0, 0].subgridspec(2, 2, hspace=0.55, wspace=0.45)
+
+    heatmap_axes = []
+    for index, method in enumerate(METHOD_ORDER):
+        ax = fig.add_subplot(grid_a[index])
+        heatmap_axes.append(ax)
+        cells = dev[dev.method.eq(method)]
+        matrix = cells.pivot_table(
+            index="reference_cap", columns="candidate_attempts", values="mean"
+        ).reindex(cap_order)
+        image = ax.imshow(
+            matrix.to_numpy(),
+            aspect="auto",
+            cmap="RdYlGn",
+            vmin=0.75,
+            vmax=1.0,
+        )
+        attempts = sorted(cells.candidate_attempts.unique())
+        for row, cap in enumerate(cap_order):
+            for col, count in enumerate(attempts):
+                value = matrix.loc[cap, count]
+                ax.text(
+                    col,
+                    row,
+                    f"{value:.3f}",
+                    ha="center",
+                    va="center",
+                    fontsize=7.5,
+                    color="black" if value > 0.87 else "white",
+                )
+                if (method, cap, count) in shortlist:
+                    ax.add_patch(
+                        plt.Rectangle(
+                            (col - 0.5, row - 0.5),
+                            1,
+                            1,
+                            fill=False,
+                            edgecolor="#1a1a1a",
+                            linewidth=2.4,
+                        )
+                    )
+        ax.set_xticks(range(len(attempts)), [f"C{c}" for c in attempts], fontsize=8)
+        ax.set_yticks(range(len(cap_order)), [cap_labels[c] for c in cap_order], fontsize=8)
+        ax.set_title(f"{METHOD_COLORS[method][0]}\n(dev n={int(cells.inputs.iloc[0])}, 36 cells)", fontsize=9)
+    fig.colorbar(
+        image,
+        ax=heatmap_axes,
+        shrink=0.85,
+        label="Mean self-recovery ROCS",
+    )
+
+    # Panel B: p95 time vs mean score frontier, shortlist starred.
+    ax_b = fig.add_subplot(outer[0, 1])
+    for method in METHOD_ORDER:
+        label, color, marker = METHOD_COLORS[method]
+        cells = dev[dev.method.eq(method)]
+        ax_b.scatter(cells.p95_seconds, cells["mean"], s=22, alpha=0.55, color=color, label=label)
+        for row in cells.itertuples():
+            if (row.method, row.reference_cap, row.candidate_attempts) in shortlist:
+                ax_b.scatter(
+                    row.p95_seconds, row.mean, s=230, marker="*", color=color,
+                    edgecolors="black", linewidths=0.8, zorder=4,
+                )
+                ax_b.annotate(
+                    f"K{'all' if row.reference_cap == 0 else int(row.reference_cap)}/C{int(row.candidate_attempts)}",
+                    (row.p95_seconds, row.mean),
+                    xytext=(4, 5),
+                    textcoords="offset points",
+                    fontsize=7,
+                )
+    ax_b.set_xscale("log")
+    ax_b.axhline(0.95, color="black", linestyle="--", linewidth=1, label="Target mean 0.95")
+    ax_b.set_xlabel(f"Per-input scoring seconds (p95, isolated serial calls)\n{rl_note}", fontsize=9)
+    ax_b.set_ylabel("Mean ROCS self-recovery")
+    ax_b.set_title("B. Score-time frontier (dev 128)\nstars = confirmation-validated shortlist")
+    ax_b.grid(True, which="both", alpha=0.25)
+    ax_b.legend(fontsize=8, loc="lower right")
+
+    # Panel C: development vs confirmation agreement on the shortlist.
+    ax_c = fig.add_subplot(outer[0, 2])
+    merged = dev.merge(
+        confirmation,
+        on=["method", "reference_cap", "candidate_attempts"],
+        suffixes=("_dev", "_conf"),
+        validate="one_to_one",
+    )
+    for row in merged.itertuples():
+        label, color, _ = METHOD_COLORS[row.method]
+        ax_c.scatter(row.mean_dev, row.mean_conf, s=90, color=color, zorder=3)
+        ax_c.annotate(
+            f"K{'all' if row.reference_cap == 0 else int(row.reference_cap)}/C{int(row.candidate_attempts)}",
+            (row.mean_dev, row.mean_conf),
+            xytext=(5, 4),
+            textcoords="offset points",
+            fontsize=8,
+        )
+    low = min(merged.mean_dev.min(), merged.mean_conf.min()) - 0.02
+    high = max(merged.mean_dev.max(), merged.mean_conf.max()) + 0.02
+    ax_c.plot([low, high], [low, high], "k--", linewidth=1, label="y = x")
+    ax_c.set_xlabel("Development mean ROCS (128 inputs)")
+    ax_c.set_ylabel("Confirmation mean ROCS (384 inputs)")
+    ax_c.set_title("C. Shortlist validation: dev vs confirmation")
+    ax_c.grid(True, alpha=0.25)
+    ax_c.legend(fontsize=8, loc="upper left")
+
+    total_cells = len(dev) + len(confirmation)
+    fig.suptitle(
+        "Current ROCS self-recovery calibration state: 128 development x 144 cells + 384 confirmation x 6 shortlist cells "
+        f"({total_cells} measured molecule-cells, 4 methods, K x C grid)\n"
+        "Scores = self-recovery (each drug vs its own reference ensemble); timing = isolated serial single-molecule calls",
+        fontsize=13,
+    )
+    target = output / STATE_FIGURE_NAME
+    fig.savefig(target, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return target
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -323,10 +463,24 @@ def main() -> None:
         required=True,
         help="Directory that receives the figure and manifest",
     )
+    parser.add_argument(
+        "--state",
+        action="store_true",
+        help="Render the calibration-state overview instead of the drug-panel figure",
+    )
     args = parser.parse_args()
     frame, summary = load_development(args.calibration)
     args.output.mkdir(parents=True, exist_ok=True)
     rl_note = _rl_banner(args.calibration)
+    if args.state:
+        confirmation = pd.read_csv(
+            args.calibration / "raw_data" / "confirmation" / "summary.csv"
+        )
+        target = render_calibration_state(
+            summary, confirmation, args.output, rl_note=rl_note
+        )
+        print(f"Saved {target}")
+        return
     target = render_drug_panel_figure(frame, summary, args.output, rl_note=rl_note)
     manifest = write_figure_manifest(args.output, args.calibration, rl_note)
     print(f"Saved {target}")

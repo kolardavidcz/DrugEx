@@ -31,7 +31,6 @@ LABELS: dict[str, str] = {
     "etkdg": "ETKDG only",
     "uff": "UFF",
     "mmff_vacuum": "MMFF94s ε=1",
-    "mmff_pocket": "MMFF94s ε=6.5",
     "mmff_high_dielectric": "MMFF94s ε=78.4",
 }
 

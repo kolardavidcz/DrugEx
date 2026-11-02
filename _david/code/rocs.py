@@ -38,7 +38,7 @@ from _david.code.utils import HardwareManager
 NAMED_OPTIMIZATION_METHODS: dict[str, Optimization] = {
     "etkdg": Optimization("none"),
     "uff": Optimization("UFF"),
-    "mmff_pocket": Optimization("MMFF94s", 6.5),
+    "mmff_vacuum": Optimization("MMFF94s", 1.0),
     "mmff_high_dielectric": Optimization("MMFF94s", 78.4),
 }
 
