@@ -267,93 +267,149 @@ def _plot_kde(
         ax.hist(clean, bins=25, density=True, color=color, alpha=alpha, label=label)
 
 
+def enrich_medicinal_chemistry_descriptors(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute rich medicinal chemistry descriptors (Fsp3, SlogP, TPSA, Rings, RotB) from SMILES."""
+    df_out = df.copy()
+    if df_out.empty or std.SMILES not in df_out.columns:
+        return df_out
+
+    mols = [Chem.MolFromSmiles(str(s)) if pd.notna(s) and str(s).strip() != "" else None for s in df_out[std.SMILES]]
+
+    if std.MW not in df_out.columns or df_out[std.MW].isna().all():
+        df_out[std.MW] = [Descriptors.MolWt(m) if m else np.nan for m in mols]
+    if std.HAC not in df_out.columns or df_out[std.HAC].isna().all():
+        df_out[std.HAC] = [m.GetNumHeavyAtoms() if m else np.nan for m in mols]
+    if std.ROT_BONDS not in df_out.columns or df_out[std.ROT_BONDS].isna().all():
+        df_out[std.ROT_BONDS] = [Lipinski.NumRotatableBonds(m) if m else np.nan for m in mols]
+    if std.LOGP not in df_out.columns or df_out[std.LOGP].isna().all():
+        df_out[std.LOGP] = [Descriptors.MolLogP(m) if m else np.nan for m in mols]
+    if std.TPSA not in df_out.columns or df_out[std.TPSA].isna().all():
+        df_out[std.TPSA] = [rdMolDescriptors.CalcTPSA(m) if m else np.nan for m in mols]
+
+    df_out["Fsp3"] = [rdMolDescriptors.CalcFractionCSP3(m) if m else np.nan for m in mols]
+    df_out["NumRings"] = [Lipinski.RingCount(m) if m else np.nan for m in mols]
+    df_out["NumAromaticRings"] = [Lipinski.NumAromaticRings(m) if m else np.nan for m in mols]
+    return df_out
+
+
 def render_before_after_distributions(
     df_before: pd.DataFrame,
     df_after: pd.DataFrame,
     output_png: Path | str,
+    ref_smiles: str = "",
 ) -> Path:
-    """Render 2x3 grid of continuous KDE property curves with 95% bootstrap confidence intervals."""
+    """Render unified 3x3 hierarchical diagnostic dashboard of continuous KDE property shifts."""
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    b_df = unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
-    a_df = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
+    b_df = enrich_medicinal_chemistry_descriptors(unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1]))
+    a_df = enrich_medicinal_chemistry_descriptors(unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1]))
 
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10.5), dpi=250)
+    ref_m = Chem.MolFromSmiles(ref_smiles) if ref_smiles else None
+    ref_vals = {
+        std.ROCS: 2.00,
+        "Raw_SA": float(calculate_sa_score(ref_m)) if ref_m else 3.74,
+        std.QED: float(QED.qed(ref_m)) if ref_m else 0.21,
+        std.MW: float(Descriptors.MolWt(ref_m)) if ref_m else 458.4,
+        std.HAC: float(ref_m.GetNumHeavyAtoms()) if ref_m else 33.0,
+        std.ROT_BONDS: float(Lipinski.NumRotatableBonds(ref_m)) if ref_m else 3.0,
+        std.LOGP: float(Descriptors.MolLogP(ref_m)) if ref_m else 2.23,
+        std.TPSA: float(rdMolDescriptors.CalcTPSA(ref_m)) if ref_m else 197.4,
+        "Fsp3": float(rdMolDescriptors.CalcFractionCSP3(ref_m)) if ref_m else 0.36,
+    }
+
+    fig, axes = plt.subplots(3, 3, figsize=(18, 14.5), dpi=250)
     fig.suptitle(
-        "De Novo Property Distribution Shifts: Pre-Training Baseline vs. Reinforced Policy",
+        "Hierarchical De Novo Property Diagnostic Dashboard: Baseline Prior vs. Reinforced Policy",
         fontsize=15,
         fontweight="bold",
-        y=0.98,
+        y=0.985,
     )
 
+    # 3x3 layout: Row 1 = Primary RL Objectives, Row 2 = Size & Complexity Drift, Row 3 = Physicochemical Integrity
     metrics_config: list[tuple[str, str, tuple[float, float], str]] = [
-        (std.ROCS, "3D ROCS TanimotoCombo", (0.0, 2.0), "Score"),
-        (
-            "Raw_SA",
-            "Synthetic Accessibility (SAscore)",
-            (1.0, 8.0),
-            "SA (lower=easier)",
-        ),
+        # Row 1: Primary Objectives
+        (std.ROCS, "3D ROCS Shape/Color Overlap", (0.0, 2.0), "TanimotoCombo Score"),
+        ("Raw_SA", "Synthetic Accessibility (SAscore)", (1.0, 8.0), "SA (lower = easier)"),
         (std.QED, "Drug-Likeness (QED)", (0.0, 1.0), "QED Score"),
-        (std.MW, "Molecular Weight (MW)", (100.0, 700.0), "Da"),
+        # Row 2: Size & Complexity
+        (std.MW, "Molecular Weight (MW)", (100.0, 700.0), "Molecular Weight (Da)"),
+        (std.HAC, "Heavy Atom Count (HAC)", (8.0, 48.0), "Heavy Atom Count"),
         (std.ROT_BONDS, "Rotatable Bonds Count", (0.0, 15.0), "Rotatable Bonds"),
-        (std.HAC, "Heavy Atom Count (HAC)", (10.0, 45.0), "Atoms"),
+        # Row 3: Physicochemical & 3D Integrity
+        (std.LOGP, "Calculated Lipophilicity (SlogP)", (-2.0, 7.0), "SlogP"),
+        (std.TPSA, "Polar Surface Area (TPSA)", (0.0, 220.0), "TPSA (Å²)"),
+        ("Fsp3", "Carbon sp³ Fraction (Fsp³ / 3D Complexity)", (0.0, 1.0), "Fsp³ Fraction"),
     ]
 
     for idx, (col, title, x_limits, x_lbl) in enumerate(metrics_config):
         ax = axes[idx // 3, idx % 3]
-        b_vals = (
-            b_df[col].dropna().values.astype(np.float64)
-            if col in b_df.columns
-            else np.array([])
-        )
-        a_vals = (
-            a_df[col].dropna().values.astype(np.float64)
-            if col in a_df.columns
-            else np.array([])
-        )
+        b_vals = b_df[col].dropna().values.astype(np.float64) if col in b_df.columns else np.array([])
+        a_vals = a_df[col].dropna().values.astype(np.float64) if col in a_df.columns else np.array([])
 
         x_grid = np.linspace(x_limits[0], x_limits[1], 300)
-        _plot_kde(ax, b_vals, "#3b82f6", "Baseline Prior", x_grid, alpha=0.30)
-        _plot_kde(ax, a_vals, "#ea580c", "Reinforced Agent", x_grid, alpha=0.45)
+        _plot_kde(ax, b_vals, "#64748B", "Baseline Prior", x_grid, alpha=0.30)
+        _plot_kde(ax, a_vals, "#4F46E5", "Reinforced Agent", x_grid, alpha=0.45)
 
         delta, low, high = bootstrap_ci(b_vals, a_vals)
         b_med = float(np.median(b_vals)) if len(b_vals) > 0 else 0.0
         a_med = float(np.median(a_vals)) if len(a_vals) > 0 else 0.0
 
-        ax.axvline(b_med, color="#2563eb", linestyle="--", linewidth=1.4)
-        ax.axvline(a_med, color="#c2410c", linestyle="-", linewidth=1.6)
+        ax.axvline(b_med, color="#475569", linestyle="--", linewidth=1.4)
+        ax.axvline(a_med, color="#3730A3", linestyle="-", linewidth=1.6)
+
+        # Reference seed marker
+        if col in ref_vals:
+            ref_val = ref_vals[col]
+            ax.axvline(ref_val, color="#0D9488", linestyle=":", linewidth=1.6, label=f"Seed ({ref_val:.2f})")
 
         stat_text = (
             f"Prior Med: {b_med:.2f}\n"
             f"Reinf Med: {a_med:.2f}\n"
-            f"Δ = {delta:+.2f} [95% CI: {low:+.2f}, {high:+.2f}]"
+            f"Δ = {delta:+.2f} [{low:+.2f}, {high:+.2f}]"
         )
         ax.text(
             0.04,
             0.93,
             stat_text,
             transform=ax.transAxes,
-            fontsize=8.5,
+            fontsize=8.2,
             verticalalignment="top",
             bbox=dict(
-                boxstyle="round,pad=0.35",
+                boxstyle="round,pad=0.30",
                 facecolor="#ffffff",
                 edgecolor="#cbd5e1",
                 alpha=0.9,
             ),
         )
 
-        ax.set_title(title, fontsize=11, fontweight="bold")
-        ax.set_xlabel(x_lbl, fontsize=9.5)
-        ax.set_ylabel("Density", fontsize=9.5)
+        ax.set_title(title, fontsize=10.5, fontweight="bold")
+        ax.set_xlabel(x_lbl, fontsize=9.0)
+        ax.set_ylabel("Density", fontsize=9.0)
         ax.set_xlim(x_limits)
         ax.grid(True, linestyle=":", alpha=0.4)
         if idx == 0:
-            ax.legend(loc="upper right", fontsize=8.5)
+            ax.legend(loc="upper right", fontsize=8.0)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    # Category header annotations
+    row_titles = [
+        "PRIMARY RL OBJECTIVES (ROCS, SA, QED)",
+        "MOLECULAR SIZE & COMPLEXITY DIAGNOSTICS (MW, HAC, ROTB)",
+        "PHYSICOCHEMICAL & 3D INTEGRITY (SLOGP, TPSA, FSP³)",
+    ]
+    for row_idx, r_text in enumerate(row_titles):
+        axes[row_idx, 1].annotate(
+            r_text,
+            xy=(0.5, 1.14),
+            xycoords="axes fraction",
+            ha="center",
+            fontsize=9.5,
+            fontweight="bold",
+            color="#334155",
+            bbox=dict(boxstyle="square,pad=0.2", facecolor="#f1f5f9", edgecolor="#cbd5e1", linewidth=0.8),
+        )
+
+    plt.subplots_adjust(top=0.92, bottom=0.05, hspace=0.36, wspace=0.22)
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
     plt.close(fig)
     return target_png
@@ -1250,13 +1306,99 @@ def render_relative_property_shifts_tornado(
     scorecard_df: pd.DataFrame,
     output_png: Path | str,
 ) -> Path:
-    """Render horizontal divergent bar chart showing percentage shifts across all medicinal chemistry properties."""
+    """Render horizontal divergent tornado plot grouped by medicinal chemistry domains with publication palette."""
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
     df_plot = scorecard_df.copy()
     if df_plot.empty or "Delta_Percent" not in df_plot.columns:
         return target_png
+
+    df_plot = df_plot[df_plot["Delta_Percent"].notna()].copy()
+
+    # Assign domains
+    def _get_domain(prop: str) -> tuple[int, str]:
+        p = prop.lower()
+        if "rocs" in p or "sa" in p or "qed" in p:
+            return (0, "RL Objectives")
+        elif "hac" in p or "mw" in p or "rotatable" in p:
+            return (1, "Size & Complexity")
+        elif "logp" in p or "tpsa" in p or "fsp3" in p:
+            return (2, "Physicochemical Properties")
+        else:
+            return (3, "Grammar & Diversity")
+
+    domains = [_get_domain(p) for p in df_plot["Property"]]
+    df_plot["DomainOrder"] = [d[0] for d in domains]
+    df_plot["DomainName"] = [d[1] for d in domains]
+    df_plot = df_plot.sort_values(by=["DomainOrder", "Delta_Percent"], ascending=[True, True]).reset_index(drop=True)
+
+    fig, ax = plt.subplots(figsize=(11, 7.5), dpi=250)
+    fig.suptitle(
+        "Relative Property Shifts: Reinforced Policy vs. Baseline Prior (Δ%)",
+        fontsize=13,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    y_pos = np.arange(len(df_plot))
+    deltas = df_plot["Delta_Percent"].values
+
+    # Determine colors: Slate/Indigo/Teal/Amber/Rose
+    colors = []
+    for _, row in df_plot.iterrows():
+        p = str(row["Property"]).lower()
+        val = float(row["Delta_Percent"])
+        crit = str(row.get("Status_Critique", "")).upper()
+        if "SHRINKAGE" in crit or "ALERT" in crit:
+            colors.append("#E11D48")  # Rose (exploit/alert)
+        elif "sa" in p:
+            colors.append("#0D9488" if val <= 0 else "#E11D48")  # Teal if improved
+        elif "uniqueness" in p or "validity" in p:
+            colors.append("#E11D48" if val < -15.0 else ("#D97706" if val < 0 else "#0D9488"))
+        elif val > 0:
+            colors.append("#4F46E5")  # Indigo (positive progression)
+        elif val < 0:
+            colors.append("#D97706")  # Amber (negative drift)
+        else:
+            colors.append("#64748B")  # Slate
+
+    bars = ax.barh(y_pos, deltas, color=colors, alpha=0.88, edgecolor="#1e293b", linewidth=0.8, height=0.62)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(df_plot["Property"], fontsize=9.2, fontweight="medium")
+    ax.axvline(0, color="#1e293b", linewidth=1.2)
+
+    # Annotate bar values
+    for bar, val in zip(bars, deltas):
+        x_offset = 0.8 if val >= 0 else -0.8
+        ha = "left" if val >= 0 else "right"
+        ax.text(
+            val + x_offset,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:+.1f}%",
+            va="center",
+            ha=ha,
+            fontsize=8.5,
+            fontweight="bold",
+            color="#0f172a",
+        )
+
+    ax.set_xlabel("Relative Shift vs. Prior Median (%)", fontsize=10, fontweight="bold")
+    ax.grid(True, linestyle=":", alpha=0.45, axis="x")
+    max_d = max(18.0, np.max(np.abs(deltas)) * 1.25)
+    ax.set_xlim(-max_d, max_d)
+
+    # Shaded domain groups
+    last_d = None
+    for idx, d_name in enumerate(df_plot["DomainName"]):
+        if d_name != last_d:
+            ax.axhline(idx - 0.5, color="#cbd5e1", linestyle="--", linewidth=0.8)
+            last_d = d_name
+
+    plt.tight_layout(rect=[0, 0.02, 1, 0.96])
+    plt.savefig(target_png, dpi=250, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
 
     # Filter numeric deltas
     df_plot = df_plot[df_plot["Delta_Percent"].notna()].copy()
@@ -1328,98 +1470,103 @@ def render_scaffold_diversity_analysis(
     df_after: pd.DataFrame,
     output_png: Path | str,
 ) -> Path:
-    """Render Bemis-Murcko scaffold dominance comparison and depictions of top dominant cores."""
+    """Render information-theoretic scaffold diversity, cyclic system census, and top dominant core depictions."""
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
     b_clean = unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
     a_clean = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
 
-    fig = plt.figure(figsize=(16, 6), dpi=250)
+    # Ensure scaffolds computed
+    def _ensure_scaffolds(df: pd.DataFrame) -> pd.DataFrame:
+        df_out = df.copy()
+        if std.SCAFFOLD not in df_out.columns or df_out[std.SCAFFOLD].isna().all():
+            scafs = []
+            for s in df_out.get(std.SMILES, []):
+                m = Chem.MolFromSmiles(str(s)) if pd.notna(s) else None
+                scafs.append(MurckoScaffold.MurckoScaffoldSmiles(mol=m) if m else "")
+            df_out[std.SCAFFOLD] = scafs
+        return df_out
+
+    b_clean = _ensure_scaffolds(b_clean)
+    a_clean = _ensure_scaffolds(a_clean)
+
+    # Calculate Information-Theoretic Metrics
+    def _calc_diversity_metrics(df: pd.DataFrame) -> dict[str, float]:
+        scafs = df[std.SCAFFOLD][df[std.SCAFFOLD] != ""].dropna()
+        n_total = len(df)
+        if len(scafs) == 0:
+            return {"unique_ratio": 0.0, "shannon_entropy": 0.0, "simpson_index": 0.0}
+        counts = scafs.value_counts().values
+        probs = counts / counts.sum()
+        entropy = -float(np.sum(probs * np.log2(probs)))
+        simpson = 1.0 - float(np.sum(probs ** 2))
+        return {
+            "unique_ratio": float(len(counts) / n_total * 100.0) if n_total > 0 else 0.0,
+            "shannon_entropy": entropy,
+            "simpson_index": simpson,
+        }
+
+    b_div = _calc_diversity_metrics(b_clean)
+    a_div = _calc_diversity_metrics(a_clean)
+
+    fig = plt.figure(figsize=(17, 6.2), dpi=250)
     fig.suptitle(
-        "Bemis-Murcko Scaffold Diversity & Core Dominance Analysis",
+        "Bemis-Murcko Scaffold Diversity, Information Entropy & Cyclic Architecture",
         fontsize=14,
         fontweight="bold",
         y=0.98,
     )
 
-    # Panel A: Cumulative Top-k Scaffold Coverage
-    ax1 = fig.add_subplot(1, 2, 1)
+    # Panel A: Diversity Metrics Comparison (Unique Scaffolds, Shannon Entropy, Gini-Simpson)
+    ax1 = fig.add_subplot(1, 3, 1)
+    metrics_names = ["Unique Scaffolds / 100 mols", "Shannon Entropy (bits)", "Gini-Simpson Diversity"]
+    b_vals = [b_div["unique_ratio"], b_div["shannon_entropy"], b_div["simpson_index"]]
+    a_vals = [a_div["unique_ratio"], a_div["shannon_entropy"], a_div["simpson_index"]]
 
-    def _get_coverage(
-        df: pd.DataFrame, ks: Sequence[int] = (1, 3, 5, 10, 20)
-    ) -> list[float]:
-        if df.empty or std.SCAFFOLD not in df.columns:
-            return [0.0] * len(ks)
-        scaf_counts = df[std.SCAFFOLD][df[std.SCAFFOLD] != ""].value_counts()
-        total = len(df)
-        return [
-            float(scaf_counts.head(k).sum() / total * 100.0) if total > 0 else 0.0
-            for k in ks
-        ]
-
-    ks = [1, 3, 5, 10, 20]
-    b_cov = _get_coverage(b_clean, ks)
-    a_cov = _get_coverage(a_clean, ks)
-
-    x = np.arange(len(ks))
+    x = np.arange(len(metrics_names))
     width = 0.35
-    ax1.bar(
-        x - width / 2,
-        b_cov,
-        width,
-        label="Baseline Prior",
-        color="#3b82f6",
-        alpha=0.75,
-        edgecolor="#1e293b",
-    )
-    ax1.bar(
-        x + width / 2,
-        a_cov,
-        width,
-        label="Reinforced Agent",
-        color="#ea580c",
-        alpha=0.85,
-        edgecolor="#1e293b",
-    )
+    ax1.bar(x - width / 2, b_vals, width, label="Baseline Prior", color="#64748B", alpha=0.85, edgecolor="#1e293b")
+    ax1.bar(x + width / 2, a_vals, width, label="Reinforced Agent", color="#4F46E5", alpha=0.88, edgecolor="#1e293b")
 
-    for i in range(len(ks)):
-        ax1.text(
-            x[i] - width / 2,
-            b_cov[i] + 1.0,
-            f"{b_cov[i]:.1f}%",
-            ha="center",
-            fontsize=8,
-        )
-        ax1.text(
-            x[i] + width / 2,
-            a_cov[i] + 1.0,
-            f"{a_cov[i]:.1f}%",
-            ha="center",
-            fontsize=8,
-            fontweight="bold",
-        )
+    for i in range(len(metrics_names)):
+        ax1.text(x[i] - width / 2, b_vals[i] * 1.03 + 0.02, f"{b_vals[i]:.2f}", ha="center", fontsize=8.5)
+        ax1.text(x[i] + width / 2, a_vals[i] * 1.03 + 0.02, f"{a_vals[i]:.2f}", ha="center", fontsize=8.5, fontweight="bold")
 
     ax1.set_xticks(x)
-    ax1.set_xticklabels([f"Top-{k}" for k in ks], fontsize=9.5, fontweight="bold")
-    ax1.set_ylabel("Cumulative Library Coverage (%)", fontsize=10)
-    ax1.set_title(
-        "(A) Scaffold Concentration (Lower = Greater Diversity)",
-        fontsize=11,
-        fontweight="bold",
-    )
-    ax1.set_ylim(0, max(40.0, max(a_cov + b_cov) * 1.25))
+    ax1.set_xticklabels(metrics_names, fontsize=8.8, fontweight="bold")
+    ax1.set_title("(A) Information-Theoretic Diversity", fontsize=11, fontweight="bold")
     ax1.grid(True, linestyle=":", alpha=0.4, axis="y")
-    ax1.legend(loc="upper left", fontsize=8.5)
+    ax1.legend(loc="upper right", fontsize=8.2)
 
-    # Panel B: 2D Grid of Top-3 Dominant Scaffolds
-    ax2 = fig.add_subplot(1, 2, 2)
-    top_scafs = (
-        a_clean[std.SCAFFOLD][a_clean[std.SCAFFOLD] != ""].value_counts().head(3)
-    )
+    # Panel B: Ring System Census Distribution
+    ax2 = fig.add_subplot(1, 3, 2)
+    def _get_ring_counts(df: pd.DataFrame) -> list[int]:
+        rc = []
+        for s in df.get(std.SMILES, []):
+            m = Chem.MolFromSmiles(str(s)) if pd.notna(s) else None
+            rc.append(Lipinski.RingCount(m) if m else 0)
+        return rc
+
+    b_rings = _get_ring_counts(b_clean)
+    a_rings = _get_ring_counts(a_clean)
+    max_r = max(6, max(b_rings + a_rings) if (b_rings + a_rings) else 6)
+    r_bins = np.arange(-0.5, max_r + 1.5, 1)
+
+    ax2.hist(b_rings, bins=r_bins, density=True, alpha=0.45, color="#64748B", edgecolor="#334155", label="Baseline Prior")
+    ax2.hist(a_rings, bins=r_bins, density=True, alpha=0.65, color="#4F46E5", edgecolor="#312E81", label="Reinforced Agent")
+    ax2.set_xlabel("Number of Rings per Molecule", fontsize=9.5)
+    ax2.set_ylabel("Fraction of Library", fontsize=9.5)
+    ax2.set_title("(B) Cyclic Architecture Census", fontsize=11, fontweight="bold")
+    ax2.grid(True, linestyle=":", alpha=0.4)
+    ax2.legend(loc="upper right", fontsize=8.2)
+
+    # Panel C: Top-3 Dominant Murcko Scaffolds
+    ax3 = fig.add_subplot(1, 3, 3)
+    top_scafs = a_clean[std.SCAFFOLD][a_clean[std.SCAFFOLD] != ""].value_counts().head(3)
     scaf_mols = [Chem.MolFromSmiles(s) for s in top_scafs.index]
     scaf_legends = [
-        f"Rank #{i + 1}: {cnt} mols ({cnt / len(a_clean) * 100:.1f}%)"
+        f"Core #{i+1}: {cnt} mols ({cnt / len(a_clean) * 100:.1f}%)"
         for i, (s, cnt) in enumerate(top_scafs.items())
     ]
 
@@ -1431,18 +1578,12 @@ def render_scaffold_diversity_analysis(
             legends=scaf_legends,
             useSVG=False,
         )
-        ax2.imshow(img)
-        ax2.axis("off")
-        ax2.set_title(
-            "(B) Top-3 Dominant Scaffolds in Reinforced Library",
-            fontsize=11,
-            fontweight="bold",
-        )
+        ax3.imshow(img)
+        ax3.axis("off")
+        ax3.set_title("(C) Top-3 Dominant De Novo Scaffolds", fontsize=11, fontweight="bold")
     else:
-        ax2.text(
-            0.5, 0.5, "Insufficient scaffold diversity data", ha="center", va="center"
-        )
-        ax2.axis("off")
+        ax3.text(0.5, 0.5, "Insufficient scaffold diversity data", ha="center", va="center")
+        ax3.axis("off")
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
@@ -1725,19 +1866,96 @@ def render_lead_to_seed_3d_superposition(
     return target_png
 
 
-def render_antishrinkage_diagnostic(
-    df_after: pd.DataFrame,
+def render_epoch_property_trajectories(
+    smiles_tsv_path: Path | str,
     output_png: Path | str,
-    df_before: pd.DataFrame | None = None,
     ref_smiles: str = "",
 ) -> Path:
-    """Render anti-shrinkage diagnostic: ΔHAC vs ROCS 4-quadrant joint distribution and shrinkage exploit rate."""
+    """Render longitudinal per-epoch multi-property trajectory (median + IQR + upper p95 ceiling) across training epochs."""
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    a_clean = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
-    if a_clean.empty:
+    tsv_p = Path(smiles_tsv_path)
+    if not tsv_p.is_file():
         return target_png
+
+    df = pd.read_csv(tsv_p, sep="	")
+    if "Epoch" not in df.columns or "SMILES" not in df.columns:
+        return target_png
+
+    # Filter valid smiles and compute descriptors
+    mols = [Chem.MolFromSmiles(str(s)) if pd.notna(s) and str(s).strip() != "" else None for s in df["SMILES"]]
+    df["ValidMol"] = [1 if m else 0 for m in mols]
+    valid_df = df[df["ValidMol"] == 1].copy()
+    valid_mols = [m for m in mols if m is not None]
+
+    valid_df["MW"] = [Descriptors.MolWt(m) for m in valid_mols]
+    valid_df["HAC"] = [m.GetNumHeavyAtoms() for m in valid_mols]
+    valid_df["RotB"] = [Lipinski.NumRotatableBonds(m) for m in valid_mols]
+    valid_df["Fsp3"] = [rdMolDescriptors.CalcFractionCSP3(m) for m in valid_mols]
+
+    ref_m = Chem.MolFromSmiles(ref_smiles) if ref_smiles else None
+    ref_vals = {
+        "ROCS": 2.00,
+        "SA": float(calculate_sa_score(ref_m)) if ref_m else 3.74,
+        "QED": float(QED.qed(ref_m)) if ref_m else 0.21,
+        "MW": float(Descriptors.MolWt(ref_m)) if ref_m else 458.4,
+        "HAC": float(ref_m.GetNumHeavyAtoms()) if ref_m else 33.0,
+        "Fsp3": float(rdMolDescriptors.CalcFractionCSP3(ref_m)) if ref_m else 0.36,
+    }
+
+    fig, axes = plt.subplots(2, 3, figsize=(18, 9.5), dpi=250)
+    fig.suptitle(
+        "Longitudinal Per-Epoch Multi-Property Trajectories (Median, IQR & Progression Dynamics)",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    panels_config = [
+        ("ROCS", "3D ROCS Shape Overlap", "Score", (0.0, 1.8)),
+        ("SA", "Synthetic Accessibility (SA)", "SA (lower = easier)", (1.0, 6.0)),
+        ("MW", "Molecular Weight Dynamics (Size Drift)", "MW (Da)", (150.0, 550.0)),
+        ("HAC", "Heavy Atom Count (HAC / Shrinkage)", "Atoms", (10.0, 45.0)),
+        ("Fsp3", "Carbon sp³ Fraction (Fsp³ / 3D Complexity)", "Fraction", (0.0, 0.8)),
+        ("RotB", "Rotatable Bonds (Flexibility)", "Bonds Count", (0.0, 12.0)),
+    ]
+
+    epochs = np.sort(valid_df["Epoch"].unique())
+
+    for idx, (col, title, y_lbl, y_lim) in enumerate(panels_config):
+        ax = axes[idx // 3, idx % 3]
+        if col not in valid_df.columns:
+            continue
+
+        grp = valid_df.groupby("Epoch")[col]
+        med = grp.median()
+        p25 = grp.quantile(0.25)
+        p75 = grp.quantile(0.75)
+        p95 = grp.quantile(0.95)
+
+        # Plot median and IQR band
+        ax.plot(epochs, med.values, color="#4F46E5", linewidth=2.0, label="Agent Median", zorder=3)
+        ax.fill_between(epochs, p25.values, p75.values, color="#4F46E5", alpha=0.20, label="IQR (25th-75th %ile)", zorder=2)
+        ax.plot(epochs, p95.values, color="#E11D48", linestyle="-.", linewidth=1.4, alpha=0.85, label="Upper 95th %ile", zorder=3)
+
+        # Seed reference
+        if col in ref_vals:
+            ref_v = ref_vals[col]
+            ax.axhline(ref_v, color="#0D9488", linestyle=":", linewidth=1.6, label=f"Seed ({ref_v:.1f})", zorder=2)
+
+        ax.set_title(f"({chr(65+idx)}) {title}", fontsize=11, fontweight="bold")
+        ax.set_xlabel("Epoch", fontsize=9.0)
+        ax.set_ylabel(y_lbl, fontsize=9.0)
+        ax.set_ylim(y_lim)
+        ax.grid(True, linestyle=":", alpha=0.4)
+        if idx == 0:
+            ax.legend(loc="upper left", fontsize=7.8)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(target_png, dpi=250, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
 
     b_clean = (
         unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
@@ -2312,12 +2530,13 @@ class ResultAnalyzer:
         scorecard_csv = self.paths.root / "comparison_scorecard.csv"
         scorecard_df.to_csv(scorecard_csv, index=False)
 
-        # Figure 1: 01_before_after_distributions.png
+        # Figure 1: 01_before_after_distributions.png (Unified 3x3 Hierarchical Dashboard)
         if df_before_clean is not None:
             render_before_after_distributions(
                 df_before=df_before_clean,
                 df_after=df_after_clean,
                 output_png=self.paths.figures_dir / "01_before_after_distributions.png",
+                ref_smiles=ref_smiles,
             )
 
         # Figure 2: 02_multiobjective_tradeoffs.png
@@ -2327,7 +2546,8 @@ class ResultAnalyzer:
             df_before=df_before_clean,
         )
 
-        # Figure 3: 03_training_trajectories.png (with FIXED Panel C)
+        # Figure 3: 03_training_trajectories.png
+        smiles_tsv = None
         if monitor_prefix:
             fit_tsv = Path(f"{monitor_prefix}_fit.tsv")
             smiles_tsv = Path(f"{monitor_prefix}_smiles.tsv")
@@ -2335,15 +2555,6 @@ class ResultAnalyzer:
                 history_file_or_df=fit_tsv,
                 output_png=self.paths.figures_dir / "03_training_trajectories.png",
                 smiles_file=smiles_tsv,
-            )
-
-        # Figure 4: 04_diagnostic_unfavorable_features.png
-        if df_before_clean is not None:
-            render_unfavorable_features_diagnostics(
-                df_before=df_before_clean,
-                df_after=df_after_clean,
-                output_png=self.paths.figures_dir
-                / "04_diagnostic_unfavorable_features.png",
             )
 
         # Figure 5: 05_lead_structures_gallery.png
@@ -2354,14 +2565,14 @@ class ResultAnalyzer:
             max_leads=5,
         )
 
-        # Figure 6: 06_relative_property_shifts_tornado.png
+        # Figure 6: 06_relative_property_shifts_tornado.png (Grouped by Domain)
         render_relative_property_shifts_tornado(
             scorecard_df=scorecard_df,
             output_png=self.paths.figures_dir
             / "06_relative_property_shifts_tornado.png",
         )
 
-        # Figure 7: 07_bemis_murcko_scaffold_diversity.png
+        # Figure 7: 07_bemis_murcko_scaffold_diversity.png (Information-Theoretic & Cyclic Census)
         if df_before_clean is not None:
             render_scaffold_diversity_analysis(
                 df_before=df_before_clean,
@@ -2390,14 +2601,15 @@ class ResultAnalyzer:
             max_leads=5,
         )
 
-        # Figure 11: 11_antishrinkage_diagnostic.png
-        render_antishrinkage_diagnostic(
-            df_after=df_after_clean,
-            output_png=self.paths.figures_dir
-            / "11_antishrinkage_diagnostic.png",
-            df_before=df_before_clean,
-            ref_smiles=ref_smiles,
-        )
+        # Figure 11: 11_epoch_property_trajectories.png (Longitudinal Trajectories)
+        active_smiles_file = smiles_tsv if (smiles_tsv and smiles_tsv.is_file()) else (self.paths.models_dir / "SequenceRNN_reinforced_smiles.tsv")
+        if active_smiles_file.is_file():
+            render_epoch_property_trajectories(
+                smiles_tsv_path=active_smiles_file,
+                output_png=self.paths.figures_dir
+                / "11_epoch_property_trajectories.png",
+                ref_smiles=ref_smiles,
+            )
 
         # Write summary.md
         summary_md = self.paths.root / "summary.md"
@@ -2433,16 +2645,15 @@ class ResultAnalyzer:
             [
                 "",
                 "## Publication Figures & Diagnostics",
-                "- [01 Before vs. After Distributions (KDE + 95% CI)](figures/01_before_after_distributions.png)",
+                "- [01 Hierarchical Property Diagnostic Dashboard (3x3 Distributions + 95% CI)](figures/01_before_after_distributions.png)",
                 "- [02 Multi-Objective Trade-Offs (Empirical Skylines & 3D Pareto)](figures/02_multiobjective_tradeoffs.png)",
                 "- [03 Training Trajectories (RL Dynamics & Convergence Diagnostics)](figures/03_training_trajectories.png)",
-                "- [04 Unfavorable Features Diagnostics (Size Drift & Mode Collapse)](figures/04_diagnostic_unfavorable_features.png)",
                 "- [05 Prioritized Lead Structures Gallery (Aligned 2D Cards & Badges)](figures/05_lead_structures_gallery.png)",
-                "- [06 Relative Property Shifts Tornado Plot (Δ%)](figures/06_relative_property_shifts_tornado.png)",
-                "- [07 Bemis-Murcko Scaffold Diversity & Core Dominance](figures/07_bemis_murcko_scaffold_diversity.png)",
+                "- [06 Relative Property Shifts Tornado Plot (Domain Grouped Δ%)](figures/06_relative_property_shifts_tornado.png)",
+                "- [07 Bemis-Murcko Information Diversity & Cyclic Census](figures/07_bemis_murcko_scaffold_diversity.png)",
                 "- [08 ROCS Feature Decomposition & Molecular Size](figures/08_rocs_shape_vs_color_decomposition.png)",
                 "- [10 3D Lead-to-Seed Superposition & Mol* Poses](figures/10_lead_to_seed_3d_superposition.png)",
-                "- [11 Anti-Shrinkage & ΔHAC Reward Exploitation Diagnostic](figures/11_antishrinkage_diagnostic.png)",
+                "- [11 Longitudinal Per-Epoch Multi-Property Trajectories](figures/11_epoch_property_trajectories.png)",
                 "- [3D Conformer Ensemble Superposition](figures/reference_3d_superposition.png)",
                 "- [Aligned 3D Superposition Structures (SDF)](figures/top_leads_aligned_to_seed.sdf)",
                 "- [Top Prioritized Leads (TSV)](top_prioritized_leads.tsv)",
