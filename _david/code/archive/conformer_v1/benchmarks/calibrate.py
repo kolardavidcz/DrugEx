@@ -36,8 +36,8 @@ from _david.code.chemistry import (
     prepare_candidate_molecule,
 )
 from _david.code.config import PROJECT_ROOT
-from _david.code.conformer.self_recovery import SOURCE_PATHS
-from _david.code.conformer.utils import atomic_json, collect_jobs, digest, save_sdf
+from _david.code.conformer.benchmarks.self_recovery import SOURCE_PATHS
+from _david.code.conformer.core.utils import atomic_json, collect_jobs, digest, save_sdf
 from _david.code.reference import PrepareMolecule, select_conformers
 from _david.code.rocs import has_color, score_pair
 
@@ -344,7 +344,7 @@ def run(args):
     output = args.output.resolve()
     hashes = {p: digest(PROJECT_ROOT / p) for p in SOURCES}
     if args.render_only:
-        from _david.code.conformer.visualization import render_joint_calibration
+        from _david.code.conformer.analysis.visualization import render_joint_calibration
 
         render_joint_calibration(
             pd.read_csv(output / "summary.csv"), result_root(output)
@@ -452,7 +452,7 @@ def run(args):
         frame.to_csv(output / "data.csv.gz", index=False, compression="gzip")
         summary = summarize(frame)
         summary.to_csv(output / "summary.csv", index=False)
-        from _david.code.conformer.visualization import render_joint_calibration
+        from _david.code.conformer.analysis.visualization import render_joint_calibration
 
         render_joint_calibration(summary, result_root(output))
         manifest.update(

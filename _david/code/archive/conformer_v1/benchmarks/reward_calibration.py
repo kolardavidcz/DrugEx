@@ -32,7 +32,7 @@ from _david.code.chemistry import (
     verify_disjoint_conformer_seeds,
 )
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
-from _david.code.conformer.reference_bank import (
+from _david.code.conformer.reference.reference_bank import (
     CANDIDATE_ISOMER_CAP,
     CANDIDATE_SEED,
     ENERGY_WINDOW_KCAL,
@@ -44,13 +44,13 @@ from _david.code.conformer.reference_bank import (
     STEREO_SEED,
     prepare_banks,
 )
-from _david.code.conformer.utils import (
+from _david.code.conformer.core.utils import (
     atomic_json,
     collect_jobs,
     digest,
     source_hashes as compute_source_hashes,
 )
-from _david.code.conformer.visualization import (
+from _david.code.conformer.analysis.visualization import (
     render_reward_heatmaps,
     render_reward_pareto,
     render_rl_timing,

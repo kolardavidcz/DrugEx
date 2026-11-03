@@ -199,7 +199,7 @@ def render_6panel_figure(output_png: Path) -> Path:
         )
         ax5.plot(x_s, s_df["score"].values, marker=marker, color=col, linewidth=2.3, label=label)
         if y_off is not None:
-            for idx, (sc, k_act) in enumerate(zip(s_df["score"].values, s_df["k_actual"].values)):
+            for idx, (sc, _k_act) in enumerate(zip(s_df["score"].values, s_df["k_actual"].values)):
                 if idx == 0 and sel_key != "diverse":
                     continue
                 ax5.annotate(

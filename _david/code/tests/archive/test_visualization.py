@@ -56,7 +56,7 @@ class TestVisualizationSuite(unittest.TestCase):
             })
             df.to_csv(tsv_path, sep="\t", index=False)
 
-            p = render_epoch_property_trajectories(
+            render_epoch_property_trajectories(
                 smiles_tsv_path=tsv_path,
                 output_png=out_png,
                 ref_smiles="c1ccc(Cl)cc1",

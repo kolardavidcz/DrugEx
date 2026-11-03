@@ -18,7 +18,7 @@ from _david.code.chemistry import (
     optimize_conformers,
     prepare_candidate_molecule,
 )
-from _david.code.conformer.utils import save_sdf
+from _david.code.conformer.core.utils import save_sdf
 from _david.code.reference import (
     PrepareMolecule,
     balanced_reference_order,
@@ -67,12 +67,12 @@ def prepare_banks(
             methods=info,
             enumerated_isomers=0,
         )
-    isomers = list(enumerate_stereoisomers(prepared, limit=8, seed=42))
+    isomers = list(enumerate_stereoisomers(prepared, limit=REFERENCE_ISOMER_CAP, seed=STEREO_SEED))
     color_excluded = False
     for iso_index, iso in enumerate(isomers):
         preparer = PrepareMolecule(
-            num_conformers=50,
-            max_reference_conformers=50,
+            num_conformers=REFERENCE_ATTEMPTS,
+            max_reference_conformers=REFERENCE_ATTEMPTS,
             random_seed=REFERENCE_SEED,
             num_threads=1,
             rmsd_cutoff=None,
@@ -105,7 +105,7 @@ def prepare_banks(
                 survivors = [
                     mol
                     for mol in converged
-                    if mol.GetDoubleProp("Energy_kcal_mol") - lowest <= 8.0
+                    if mol.GetDoubleProp("Energy_kcal_mol") - lowest <= ENERGY_WINDOW_KCAL
                 ]
                 survivors.sort(key=lambda mol: mol.GetDoubleProp("Energy_kcal_mol"))
             for mol in survivors:

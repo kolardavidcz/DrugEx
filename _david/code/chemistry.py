@@ -204,6 +204,35 @@ def _create_etkdg_params(
     return params
 
 
+def embed_conformers(
+    mol: Chem.Mol,
+    num_conformers: int,
+    random_seed: int,
+    embedding_rmsd: float | None = None,
+    timeout: int = 0,
+    num_threads: int = 1,
+) -> list[int]:
+    """Single canonical ETKDGv3 embedding function with per-graph parameter isolation.
+
+    Falls back to useRandomCoords=True if distance geometry embedding fails.
+    """
+    params = _create_etkdg_params(
+        random_seed=random_seed,
+        embedding_rmsd=embedding_rmsd,
+        timeout=timeout,
+        num_threads=num_threads,
+    )
+    conf_ids = list(
+        AllChem.EmbedMultipleConfs(mol, numConfs=num_conformers, params=params)
+    )
+    if not conf_ids:
+        params.useRandomCoords = True
+        conf_ids = list(
+            AllChem.EmbedMultipleConfs(mol, numConfs=num_conformers, params=params)
+        )
+    return conf_ids
+
+
 @dataclass(frozen=True)
 class _CandidateEmbeddingTask:
     """Inputs and configuration for one chunk of candidate conformer embedding."""

@@ -33,9 +33,9 @@ from _david.code.chemistry import (
     optimize_conformers,
 )
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
-from _david.code.conformer.mega import prepared_molecule
-from _david.code.conformer.sampling import deduplicate_reference
-from _david.code.conformer.utils import atomic_json, digest, save_sdf
+from _david.code.conformer.benchmarks.mega import prepared_molecule
+from _david.code.conformer.core.sampling import deduplicate_reference
+from _david.code.conformer.core.utils import atomic_json, digest, save_sdf
 from _david.code.environment import PrepareMolecule, create_rocs_scorer
 from _david.code.rocs import score_pair, has_color
 from _david.code.visualization import render_mini_recovery

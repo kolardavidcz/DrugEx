@@ -10,12 +10,12 @@ This document is the authoritative single source of truth for AI agents and huma
    - All thesis code, experimental scripts, configurations, and test suites must strictly reside under `_david/`.
    - **DrugEx core remains strictly read-only.** Never modify files under `drugex/` or repository root.
 2. **Dual-Host Development Workflow**:
-   - **Local Workstation** (`/home/kolar/DrugEx/`): Used for editing, linting (`ruff`), unit test execution (`python -m unittest discover -s _david/tests -v`), and lightweight batch profiling.
+   - **Local Workstation** (`/home/kolar/DrugEx/`): Used for editing, linting (`ruff`), unit test execution (`python -m unittest discover -s _david/code/tests -p "test_*.py" -v`), and lightweight batch profiling.
    - **Remote Lab Server (`dichtator`)** (`kolarv@147.33.72.143`): Primary server for offline model evaluation, deep profiling, and sanity runs. Connect via SSH alias `dichtator`. Always check for user edits before synchronizing (`git status`, `git stash`).
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): Primary cluster for multi-arm reinforcement learning training and GPU compute. Managed via `_david/code/metacentrum/grid.py`.
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/tests -v` (Currently 91/91 passing).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 94/94 passing).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -82,21 +82,22 @@ _david/
 │   ├── rocs.py                        # ConfigurableRDKitROCSScorer and Gaussian volume alignment
 │   ├── schema.py, utils.py            # Standard column names and hardware job allocation
 │   ├── visualization.py               # 8 publication-grade diagnostics & trajectory figures
-│   ├── conformer/                     # Conformer calibration, batch probes, and results.md
-│   │   ├── batch_probe.py              # Realistic multi-core batch scoring benchmark
-│   │   ├── drug_panel.py              # DrugCentral curation for self-recovery
-│   │   ├── mega.py                    # Cross-method conformer/ROCS mega-analysis
-│   │   ├── panel_figures.py           # 128-drug stratified figure (3 panels; D removed 2026-11-01)
-│   │   ├── reference_bank.py          # Diversity-ordered reference banks (R50/I8)
-│   │   ├── results.md                 # Conformer research findings & decision record
-│   │   ├── reward_calibration.py      # Historical singleton Pareto benchmark
-│   │   ├── rl_batch_calibration.py    # 1:1 training-interface cost & early-accuracy calibration
-│   │   └── rl_cost_probe.py            # Live-RL epoch cost reference (dichtator smoke)
+│   ├── conformer/                     # Conformer suite: four components + results.md
+│   │   ├── core/                      # Frozen contracts, content-addressed cache, storage,
+│   │   │                              #   provenance, dataset registry, isomer taxonomy
+│   │   ├── prepare/                   # Standardization, stereoisomer enumeration, registry
+│   │   ├── ensemble/                  # ETKDG embedding, force-field minimization, bank selection
+│   │   ├── scoring/                   # Production ROCS wrapper + asymmetric Tversky maths
+│   │   ├── studies/                   # Declarative cell matrices per component
+│   │   ├── analysis/                  # Canonical table loaders, figures, `reproduce.py`
+│   │   ├── cli.py                     # migrate · registry · figures · study · cache-stats
+│   │   ├── README.md / DESIGN.md      # Package overview / design rationale
+│   │   └── results.md                 # Conformer findings & decision record
 │   └── metacentrum/                   # MetaCentrum grid submission and cluster orchestration
 │       ├── grid.py                    # MetaCentrumGridManager, CLI, and grid generators
 │       ├── job_template.sh            # PBS Pro cluster execution script
 │       └── scripts/                   # Standalone submission scripts (h1..h4, rl_batch_calibration)
-├── tests/                             # 91 unit and regression tests (100% passing)
+├── code/tests/                         # 94 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 

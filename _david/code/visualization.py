@@ -17,12 +17,6 @@ from _david.code.config import RunPaths
 from _david.code.schema import std
 
 
-from _david.code.conformer.visualization import (
-    render_conformer_study, render_mega_study, render_conformer_analysis,
-    render_sampling_plan, render_mini_recovery, render_self_recovery,
-)
-
-
 def unscale_to_physical_metrics(
     df: pd.DataFrame,
     *,

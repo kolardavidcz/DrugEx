@@ -41,9 +41,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from _david.code.conformer.reference_bank import LABELS  # noqa: E402
-from _david.code.conformer.utils import atomic_json, digest, source_hashes  # noqa: E402
-from _david.code.conformer.visualization import (  # noqa: E402
+from _david.code.conformer.reference.reference_bank import LABELS  # noqa: E402
+from _david.code.conformer.core.utils import atomic_json, digest, source_hashes  # noqa: E402
+from _david.code.conformer.analysis.visualization import (  # noqa: E402
     FALLBACK_RL_REFERENCE,
     rl_reference_measurement,
 )
