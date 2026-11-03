@@ -596,13 +596,6 @@ class CandidateConformerGenerator(RDKitConformerGenerator):
         return path
 
 
-def minimize_mmff94(
-    records: Sequence[Chem.Mol], max_iterations: int = 1000
-) -> tuple[list[Chem.Mol], list[int]]:
-    """Compatibility wrapper for the selected default MMFF94 condition."""
-    return optimize_conformers(records, Optimization(max_iterations=max_iterations))
-
-
 def _build_force_field(mol: Chem.Mol, settings: Optimization) -> Any:
     """Construct an RDKit UFF or MMFF94/MMFF94s force-field instance for ``mol``."""
     if settings.method == "UFF" and AllChem.UFFHasAllMoleculeParams(mol):

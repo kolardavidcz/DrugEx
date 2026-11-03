@@ -251,6 +251,23 @@ class TestDatasets(unittest.TestCase):
         self.assertEqual(loaded[0].name, "ethanol")
         self.assertIn("group:x", loaded[0].tags)
 
+    def test_deduplicate_specs_keeps_identical_duplicates(self) -> None:
+        specs = (
+            MoleculeSpec(name="glibenclamide", smiles="CCO"),
+            MoleculeSpec(name="glibenclamide", smiles="CCO", tags=("split:confirmation",)),
+            MoleculeSpec(name="egcg", smiles="C1CCCCC1"),
+        )
+        unique = datasets.deduplicate_specs(specs)
+        self.assertEqual([spec.name for spec in unique], ["glibenclamide", "egcg"])
+
+    def test_deduplicate_specs_rejects_a_structure_collision(self) -> None:
+        specs = (
+            MoleculeSpec(name="same-name", smiles="CCO"),
+            MoleculeSpec(name="same-name", smiles="CCN"),
+        )
+        with self.assertRaises(StudyError):
+            datasets.deduplicate_specs(specs)
+
     def test_legacy_fallback_is_marked_non_canonical(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             legacy = Path(tmp, "legacy.csv")

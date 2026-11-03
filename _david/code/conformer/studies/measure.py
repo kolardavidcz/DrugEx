@@ -9,6 +9,7 @@ lattice of counts, same score scale.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import time
 from typing import Any
 
@@ -48,8 +49,6 @@ class MeasureExecutor:
     register: bool = False
 
     def _cache(self) -> ArtifactCache:
-        from pathlib import Path
-
         return ArtifactCache(
             Path(self.cache_root) if self.cache_root else None,
             enabled=self.cache_enabled,

@@ -130,10 +130,9 @@ def registry(panels: Sequence[str] | None = None) -> dict[str, Path]:
     specs: list[MoleculeSpec] = []
     for name in names:
         specs.extend(datasets.load_panel(name))
-    deduplicated: dict[str, MoleculeSpec] = {}
-    for spec in specs:
-        deduplicated.setdefault(spec.name, spec)
-    frame, errors = build_registry(tuple(deduplicated.values()), cache=ArtifactCache())
+    frame, errors = build_registry(
+        datasets.deduplicate_specs(specs), cache=ArtifactCache()
+    )
     written = write_component_tables(frame, output_dir=component_dir("preparation"))
     if errors:
         written["errors"] = storage.write_csv(
@@ -207,13 +206,12 @@ def study_clustering(args: argparse.Namespace) -> dict[str, Path]:
 
 def study_color_shape(args: argparse.Namespace) -> dict[str, Path]:
     molecules = _molecules(args.panel, args.panel_file)
-    frame, manifest = color_shape_study.run_tversky_grid(
+    color_shape_study.run_tversky_grid(
         molecules,
         args.output,
         cache=ArtifactCache(),
         workers=args.workers,
     )
-    del frame, manifest
     return {"tversky_grid": Path(args.output) / "tversky_color_grid.csv"}
 
 

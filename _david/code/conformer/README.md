@@ -15,7 +15,7 @@ Four components answer four questions. Everything else is plumbing for them.
 
 The RL pipeline is a consumer of this work, not part of it. Training changes are
 recorded in `results.md` under "scoring pin" and summarized in
-[`../AGENTS.md`](../AGENTS.md).
+[`../../AGENTS.md`](../../AGENTS.md).
 
 ---
 
@@ -172,8 +172,7 @@ an untracked CSV.
    repeated here because numbers rot.
 4. `core/contracts.py` → `studies/measure.py` → one `studies/*.py` → one
    `analysis/*.py`.
-5. `_david/code/conformer/core/README.md` for low-level serialization helpers
-   (note: it predates the current module names; the code is authoritative).
+5. `_david/code/conformer/core/README.md` for the plumbing each layer shares.
 
 Tests encode the invariants better than prose does. When in doubt, read the
 test that covers the function you are about to change.

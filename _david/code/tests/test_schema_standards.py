@@ -61,12 +61,29 @@ class TestSchemaStandards(unittest.TestCase):
         cfg = PipelineConfig()
         self.assertEqual(cfg.cpu_ratio, 0.99)
         self.assertEqual(cfg.reward_scheme, std.REWARD_PARETO)
+        self.assertEqual(cfg.criteria, std.AVG_GMEAN)
+        self.assertEqual(cfg.n_eval_samples, 5000)
 
         with self.assertRaises(ValueError):
             PipelineConfig(reward_scheme="pareto")
 
         with self.assertRaises(ValueError):
             PipelineConfig(reward_scheme="ws")
+
+        # The CLI maps 'gmean'/'mean' to canonical values; the config itself
+        # accepts only canonical schema constants.
+        for invalid in ("gmean", "mean", "bogus"):
+            with self.assertRaises(ValueError):
+                PipelineConfig(criteria=invalid)
+        with self.assertRaises(ValueError):
+            PipelineConfig(n_eval_samples=0)
+
+    def test_criteria_aliases_cover_every_canonical_value(self) -> None:
+        """Keep the CLI alias table and PipelineConfig validation in sync."""
+        from _david.code.config import VALID_CRITERIA
+        from _david.code.pipeline import CRITERIA_ALIASES
+
+        self.assertEqual(set(CRITERIA_ALIASES.values()), set(VALID_CRITERIA))
 
     def test_architectural_boundaries_no_kwargs_getters(self) -> None:
         """Assert PipelineConfig has no legacy kwargs getters."""

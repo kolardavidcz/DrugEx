@@ -28,9 +28,6 @@ CACHE_ROOT: Path = DATA_ROOT / "cache"
 #: Registered, verified input molecules and their prepared forms.
 CANONICAL_ROOT: Path = DATA_ROOT / "canonical"
 
-#: Study-level provenance manifests that outlive the output folder.
-MANIFEST_ROOT: Path = DATA_ROOT / "manifests"
-
 #: Human-facing deliverables, one directory per component.
 OUTPUT_ROOT: Path = DAVID_ROOT / "output" / "conformer"
 
@@ -48,19 +45,9 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
-def data_root() -> Path:
-    """Return (and create) the canonical conformer data root."""
-    return ensure_dir(DATA_ROOT)
-
-
 def cache_root() -> Path:
     """Return (and create) the content-addressed cache root."""
     return ensure_dir(CACHE_ROOT)
-
-
-def manifest_root() -> Path:
-    """Return (and create) the study-manifest root."""
-    return ensure_dir(MANIFEST_ROOT)
 
 
 def canonical_root() -> Path:
@@ -85,13 +72,10 @@ __all__ = [
     "COMPONENT_DIRS",
     "DATA_ROOT",
     "DAVID_ROOT",
-    "MANIFEST_ROOT",
     "OUTPUT_ROOT",
     "PROJECT_ROOT",
     "cache_root",
     "canonical_root",
     "component_dir",
-    "data_root",
     "ensure_dir",
-    "manifest_root",
 ]

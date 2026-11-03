@@ -17,7 +17,6 @@ from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers
 from _david.code.chemistry import (
     Optimization,
     check_identity,
-    minimize_mmff94,
     optimize_conformers,
     standardize_smiles,
 )
@@ -63,7 +62,7 @@ class TestPreparation(unittest.TestCase):
                 [DEFAULT_MOLECULE], directory
             )
             records = list(Chem.SDMolSupplier(raw_path, removeHs=False))
-            minimized, _ = minimize_mmff94(records)
+            minimized, _ = optimize_conformers(records, Optimization())
             self.assertTrue(minimized)
             study_score = max(
                 _score_single_reference(
@@ -138,7 +137,7 @@ class TestPreparation(unittest.TestCase):
     def test_unconverged_candidate_is_reported_and_excluded(self):
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         self.assertEqual(AllChem.EmbedMolecule(mol, randomSeed=42), 0)
-        minimized, statuses = minimize_mmff94([mol], max_iterations=0)
+        minimized, statuses = optimize_conformers([mol], Optimization(max_iterations=0))
         self.assertEqual(minimized, [])
         self.assertEqual(statuses, [1])
 

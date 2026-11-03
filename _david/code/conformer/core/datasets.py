@@ -22,7 +22,7 @@ be validated before the copy is committed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -190,6 +190,30 @@ def load_panel(
     return tuple(specs)
 
 
+def deduplicate_specs(
+    specs: Sequence[MoleculeSpec],
+) -> tuple[MoleculeSpec, ...]:
+    """Collapse repeated panel members without hiding a structure collision.
+
+    Panels overlap on purpose (glibenclamide appears in both the EGCG stress
+    panel and the confirmation split), so de-duplicating by name is required.
+    A repeated name with a *different* SMILES is not a duplicate: it is a data
+    error that would otherwise silently keep the first structure and drop the
+    second.
+    """
+    unique: dict[str, MoleculeSpec] = {}
+    for spec in specs:
+        previous = unique.get(spec.name)
+        if previous is None:
+            unique[spec.name] = spec
+        elif previous.smiles != spec.smiles:
+            raise StudyError(
+                f"Molecule name {spec.name!r} occurs with two different structures: "
+                f"{previous.smiles!r} and {spec.smiles!r}"
+            )
+    return tuple(unique.values())
+
+
 def write_panel(
     name: str,
     specs: tuple[MoleculeSpec, ...] | list[MoleculeSpec],
@@ -220,6 +244,7 @@ __all__ = [
     "TABLES",
     "TABLE_DIR",
     "TableSource",
+    "deduplicate_specs",
     "load_panel",
     "load_table",
     "panel_path",

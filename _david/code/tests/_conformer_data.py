@@ -20,8 +20,9 @@ MIGRATE_HINT = (
     "`python -m _david.code.conformer.cli migrate` to populate it"
 )
 
-# A single cheap probe: the registry table is written last by the migration, so if
-# it exists the rest of the tree was written successfully too.
+# A single cheap probe: if one canonical table is present, `cli migrate` has
+# already populated the tree on this host. If it is absent, the tests that read
+# real study data have nothing trustworthy to assert on and must skip.
 HAS_CANONICAL_DATA = (CANONICAL_ROOT / "tables" / "reference_counts.csv").is_file()
 
 requires_canonical_data = unittest.skipUnless(HAS_CANONICAL_DATA, MIGRATE_HINT)

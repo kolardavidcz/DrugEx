@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -9,6 +10,16 @@ from _david.code.chemistry import Optimization
 from _david.code.schema import std
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+
+#: Canonical checkpoint criteria accepted by ``PipelineConfig``.  The CLI maps
+#: short spellings (``gmean``/``mean``) onto these values in ``pipeline.py``.
+VALID_CRITERIA: tuple[str, ...] = (
+    std.AVG_AMEAN,
+    std.AVG_GMEAN,
+    std.DESIRED_RATIO,
+    std.VALID_RATIO,
+    std.UNIQUE_RATIO,
+)
 
 # Canonical default target query molecule (Epigallocatechin gallate - EGCG)
 DEFAULT_MOLECULE: str = (
@@ -133,6 +144,16 @@ class PipelineConfig:
             raise ValueError(
                 f"Invalid reward_scheme '{self.reward_scheme}'. Must be one of canonical schema standards: {valid_schemes}"
             )
+        if self.criteria not in VALID_CRITERIA:
+            raise ValueError(
+                f"Invalid criteria '{self.criteria}'. Must be one of the canonical checkpoint "
+                f"criteria {VALID_CRITERIA}; the CLI aliases 'gmean'/'mean' are mapped to these "
+                "values by pipeline.py."
+            )
+        if self.n_eval_samples < 1:
+            raise ValueError(
+                f"n_eval_samples must be at least 1, got {self.n_eval_samples!r}"
+            )
         if self.score_variant != std.VARIANT_TANIMOTO_COMBO:
             raise ValueError(
                 f"Invalid score_variant '{self.score_variant}'. Production training scores with "
@@ -164,6 +185,11 @@ class PipelineConfig:
                 return p_agent, p_voc
 
         candidates = [
+            *(
+                [Path(os.environ["DRUGEX_PRETRAINED_DIR"])]
+                if os.environ.get("DRUGEX_PRETRAINED_DIR")
+                else []
+            ),
             PROJECT_ROOT
             / "tutorial"
             / "data"

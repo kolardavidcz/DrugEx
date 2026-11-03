@@ -67,10 +67,7 @@ def _registry_specs() -> tuple[MoleculeSpec, ...]:
             specs.extend(datasets.load_panel(name))
         except Exception:  # noqa: BLE001 - panel may not be migrated yet
             continue
-    deduplicated: dict[str, MoleculeSpec] = {}
-    for spec in specs:
-        deduplicated.setdefault(spec.name, spec)
-    return tuple(deduplicated.values())
+    return datasets.deduplicate_specs(specs)
 
 
 def regenerate(
