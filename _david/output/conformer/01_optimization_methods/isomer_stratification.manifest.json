@@ -1,0 +1,31 @@
+{
+  "figure": "isomer_stratification.png",
+  "generated_utc": "2026-11-03T18:35:24.181704+00:00",
+  "git_dirty": true,
+  "git_revision": "a3aa089e9aaeb136956b24fc0d47914aef3c3cf4",
+  "inputs": {
+    "drug_panel_cells": {
+      "bytes": 852256,
+      "path": "/home/kolar/DrugEx/_david/data/conformers/canonical/tables/drug_panel_development_cells.csv.gz",
+      "sha256": "31f778f571e30cb1cb85b851c873569815c960b124a72545f7b60c930ff4d42b"
+    },
+    "stereo_input_audit": {
+      "bytes": 67754,
+      "path": "/home/kolar/DrugEx/_david/data/conformers/canonical/tables/stereo_input_audit.csv",
+      "sha256": "81252af62c8e71667d9e2c19fb9153593d895580e181c88d78e7f7983ae021c2"
+    }
+  },
+  "notes": "Minimized vs unminimized scoring stratified by the true stereoisomer upper bound, canonical bins 1-2, 3-4, 5-8, 9-15, 16-32, 33+.",
+  "versions": {
+    "cpu_count": "4",
+    "drugex": "3.4.9.dev411+g2fd84caae",
+    "matplotlib": "3.11.2",
+    "numpy": "2.5.4",
+    "pandas": "3.1.0",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "python": "3.12.13",
+    "rdkit": "2026.9.1",
+    "scipy": "1.18.1",
+    "torch": "2.14.1"
+  }
+}

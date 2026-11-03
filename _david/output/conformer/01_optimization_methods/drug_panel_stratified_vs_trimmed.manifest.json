@@ -1,0 +1,31 @@
+{
+  "figure": "drug_panel_stratified_vs_trimmed.png",
+  "generated_utc": "2026-11-03T18:04:17.071972+00:00",
+  "git_dirty": true,
+  "git_revision": "a3aa089e9aaeb136956b24fc0d47914aef3c3cf4",
+  "inputs": {
+    "drug_panel_cells": {
+      "bytes": 852256,
+      "path": "/home/kolar/DrugEx/_david/data/conformers/canonical/tables/drug_panel_development_cells.csv.gz",
+      "sha256": "31f778f571e30cb1cb85b851c873569815c960b124a72545f7b60c930ff4d42b"
+    },
+    "drug_panel_summary": {
+      "bytes": 29684,
+      "path": "/home/kolar/DrugEx/_david/data/conformers/canonical/tables/drug_panel_development_summary.csv",
+      "sha256": "c87345f77a431e50e25a53acddb95f87d939cb60bd529a483bca0db9338b2c95"
+    }
+  },
+  "notes": "128-drug panel: cost/accuracy, isomer stratification, landscape steepness, budget policy.",
+  "versions": {
+    "cpu_count": "4",
+    "drugex": "3.4.9.dev411+g2fd84caae",
+    "matplotlib": "3.11.2",
+    "numpy": "2.5.4",
+    "pandas": "3.1.0",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "python": "3.12.13",
+    "rdkit": "2026.9.1",
+    "scipy": "1.18.1",
+    "torch": "2.14.1"
+  }
+}
