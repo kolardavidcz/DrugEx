@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): Primary cluster for multi-arm reinforcement learning training and GPU compute. Managed via `_david/code/metacentrum/grid.py`.
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 94/94 passing).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 95/95 passing; 8 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -97,7 +97,7 @@ _david/
 │       ├── grid.py                    # MetaCentrumGridManager, CLI, and grid generators
 │       ├── job_template.sh            # PBS Pro cluster execution script
 │       └── scripts/                   # Standalone submission scripts (h1..h4, rl_batch_calibration)
-├── code/tests/                         # 94 unit and regression tests (100% passing)
+├── code/tests/                         # 95 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 

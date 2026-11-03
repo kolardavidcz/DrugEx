@@ -28,9 +28,14 @@ candidates". Consequences that mattered scientifically:
    answered questions nobody had asked again, while the four questions that
    actually decide the production scorer were spread across five files.
 
-The rewrite keeps the chemistry — `_david/code/chemistry.py`,
-`reference.py`, `rocs.py`, `config.py` are untouched as the kernel — and
-replaces everything above it with four components that answer four questions.
+The rewrite keeps the physics and the scoring geometry — `_david/code/chemistry.py`,
+`reference.py`, `rocs.py`, `config.py` remain the shared kernel that the RL
+pipeline also consumes — and replaces everything above it with four components
+that answer four questions. The kernel did get two surgical changes on the same
+day, both recorded in `results.md`: `chemistry.embed_conformers()` became the
+single ETKDGv3 entry point (so reference banks and candidate ensembles cannot
+diverge), and production scoring was pinned to canonical TanimotoCombo — the
+162-cell Tversky grid is a calibration result, not a runtime switch.
 
 The previous tree is frozen, unimported, in `_david/code/archive/conformer_v1/`.
 The multi-thousand-cell `mega` sweeps are intentionally **not** ported: they are

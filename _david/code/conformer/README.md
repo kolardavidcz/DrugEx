@@ -13,8 +13,10 @@ answer one of them:
 | 3. Clustering benchmark | Which reference-merging rule should reduce a 50–100 conformer bank to `K` poses? | `03_clustering_benchmark/` |
 | 4. Molecule preparation | What exactly is in the input set, and how many conformers survive each expensive stage? | `04_molecule_preparation/` |
 
-The RL pipeline is untouched: this package *measures* the scorer and the
-reference-bank policy that the reward function consumes.
+The RL pipeline's behaviour is untouched: this package *measures* the scorer and
+the reference-bank policy that the reward function consumes. What it did change
+outside the package is one thing — training can no longer be pointed at an
+experimental similarity variant (see `results.md`, "scoring pin").
 
 ---
 
