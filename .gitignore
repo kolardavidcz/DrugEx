@@ -22,15 +22,6 @@ _david/*.html
 _david/tests/molecular_dynamics/*/*
 _david/output/*
 _david/tests/molecular_dynamics/*
-# The conformer suite's published deliverables *are* the thesis artifact: track
-# them so a figure and the table digests it was rendered from can never drift
-# apart, and so they are visible in git-aware file explorers. Everything else
-# under output/ stays untracked (raw runs, caches, model checkpoints).
-!/_david/output/conformer/
-!/_david/output/conformer/**
-# The output index is documentation, not a run: it maps every category and says
-# what is disposable, so it belongs with the code.
-!/_david/output/README.md
 
 # --- Heavy Model Weights & Binary Checkpoints ---
 *.pkg
