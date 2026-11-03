@@ -20,9 +20,11 @@ DEFAULT_MOLECULE: str = (
 class PipelineConfig:
     """Canonical single source of truth for all LBDD hyperparameters and execution settings.
 
-    Provides typed kwargs projection methods (``preparer_kwargs``, ``rocs_scorer_kwargs``,
-    ``explorer_kwargs``, ``fit_kwargs``) so downstream constructors and DrugEx calls
-    consume ``PipelineConfig`` without 10-parameter boilerplate.
+    Downstream constructors consume the config object directly
+    (``PrepareMolecule(config=...)``, ``create_rocs_scorer(cfg=...)``,
+    ``explorer.fit(epochs=cfg.epochs, ...)``). There are no kwargs-projection
+    helpers: every field is read where it is used, so renaming or adding one is a
+    single mechanical edit instead of four silent projections that can drift.
     """
 
     # Reinforcement Learning Exploration
@@ -43,7 +45,8 @@ class PipelineConfig:
     # Exploration Noise (Epsilon)
     epsilon: float = 0.05  # Prior-mutation exploration rate
     epsilon_end: float = 0.0  # Terminal exploration floor
-    decay_epochs: int = 50
+    decay_start_epoch: int = 1  # Epoch where decay begins (stays at epsilon until this epoch)
+    decay_epochs: int = 50  # Epoch where decay finishes reaching epsilon_end
     decay_type: str = "cosine"  # ^ ["cosine", "linear"]
     use_epsilon_decay: bool = False  # ^ [True, False]
 
@@ -53,13 +56,16 @@ class PipelineConfig:
     # Empirical baseline percentile (e.g. 75.0 = Q3) to auto-calibrate from Stage 1 prior distribution
     threshold_percentile: float | None = None  # ^ [75.0, None]
 
-    # Scoring & Rewards (Calibrated on 121x121 = 14,641 drug-pair x 162-combo selectivity grid):
-    score_variant: str = "tanimoto_combo"  # ^ ["tversky_mild_color_heavy", "selectivity_color_heavy", "tversky_scaffold_hop", "tversky_scaffold_hop_strict", "tanimoto_combo"]
-    rocs_tversky_alpha: float | None = None
-    rocs_tversky_beta: float | None = None
-    rocs_shape_weight: float | None = None
-    rocs_color_weight: float | None = None
-    reward_scheme: str = std.REWARD_HARRINGTON  # ^ ["harrington", "pareto_crowding", "weighted_sum"]
+    # Scoring & Rewards (calibrated on the 121x121 = 14,641 drug-pair x 162-cell
+    # selectivity grid, see _david/code/conformer/results.md). Production scoring is
+    # canonical ROCS TanimotoCombo (shape + color in [0, 2]) only. The asymmetric
+    # Tversky grid, its weights and its Gaussian re-weighters are a *measured
+    # calibration*, not a runtime knob: they live in
+    # _david/code/to_do/rocs_multimetric.py and are never reachable from training.
+    # `score_variant` is kept as a single-choice field so historical submission
+    # specs (which pass `--score-variant tanimoto_combo`) still replay verbatim.
+    score_variant: str = std.VARIANT_TANIMOTO_COMBO
+    reward_scheme: str = std.REWARD_PARETO  # ^ ["pareto_crowding", "harrington", "weighted_sum"]
     weights: tuple[float, ...] | None = None  # Auto-calibrates to (0.75, 0.25) or (0.50, 0.25, 0.25)
 
     # Scorer Modifier Bounds (ROCS raw/clipped & SA ClippedScore)
@@ -99,9 +105,9 @@ class PipelineConfig:
         None  # Optional Python/NumPy/Torch seed; recorded per run.
     )
 
-    # Hardware & Multiprocessing (Authoritative 0.90 CPU allocation)
+    # Hardware & Multiprocessing (Authoritative 0.99 CPU allocation)
     gpu: int | str = "auto"
-    cpu_ratio: float = 0.90  # 90% of available CPU cores by default
+    cpu_ratio: float = 0.99  # 99% of available CPU cores by default
     conformer_threads: int = 0  # RDKit C++ EmbedMultipleConfs threads per molecule (0 = all cores, 1 = single-thread inside worker pool)
 
     # Checkpoint Paths
@@ -109,6 +115,18 @@ class PipelineConfig:
     vocab_path: Path | str | None = None
 
     def __post_init__(self) -> None:
+        valid_schemes = (std.REWARD_PARETO, std.REWARD_HARRINGTON, std.REWARD_WEIGHTED_SUM)
+        if self.reward_scheme not in valid_schemes:
+            raise ValueError(
+                f"Invalid reward_scheme '{self.reward_scheme}'. Must be one of canonical schema standards: {valid_schemes}"
+            )
+        if self.score_variant != std.VARIANT_TANIMOTO_COMBO:
+            raise ValueError(
+                f"Invalid score_variant '{self.score_variant}'. Production training scores with "
+                f"canonical ROCS TanimotoCombo ('{std.VARIANT_TANIMOTO_COMBO}') only: the 162-cell "
+                "asymmetric Tversky calibration in _david/code/conformer/ is a measurement, not a "
+                "runtime knob."
+            )
         if self.thresholds is None:
             default_thresh = (0.35, 0.50, 0.50) if self.include_qed else (0.35, 0.50)
             object.__setattr__(self, "thresholds", default_thresh)
@@ -124,74 +142,6 @@ class PipelineConfig:
     def minimize_method(self) -> Optimization | None:
         """Alias for ``optimization`` force-field profile."""
         return self.optimization
-
-    def preparer_kwargs(self, default_ref_seed: int = 104729) -> dict[str, object]:
-        """Project configuration fields into ``PrepareMolecule.__init__`` keyword arguments."""
-        return {
-            "num_conformers": self.reference_attempts,
-            "max_reference_conformers": self.max_reference_conformers,
-            "max_reference_isomers": self.max_reference_isomers,
-            "random_seed": (
-                default_ref_seed
-                if self.reference_random_seed is None
-                else self.reference_random_seed
-            ),
-            "stereo_seed": self.random_seed,
-            "rmsd_cutoff": self.reference_rmsd_cutoff,
-            "energy_window_kcal": self.energy_window_kcal,
-            "num_threads": self.conformer_threads,
-            "optimization": self.optimization,
-            "selection_mode": self.reference_selection_mode,
-        }
-
-    def rocs_scorer_kwargs(self, n_jobs: int | None = None) -> dict[str, object]:
-        """Project configuration fields into ``create_rocs_scorer`` keyword arguments."""
-        out: dict[str, object] = {
-            "max_conformers": self.max_conformers,
-            "timeout": self.timeout_seconds,
-            "score_variant": self.score_variant,
-            "conformer_threads": self.conformer_threads,
-            "max_isomers": self.max_isomers,
-            "random_seed": self.random_seed,
-            "minimize_candidates": self.minimize_candidates,
-            "optimization": self.optimization,
-            "max_heavy_atoms": self.max_heavy_atoms,
-            "max_rotatable_bonds": self.max_rotatable_bonds,
-            "tversky_alpha": self.rocs_tversky_alpha,
-            "tversky_beta": self.rocs_tversky_beta,
-            "shape_weight": self.rocs_shape_weight,
-            "color_weight": self.rocs_color_weight,
-        }
-        if n_jobs is not None:
-            out["n_jobs"] = n_jobs
-        return out
-
-    def explorer_kwargs(self) -> dict[str, object]:
-        """Project configuration fields into ``SequenceExplorer`` / ``DecayingSequenceExplorer`` kwargs."""
-        base: dict[str, object] = {
-            "batch_size": self.batch_size,
-            "epsilon": self.epsilon,
-            "beta": self.beta,
-            "n_samples": self.n_samples,
-        }
-        if self.use_epsilon_decay:
-            base.update(
-                epsilon_end=self.epsilon_end,
-                decay_epochs=self.decay_epochs,
-                decay_type=self.decay_type,
-                use_decay=True,
-            )
-        return base
-
-    def fit_kwargs(self) -> dict[str, object]:
-        """Project configuration fields into ``SequenceExplorer.fit`` keyword arguments."""
-        return {
-            "epochs": self.epochs,
-            "patience": self.patience,
-            "reload_interval": self.epochs + 1,
-            "criteria": self.criteria,
-            "min_epochs": self.min_epochs,
-        }
 
     def resolve_pretrained_paths(self) -> tuple[Path, Path]:
         """Resolve paths to pretrained SMILES-RNN checkpoint and vocabulary."""

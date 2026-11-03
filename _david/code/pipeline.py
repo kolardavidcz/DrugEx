@@ -29,7 +29,6 @@ from _david.code.chemistry import DEFAULT_REFERENCE_SEED
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.environment import PrepareMolecule, create_environment
 from _david.code.models import SequenceRNNOptimizer
-from _david.code.rocs import ROCS_SIMILARITY_PRESETS
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
 from _david.code.visualization import ResultAnalyzer, render_reference_ensemble
@@ -55,9 +54,7 @@ class MoleculePipeline:
         else:
             self.paths = RunPaths.resolve()
 
-        self.preparer: PrepareMolecule = PrepareMolecule(
-            **self.config.preparer_kwargs(default_ref_seed=DEFAULT_REFERENCE_SEED)
-        )
+        self.preparer: PrepareMolecule = PrepareMolecule(config=self.config)
 
     @staticmethod
     def sample_and_score(
@@ -237,7 +234,14 @@ class MoleculePipeline:
         monitor = FileMonitor(str(output_base), save_smiles=True, reset_directory=True)
 
         t_start = time.time()
-        explorer.fit(monitor=monitor, **self.config.fit_kwargs())
+        explorer.fit(
+            monitor=monitor,
+            epochs=self.config.epochs,
+            patience=self.config.patience,
+            reload_interval=self.config.epochs + 1,
+            criteria=self.config.criteria,
+            min_epochs=self.config.min_epochs,
+        )
         monitor.close()
         logger.info(
             f"RL training complete in {(time.time() - t_start) / 60:.1f} minutes."
@@ -331,6 +335,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Terminal exploration rate (default: {defaults.epsilon_end})",
     )
     parser.add_argument(
+        "--decay-start-epoch",
+        type=int,
+        default=defaults.decay_start_epoch,
+        help=f"Epoch where epsilon decay begins (default: {defaults.decay_start_epoch})",
+    )
+    parser.add_argument(
         "--decay-epochs",
         type=int,
         default=defaults.decay_epochs,
@@ -350,6 +360,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Policy baseline penalty (default: {defaults.beta})",
     )
     parser.add_argument(
+        "--criteria",
+        type=str,
+        default=defaults.criteria,
+        choices=["avg_amean", "avg_gmean", "desired_ratio", "valid_ratio", "unique_ratio"],
+        help=f"RL selection criteria for best checkpoint (default: {defaults.criteria})",
+    )
+    parser.add_argument(
         "--reward-scheme",
         type=str,
         default=defaults.reward_scheme,
@@ -359,33 +376,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--score-variant",
         type=str,
-        default=defaults.score_variant,
-        choices=sorted(ROCS_SIMILARITY_PRESETS),
-        help=f"3D ROCS scoring variant (default: {defaults.score_variant})",
-    )
-    parser.add_argument(
-        "--tversky-alpha",
-        type=float,
-        default=defaults.rocs_tversky_alpha,
-        help=f"Explicit Tversky alpha override (default: {defaults.rocs_tversky_alpha})",
-    )
-    parser.add_argument(
-        "--tversky-beta",
-        type=float,
-        default=defaults.rocs_tversky_beta,
-        help=f"Explicit Tversky beta override (default: {defaults.rocs_tversky_beta})",
-    )
-    parser.add_argument(
-        "--shape-weight",
-        type=float,
-        default=defaults.rocs_shape_weight,
-        help=f"Explicit ROCS shape weight override (default: {defaults.rocs_shape_weight})",
-    )
-    parser.add_argument(
-        "--color-weight",
-        type=float,
-        default=defaults.rocs_color_weight,
-        help=f"Explicit ROCS color weight override (default: {defaults.rocs_color_weight})",
+        default=std.VARIANT_TANIMOTO_COMBO,
+        choices=[std.VARIANT_TANIMOTO_COMBO],
+        help=(
+            "3D ROCS scoring variant. Only canonical TanimotoCombo is available; the flag is kept "
+            "so historical submission specs replay verbatim."
+        ),
     )
     parser.add_argument(
         "--rocs-clip-upper",
@@ -572,15 +568,13 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         epsilon=args.epsilon,
         epsilon_end=args.epsilon_end,
         use_epsilon_decay=args.use_decay,
+        decay_start_epoch=args.decay_start_epoch,
         decay_epochs=args.decay_epochs,
         decay_type=args.decay_type,
         beta=args.beta,
+        criteria=args.criteria,
         reward_scheme=args.reward_scheme,
         score_variant=args.score_variant,
-        rocs_tversky_alpha=args.tversky_alpha,
-        rocs_tversky_beta=args.tversky_beta,
-        rocs_shape_weight=args.shape_weight,
-        rocs_color_weight=args.color_weight,
         rocs_clip_upper=args.rocs_clip_upper,
         rocs_use_modifier=args.rocs_use_modifier,
         include_qed=args.include_qed,

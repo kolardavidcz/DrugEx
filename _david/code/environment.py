@@ -8,97 +8,14 @@ import numpy as np
 from drugex.training.environment import DrugExEnvironment
 from drugex.training.rewards import ParetoCrowdingDistance, RewardScheme, WeightedSum
 from drugex.training.scorers.interfaces import Scorer
-from drugex.training.scorers.modifiers import ClippedScore, SmoothClippedScore
+from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import Property
-from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 from rdkit import Chem
 
 from _david.code.config import PipelineConfig
-from _david.code.chemistry import (
-    CandidateConformerGenerator,
-    Optimization,
-)
 from _david.code.reference import PrepareMolecule
-from _david.code.rocs import ConfigurableRDKitROCSScorer
+from _david.code.rocs import create_rocs_scorer
 from _david.code.schema import std
-from _david.code.utils import HardwareManager
-
-
-def create_rocs_scorer(
-    references: str | Path | Chem.Mol | list[Chem.Mol] | list[str],
-    config: PipelineConfig | None = None,
-    max_conformers: int | None = None,
-    timeout: int | None = None,
-    score_variant: str | None = None,
-    conformer_threads: int | None = None,
-    n_jobs: int | None = None,
-    max_isomers: int | None = None,
-    random_seed: int | None = None,
-    minimize_candidates: bool | None = None,
-    optimization: Optimization | None = None,
-    max_heavy_atoms: int | None = 45,
-    max_rotatable_bonds: int | None = 15,
-    tversky_alpha: float | None = None,
-    tversky_beta: float | None = None,
-    shape_weight: float | None = None,
-    color_weight: float | None = None,
-) -> RDKitROCSScorer:
-    """Build multi-threaded RDKitROCSScorer configured to produce canonical std.ROCS key."""
-    cfg = config or PipelineConfig()
-    ref_input = str(references) if isinstance(references, Path) else references
-    active_variant = (
-        (std.VARIANT_TANIMOTO_COMBO if config is None else cfg.score_variant)
-        if score_variant is None
-        else score_variant
-    )
-    active_minimize = (
-        (False if config is None else cfg.minimize_candidates)
-        if minimize_candidates is None
-        else minimize_candidates
-    )
-    active_opt = (
-        (None if config is None else cfg.optimization)
-        if optimization is None
-        else optimization
-    )
-    safe_jobs = (
-        n_jobs
-        if n_jobs is not None
-        else HardwareManager.get_safe_parallel_jobs(ratio=cfg.cpu_ratio)
-    )
-    conf_gen = CandidateConformerGenerator(
-        max_conformers=cfg.max_conformers if max_conformers is None else max_conformers,
-        max_isomers=cfg.max_isomers if max_isomers is None else max_isomers,
-        max_heavy_atoms=cfg.max_heavy_atoms if max_heavy_atoms == 45 and config is not None else max_heavy_atoms,
-        max_rotatable_bonds=cfg.max_rotatable_bonds if max_rotatable_bonds == 15 and config is not None else max_rotatable_bonds,
-        num_threads=cfg.conformer_threads if conformer_threads is None else conformer_threads,
-        show_progress=False,
-        timeout=60 if (timeout is None and config is None) else (cfg.timeout_seconds if timeout is None else timeout),
-        random_seed=cfg.random_seed if random_seed is None else random_seed,
-        minimize_candidates=active_minimize,
-        optimization=active_opt,
-        n_jobs=safe_jobs,
-    )
-    variant = (
-        std.VARIANT_TANIMOTO
-        if active_variant in (std.VARIANT_TANIMOTO, std.VARIANT_TANIMOTO_COMBO)
-        else active_variant
-    )
-    scorer = ConfigurableRDKitROCSScorer(
-        references=ref_input,
-        conformer_generator=conf_gen,
-        score_type=std.ROCS_SCORE_TYPE,
-        score_variant=variant,
-        use_colors=True,
-        show_progress=False,
-        n_jobs=safe_jobs,
-        tversky_alpha=cfg.rocs_tversky_alpha if tversky_alpha is None else tversky_alpha,
-        tversky_beta=cfg.rocs_tversky_beta if tversky_beta is None else tversky_beta,
-        shape_weight=cfg.rocs_shape_weight if shape_weight is None else shape_weight,
-        color_weight=cfg.rocs_color_weight if color_weight is None else color_weight,
-    )
-    scorer.getKey = lambda: [std.ROCS]
-    return scorer
 
 
 class HarringtonDesirabilityReward(RewardScheme):
@@ -124,8 +41,6 @@ class HarringtonDesirabilityReward(RewardScheme):
         self.eps = float(eps)
         self.rocs_raw = bool(rocs_raw)
         if rocs_anchors is None:
-            # Calibrate Gompertz anchors to physical [0, 2] scale when raw (0.4 raw ~ 0.2 norm, 1.2 raw ~ 0.6 norm)
-            # or [0, 1] when normalized.
             rocs_anchors = (
                 (0.40, 0.05, 1.20, 0.80)
                 if self.rocs_raw
@@ -219,22 +134,21 @@ class HarringtonDesirabilityReward(RewardScheme):
 
 
 def resolve_reward_scheme(
-    scheme: str | RewardScheme | None = None,
+    scheme: str | RewardScheme,
     weights: tuple[float, ...] = (0.75, 0.25),
     rocs_raw: bool = True,
 ) -> RewardScheme:
-    """Resolve RewardScheme instance from canonical std.REWARD_* constant or pass through."""
+    """Resolve RewardScheme instance strictly from canonical std.REWARD_* constant or pass through."""
     if isinstance(scheme, RewardScheme):
         return scheme
-    name = (scheme or std.REWARD_WEIGHTED_SUM).lower().strip()
-    if name in (std.REWARD_WEIGHTED_SUM, "ws"):
+    if scheme == std.REWARD_WEIGHTED_SUM:
         return WeightedSum()
-    if name in (std.REWARD_PARETO, "pareto", "pareto_crowding"):
+    if scheme == std.REWARD_PARETO:
         return ParetoCrowdingDistance()
-    if name in (std.REWARD_HARRINGTON, "harrington_desirability", "desirability"):
+    if scheme == std.REWARD_HARRINGTON:
         return HarringtonDesirabilityReward(weights=weights, rocs_raw=rocs_raw)
     raise ValueError(
-        f"Unknown reward scheme: '{scheme}'. Valid options: "
+        f"Unknown reward scheme: '{scheme}'. Canonical schema options: "
         f"[{std.REWARD_WEIGHTED_SUM!r}, {std.REWARD_PARETO!r}, {std.REWARD_HARRINGTON!r}]"
     )
 
@@ -242,46 +156,20 @@ def resolve_reward_scheme(
 def create_environment(
     ref_sdf: str | Path,
     config: PipelineConfig | None = None,
-    thresholds: tuple[float, ...] | None = None,
-    max_conformers: int | None = None,
-    timeout: int | None = None,
-    reward_scheme: str | RewardScheme | None = None,
-    score_variant: str | None = None,
-    conformer_threads: int | None = None,
-    include_qed: bool | None = None,
-    rocs_use_modifier: bool | None = None,
 ) -> DrugExEnvironment:
-    """Construct multi-objective DrugEx reinforcement learning environment."""
+    """Construct multi-objective DrugEx reinforcement learning environment from PipelineConfig."""
     cfg = config or PipelineConfig()
-    use_qed = cfg.include_qed if include_qed is None else bool(include_qed)
-    use_rocs_mod = (
-        cfg.rocs_use_modifier if rocs_use_modifier is None else bool(rocs_use_modifier)
-    )
+    rocs_scorer = create_rocs_scorer(ref_sdf, cfg=cfg)
 
-    scorer_kwargs = cfg.rocs_scorer_kwargs(
-        n_jobs=HardwareManager.get_safe_parallel_jobs(ratio=cfg.cpu_ratio)
-    )
-    if max_conformers is not None:
-        scorer_kwargs["max_conformers"] = max_conformers
-    if timeout is not None:
-        scorer_kwargs["timeout"] = timeout
-    if score_variant is not None:
-        scorer_kwargs["score_variant"] = score_variant
-    if conformer_threads is not None:
-        scorer_kwargs["conformer_threads"] = conformer_threads
-
-    rocs_scorer = create_rocs_scorer(ref_sdf, **scorer_kwargs)
-    if use_rocs_mod:
+    if cfg.rocs_use_modifier:
         rocs_scorer.setModifier(
             ClippedScore(
                 lower_x=0.0, upper_x=cfg.rocs_clip_upper, low_score=0.0, high_score=1.0
             )
         )
     else:
-        # None / raw [0, 2] ROCS modifier
         rocs_scorer.setModifier(None)
 
-    # SA ClippedScore(5, 3) so reward is flat (1.0) below raw SA 3.0, stopping artificial shrinkage
     sa_scorer = Property(std.SA)
     sa_scorer.setModifier(
         ClippedScore(
@@ -293,48 +181,32 @@ def create_environment(
     )
 
     scorers: list[Scorer] = [rocs_scorer, sa_scorer]
-
-    if use_qed:
+    if cfg.include_qed:
         qed_scorer = Property(std.QED)
         qed_scorer.setModifier(
             ClippedScore(lower_x=0.0, upper_x=1.0, low_score=0.0, high_score=1.0)
         )
         scorers.append(qed_scorer)
 
-    if thresholds is not None:
-        active_thresholds = thresholds
-    elif cfg.thresholds is not None:
-        active_thresholds = cfg.thresholds
-    else:
-        active_thresholds = (0.35, 0.50, 0.50) if use_qed else (0.35, 0.50)
+    scheme = resolve_reward_scheme(
+        cfg.reward_scheme,
+        weights=cfg.weights or ((0.50, 0.25, 0.25) if cfg.include_qed else (0.75, 0.25)),
+        rocs_raw=(not cfg.rocs_use_modifier),
+    )
 
-    # Validate threshold dimensions against scorers
+    active_thresholds = list(
+        cfg.thresholds
+        if cfg.thresholds is not None
+        else ((0.35, 0.50, 0.50) if cfg.include_qed else (0.35, 0.50))
+    )
     if len(active_thresholds) != len(scorers):
         if len(active_thresholds) > len(scorers):
-            active_thresholds = tuple(active_thresholds[: len(scorers)])
+            active_thresholds = active_thresholds[: len(scorers)]
         else:
-            padding = [0.50] * (len(scorers) - len(active_thresholds))
-            active_thresholds = tuple(list(active_thresholds) + padding)
-
-    active_scheme = reward_scheme if reward_scheme is not None else cfg.reward_scheme
-    weights = (
-        cfg.weights
-        if cfg.weights is not None
-        else ((0.50, 0.25, 0.25) if use_qed else (0.75, 0.25))
-    )
-    if len(weights) != len(scorers):
-        if len(weights) > len(scorers):
-            weights = tuple(weights[: len(scorers)])
-        else:
-            padding = [0.25] * (len(scorers) - len(weights))
-            weights = tuple(list(weights) + padding)
+            active_thresholds.extend([0.50] * (len(scorers) - len(active_thresholds)))
 
     return DrugExEnvironment(
         scorers=scorers,
-        thresholds=list(active_thresholds),
-        reward_scheme=resolve_reward_scheme(
-            active_scheme,
-            weights=weights,
-            rocs_raw=(not use_rocs_mod),
-        ),
+        thresholds=active_thresholds,
+        reward_scheme=scheme,
     )

@@ -1213,17 +1213,6 @@ class AlignedDepicter:
                     else ("#2563eb" if card["rocs"] >= 0.70 else "#94a3b8")
                 )
 
-                sa_c = (
-                    "#dcfce7"
-                    if card["sa"] <= 3.0
-                    else ("#fef3c7" if card["sa"] <= 4.5 else "#fee2e2")
-                )
-                sa_e = (
-                    "#15803d"
-                    if card["sa"] <= 3.0
-                    else ("#b45309" if card["sa"] <= 4.5 else "#dc2626")
-                )
-
                 dh = card["delta_hac"]
                 dh_c = (
                     "#dcfce7"
@@ -1841,7 +1830,7 @@ def render_lead_to_seed_3d_superposition(
     ax3 = fig.add_subplot(1, 3, 3, projection="3d")
     _draw_3d(ax3, ref_heavy, color="#1e293b", alpha=0.6, lw=1.5, s=14)
     lead_colors = ["#16a34a", "#2563eb", "#ea580c", "#8b5cf6", "#d97706"]
-    for i, (l_mol, p) in enumerate(aligned_leads):
+    for i, (l_mol, _p) in enumerate(aligned_leads):
         c = lead_colors[i % len(lead_colors)]
         _draw_3d(ax3, l_mol, color=c, alpha=0.75, lw=1.3, s=12)
 
@@ -1950,6 +1939,27 @@ def render_epoch_property_trajectories(
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
     plt.close(fig)
     return target_png
+
+
+def render_shrinkage_diagnostic(
+    df_after: pd.DataFrame,
+    target_png: Path | str,
+    df_before: pd.DataFrame | None = None,
+    ref_smiles: str | None = None,
+) -> Path:
+    """Medicinal chemistry anti-shrinkage & size drift diagnostic (ΔHAC vs. 3D ROCS)."""
+    target_png = Path(target_png)
+    target_png.parent.mkdir(parents=True, exist_ok=True)
+    if df_after.empty:
+        return target_png
+
+    a_clean = (
+        unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
+        if std.VALID in df_after.columns
+        else unscale_to_physical_metrics(df_after)
+    )
+    if a_clean.empty:
+        return target_png
 
     b_clean = (
         unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])

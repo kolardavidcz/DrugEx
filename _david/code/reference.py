@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 import math
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -15,12 +15,16 @@ from _david.code.chemistry import (
     IDENTITY_REJECTED,
     Optimization,
     check_identity,
+    embed_conformers,
     enumerate_stereoisomers,
     optimize_conformers,
     standardize_smiles,
 )
 from _david.code.config import DEFAULT_MOLECULE
 from _david.code.rocs import score_pair
+
+if TYPE_CHECKING:
+    from _david.code.config import PipelineConfig
 
 
 def _record_identity_key(mol: Chem.Mol) -> str:
@@ -166,10 +170,12 @@ class PrepareMolecule:
 
     def __init__(
         self,
+        config: PipelineConfig | None = None,
+        *,
         num_conformers: int = 100,
         max_reference_conformers: int = 4,
         max_reference_isomers: int = 1,
-        random_seed: int = 42,
+        random_seed: int = 104729,
         stereo_seed: int = 42,
         rmsd_cutoff: float | None = 0.35,
         energy_window_kcal: float = 8.0,
@@ -179,26 +185,44 @@ class PrepareMolecule:
         embedding_timeout_seconds: int = 0,
         selection_mode: Literal["rmsd", "diverse"] = "diverse",
     ) -> None:
-        if max_reference_isomers < 1:
-            raise ValueError("max_reference_isomers must be >= 1")
-        if selection_mode not in {"rmsd", "diverse"}:
-            raise ValueError("selection_mode must be 'rmsd' or 'diverse'")
-        if embedding_rmsd is not None and embedding_rmsd < 0:
-            raise ValueError("Embedding RMSD must be nonnegative or None")
-        if embedding_timeout_seconds < 0:
-            raise ValueError("Embedding timeout must be nonnegative")
-        self.num_conformers: int = num_conformers
-        self.max_reference_conformers: int = max_reference_conformers
-        self.max_reference_isomers: int = max_reference_isomers
-        self.random_seed: int = random_seed
-        self.stereo_seed: int = stereo_seed
-        self.rmsd_cutoff: float | None = rmsd_cutoff
-        self.energy_window_kcal: float = energy_window_kcal
-        self.num_threads: int = num_threads
-        self.optimization: Optimization | None = optimization
-        self.embedding_rmsd: float | None = embedding_rmsd
-        self.embedding_timeout_seconds: int = embedding_timeout_seconds
-        self.selection_mode: Literal["rmsd", "diverse"] = selection_mode
+        if config is not None:
+            self.num_conformers = config.reference_attempts
+            self.max_reference_conformers = config.max_reference_conformers
+            self.max_reference_isomers = config.max_reference_isomers
+            self.random_seed = (
+                config.reference_random_seed
+                if config.reference_random_seed is not None
+                else 104729
+            )
+            self.stereo_seed = config.random_seed
+            self.rmsd_cutoff = config.reference_rmsd_cutoff
+            self.energy_window_kcal = config.energy_window_kcal
+            self.num_threads = config.conformer_threads
+            self.optimization = config.optimization
+            self.embedding_rmsd = config.reference_rmsd_cutoff
+            self.embedding_timeout_seconds = config.timeout_seconds
+            self.selection_mode = config.reference_selection_mode
+        else:
+            if max_reference_isomers < 1:
+                raise ValueError("max_reference_isomers must be >= 1")
+            if selection_mode not in {"rmsd", "diverse"}:
+                raise ValueError("selection_mode must be 'rmsd' or 'diverse'")
+            if embedding_rmsd is not None and embedding_rmsd < 0:
+                raise ValueError("Embedding RMSD must be nonnegative or None")
+            if embedding_timeout_seconds < 0:
+                raise ValueError("Embedding timeout must be nonnegative")
+            self.num_conformers = num_conformers
+            self.max_reference_conformers = max_reference_conformers
+            self.max_reference_isomers = max_reference_isomers
+            self.random_seed = random_seed
+            self.stereo_seed = stereo_seed
+            self.rmsd_cutoff = rmsd_cutoff
+            self.energy_window_kcal = energy_window_kcal
+            self.num_threads = num_threads
+            self.optimization = optimization
+            self.embedding_rmsd = embedding_rmsd
+            self.embedding_timeout_seconds = embedding_timeout_seconds
+            self.selection_mode = selection_mode
         self.last_optimization_statuses: list[int] = []
         self.last_identity_rejections: list[str] = []
 
@@ -307,32 +331,18 @@ class PrepareMolecule:
             )
         return energies
 
-    def _build_etkdg_params(self, seed: int) -> AllChem.EmbedParameters:
-        """Create configured ETKDGv3 embedding parameters for reference generation."""
-        params = AllChem.ETKDGv3()
-        params.randomSeed = seed
-        params.enableSequentialRandomSeeds = False
-        params.pruneRmsThresh = (
-            -1.0 if self.embedding_rmsd is None else self.embedding_rmsd
-        )
-        params.numThreads = self.num_threads
-        params.timeout = self.embedding_timeout_seconds
-        return params
-
     def _embed_conformers_with_fallback(
         self, mol_h: Chem.Mol, attempts: int, seed: int
     ) -> list[int]:
-        """Embed conformers with ETKDGv3, falling back to ``useRandomCoords=True`` if needed."""
-        params = self._build_etkdg_params(seed)
-        conf_ids = list(
-            AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
+        """Embed conformers with ETKDGv3 via chemistry.embed_conformers."""
+        return embed_conformers(
+            mol_h,
+            num_conformers=attempts,
+            random_seed=seed,
+            embedding_rmsd=self.embedding_rmsd,
+            timeout=self.embedding_timeout_seconds,
+            num_threads=self.num_threads,
         )
-        if not conf_ids:
-            params.useRandomCoords = True
-            conf_ids = list(
-                AllChem.EmbedMultipleConfs(mol_h, numConfs=attempts, params=params)
-            )
-        return conf_ids
 
     def _minimize_embedded_conformers(
         self,

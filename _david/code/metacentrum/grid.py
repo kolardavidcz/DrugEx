@@ -246,7 +246,7 @@ def generate_8arm_grid(
            - minimized_c20_k4:   minimize_candidates=True,  max_conformers=20, max_reference_conformers=4
 
     Shared Hyperparameters:
-        epochs=200, min_epochs=50, patience=50, epsilon=0.05, score_variant="tanimoto_combo".
+        epochs=200, min_epochs=50, patience=50, epsilon=0.05, canonical TanimotoCombo scoring.
     """
     qed_levels = [
         ("without_qed", "--no-include-qed"),
@@ -272,7 +272,6 @@ def generate_8arm_grid(
         "--min-epochs 50",
         "--patience 50",
         "--epsilon 0.05",
-        "--score-variant tanimoto_combo",
     ]
     if molecule:
         base_args.append(f"--molecule {shlex.quote(molecule)}")
@@ -332,7 +331,7 @@ def generate_4hypothesis_grid(
            with_qed + harrington
 
     Shared Hyperparameters:
-        epochs=200, min_epochs=50, patience=50, epsilon=0.05, score_variant="tanimoto_combo",
+        epochs=200, min_epochs=50, patience=50, epsilon=0.05, canonical TanimotoCombo scoring,
         no-minimize-candidates, conformers=30, reference-conformers=1.
     """
     hypotheses = [
@@ -359,7 +358,6 @@ def generate_4hypothesis_grid(
         "--min-epochs 50",
         "--patience 50",
         "--epsilon 0.05",
-        "--score-variant tanimoto_combo",
         "--no-minimize-candidates",
         "--conformers 30",
         "--reference-conformers 1",
