@@ -6,11 +6,14 @@ and deciding the next batch of production runs to execute on MetaCentrum using c
 """
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
 API_URL = "https://llm.ai.e-infra.cz/v1/chat/completions"
-API_KEY = "sk-50dc3f278a5545cebfba2ce0d4016597"
+# Credentials are never stored in the repository: export EINFRA_API_KEY
+# (any OpenAI-compatible key for https://llm.ai.e-infra.cz works).
+API_KEY = os.environ["EINFRA_API_KEY"]
 OUTPUT_DIR = Path("/home/kolar/DrugEx/_david/output")
 OUTPUT_FILE = OUTPUT_DIR / "metacentrum_runs_consultation_deepseek_glm.md"
 

@@ -65,7 +65,16 @@ test_notebook_runner.py
 test_cell*.py
 /test_*.py
 /tmp/
-tmp*
+/tmp*
+# --- Scratch dirs, credentials and private tracking data: never committed ---
+# `_david/code/tmp/` is the transient MetaCentrum/dichtator staging area: run
+# scripts there carry live API keys and job metadata that belong in manifests,
+# not in git. `previous_runs/` is documented as safe to delete at any time.
+/_david/code/tmp/
+# Agent proxy wrappers hard-code an e-infra key; private session/timing logs quote
+# credentials verbatim. Both stay on disk and out of the repository.
+/_david/agent_documentasion/einfra_proxy/
+/_david/agent_documentasion/thesis_tracking/
 /testing/clitest/data/*.txt
 /testing/clitest/data/*.vocab
 /testing/clitest/data/backup*
