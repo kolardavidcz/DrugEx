@@ -166,18 +166,29 @@ class SequenceRNNOptimizer:
         mutate: SequenceRNN,
         config: PipelineConfig | None = None,
     ) -> SequenceExplorer:
-        """Construct configured SequenceExplorer with decoupled stopping criteria and exploration schedule."""
+        """Construct the configured explorer.
+
+        The two classes take disjoint constructor arguments: ``SequenceExplorer``
+        accepts the RL knobs but not a ``PipelineConfig``, while
+        ``DecayingSequenceExplorer`` reads them from the config and rejects the
+        knobs. Passing one union of keywords to both raises ``TypeError`` at the
+        start of Stage 2, so each branch is built explicitly here and pinned by
+        ``test_build_explorer_constructs_both_branches``.
+        """
         cfg = config or self.cfg
-        cls = DecayingSequenceExplorer if cfg.use_epsilon_decay else SequenceExplorer
-        return cls(
+        common: dict[str, Any] = dict(
             agent=agent,
             env=env,
             mutate=mutate,
-            config=cfg,
+            device=self.device,
+            use_gpus=self.use_gpus,
+        )
+        if cfg.use_epsilon_decay:
+            return DecayingSequenceExplorer(config=cfg, **common)
+        return SequenceExplorer(
             batch_size=cfg.batch_size,
             epsilon=cfg.epsilon,
             beta=cfg.beta,
             n_samples=cfg.n_samples,
-            device=self.device,
-            use_gpus=self.use_gpus,
+            **common,
         )

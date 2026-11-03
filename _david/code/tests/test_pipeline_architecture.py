@@ -35,6 +35,48 @@ class TestPipelineArchitecture(unittest.TestCase):
         self.assertFalse(hasattr(cfg, "explorer_kwargs"))
         self.assertFalse(hasattr(cfg, "fit_kwargs"))
 
+    def test_build_explorer_constructs_both_branches(self) -> None:
+        """Both explorer branches must construct; Stage 2 dies otherwise.
+
+        ``build_explorer`` previously passed ``config`` to ``SequenceExplorer``
+        and ``batch_size``/``epsilon``/``beta``/``n_samples`` to
+        ``DecayingSequenceExplorer``, so every run raised ``TypeError`` at the
+        start of RL exploration while the rest of the suite stayed green.
+        """
+        import torch
+        from drugex.training.explorers import SequenceExplorer
+
+        from _david.code.models import DecayingSequenceExplorer, SequenceRNNOptimizer
+
+        def dummy_torch_model() -> torch.nn.Linear:
+            return torch.nn.Linear(4, 4)
+
+        plain_cfg = PipelineConfig(gpu="cpu", use_epsilon_decay=False)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            optimizer = SequenceRNNOptimizer(models_dir=Path(tmpdir), config=plain_cfg)
+            plain = optimizer.build_explorer(
+                agent=dummy_torch_model(),
+                env=object(),
+                mutate=dummy_torch_model(),
+                config=plain_cfg,
+            )
+            self.assertIs(type(plain), SequenceExplorer)
+            self.assertEqual(plain.batchSize, plain_cfg.batch_size)
+            self.assertEqual(plain.epsilon, plain_cfg.epsilon)
+            self.assertEqual(plain.beta, plain_cfg.beta)
+            self.assertEqual(plain.nSamples, plain_cfg.n_samples)
+
+            decay_cfg = PipelineConfig(gpu="cpu", use_epsilon_decay=True)
+            decayed = optimizer.build_explorer(
+                agent=dummy_torch_model(),
+                env=object(),
+                mutate=dummy_torch_model(),
+                config=decay_cfg,
+            )
+            self.assertIsInstance(decayed, DecayingSequenceExplorer)
+            self.assertEqual(decayed.epsilon_start, decay_cfg.epsilon)
+            self.assertEqual(decayed.epsilon_end, decay_cfg.epsilon_end)
+
     def test_has_color_and_score_pair(self) -> None:
         """Verify pharmacophore feature perception and 3D score_pair baseline."""
         egcg = Chem.MolFromSmiles(DEFAULT_MOLECULE)
