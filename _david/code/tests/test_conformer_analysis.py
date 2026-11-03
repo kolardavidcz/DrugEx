@@ -16,6 +16,7 @@ from _david.code.conformer.analysis.optimization_methods import (
 )
 from _david.code.conformer.analysis.style import apply_style, save_figure
 from _david.code.conformer.core.taxonomy import ISOMER_BIN_LABELS, bin_counts, isomer_bin
+from _david.code.tests._conformer_data import requires_canonical_data
 
 
 class TestIsomerTaxonomy(unittest.TestCase):
@@ -53,17 +54,20 @@ class TestIsomerTaxonomy(unittest.TestCase):
 
 
 class TestTableLoading(unittest.TestCase):
+    @requires_canonical_data
     def test_required_tables_resolve_to_canonical_sources(self) -> None:
         table = loaders.load("tversky_grid")
         self.assertTrue(table.canonical)
         self.assertTrue(table.path.is_file())
         self.assertEqual(len(table.digest or ""), 64)
 
+    @requires_canonical_data
     def test_missing_columns_fail_before_plotting(self) -> None:
         table = loaders.load("tversky_grid")
         with self.assertRaises(ValueError):
             loaders.require_columns(table, ("self_mean", "no_such_column"))
 
+    @requires_canonical_data
     def test_input_paths_map_names_to_paths(self) -> None:
         table = loaders.load("synthesis_grid")
         self.assertEqual(loaders.input_paths(table), {"synthesis_grid": table.path})
@@ -93,6 +97,7 @@ class TestFigureProvenance(unittest.TestCase):
         self.assertEqual(len(manifest["inputs"]["input"]["sha256"]), 64)
         self.assertFalse(plt.get_fignums())
 
+    @requires_canonical_data
     def test_energy_window_figure_renders_from_canonical_data(self) -> None:
         table = loaders.load("egcg_omnibus_grid")
         with tempfile.TemporaryDirectory() as tmp:
@@ -100,6 +105,7 @@ class TestFigureProvenance(unittest.TestCase):
             self.assertTrue(path.is_file())
             self.assertTrue(path.with_suffix(".manifest.json").is_file())
 
+    @requires_canonical_data
     def test_default_scorer_neighbourhood_covers_the_axes(self) -> None:
         from _david.code.conformer.analysis.color_shape import (
             NEIGHBOURHOOD,

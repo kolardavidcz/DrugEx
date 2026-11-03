@@ -34,6 +34,7 @@ from _david.code.conformer.core.contracts import (
 )
 from _david.code.conformer.core.errors import StudyError
 
+from _david.code.tests._conformer_data import requires_canonical_data
 
 class TestContracts(unittest.TestCase):
     def test_embed_spec_rejects_non_positive_attempts(self) -> None:
@@ -215,16 +216,19 @@ class TestArtifactCache(unittest.TestCase):
 
 
 class TestDatasets(unittest.TestCase):
+    @requires_canonical_data
     def test_cell_table_keeps_scores_numeric(self) -> None:
         frame = datasets.load_table("drug_panel_cells")
         self.assertTrue(pd.api.types.is_float_dtype(frame["score"]))
         self.assertTrue(pd.api.types.is_integer_dtype(frame["reference_cap"]))
 
+    @requires_canonical_data
     def test_declared_string_columns_stay_strings(self) -> None:
         frame = datasets.load_table("egcg_omnibus_grid")
         self.assertEqual(str(frame["energy_window"].dtype), "string")
         self.assertIn("inf", set(frame["energy_window"]))
 
+    @requires_canonical_data
     def test_panel_loads_into_specs_with_split_tag(self) -> None:
         specs = datasets.load_panel("drug_panel_development")
         self.assertEqual(len(specs), 128)
