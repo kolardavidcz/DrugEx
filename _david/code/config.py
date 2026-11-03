@@ -36,10 +36,19 @@ class PipelineConfig:
 
     n_samples: int = 500  # Molecule samples generated per training epoch # ^ [500, 1000]
     val_samples: int = 100
-    n_eval_samples: int = 1000  # Statistical evaluation sample pool size
+    # Gold standard (2026-11-03): the final evaluation arm samples 5x more
+    # molecules than the 1,000 used by every historical run, so the reported
+    # property distributions and Pareto skies are not dominated by sampling
+    # noise. Cost is linear in this number; it only affects Stage 3, never
+    # training.
+    n_eval_samples: int = 5000  # Statistical evaluation sample pool size # ^ [1000, 5000]
     batch_size: int = 64  # Mini-batch size per Adam policy-gradient step # ^ [64, 128]
 
-    criteria: str = std.AVG_AMEAN
+    # Gold standard (2026-11-03): checkpoint selection uses the geometric mean
+    # of the per-objective desirability ratios, which penalizes an arm that
+    # collapses one objective to buy another. The arithmetic mean let a run
+    # with one dead objective outrank a balanced one.
+    criteria: str = std.AVG_GMEAN
     beta: float = 0.0  # Baseline policy penalization
 
     # Exploration Noise (Epsilon)
@@ -57,8 +66,12 @@ class PipelineConfig:
     threshold_percentile: float | None = None  # ^ [75.0, None]
 
     # Scoring & Rewards (calibrated on the 121x121 = 14,641 drug-pair x 162-cell
-    # selectivity grid, see _david/code/conformer/results.md). Production scoring is
-    # canonical ROCS TanimotoCombo (shape + color in [0, 2]) only. The asymmetric
+    # selectivity grid, see _david/code/conformer/results.md).
+    # Gold standard (2026-11-03): Surový (raw) ROCS TanimotoCombo on [0, 2],
+    # ShapeTanimoto + ColorTanimoto, computed with use_colors=True. Raw means
+    # `rocs_use_modifier=False` below and no ClippedScore re-scaling; the value
+    # entering the reward is exactly the sum of the two similarities. Production
+    # scoring is canonical ROCS TanimotoCombo only. The asymmetric
     # Tversky grid, its weights and its Gaussian re-weighters are a *measured
     # calibration*, not a runtime knob: they live in
     # _david/code/to_do/rocs_multimetric.py and are never reachable from training.

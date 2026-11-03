@@ -27,9 +27,13 @@ This document is the authoritative single source of truth for AI agents and huma
   - Formula: $\text{C}_{22}\text{H}_{18}\text{O}_{11}$, MW: $458.37\text{ Da}$, Heavy Atoms: $33$, Rotatable Bonds: $3$, H-Bond Donors: $8$, H-Bond Acceptors: $11$.
   - Physicochemical Profile: Natural polyphenol; **$\text{QED} = 0.21$** (severely penalized by Lipinski / Veber drug-like rules).
 - **Physics-Based 3D Scoring Engine**:
-  - Implemented in `_david/code/rocs.py` via `ConfigurableRDKitROCSScorer` and `RDKitROCSScorer`.
+  - Implemented in `_david/code/rocs.py` via `create_rocs_scorer` → `CanonicalROCSScorer` (`RDKitROCSScorer`), using `use_colors=True`.
   - Computes 3D Gaussian volume overlaps (Shape Tanimoto) and color feature alignments (Color Tanimoto using RDKit pharmacophore donor/acceptor/hydrophobe features).
-  - Metric: $\text{TanimotoCombo} = \text{ShapeTanimoto} + \text{ColorTanimoto} \in [0, 2]$.
+  - Metric: $\text{TanimotoCombo} = \text{ShapeTanimoto} + \text{ColorTanimoto} \in [0, 2]$, passed to the reward **raw** (`rocs_use_modifier=False`, no ClippedScore re-scaling).
+- **Gold standards (2026-11-03)** — the defaults every new production run uses; historical runs differ and are audited in `_david/code/RL_RUN_AUDIT.md`:
+  1. **Checkpoint criterion**: `criteria = avg_gmean` (geometric mean of per-objective desirability ratios), not `avg_amean`. `--criteria gmean` is the CLI spelling.
+  2. **Similarity**: Surový (raw) ROCS TanimotoCombo on $[0, 2]$, `Shape + Color`, `use_colors = True`; no asymmetric Tversky, no clipping, no Gaussian re-weighting.
+  3. **Final evaluation**: `n_eval_samples = 5000` molecules per arm (5× the historical 1,000), so distribution and Pareto statistics are not sampling-noise dominated.
 
 ---
 
@@ -79,9 +83,11 @@ _david/
 │   ├── environment.py                 # Multi-objective environment, scorers, modifiers, rewards
 │   ├── models.py                      # DecayingSequenceExplorer and model wrapper factories
 │   ├── pipeline.py                    # 5-stage LBDD execution pipeline and CLI entry point
-│   ├── rocs.py                        # ConfigurableRDKitROCSScorer and Gaussian volume alignment
+│   ├── rocs.py                        # CanonicalROCSScorer (raw TanimotoCombo) and Gaussian volume alignment
 │   ├── schema.py, utils.py            # Standard column names and hardware job allocation
-│   ├── visualization.py               # 8 publication-grade diagnostics & trajectory figures
+│   ├── visualization.py               # 10 publication-grade diagnostics & trajectory figures
+│   ├── audit_rl_runs.py               # Gold-standard conformance + figure-completeness audit
+│   ├── RL_RUN_AUDIT.md                # Generated run table (config vs gold, artifact verdict)
 │   ├── conformer/                     # Conformer suite: four components + results.md
 │   │   ├── core/                      # Frozen contracts, content-addressed cache, storage,
 │   │   │                              #   provenance, dataset registry, isomer taxonomy

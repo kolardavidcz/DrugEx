@@ -1,153 +1,179 @@
-# Conformer ensemble, shape/color scoring, and reproducible studies
+# Conformer suite — code orientation
 
-Package: `_david/code/conformer/`
-Data: `_david/data/conformers/` · Deliverables: `_david/output/conformer/`
+Package: `_david/code/conformer/` · Data: `_david/data/conformers/` ·
+Deliverables: `_david/output/conformer/` (git-ignored, regenerable) ·
+Decision record: [`results.md`](results.md) · Design rationale: [`DESIGN.md`](DESIGN.md)
 
-This package answers four separate questions, and everything in it exists to
-answer one of them:
+Four components answer four questions. Everything else is plumbing for them.
 
-| Component | Question | Deliverable folder |
-|---|---|---|
-| 1. Optimization methods | Which reference/candidate physics, reference cap `K`, candidate budget `C`, and energy window buys the most 3D self-recovery per second? | `01_optimization_methods/` |
-| 2. Color-shape scoring | Is the production scorer (`K=4`, `C=20`, `I=4`, MMFF94s ε=78.4, symmetric TanimotoCombo, 0.5 shape + 0.5 color) the right default, and what breaks if it is moved? | `02_color_shape_scoring/` |
-| 3. Clustering benchmark | Which reference-merging rule should reduce a 50–100 conformer bank to `K` poses? | `03_clustering_benchmark/` |
-| 4. Molecule preparation | What exactly is in the input set, and how many conformers survive each expensive stage? | `04_molecule_preparation/` |
+| # | Component | Question | Output folder |
+|---|---|---|---|
+| 1 | Optimization methods | Which reference/candidate physics, `K`, `C` and energy window buys the most 3D self-recovery per second? | `01_optimization_methods/` |
+| 2 | Color-shape scoring | Is symmetric TanimotoCombo the right default, and what breaks when a dial moves? | `02_color_shape_scoring/` |
+| 3 | Clustering benchmark | Which rule reduces a 50–200 pose pool to a `K`-pose bank? | `03_clustering_benchmark/` |
+| 4 | Molecule preparation | What is in the input set, and what survives each expensive stage? | `04_molecule_preparation/` |
 
-The RL pipeline's behaviour is untouched: this package *measures* the scorer and
-the reference-bank policy that the reward function consumes. What it did change
-outside the package is one thing — training can no longer be pointed at an
-experimental similarity variant (see `results.md`, "scoring pin").
-
----
-
-## 1. Design in one paragraph
-
-Every expensive step is a pure function of an explicit, hashable specification
-(`core/contracts.py`). A study is a Cartesian product of
-`MoleculeSpec × ArmSpec × repeat`; a cell rebuilds chemistry from strings inside
-its worker and shares one content-addressed cache on disk
-(`sha256(algorithm_version, namespace, specification)`). That is why a study can
-run serially or through a process pool, resume after a crash, and never silently
-reuse an artifact produced by a different algorithm version.
-
-Read `DESIGN.md` for the reasoning behind these choices, the score-scale
-convention, and the cache-key scheme.
+The RL pipeline is a consumer of this work, not part of it. Training changes are
+recorded in `results.md` under "scoring pin" and summarized in
+[`../AGENTS.md`](../AGENTS.md).
 
 ---
 
-## 2. Layout
+## Where do I look?
+
+| Task | File |
+|---|---|
+| Understand the model, defaults, validation | `core/contracts.py` |
+| Understand the cache / why a rerun is safe | `core/cache.py` |
+| Add a table or panel | `core/datasets.py`, then `cli.py:migrate` |
+| Change how one molecule is standardized | `prepare/standardize.py` |
+| Change embedding or minimization | `ensemble/embed.py`, `ensemble/minimize.py` (kernel: `../chemistry.py`) |
+| Change reference-bank selection | `ensemble/select.py` (kernel: `../reference.py`) |
+| Change the score | `scoring/rocs.py`, `scoring/tversky.py` (kernel: `../rocs.py`) |
+| Add/change an experiment arm | `studies/optimization_methods.py`, `clustering.py`, `color_shape.py`, `preparation.py` |
+| Change the one measurement every cell shares | `studies/measure.py` |
+| Change how a study is executed / resumed | `studies/base.py` |
+| Change a figure | `analysis/<component>.py`, wired in `analysis/reproduce.py` |
+| Change figure style or provenance sidecar | `analysis/style.py` |
+| Add a CLI command | `cli.py` |
+| Trace historical data back to its run | `analysis/loaders.py`, `_david/data/conformers/canonical/migration_sources.json` |
+| Audit real RL runs against the gold standard | `../audit_rl_runs.py`, report `../RL_RUN_AUDIT.md` |
+| Verify a change | `_david/code/tests/test_conformer_{core,prepare,scoring,studies,analysis}.py` |
+
+---
+
+## Trace one cell
+
+This is the whole package in one call chain. Read it top-to-bottom once and the
+folder structure stops being arbitrary.
 
 ```
-conformer/
-├── core/         contracts, cache, storage, provenance, dataset registry, taxonomy
-├── prepare/      standardization, stereoisomer enumeration, molecule registry, panels
-├── ensemble/     ETKDG embedding, force-field minimization, reference-bank selection
-├── scoring/      production ROCS wrapper + asymmetric Tversky grid mathematics
-├── studies/      declarative study matrices (methods, clustering, color-shape, preparation)
-├── analysis/     canonical table loaders, component figures, regeneration entry point
-└── cli.py        migrate · registry · figures · study · cache-stats
+cli.py  study methods ...
+  └─ studies/optimization_methods.py :: build_study     # MoleculeSpec × ArmSpec × repeats
+      └─ studies/base.py :: run_study                   # serial or process pool
+          └─ studies/base.py :: study_requests          # CellRequest(molecule, arm, repeat)
+              └─ studies/measure.py :: MeasureExecutor.__call__
+                  ├─ prepare/standardize.py :: prepare_molecule     # SMILES -> canonical identities
+                  ├─ ensemble/pipeline.py :: build_reference       # embed -> minimize -> select
+                  ├─ ensemble/pipeline.py :: build_candidate       # embed -> minimize
+                  └─ scoring/rocs.py :: score_ensemble             # best candidate/reference pair
+                      └─ results.csv + errors.csv + manifest.json
 ```
 
-The scientific kernel it builds on is read-only and lives one level up:
-`_david/code/chemistry.py` (standardization, embedding, minimization, identity
-checks), `_david/code/reference.py` (Butina / diverse ordering), and
-`_david/code/rocs.py` (`score_pair`, physical TanimotoCombo on `[0, 2]`).
-
-The previous implementation of this package is frozen in
-`_david/code/archive/conformer_v1/` for provenance. It is not imported anywhere.
+Workers receive **strings and frozen specs**, never RDKit objects: pickling
+conformers is slow and RDKit molecules mutate. A cell is therefore a pure
+function of `(spec, cache)` and serial/parallel runs must agree (a test pins it).
 
 ---
 
-## 3. Usage
+## Layer rules
 
-All commands are idempotent.
+```
+cli.py
+  └── studies/ ──► ensemble/ ──► prepare/ ──► core/
+        └── analysis/ ─────────────────────► core/
+                        scoring/ ───────────► core/
+```
+
+- `core/` imports nothing from the package. It owns contracts, cache, storage,
+  provenance, paths, the table/panel registry and the isomer taxonomy.
+- `prepare/` decides *what a molecule is*. Nothing above it may re-standardize.
+- `ensemble/` consumes prepared molecules and returns conformer records.
+- `scoring/` turns two conformer pools into a number. It never mutates a molecule.
+- `studies/` declares matrices and measures cells. It contains no plotting.
+- `analysis/` reads registered tables only. It must never import `ensemble/` or
+  compute chemistry; if a figure needs a new number, the number belongs in a
+  study table first.
+
+A lower layer may not import a higher one. This is what makes
+`cli figures --canonical-only` safe to run at any time (~40 s, no chemistry).
+
+---
+
+## Five invariants
+
+1. **Expensive work is a pure function of a frozen spec.** `MoleculeSpec`,
+   `EmbedSpec`, `MinimizeSpec`, `SelectSpec`, `ScoreSpec`, `ReferenceSpec`,
+   `CandidateSpec`, `ArmSpec`, `StudySpec`, `SeedPlan` are frozen dataclasses that
+   validate at construction and serialize to the manifest.
+2. **The cache key includes the algorithm version.**
+   `sha256(ALGORITHM_VERSION ‖ namespace ‖ canonical_json(spec))` under
+   `_david/data/conformers/cache/<namespace>/`. Bump `ALGORITHM_VERSION` when a
+   change alters a number; never silently delete a stale artifact.
+3. **Study tables report the normalized score.** `STUDY_SCALE` is
+   `ScoreScale.NORMALIZED`, i.e. `0.5 × (shape + color)` on `[0, 1]`, the RL reward
+   axis. Physical TanimotoCombo is `2 × value`.
+4. **Failures are data.** A failed cell is a row in `errors.csv` with molecule,
+   arm, repeat, exception type and message. It is never swallowed and never
+   silently removed from a denominator (`inputs` vs `scored_inputs`).
+5. **No figure without a table.** Every PNG has a sibling `.manifest.json` with
+   the input table paths, SHA-256 digests, git revision, dirty flag and package
+   versions. A canonical figure refuses a legacy-fallback input.
+
+---
+
+## Commands
 
 ```bash
-# Copy validated historical tables + panels into canonical storage (once).
-python -m _david.code.conformer.cli migrate
+# once per host: import validated historical tables + panels into canonical data
+.venv/bin/python -m _david.code.conformer.cli migrate
 
-# Rebuild the molecule registry / preparation audit from the canonical panels.
-python -m _david.code.conformer.cli registry
+# rebuild every component figure/table from canonical data
+.venv/bin/python -m _david.code.conformer.cli figures --canonical-only
 
-# Regenerate every component figure and table from canonical data (~40 s).
-python -m _david.code.conformer.cli figures --canonical-only
+# rebuild the molecule registry / preparation audit
+.venv/bin/python -m _david.code.conformer.cli registry
 
-# Inspect cache occupancy per namespace.
-python -m _david.code.conformer.cli cache-stats
+# cache occupancy per namespace
+.venv/bin/python -m _david.code.conformer.cli cache-stats
+
+# a real study
+.venv/bin/python -m _david.code.conformer.cli study methods \
+    --panel egcg --workers 8 --output _david/output/conformer/runs/egcg_methods
+
+# verification
+.venv/bin/python -m unittest discover -s _david/code/tests -p 'test_*.py'
+.venv/bin/ruff check _david
 ```
 
-Running a real study:
-
-```bash
-# Optimization-method arms on the EGCG stress panel, 8 worker processes.
-python -m _david.code.conformer.cli study methods \
-    --panel egcg --workers 8 \
-    --output _david/output/conformer/runs/egcg_methods
-
-# Clustering benchmark on the 128-drug development panel.
-python -m _david.code.conformer.cli study clustering \
-    --panel drug_panel_development --workers 8 \
-    --selections diverse rmsd_0.35 rmsd_0.50 rmsd_1.25 \
-    --caps 1 2 4 8 12 0 --candidate-attempts 20 \
-    --output _david/output/conformer/runs/panel_clustering
-
-# Full 162-cell asymmetric Tversky grid.
-python -m _david.code.conformer.cli study color-shape \
-    --panel-file my_panel.csv --workers 8 \
-    --output _david/output/conformer/runs/tversky
-
-# Preparation audit: does every input survive chemical preparation?
-python -m _david.code.conformer.cli study preparation \
-    --panel drug_panel_development \
-    --output _david/output/conformer/runs/preparation_audit
-```
-
-Every run writes `results.csv`, `errors.csv` (child failures are recorded, never
-swallowed), and a `manifest.json` with the git revision, package versions, the
-full specification, cell counts, worker count, and cache statistics.
+`python -m _david.code.audit_rl_runs --regenerate` is the separate RL-run audit:
+it folds byte-identical runs, compares each recorded config with
+`PipelineConfig()`, rebuilds missing figures, and writes `RL_RUN_AUDIT.md` plus
+an untracked CSV.
 
 ---
 
-## 4. Conventions that matter scientifically
+## Traps already paid for
 
-**Score scale.** Study tables report `ScoreScale.NORMALIZED`, i.e.
-`0.5 × (shape + color)` on `[0, 1]`, the axis the RL reward uses. The physical
-TanimotoCombo on `[0, 2]` is always recoverable as `2 × combo`. Figures built
-from historical tables inherit the same convention because those pipelines
-already divided by two.
-
-**Isomer strata.** Molecules are grouped by the *true* number of stereoisomers
-the input can have, not by what a study chose to sample:
-`1–2, 3–4, 5–8, 9–15, 16–32, 33+` (`core/taxonomy.py`). The `9–15` bin is kept
-even when empty so a gap in the data is visible instead of silently dropped.
-
-**Enumeration is explicit.** `EmbedSpec.isomer_cap` defaults to 1, meaning
-"prepare the identities the input already specifies". Any study that enumerates
-unassigned stereocentres must raise the cap (`ReferenceSpec` defaults to `I=8`,
-candidates to `I=4`). The registry audits at `I=32` and reports truncation
-separately from symmetry collapse.
-
-**Cache invalidation.** `ALGORITHM_VERSION` in `core/contracts.py` is part of
-every key. Bump it whenever a change alters the numbers a cache entry would
-produce; never "fix" a stale artifact by deleting it silently.
+- **Blank cells are "not measured", not `""`.** `datasets.load_table` keeps
+  pandas' default NA handling; `keep_default_na=False` once turned every numeric
+  column of a table with one blank into `str`.
+- **Closures cannot be pickled.** The parallel path must use a module-level
+  `_GuardedCell`; a local closure silently made `--workers > 1` unusable.
+- **Never key a selection on pool size.** Two different 4-conformer pools shared
+  a bank; `pool_fingerprint` is part of the key.
+- **Tversky cells need `(alpha, beta)`.** Locating a grid cell by `alpha` alone
+  made Dice `(0.3, 0.7)` and Tanimoto `(0.3, 1.7)` the same entry.
+- **`variant="tanimoto"` with `alpha != 1` must raise.** It was once accepted and
+  silently ignored, reporting a metric nobody requested.
+- **A cache hit costs zero seconds.** Reporting the original latency corrupts
+  every cost/accuracy/Pareto table.
+- **Reference and candidate seeds are disjoint** (`104729` vs `42`). The old
+  `43 × 42 == 42 × 43` collision produced two "different" stereoisomers that
+  were identical.
 
 ---
 
-## 5. Tests
+## Reading order
 
-```bash
-python -m unittest discover -s _david/code/tests -p 'test_*.py'
-ruff check _david
-```
+1. This file — orientation.
+2. [`DESIGN.md`](DESIGN.md) — why the layers, cache and score scale look like this.
+3. [`results.md`](results.md) — dated findings; the authoritative record, not
+   repeated here because numbers rot.
+4. `core/contracts.py` → `studies/measure.py` → one `studies/*.py` → one
+   `analysis/*.py`.
+5. `_david/code/conformer/core/README.md` for low-level serialization helpers
+   (note: it predates the current module names; the code is authoritative).
 
-`_david/code/tests/test_conformer_{core,prepare,scoring,studies,analysis}.py`
-cover contract validation, cache semantics, dtype stability of canonical
-tables, the Tversky/Tanimoto identity, selection modes, serial/parallel parity of
-study execution, manifest contents, and figure provenance sidecars.
-
----
-
-## 6. Scientific findings
-
-`results.md` is the authoritative dated decision record. It is not duplicated
-here on purpose: numbers change, and a README that restates them rots.
+Tests encode the invariants better than prose does. When in doubt, read the
+test that covers the function you are about to change.

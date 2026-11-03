@@ -33,6 +33,21 @@ from _david.code.schema import std
 from _david.code.utils import HardwareManager
 from _david.code.visualization import ResultAnalyzer, render_reference_ensemble
 
+# Human-friendly spellings accepted by ``--criteria``. The canonical values in
+# ``std`` are what the checkpoint monitor receives; the short forms exist so
+# ``--criteria gmean`` (the gold standard) does not require knowing the schema
+# prefix.
+CRITERIA_ALIASES: dict[str, str] = {
+    "gmean": std.AVG_GMEAN,
+    "avg_gmean": std.AVG_GMEAN,
+    "amean": std.AVG_AMEAN,
+    "mean": std.AVG_AMEAN,
+    "avg_amean": std.AVG_AMEAN,
+    "desired_ratio": std.DESIRED_RATIO,
+    "valid_ratio": std.VALID_RATIO,
+    "unique_ratio": std.UNIQUE_RATIO,
+}
+
 
 class MoleculePipeline:
     """Production Ligand-Based De Novo Design (LBDD) SequenceRNN pipeline in DrugEx."""
@@ -363,7 +378,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--criteria",
         type=str,
         default=defaults.criteria,
-        choices=["avg_amean", "avg_gmean", "desired_ratio", "valid_ratio", "unique_ratio"],
+        choices=sorted(CRITERIA_ALIASES),
         help=f"RL selection criteria for best checkpoint (default: {defaults.criteria})",
     )
     parser.add_argument(
@@ -572,7 +587,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         decay_epochs=args.decay_epochs,
         decay_type=args.decay_type,
         beta=args.beta,
-        criteria=args.criteria,
+        criteria=CRITERIA_ALIASES[args.criteria],
         reward_scheme=args.reward_scheme,
         score_variant=args.score_variant,
         rocs_clip_upper=args.rocs_clip_upper,
