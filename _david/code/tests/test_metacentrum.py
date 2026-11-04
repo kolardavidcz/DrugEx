@@ -276,6 +276,38 @@ class TestRemotePlumbing(unittest.TestCase):
         self.assertIn("kinit", str(ctx.exception))
 
 
+class TestLogPath(unittest.TestCase):
+    """A reused job name must not make `logs` show an earlier attempt's failure."""
+
+    def test_live_job_is_resolved_by_its_id(self) -> None:
+        live = submit.RemoteJob(job_id="25256877.pbs-m1.metacentrum.cz", name="egcg", state="R")
+        with (
+            patch.object(submit, "list_jobs", return_value=[live]),
+            patch.object(
+                submit, "remote", return_value=SimpleNamespace(stdout="/home/u/egcg.o25256877\n")
+            ) as call,
+        ):
+            self.assertEqual(submit.log_path("meta", "egcg"), "/home/u/egcg.o25256877")
+        self.assertIn("egcg.o25256877*", call.call_args.args[1])
+
+    def test_live_job_without_a_log_yet_shows_nothing(self) -> None:
+        live = submit.RemoteJob(job_id="25256877.pbs-m1.metacentrum.cz", name="egcg", state="R")
+        with (
+            patch.object(submit, "list_jobs", return_value=[live]),
+            patch.object(submit, "remote", return_value=SimpleNamespace(stdout="")),
+        ):
+            self.assertEqual(submit.log_path("meta", "egcg"), "")
+
+    def test_finished_job_falls_back_to_the_newest_file(self) -> None:
+        with (
+            patch.object(submit, "list_jobs", return_value=[]),
+            patch.object(
+                submit, "remote", return_value=SimpleNamespace(stdout="/home/u/egcg.o25256872\n")
+            ),
+        ):
+            self.assertEqual(submit.log_path("meta", "egcg"), "/home/u/egcg.o25256872")
+
+
 class TestPull(unittest.TestCase):
     def test_missing_remote_output_is_reported_and_no_empty_directory_is_created(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -461,9 +461,26 @@ def cancel(host: str, user: str, targets: list[str]) -> list[str]:
     return resolved
 
 
-def log_path(host: str, name: str) -> str:
-    """Newest PBS stdout/stderr file for a job name (``$HOME/<name>.o<seq>``)."""
-    out = remote(host, f"ls -t $HOME/{shlex.quote(name)}.o* 2>/dev/null | head -1").stdout
+def log_path(host: str, name: str, user: str = DEFAULT_USER) -> str:
+    """PBS stdout/stderr for this job, not merely for its name.
+
+    Reusing ``--name`` leaves earlier attempts' logs in ``$HOME``; a plain newest-by-mtime
+    glob then shows a stale failure while the current job is still in setup (jobs
+    ``25256877``/``25256880``, 2026-11-04). Resolve the live job id from PBS first and
+    look for ``<name>.o<id>``. A finished job with no live entry falls back to the newest
+    file, which is then the log of its last attempt.
+    """
+    ids = [job.short_id for job in list_jobs(host, user) if job.name == name]
+    quoted = shlex.quote(name)
+    for job_id in ids:
+        found = remote(
+            host, f"ls $HOME/{quoted}.o{shlex.quote(job_id)}* 2>/dev/null | head -1"
+        ).stdout
+        if found.strip():
+            return found.strip()
+    if ids:
+        return ""  # live job, log not written yet: never show an older attempt
+    out = remote(host, f"ls -t $HOME/{quoted}.o* 2>/dev/null | head -1").stdout
     return out.strip()
 
 
@@ -688,11 +705,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == "status":
             _print_jobs(list_jobs(args.host, args.user))
         elif args.action == "logs":
-            path = log_path(args.host, args.name)
+            path = log_path(args.host, args.name, args.user)
             if not path:
                 print(
-                    f"No PBS log for '{args.name}' in $HOME "
-                    "(not started yet, or already rotated)."
+                    f"No PBS log for '{args.name}' in $HOME yet. A running job writes it when "
+                    "PBS closes the job; for live progress use "
+                    "monitor_live_epochs.py (reads the worker scratch)."
                 )
                 return 1
             print(f"# {path}")
