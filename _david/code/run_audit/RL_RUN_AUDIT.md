@@ -23,11 +23,15 @@ Historical runs are **not** retroactively re-sampled: their figures are rebuilt 
 | `20261102_0849_sprint_h3_with_qed_pareto` | elmu1-24.hw.elixir-czech.cz / 25193152.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `pareto_crowding` | 0.05 | 1 / 30 / no | 10/10 (+04) | 1 | OK |
 | `20261102_0928_sprint_h4_with_qed_harrington` | elmu1-25.hw.elixir-czech.cz / 25193153.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `harrington` | 0.05 | 1 / 30 / no | 10/10 (+04) | 1 | OK |
 | `20261102_2205_supervisor_reproduction_eps0.1` | - | 50 | `-` | `-` | - | - | `-` | 0.1 | - / - / - | 10/10 (+04) | 0 | OK |
+| `20261104_0445_egcg_gold_oe` | eluo1-4.hw.elixir-czech.cz / 25256877.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 10/10 | 0 | OK* |
+| `20261104_0447_egcg_eps0` | elmu1-15.hw.elixir-czech.cz / 25256882.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0 | 4 / 20 / yes | 10/10 | 0 | OK* |
 | `archive/historical_rl_graph_runs/run16_sequencer_weighted_sum` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 10/10 (+04) | 0 | OK |
 | `archive/historical_rl_graph_runs/run17_baseline_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 10/10 (+04) | 0 | OK |
 | `egcg_k4_c20_candidates_minimized_gold` | elmo3-6.hw.elixir-czech.cz / 25223670.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / yes | 10/10 (+04) | 0 | OK |
 | `egcg_k4_c20_candidates_unminimized` | elmo3-5.hw.elixir-czech.cz / 25223669.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / no | 10/10 (+04) | 0 | OK |
 | `sprint_h7_tversky_scaffold_hop` | elmu1-17.hw.elixir-czech.cz / 25218573.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tversky_scaffold_hop` | 1000 | no | `harrington` | 0.05 | 4 / 20 / yes | 10/10 (+04) | 0 | OK |
+
+`OK*` = all ten current figures plus the scorecard and summary are present; only the retired `04` diagnostic is missing. `04` is not part of the current `ResultAnalyzer` contract.
 
 ## What differs from the gold standard
 
@@ -49,7 +53,6 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | similarity variant (`score_variant`) | `tversky_mild_color_heavy` | `tanimoto_combo` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
-| reward scheme (`reward_scheme`) | `harrington` | `pareto_crowding` |
 | exploration (`epsilon`) | `0.15` | `0.05` |
 | epsilon schedule (`use_epsilon_decay`) | `yes` | `no` |
 | desirability gates (`thresholds`) | `(0.35, 0.5, 0.5)` | `(0.35, 0.5)` |
@@ -65,6 +68,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | :--- | :--- | :--- |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
+| reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
 | candidate budget C (`max_conformers`) | `30` | `20` |
 | reference cap K (`max_reference_conformers`) | `1` | `4` |
 | candidate minimization (`minimize_candidates`) | `no` | `yes` |
@@ -79,7 +83,6 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | :--- | :--- | :--- |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
-| reward scheme (`reward_scheme`) | `harrington` | `pareto_crowding` |
 | candidate budget C (`max_conformers`) | `30` | `20` |
 | reference cap K (`max_reference_conformers`) | `1` | `4` |
 | candidate minimization (`minimize_candidates`) | `no` | `yes` |
@@ -94,6 +97,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | :--- | :--- | :--- |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
+| reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
 | QED objective (`include_qed`) | `yes` | `no` |
 | desirability gates (`thresholds`) | `(0.35, 0.5, 0.5)` | `(0.35, 0.5)` |
 | candidate budget C (`max_conformers`) | `30` | `20` |
@@ -110,7 +114,6 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | :--- | :--- | :--- |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
-| reward scheme (`reward_scheme`) | `harrington` | `pareto_crowding` |
 | QED objective (`include_qed`) | `yes` | `no` |
 | desirability gates (`thresholds`) | `(0.35, 0.5, 0.5)` | `(0.35, 0.5)` |
 | candidate budget C (`max_conformers`) | `30` | `20` |
@@ -126,6 +129,23 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | :--- | :--- | :--- |
 | training horizon (`epochs`) | `50` | `200` |
 | exploration (`epsilon`) | `0.1` | `0.05` |
+
+### `20261104_0445_egcg_gold_oe`
+
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `b3812e60440f47637117b0f96f9073ea9661a35a`
+- Wall clock: 10.3 h
+- No deviations from the gold standard.
+
+### `20261104_0447_egcg_eps0`
+
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `b3812e60440f47637117b0f96f9073ea9661a35a`
+- Wall clock: 9.5 h
+
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| exploration (`epsilon`) | `0` | `0.05` |
 
 ### `archive/historical_rl_graph_runs/run16_sequencer_weighted_sum`
 
@@ -147,6 +167,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | training horizon (`epochs`) | `50` | `200` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
+| reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
 | exploration (`epsilon`) | `0.1` | `0.05` |
 
 ### `egcg_k4_c20_candidates_unminimized`
@@ -159,6 +180,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | training horizon (`epochs`) | `50` | `200` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
+| reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
 | exploration (`epsilon`) | `0.1` | `0.05` |
 | candidate minimization (`minimize_candidates`) | `no` | `yes` |
 
@@ -172,7 +194,6 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | similarity variant (`score_variant`) | `tversky_scaffold_hop` | `tanimoto_combo` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
-| reward scheme (`reward_scheme`) | `harrington` | `pareto_crowding` |
 
 ## Incomplete runs (not verifiable, kept for provenance)
 
@@ -180,6 +201,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | :--- | :--- | :--- | ---: | :---: |
 | `20261030_0200_rl_suite_egcg_6arm/rl01_opt1_mild_color_heavy.negative_control_mode_collapse_20261030_040259` | running | dichtator | 99 | no |
 | `20261030_0200_rl_suite_egcg_6arm/rl02_opt2_scaffold_hop` | running | dichtator | - | no |
+| `20261104_0447_egcg_eps01_cos30` | failed | elmu1-20.hw.elixir-czech.cz / 25256883.pbs-m1.metacentrum.cz | - | no |
 | `archive/partial_cluster_runs/partial_4cpu_sprint_h1_without_qed_pareto` | running | galdor17.metacentrum.cz / 25170006.pbs-m1.metacentrum.cz | 35 | no |
 | `archive/partial_cluster_runs/partial_4cpu_sprint_h2_without_qed_harrington` | running | galdor5.metacentrum.cz / 25170007.pbs-m1.metacentrum.cz | 11 | no |
 | `archive/partial_cluster_runs/partial_4cpu_sprint_h3_with_qed_pareto` | running | galdor9.metacentrum.cz / 25170008.pbs-m1.metacentrum.cz | 6 | no |

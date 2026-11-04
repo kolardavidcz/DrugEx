@@ -19,9 +19,8 @@ _david/*.html
 # --- Dynamic Run Outputs & Generated Artifacts ---
 */output/*
 */outputs/*
-_david/tests/molecular_dynamics/*/*
 _david/output/*
-_david/tests/molecular_dynamics/*
+_david/code/tests/molecular_dynamics
 
 # --- Heavy Model Weights & Binary Checkpoints ---
 *.pkg
