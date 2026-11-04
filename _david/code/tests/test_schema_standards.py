@@ -60,7 +60,7 @@ class TestSchemaStandards(unittest.TestCase):
         """Verify that PipelineConfig enforces schema standards and default 0.99 CPU ratio."""
         cfg = PipelineConfig()
         self.assertEqual(cfg.cpu_ratio, 0.99)
-        self.assertEqual(cfg.reward_scheme, std.REWARD_PARETO)
+        self.assertEqual(cfg.reward_scheme, std.REWARD_HARRINGTON)
         self.assertEqual(cfg.criteria, std.AVG_GMEAN)
         self.assertEqual(cfg.n_eval_samples, 5000)
 

@@ -180,10 +180,33 @@ class TestPipelineArchitecture(unittest.TestCase):
         )
         scorer = create_rocs_scorer(ref_sdf, cfg=cfg)
         self.assertEqual(scorer.getKey(), [std.ROCS])
+        # Production colour typing is the OpenEye ImplicitMillsDean port, not fdef.
+        self.assertEqual(cfg.color_ff, "oe_mills_dean")
+        self.assertEqual(scorer.color_ff, "oe_mills_dean")
+        self.assertEqual(scorer.score_type, "TanimotoCombo")
+        # TanimotoCombo lives on [0, 2]; a 1.8 clip silently truncated the top decile.
+        self.assertEqual(cfg.rocs_clip_upper, 2.0)
 
         env = create_environment(ref_sdf, config=cfg)
         self.assertEqual(len(env.scorers), 3)  # ROCS, SA, QED
         self.assertEqual(len(env.thresholds), 3)
+
+
+class TestRocsColourTyping(unittest.TestCase):
+    """The ROCS colour channel must use the configured pharmacophore typing."""
+
+    def test_invalid_color_ff_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            PipelineConfig(color_ff="basefeatures")
+
+    def test_color_ff_override_reaches_the_scorer(self) -> None:
+        ref_sdf = Path(__file__).parent / "data" / "EGCG_reference.sdf"
+        if not ref_sdf.exists():
+            self.skipTest("EGCG reference SDF not found")
+        scorer = create_rocs_scorer(
+            ref_sdf, cfg=PipelineConfig(max_conformers=2), color_ff="default"
+        )
+        self.assertEqual(scorer.color_ff, "default")
 
 
 if __name__ == "__main__":

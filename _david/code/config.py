@@ -90,20 +90,29 @@ class PipelineConfig:
     # Gold standard (2026-11-03): Surový (raw) ROCS TanimotoCombo on [0, 2],
     # ShapeTanimoto + ColorTanimoto, computed with use_colors=True. Raw means
     # `rocs_use_modifier=False` below and no ClippedScore re-scaling; the value
-    # entering the reward is exactly the sum of the two similarities. Production
-    # scoring is canonical ROCS TanimotoCombo only. The asymmetric
+    # entering the reward is exactly the sum of the two similarities. The color
+    # channel uses the DrugEx `RDKitROCSScorer` default typing for
+    # `color_ff="oe_mills_dean"` (OpenEye ImplicitMillsDean SMARTS port), not
+    # RDKit's BaseFeatures.fdef fallback: the fdef path types saturated rings
+    # and alkyl chains differently from OpenEye ROCS. Production scoring is
+    # canonical ROCS TanimotoCombo only. The asymmetric
     # Tversky grid, its weights and its Gaussian re-weighters are a *measured
     # calibration*, not a runtime knob: they live in
     # _david/code/to_do/rocs_multimetric.py and are never reachable from training.
     # `score_variant` is kept as a single-choice field so historical submission
     # specs (which pass `--score-variant tanimoto_combo`) still replay verbatim.
     score_variant: str = std.VARIANT_TANIMOTO_COMBO
-    reward_scheme: str = std.REWARD_PARETO  # ^ ["pareto_crowding", "harrington", "weighted_sum"]
+    #: Pharmacophore typing for the ROCS color channel, forwarded to
+    #: ``RDKitROCSScorer(color_ff=...)``: ``"oe_mills_dean"`` (OpenEye
+    #: ImplicitMillsDean SMARTS port), ``"default"``/``"fdef"`` (RDKit
+    #: BaseFeatures.fdef). Production uses the OpenEye-compatible typing.
+    color_ff: str = "oe_mills_dean"  # ^ ["oe_mills_dean", "default", "fdef"]
+    reward_scheme: str = std.REWARD_HARRINGTON  # ^ ["pareto_crowding", "harrington", "weighted_sum"]
     weights: tuple[float, ...] | None = None  # Auto-calibrates to (0.75, 0.25) or (0.50, 0.25, 0.25)
 
     # Scorer Modifier Bounds (ROCS raw/clipped & SA ClippedScore)
     rocs_use_modifier: bool = False  # False preserves raw TanimotoCombo [0, 2]; True applies ClippedScore [0, 1]
-    rocs_clip_upper: float = 1.8  # Raw TanimotoCombo upper bound when rocs_use_modifier=True
+    rocs_clip_upper: float = 2.0  # Raw TanimotoCombo upper bound when rocs_use_modifier=True (combo max is 2.0)
     sa_score_lower: float = 5.0  # Raw SA >= 5.0 -> 0.0 reward
     sa_score_upper: float = 3.0  # Raw SA <= 3.0 -> flat 1.0 reward (stops artificial shrinkage)
     sa_smooth_lower: float = 5.0  # Backward-compatibility alias
@@ -169,6 +178,11 @@ class PipelineConfig:
                 f"canonical ROCS TanimotoCombo ('{std.VARIANT_TANIMOTO_COMBO}') only: the 162-cell "
                 "asymmetric Tversky calibration in _david/code/conformer/ is a measurement, not a "
                 "runtime knob."
+            )
+        if self.color_ff not in ("default", "fdef", "oe_mills_dean"):
+            raise ValueError(
+                f"Invalid color_ff '{self.color_ff}'. Must be one of ('default', 'fdef', "
+                "'oe_mills_dean'), matching RDKitROCSScorer's color-feature typing."
             )
         if self.thresholds is None:
             default_thresh = (0.35, 0.50, 0.50) if self.include_qed else (0.35, 0.50)

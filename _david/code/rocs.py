@@ -108,6 +108,7 @@ def create_rocs_scorer(
     minimize_candidates: bool | None = None,
     optimization: Optimization | None = None,
     score_variant: str | None = None,
+    color_ff: str | None = None,
 ) -> CanonicalROCSScorer:
     """Instantiate a multi-threaded ``CanonicalROCSScorer`` from a config or explicit values.
 
@@ -115,6 +116,11 @@ def create_rocs_scorer(
     variants are calibrated in ``_david/code/to_do/rocs_multimetric.py`` and are
     intentionally unreachable from here: a training run must never be able to
     drift onto a metric that the thesis did not select.
+
+    ``color_ff`` selects the pharmacophore typing for the color channel and is
+    forwarded to ``RDKitROCSScorer``. Production uses ``"oe_mills_dean"`` (the
+    OpenEye ImplicitMillsDean SMARTS port shipped with DrugEx core), so the
+    color term matches OpenEye ROCS rather than RDKit's fdef fallback.
     """
     enable_double_precision_mol_pickling()
     active_variant = score_variant if score_variant is not None else (cfg.score_variant if cfg else std.VARIANT_TANIMOTO_COMBO)
@@ -135,6 +141,7 @@ def create_rocs_scorer(
     c_seed = random_seed if random_seed is not None else (cfg.random_seed if cfg else 42)
     c_min = minimize_candidates if minimize_candidates is not None else (cfg.minimize_candidates if cfg else True)
     c_opt = optimization if optimization is not None else (cfg.optimization if cfg else Optimization("MMFF94s", 78.4))
+    c_color_ff = color_ff if color_ff is not None else (cfg.color_ff if cfg else "oe_mills_dean")
     c_ratio = cfg.cpu_ratio if cfg else 0.99
     safe_jobs = n_jobs if n_jobs is not None else HardwareManager.get_safe_parallel_jobs(ratio=c_ratio)
 
@@ -158,6 +165,7 @@ def create_rocs_scorer(
         score_type=std.ROCS_SCORE_TYPE,
         score_variant=std.VARIANT_TANIMOTO,
         use_colors=True,
+        color_ff=c_color_ff,
         show_progress=False,
         n_jobs=safe_jobs,
     )

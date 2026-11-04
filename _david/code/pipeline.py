@@ -416,6 +416,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--color-ff",
+        type=str,
+        default=defaults.color_ff,
+        choices=["oe_mills_dean", "default", "fdef"],
+        help=(
+            "Pharmacophore typing for the ROCS color channel (default: "
+            f"{defaults.color_ff}); forwarded to RDKitROCSScorer(color_ff=...)"
+        ),
+    )
+    parser.add_argument(
         "--rocs-clip-upper",
         type=float,
         default=defaults.rocs_clip_upper,
@@ -619,6 +629,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         criteria=CRITERIA_ALIASES[args.criteria],
         reward_scheme=args.reward_scheme,
         score_variant=args.score_variant,
+        color_ff=args.color_ff,
         rocs_clip_upper=args.rocs_clip_upper,
         rocs_use_modifier=args.rocs_use_modifier,
         include_qed=args.include_qed,

@@ -108,7 +108,9 @@ Anything after `--` (or inside `--args "…"`) is handed to
 | `--patience` | 50 | Epochs without checkpoint improvement before stopping. |
 | `--criteria` | `avg_gmean` | Checkpoint criterion (`gmean` is the CLI alias). |
 | `--include-qed` / `--no-include-qed` | off | Adds QED as a third objective. |
-| `--reward-scheme` | `pareto_crowding` | `pareto_crowding`, `harrington`, `weighted_sum`. |
+| `--reward-scheme` | `harrington` | `pareto_crowding`, `harrington`, `weighted_sum`. |
+| `--color-ff` | `oe_mills_dean` | ROCS pharmacophore typing: `oe_mills_dean`, `default`, `fdef`. |
+| `--rocs-clip-upper` | `2.0` | ClippedScore bound when `--rocs-use-modifier` is on; combo ceiling is 2.0. |
 | `--minimize-candidates` / `--no-…` | on | MMFF94s minimisation of candidates (~4× slower). |
 | `--conformers` | 20 | Candidate conformers per isomer. |
 | `--reference-conformers` | 4 | Reference ensemble cap K. |

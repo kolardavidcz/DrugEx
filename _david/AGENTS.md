@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): **Ad-hoc** host for occasional single CPU-heavy jobs; not a mirror of the local tree and not the default production queue. Managed via `python -m _david.code.metacentrum.submit`; the agent-facing template is [`code/metacentrum/RUNBOOK.md`](code/metacentrum/RUNBOOK.md).
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 143/143 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 145/145 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -28,11 +28,11 @@ This document is the authoritative single source of truth for AI agents and huma
   - Physicochemical Profile: Natural polyphenol; **$\text{QED} = 0.21$** (severely penalized by Lipinski / Veber drug-like rules).
 - **Physics-Based 3D Scoring Engine**:
   - Implemented in `_david/code/rocs.py` via `create_rocs_scorer` → `CanonicalROCSScorer` (`RDKitROCSScorer`), using `use_colors=True`.
-  - Computes 3D Gaussian volume overlaps (Shape Tanimoto) and color feature alignments (Color Tanimoto using RDKit pharmacophore donor/acceptor/hydrophobe features).
-  - Metric: $\text{TanimotoCombo} = \text{ShapeTanimoto} + \text{ColorTanimoto} \in [0, 2]$, passed to the reward **raw** (`rocs_use_modifier=False`, no ClippedScore re-scaling).
+  - Computes 3D Gaussian volume overlaps (Shape Tanimoto) and color feature alignments (Color Tanimoto). Color typing is `color_ff = "oe_mills_dean"` (the OpenEye ImplicitMillsDean SMARTS port in DrugEx core), so donor/acceptor/cation/anion/rings/hydrophobe features match OpenEye ROCS rather than RDKit's `BaseFeatures.fdef` fallback.
+  - Metric: $\text{TanimotoCombo} = \text{ShapeTanimoto} + \text{ColorTanimoto} \in [0, 2]$, passed to the reward **raw** (`rocs_use_modifier=False`, no ClippedScore re-scaling). If the modifier is ever enabled, `rocs_clip_upper = 2.0` — the physical ceiling; the old 1.8 bound truncated the best-scoring decile.
 - **Gold standards (2026-11-03)** — the defaults every new production run uses; historical runs differ and are audited in `_david/code/RL_RUN_AUDIT.md`:
   1. **Checkpoint criterion**: `criteria = avg_gmean` (geometric mean of per-objective desirability ratios), not `avg_amean`. `--criteria gmean` is the CLI spelling.
-  2. **Similarity**: Surový (raw) ROCS TanimotoCombo on $[0, 2]$, `Shape + Color`, `use_colors = True`; no asymmetric Tversky, no clipping, no Gaussian re-weighting.
+  2. **Similarity**: Surový (raw) ROCS TanimotoCombo on $[0, 2]$, `Shape + Color`, `use_colors = True`, `color_ff = "oe_mills_dean"`; no asymmetric Tversky, no clipping, no Gaussian re-weighting.
   3. **Final evaluation**: `n_eval_samples = 5000` molecules per arm (5× the historical 1,000), so distribution and Pareto statistics are not sampling-noise dominated.
 
 ---
@@ -107,7 +107,7 @@ _david/
 │       ├── help/                      # 01-submit … 06-storage + monitor_live_epochs.py
 │       ├── scripts/runed/             # Frozen historical PBS runners (provenance only)
 │       └── archive/                   # compare_output_trees.py + its usage contract
-├── code/tests/                         # 143 unit and regression tests (100% passing)
+├── code/tests/                         # 145 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 
