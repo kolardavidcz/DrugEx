@@ -31,7 +31,7 @@ from _david.code.environment import PrepareMolecule, create_environment
 from _david.code.models import SequenceRNNOptimizer
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
-from _david.code.visualization import ResultAnalyzer, render_reference_ensemble
+from _david.code.visualization import ResultAnalyzer
 
 # Human-friendly spellings accepted by ``--criteria``. The canonical values in
 # ``std`` are what the checkpoint monitor receives; the short forms exist so
@@ -196,14 +196,12 @@ class MoleculePipeline:
         self.paths.create_directories()
 
         ref_sdf = self.paths.raw_data_dir / "query_molecule_3d.sdf"
-        ref_png = self.paths.figures_dir / "reference_3d_superposition.png"
 
         # Stage 0: 3D Reference Conformer Ensemble
         logger.info(
             f"\n[Stage 0] Generating 3D reference conformer ensemble for: {molecule}"
         )
         self.preparer.generate_reference_conformers(molecule, output_path=ref_sdf)
-        render_reference_ensemble(ref_sdf, output_png=ref_png)
 
         # Stage 1: Load Pretrained Models & Sample Baseline Arm
         logger.info(

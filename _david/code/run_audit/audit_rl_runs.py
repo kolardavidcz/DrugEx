@@ -52,20 +52,20 @@ OUTPUT_ROOT: Path = PROJECT_ROOT / "_david" / "output"
 DEFAULT_REPORT: Path = PROJECT_ROOT / "_david" / "code" / "RL_RUN_AUDIT.md"
 DEFAULT_CSV: Path = OUTPUT_ROOT / "RL_RUN_AUDIT.csv"
 
-# The current pipeline renders these ten files. Figure 04 is a historical
+# The current pipeline renders these eight files. Figure 04 is a historical
 # diagnostic that the current ResultAnalyzer no longer calls, so it is audited
-# separately and never decides the verdict.
+# separately and never decides the verdict. Rows retired on 2026-11-04
+# (``06_relative_property_shifts_tornado``, ``08_rocs_shape_vs_color_decomposition``,
+# ``reference_3d_superposition``) are no longer required or regenerated.
 CURRENT_FIGURES: tuple[str, ...] = (
     "01_before_after_distributions.png",
     "02_multiobjective_tradeoffs.png",
     "03_training_trajectories.png",
     "05_lead_structures_gallery.png",
-    "06_relative_property_shifts_tornado.png",
+    "06_objective_conflict_correlations.png",
     "07_bemis_murcko_scaffold_diversity.png",
-    "08_rocs_shape_vs_color_decomposition.png",
     "10_lead_to_seed_3d_superposition.png",
     "11_epoch_property_trajectories.png",
-    "reference_3d_superposition.png",
 )
 LEGACY_FIGURES: tuple[str, ...] = ("04_diagnostic_unfavorable_features.png",)
 SUPPORT_FILES: tuple[str, ...] = (
@@ -549,7 +549,6 @@ def regenerate(run: RunAudit) -> list[str]:
 
     from _david.code.visualization import (
         ResultAnalyzer,
-        render_reference_ensemble,
         render_unfavorable_features_diagnostics,
     )
 
@@ -577,7 +576,7 @@ def regenerate(run: RunAudit) -> list[str]:
             ref_smiles=run.query,
             monitor_prefix=str(monitor_dir / "SequenceRNN_reinforced"),
         )
-    messages.append("analyze(): 01,02,03,05,06,07,08,10,11")
+    messages.append("analyze(): 01,02,03,05,06,07,10,11")
     messages.append("monitor TSV: " + "; ".join(notes))
 
     ref_mol = Chem.MolFromSmiles(run.query)
@@ -590,14 +589,6 @@ def regenerate(run: RunAudit) -> list[str]:
     )
     messages.append(f"04 (legacy diagnostic, ref heavy atoms {ref_heavy})")
 
-    query_sdf = raw / "query_molecule_3d.sdf"
-    if query_sdf.is_file():
-        render_reference_ensemble(
-            query_sdf, figures / "reference_3d_superposition.png"
-        )
-        messages.append("reference_3d_superposition")
-    else:
-        messages.append("reference_3d_superposition skipped (no query SDF)")
     return messages
 
 

@@ -85,6 +85,66 @@ def unscale_to_physical_metrics(
     return df_out
 
 
+def _deterministic_epoch_subsample(
+    df: pd.DataFrame, max_per_epoch: int | None = 256
+) -> pd.DataFrame:
+    """Return an evenly spaced, deterministic per-epoch subsample of ``df``.
+
+    Raw SA scoring is ~10^3 molecules/s, so a full 5000-molecule final arm or a
+    200-epoch monitor table would dominate figure wall-clock. An evenly spaced
+    slice over generation order is unbiased for median/IQR statistics and keeps
+    the figure reproducible across runs.
+    """
+    if max_per_epoch is None or df.empty or "Epoch" not in df.columns:
+        return df.copy()
+
+    keep: list[pd.DataFrame] = []
+    for _, grp in df.groupby("Epoch", sort=True):
+        if len(grp) > max_per_epoch:
+            picks = np.linspace(0, len(grp) - 1, num=max_per_epoch).round().astype(int)
+            grp = grp.iloc[picks]
+        keep.append(grp)
+    return pd.concat(keep) if keep else df.iloc[0:0].copy()
+
+
+def compute_raw_sa(
+    smiles_values: Sequence[Any], cache: dict[str, float] | None = None
+) -> np.ndarray:
+    """Compute physical RDKit synthetic-accessibility scores (≈1 easy … 10 hard).
+
+    ``_smiles.tsv`` only stores the *desirability* of SA, so any figure that claims
+    to show SA must recompute the raw score from the molecule. Values are memoised
+    per SMILES because early epochs resample heavily from the same prior.
+    """
+    memo = cache if cache is not None else {}
+    values = np.full(len(smiles_values), np.nan, dtype=float)
+    for i, smi in enumerate(smiles_values):
+        key = str(smi) if isinstance(smi, str) else ""
+        if key not in memo:
+            mol = Chem.MolFromSmiles(key) if key else None
+            score = np.nan
+            if mol is not None:
+                try:
+                    score = float(calculate_sa_score(mol))
+                except Exception:
+                    score = np.nan
+            memo[key] = score
+        values[i] = memo[key]
+    return values
+
+
+def epoch_raw_sa_table(
+    df: pd.DataFrame, max_per_epoch: int | None = 256
+) -> pd.DataFrame:
+    """Per-molecule raw SA scores for a monitor table, subsampled per epoch."""
+    if df.empty or "Epoch" not in df.columns or std.SMILES not in df.columns:
+        return pd.DataFrame(columns=["Epoch", "RawSA"])
+    sub = _deterministic_epoch_subsample(df[["Epoch", std.SMILES]], max_per_epoch)
+    out = sub.copy()
+    out["RawSA"] = compute_raw_sa(sub[std.SMILES].tolist())
+    return out
+
+
 def bootstrap_ci(
     a: np.ndarray,
     b: np.ndarray,
@@ -107,137 +167,6 @@ def bootstrap_ci(
     low = float(np.percentile(boot_diffs, 100.0 * alpha))
     high = float(np.percentile(boot_diffs, 100.0 * (1.0 - alpha)))
     return delta_obs, low, high
-
-
-def get_universal_rigid_anchor(mol: Chem.Mol) -> list[int]:
-    """Identify indices of the largest rigid ring block for visual 3D coordinate alignment."""
-    rot_smarts = Chem.MolFromSmarts("[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]")
-    matches = mol.GetSubstructMatches(rot_smarts)
-    rot_bonds = [
-        b.GetIdx()
-        for a1, a2 in matches
-        if (b := mol.GetBondBetweenAtoms(a1, a2)) is not None and not b.IsInRing()
-    ]
-    if not rot_bonds:
-        heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() != "H"]
-        return heavy[: min(10, len(heavy))]
-
-    frag_mol = Chem.FragmentOnBonds(mol, rot_bonds, addDummies=False)
-    frags = Chem.GetMolFrags(frag_mol, asMols=False, sanitizeFrags=False)
-    heavy_frags = [
-        [idx for idx in f if mol.GetAtomWithIdx(idx).GetSymbol() != "H"] for f in frags
-    ]
-    largest_frag = max(heavy_frags, key=len, default=[])
-    return sorted(largest_frag)
-
-
-def render_reference_ensemble(
-    sdf_path: Path | str,
-    output_png: Path | str | None = None,
-) -> Path:
-    """Render 3D reference conformer ensemble superposition figure using pre-computed conformer properties."""
-    from rdkit.Chem import AllChem
-
-    sdf_file = Path(sdf_path)
-    target_png = (
-        Path(output_png)
-        if output_png
-        else sdf_file.parent / "reference_3d_superposition.png"
-    )
-    target_png.parent.mkdir(parents=True, exist_ok=True)
-
-    suppl = Chem.SDMolSupplier(str(sdf_file), removeHs=False)
-    mols = [m for m in suppl if m is not None]
-    if not mols:
-        raise ValueError(f"No valid molecules found in reference SDF: {sdf_file}")
-
-    mol_combined = Chem.Mol(mols[0])
-    for m in mols[1:]:
-        mol_combined.AddConformer(m.GetConformer(), assignId=True)
-
-    de_vals = [
-        float(m.GetProp("DeltaE_kcal_mol"))
-        if m.HasProp("DeltaE_kcal_mol")
-        else float(i) * 1.5
-        for i, m in enumerate(mols)
-    ]
-
-    anchor_atoms = get_universal_rigid_anchor(mol_combined)
-    for i in range(1, len(mols)):
-        try:
-            AllChem.AlignMol(mols[i], mols[0], atomMap=[(a, a) for a in anchor_atoms])
-        except Exception:
-            pass
-
-    fig = plt.figure(figsize=(15, 5), dpi=200)
-
-    def _draw_mol(
-        ax: Any,
-        m: Chem.Mol,
-        c_atom: Any,
-        c_bond: Any,
-        alpha: float = 0.8,
-        lw: float = 1.2,
-    ) -> None:
-        conf = m.GetConformer()
-        pts = conf.GetPositions()
-        for b in m.GetBonds():
-            i, j = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
-            ax.plot(
-                [pts[i, 0], pts[j, 0]],
-                [pts[i, 1], pts[j, 1]],
-                [pts[i, 2], pts[j, 2]],
-                color=c_bond,
-                linewidth=lw,
-                alpha=alpha,
-            )
-        ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], color=c_atom, s=15, alpha=alpha)
-
-    # Panel A: Lowest energy basin
-    ax1 = fig.add_subplot(1, 3, 1, projection="3d")
-    _draw_mol(ax1, mols[0], "#2563eb", "#3b82f6", alpha=0.9, lw=1.5)
-    ax1.set_title(
-        f"(A) Lowest-Energy Basin\nΔE = {de_vals[0]:.2f} kcal/mol",
-        fontsize=11,
-        fontweight="bold",
-        pad=12,
-    )
-    ax1.view_init(elev=20, azim=40)
-
-    # Panel B: Secondary basin
-    ax2 = fig.add_subplot(1, 3, 2, projection="3d")
-    if len(mols) > 1:
-        _draw_mol(ax2, mols[1], "#059669", "#10b981", alpha=0.9, lw=1.5)
-        ax2.set_title(
-            f"(B) Secondary Basin\nΔE = {de_vals[1]:.2f} kcal/mol",
-            fontsize=11,
-            fontweight="bold",
-            pad=12,
-        )
-    else:
-        _draw_mol(ax2, mols[0], "#2563eb", "#3b82f6", alpha=0.9, lw=1.5)
-        ax2.set_title("(B) Primary Basin", fontsize=11, fontweight="bold", pad=12)
-    ax2.view_init(elev=20, azim=40)
-
-    # Panel C: Superposition
-    ax3 = fig.add_subplot(1, 3, 3, projection="3d")
-    cmap = plt.cm.plasma
-    norm = plt.Normalize(vmin=0.0, vmax=max(de_vals) if max(de_vals) > 0 else 1.0)
-    for i, m in enumerate(mols):
-        color = cmap(norm(de_vals[i]))
-        _draw_mol(ax3, m, color, color, alpha=0.75, lw=1.5)
-    ax3.set_title(
-        f"(C) Ensemble Superposition ({len(mols)} Basins)\nAligned on Rigid Core",
-        fontsize=11,
-        fontweight="bold",
-        pad=12,
-    )
-    ax3.view_init(elev=20, azim=40)
-
-    plt.tight_layout()
-    plt.savefig(target_png, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    return target_png
 
 
 def _plot_kde(
@@ -653,7 +582,12 @@ def render_training_trajectories(
     output_png: Path | str,
     smiles_file: Path | str | None = None,
 ) -> Path | None:
-    """Render 4-panel training dynamics with FIXED Panel C multi-objective evolution."""
+    """Render the 4-panel training-dynamics dashboard.
+
+    (A) policy-gradient loss, (B) normalized selection criteria and library
+    quality guards, (C) objective desirability with raw SA on a dedicated axis,
+    (D) per-epoch ROCS distribution and ceiling.
+    """
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
@@ -677,28 +611,38 @@ def render_training_trajectories(
             if base_cand.is_file():
                 smiles_p = base_cand
 
-    # Compute detailed per-epoch percentiles & cumulative p95 from smiles file if present
-    p95_series = None
-    cum_p95_series = None
+    # Per-epoch monitor statistics from the smiles table (means + ROCS distribution)
+    sm_df: pd.DataFrame | None = None
     if smiles_p and smiles_p.is_file():
         try:
             sm_df = pd.read_csv(smiles_p, sep="\t")
-            if "Epoch" in sm_df.columns:
-                cols_to_agg = [c for c in ["ROCS", "SA", "QED"] if c in sm_df.columns]
-                if cols_to_agg:
-                    ep_means = sm_df.groupby("Epoch")[cols_to_agg].mean().reset_index()
-                    for col in cols_to_agg:
-                        df[col] = df["Epoch"].map(ep_means.set_index("Epoch")[col])
-                if "ROCS" in sm_df.columns:
-                    ep_p95 = sm_df.groupby("Epoch")["ROCS"].quantile(0.95)
-                    p95_series = df["Epoch"].map(ep_p95)
-                    # Cumulative maximum of p95
-                    cum_p95_vals = np.maximum.accumulate(p95_series.dropna().values)
-                    cum_p95_series = pd.Series(cum_p95_vals, index=p95_series.dropna().index)
+            if sm_df.empty or "Epoch" not in sm_df.columns:
+                sm_df = None
         except Exception:
-            pass
+            sm_df = None
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 8.5), dpi=250)
+    rocs_median = rocs_q25 = rocs_q75 = rocs_p95 = None
+    cum_p95 = None
+    if sm_df is not None:
+        cols_to_agg = [c for c in ["ROCS", "QED"] if c in sm_df.columns]
+        if cols_to_agg:
+            ep_means = sm_df.groupby("Epoch")[cols_to_agg].mean()
+            for col in cols_to_agg:
+                df[col] = df["Epoch"].map(ep_means[col])
+        if "ROCS" in sm_df.columns:
+            rocs_grp = sm_df.groupby("Epoch")["ROCS"]
+            rocs_median = rocs_grp.median()
+            rocs_q25 = rocs_grp.quantile(0.25)
+            rocs_q75 = rocs_grp.quantile(0.75)
+            rocs_p95 = rocs_grp.quantile(0.95)
+            if not rocs_p95.dropna().empty:
+                cum_p95 = np.maximum.accumulate(rocs_p95.dropna().values)
+
+    # Raw RDKit SA is not stored by the monitor (only its desirability), so it is
+    # recomputed from SMILES on a deterministic per-epoch subsample.
+    sa_table = epoch_raw_sa_table(sm_df) if sm_df is not None else pd.DataFrame()
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 9), dpi=250)
     fig.suptitle(
         "SequenceRNN Reinforcement Learning Dynamics & Convergence Diagnostics",
         fontsize=14,
@@ -711,8 +655,10 @@ def render_training_trajectories(
     # Determine Best Checkpoint and Early Stopping Epochs
     stop_epoch = int(epochs.max())
     best_epoch = stop_epoch
-    if "avg_amean" in df.columns and not df["avg_amean"].dropna().empty:
-        best_epoch = int(df.loc[df["avg_amean"].idxmax(), "Epoch"])
+    if "best_epoch" in df.columns and not df["best_epoch"].dropna().empty:
+        best_epoch = int(df["best_epoch"].dropna().iloc[-1])
+    elif "avg_gmean" in df.columns and not df["avg_gmean"].dropna().empty:
+        best_epoch = int(df.loc[df["avg_gmean"].idxmax(), "Epoch"])
     elif "desired_ratio" in df.columns and not df["desired_ratio"].dropna().empty:
         best_epoch = int(df.loc[df["desired_ratio"].idxmax(), "Epoch"])
 
@@ -736,140 +682,196 @@ def render_training_trajectories(
             zorder=2,
         )
 
-    # Panel 1: Loss & Mean Objective Score
+    # Panel A: Training loss only — the normalized criteria now live in panel B.
     ax1 = axes[0, 0]
     _mark_events(ax1, is_legend=True)
     if "loss_train" in df.columns:
         ax1.plot(
-            epochs, df["loss_train"], color="#dc2626", linewidth=1.8, label="Train Loss", zorder=3
-        )
-    if "avg_amean" in df.columns:
-        ax1.plot(
             epochs,
-            df["avg_amean"],
-            color="#2563eb",
-            linewidth=1.8,
-            label="Avg Arithmetic Mean",
+            df["loss_train"],
+            color="#dc2626",
+            linewidth=1.4,
+            alpha=0.85,
+            label="Train Loss",
             zorder=3,
         )
+        rolling = df["loss_train"].rolling(15, min_periods=1, center=True).median()
+        ax1.plot(
+            epochs,
+            rolling,
+            color="#fca5a5",
+            linewidth=2.2,
+            label="Loss (15-epoch median)",
+            zorder=4,
+        )
     ax1.set_title(
-        "(A) Training Loss & Mean Objective Score", fontsize=11, fontweight="bold"
+        "(A) Policy-Gradient Training Loss", fontsize=11, fontweight="bold"
     )
     ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Loss")
     ax1.grid(True, linestyle=":", alpha=0.4)
     ax1.legend(loc="best", fontsize=8.0)
 
-    # Panel 2: Desired & Valid Ratio
+    # Panel B: normalized model-selection criteria (full colour) + quality guards (pastel).
     ax2 = axes[0, 1]
     _mark_events(ax2)
-    if "valid_ratio" in df.columns:
-        ax2.plot(
-            epochs,
-            df["valid_ratio"],
-            color="#10b981",
-            linewidth=1.8,
-            label="Valid Ratio",
-            zorder=3,
-        )
-    if "desired_ratio" in df.columns:
-        ax2.plot(
-            epochs,
-            df["desired_ratio"],
-            color="#8b5cf6",
-            linewidth=2.0,
-            label="Desired Ratio",
-            zorder=3,
-        )
-    if "unique_ratio" in df.columns:
-        ax2.plot(
-            epochs,
-            df["unique_ratio"],
-            color="#06b6d4",
-            linewidth=1.5,
-            linestyle="--",
-            label="Unique Ratio",
-            zorder=3,
-        )
+    criterion_series = [
+        ("avg_gmean", "#7C3AED", 2.4, "Avg Geometric Mean (criterion)"),
+        ("avg_amean", "#2563eb", 2.0, "Avg Arithmetic Mean"),
+        ("desired_ratio", "#0D9488", 2.0, "Desired Ratio"),
+    ]
+    guard_series = [
+        ("valid_ratio", "#94A3B8", 1.5, "--", "Valid Ratio"),
+        ("unique_ratio", "#7DD3FC", 1.5, ":", "Unique Ratio"),
+    ]
+    for col, color, lw, label in criterion_series:
+        if col in df.columns and not df[col].dropna().empty:
+            ax2.plot(epochs, df[col], color=color, linewidth=lw, label=label, zorder=4)
+    for col, color, lw, style, label in guard_series:
+        if col in df.columns and not df[col].dropna().empty:
+            ax2.plot(
+                epochs,
+                df[col],
+                color=color,
+                linewidth=lw,
+                linestyle=style,
+                label=label,
+                zorder=3,
+            )
     ax2.set_title(
-        "(B) Validity, Uniqueness & Desired Ratio", fontsize=11, fontweight="bold"
+        "(B) Selection Criteria & Library Quality (normalized)", fontsize=11, fontweight="bold"
     )
     ax2.set_xlabel("Epoch")
     ax2.set_ylim(-0.05, 1.05)
     ax2.grid(True, linestyle=":", alpha=0.4)
-    ax2.legend(loc="best", fontsize=8.0)
+    ax2.legend(loc="best", fontsize=8.0, ncol=2)
 
-    # Panel 3: Individual Objective Dynamics (with cumulative p95 ceiling)
+    # Panel C: objective desirability (left axis) and physical raw SA (right axis).
     ax3 = axes[1, 0]
     _mark_events(ax3)
     plotted_objs = False
     for col, color, lbl in [
-        ("ROCS", "#2563eb", "ROCS Shape Mean"),
-        ("SA", "#10b981", "SA Desirability Mean"),
-        ("QED", "#f59e0b", "QED Drug-Likeness Mean"),
+        ("ROCS", "#2563eb", "ROCS Desirability Mean"),
+        ("QED", "#FCD34D", "QED Drug-Likeness Mean"),
     ]:
         if col in df.columns and not df[col].dropna().empty:
             ax3.plot(epochs, df[col], color=color, linewidth=2.0, label=lbl, zorder=3)
             plotted_objs = True
-
-    if cum_p95_series is not None and not cum_p95_series.empty:
-        valid_ep = df.loc[cum_p95_series.index, "Epoch"]
-        ax3.plot(
-            valid_ep,
-            cum_p95_series.values,
-            color="#4338ca",
-            linewidth=1.6,
-            linestyle="-.",
-            label="ROCS Cumulative p95 Ceiling",
-            zorder=4,
-        )
-        plotted_objs = True
-
     if not plotted_objs and "avg_gmean" in df.columns:
         ax3.plot(
             epochs,
             df["avg_gmean"],
-            color="#8b5cf6",
+            color="#7C3AED",
             linewidth=1.8,
             label="Avg Geometric Mean",
             zorder=3,
         )
-        plotted_objs = True
-
     ax3.set_title(
-        "(C) Multi-Objective Desirability & Upper Ceiling Progression", fontsize=11, fontweight="bold"
+        "(C) Objective Desirability (left) & Raw Synthesizability (right)",
+        fontsize=11,
+        fontweight="bold",
     )
     ax3.set_xlabel("Epoch")
-    ax3.set_ylabel("Score")
+    ax3.set_ylabel("Desirability (0–1)")
+    ax3.set_ylim(-0.02, 1.02)
     ax3.grid(True, linestyle=":", alpha=0.4)
-    if plotted_objs:
-        ax3.legend(loc="best", fontsize=8.0)
 
-    # Panel 4: Exploration Rate (Epsilon) Schedule
+    handles, labels = ax3.get_legend_handles_labels()
+    if not sa_table.empty and sa_table["RawSA"].notna().any():
+        sa_grp = sa_table.groupby("Epoch")["RawSA"]
+        sa_med = sa_grp.median()
+        sa_q25 = sa_grp.quantile(0.25)
+        sa_q75 = sa_grp.quantile(0.75)
+        ax3r = ax3.twinx()
+        ax3r.fill_between(
+            sa_med.index,
+            sa_q25.values,
+            sa_q75.values,
+            color="#9CA3AF",
+            alpha=0.20,
+            linewidth=0,
+            label="Raw SA IQR",
+            zorder=2,
+        )
+        ax3r.plot(
+            sa_med.index,
+            sa_med.values,
+            color="#6B7280",
+            linewidth=2.2,
+            label="Raw SA Median (right axis)",
+            zorder=5,
+        )
+        sa_lo = float(np.nanmin(sa_q25.values))
+        sa_hi = float(np.nanmax(sa_q75.values))
+        pad = max(0.6, 0.15 * (sa_hi - sa_lo))
+        ax3r.set_ylim(sa_lo - pad, sa_hi + pad)
+        ax3r.set_ylabel("Raw RDKit SA (lower = easier)", color="#4B5563")
+        ax3r.tick_params(axis="y", colors="#4B5563")
+        h2, l2 = ax3r.get_legend_handles_labels()
+        handles, labels = handles + h2, labels + l2
+    if handles:
+        ax3.legend(handles, labels, loc="lower right", fontsize=8.0)
+
+    # Panel D: per-epoch ROCS distribution — converged mode vs. explored tail.
     ax4 = axes[1, 1]
     _mark_events(ax4)
-    if "epsilon" in df.columns:
+    if rocs_median is not None and not rocs_median.dropna().empty:
+        ep = rocs_median.index.values
+        ax4.fill_between(
+            ep,
+            rocs_q25.values,
+            rocs_q75.values,
+            color="#93C5FD",
+            alpha=0.30,
+            linewidth=0,
+            label="ROCS IQR (25th–75th)",
+            zorder=2,
+        )
         ax4.plot(
-            epochs,
-            df["epsilon"],
-            color="#ea580c",
-            linewidth=2.0,
-            label="Epsilon (Noise)",
+            ep,
+            rocs_median.values,
+            color="#2563eb",
+            linewidth=2.2,
+            label="ROCS Median",
+            zorder=4,
+        )
+        ax4.plot(
+            ep,
+            rocs_p95.values,
+            color="#E11D48",
+            linewidth=1.4,
+            linestyle="-.",
+            label="ROCS 95th %ile",
             zorder=3,
         )
+        if cum_p95 is not None:
+            ax4.plot(
+                rocs_p95.dropna().index.values,
+                cum_p95,
+                color="#4338CA",
+                linewidth=1.5,
+                linestyle=":",
+                label="Cumulative p95 ceiling",
+                zorder=3,
+            )
+        ax4.set_title(
+            "(D) ROCS Desirability Distribution per Epoch", fontsize=11, fontweight="bold"
+        )
+        ax4.set_xlabel("Epoch")
+        ax4.set_ylabel("ROCS Desirability")
+        ax4.set_ylim(-0.02, 1.02)
+        ax4.grid(True, linestyle=":", alpha=0.4)
+        ax4.legend(loc="lower right", fontsize=8.0)
     else:
-        ax4.axhline(
-            0.05,
-            color="#ea580c",
-            linestyle="--",
-            linewidth=1.8,
-            label="Constant Epsilon (0.05)",
-            zorder=3,
+        ax4.text(
+            0.5,
+            0.5,
+            "No per-epoch SMILES table available",
+            ha="center",
+            va="center",
+            fontsize=10,
         )
-    ax4.set_title("(D) Exploration Rate Schedule (ε)", fontsize=11, fontweight="bold")
-    ax4.set_xlabel("Epoch")
-    ax4.set_ylim(0.0, 0.30)
-    ax4.grid(True, linestyle=":", alpha=0.4)
-    ax4.legend(loc="best", fontsize=8.0)
+        ax4.axis("off")
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
@@ -1285,182 +1287,173 @@ def render_lead_structures_gallery(
     return depicter.render_leads(top_leads, output_png=output_png, max_leads=top_k)
 
 
-def render_relative_property_shifts_tornado(
-    scorecard_df: pd.DataFrame,
+def _objective_conflict_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Add the derived descriptors used by the objective-conflict matrices."""
+    if df.empty:
+        return df
+    clean = unscale_to_physical_metrics(
+        df[df[std.VALID] == 1] if std.VALID in df.columns else df
+    )
+    mols = [
+        Chem.MolFromSmiles(str(s)) if isinstance(s, str) and s else None
+        for s in clean.get(std.SMILES, [])
+    ]
+    clean["Fsp3"] = [
+        rdMolDescriptors.CalcFractionCSP3(m) if m else np.nan for m in mols
+    ]
+    clean["Rings"] = [Lipinski.RingCount(m) if m else np.nan for m in mols]
+    return clean
+
+
+CONFLICT_PROPERTIES: tuple[tuple[str, str], ...] = (
+    (std.ROCS, "ROCS"),
+    ("Raw_SA", "SA (raw)"),
+    (std.QED, "QED"),
+    (std.MW, "MW"),
+    (std.HAC, "HAC"),
+    (std.LOGP, "LogP"),
+    (std.TPSA, "TPSA"),
+    (std.ROT_BONDS, "RotB"),
+    ("Fsp3", "Fsp³"),
+    ("Rings", "Rings"),
+)
+
+
+def _spearman_matrix(df: pd.DataFrame) -> tuple[list[str], np.ndarray]:
+    present = [(col, lbl) for col, lbl in CONFLICT_PROPERTIES if col in df.columns]
+    labels = [lbl for _, lbl in present]
+    if len(present) < 2:
+        return labels, np.empty((len(labels), len(labels)))
+    matrix = df[[col for col, _ in present]].corr(method="spearman").to_numpy(dtype=float)
+    return labels, matrix
+
+
+def render_objective_conflict_correlations(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
     output_png: Path | str,
 ) -> Path:
-    """Render horizontal divergent tornado plot grouped by medicinal chemistry domains with publication palette."""
+    """Render baseline/reinforced Spearman matrices and their change (Δρ).
+
+    Multi-objective RL is only as good as its reward geometry: if ROCS becomes
+    anti-correlated with SA or MW the policy is trading physical similarity for
+    cheap fragments. Two matrices plus their difference expose that directly,
+    which a table of median shifts cannot.
+    """
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
-
-    df_plot = scorecard_df.copy()
-    if df_plot.empty or "Delta_Percent" not in df_plot.columns:
+    if df_after.empty:
         return target_png
 
-    df_plot = df_plot[df_plot["Delta_Percent"].notna()].copy()
+    a_frame = _objective_conflict_frame(df_after)
+    b_frame = _objective_conflict_frame(df_before)
 
-    # Assign domains
-    def _get_domain(prop: str) -> tuple[int, str]:
-        p = prop.lower()
-        if "rocs" in p or "sa" in p or "qed" in p:
-            return (0, "RL Objectives")
-        elif "hac" in p or "mw" in p or "rotatable" in p:
-            return (1, "Size & Complexity")
-        elif "logp" in p or "tpsa" in p or "fsp3" in p:
-            return (2, "Physicochemical Properties")
-        else:
-            return (3, "Grammar & Diversity")
+    labels_a, mat_a = _spearman_matrix(a_frame)
+    labels_b, mat_b = _spearman_matrix(b_frame)
+    labels = labels_a if len(labels_a) >= len(labels_b) else labels_b
+    if len(labels) < 2:
+        return target_png
 
-    domains = [_get_domain(p) for p in df_plot["Property"]]
-    df_plot["DomainOrder"] = [d[0] for d in domains]
-    df_plot["DomainName"] = [d[1] for d in domains]
-    df_plot = df_plot.sort_values(by=["DomainOrder", "Delta_Percent"], ascending=[True, True]).reset_index(drop=True)
+    def _align(labels_src: list[str], matrix: np.ndarray) -> np.ndarray:
+        out = np.full((len(labels), len(labels)), np.nan)
+        pos = {lbl: i for i, lbl in enumerate(labels_src)}
+        for i, li in enumerate(labels):
+            for j, lj in enumerate(labels):
+                if li in pos and lj in pos:
+                    out[i, j] = matrix[pos[li], pos[lj]]
+        return out
 
-    fig, ax = plt.subplots(figsize=(11, 7.5), dpi=250)
+    mat_a = _align(labels_a, mat_a)
+    mat_b = _align(labels_b, mat_b)
+    mat_d = mat_b - mat_a
+
+    fig, axes = plt.subplots(1, 3, figsize=(19, 6.4), dpi=250)
     fig.suptitle(
-        "Relative Property Shifts: Reinforced Policy vs. Baseline Prior (Δ%)",
+        "Objective Conflict & Property Coupling (Spearman ρ): Did RL Couple the Objectives?",
         fontsize=13,
         fontweight="bold",
-        y=0.98,
+        y=0.99,
     )
 
-    y_pos = np.arange(len(df_plot))
-    deltas = df_plot["Delta_Percent"].values
+    for ax, matrix, title in [
+        (axes[0], mat_a, "(A) Baseline Prior"),
+        (axes[1], mat_b, "(B) Reinforced Agent"),
+    ]:
+        im = ax.imshow(np.ma.masked_invalid(matrix), cmap="RdBu_r", vmin=-1.0, vmax=1.0)
+        ax.set_xticks(range(len(labels)))
+        ax.set_yticks(range(len(labels)))
+        ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8.5)
+        ax.set_yticklabels(labels, fontsize=8.5)
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        for i in range(len(labels)):
+            for j in range(len(labels)):
+                val = matrix[i, j]
+                if np.isfinite(val):
+                    ax.text(
+                        j,
+                        i,
+                        f"{val:+.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=6.6,
+                        color="white" if abs(val) > 0.55 else "#111827",
+                    )
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03).set_label("ρ", fontsize=8)
 
-    # Determine colors: Slate/Indigo/Teal/Amber/Rose
-    colors = []
-    for _, row in df_plot.iterrows():
-        p = str(row["Property"]).lower()
-        val = float(row["Delta_Percent"])
-        crit = str(row.get("Status_Critique", "")).upper()
-        if "SHRINKAGE" in crit or "ALERT" in crit:
-            colors.append("#E11D48")  # Rose (exploit/alert)
-        elif "sa" in p:
-            colors.append("#0D9488" if val <= 0 else "#E11D48")  # Teal if improved
-        elif "uniqueness" in p or "validity" in p:
-            colors.append("#E11D48" if val < -15.0 else ("#D97706" if val < 0 else "#0D9488"))
-        elif val > 0:
-            colors.append("#4F46E5")  # Indigo (positive progression)
-        elif val < 0:
-            colors.append("#D97706")  # Amber (negative drift)
-        else:
-            colors.append("#64748B")  # Slate
+    dmax = max(0.35, float(np.nanmax(np.abs(mat_d))) if np.isfinite(mat_d).any() else 0.35)
+    im3 = axes[2].imshow(
+        np.ma.masked_invalid(mat_d), cmap="PuOr_r", vmin=-dmax, vmax=dmax
+    )
+    axes[2].set_xticks(range(len(labels)))
+    axes[2].set_yticks(range(len(labels)))
+    axes[2].set_xticklabels(labels, rotation=45, ha="right", fontsize=8.5)
+    axes[2].set_yticklabels(labels, fontsize=8.5)
+    axes[2].set_title(
+        "(C) Coupling Change  (B − A)", fontsize=11, fontweight="bold"
+    )
+    for i in range(len(labels)):
+        for j in range(len(labels)):
+            val = mat_d[i, j]
+            if np.isfinite(val):
+                axes[2].text(
+                    j,
+                    i,
+                    f"{val:+.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=6.6,
+                    color="white" if abs(val) > 0.55 * dmax / 0.35 else "#111827",
+                )
+    fig.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.03).set_label("Δρ", fontsize=8)
 
-    bars = ax.barh(y_pos, deltas, color=colors, alpha=0.88, edgecolor="#1e293b", linewidth=0.8, height=0.62)
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(df_plot["Property"], fontsize=9.2, fontweight="medium")
-    ax.axvline(0, color="#1e293b", linewidth=1.2)
-
-    # Annotate bar values
-    for bar, val in zip(bars, deltas):
-        x_offset = 0.8 if val >= 0 else -0.8
-        ha = "left" if val >= 0 else "right"
-        ax.text(
-            val + x_offset,
-            bar.get_y() + bar.get_height() / 2,
-            f"{val:+.1f}%",
-            va="center",
-            ha=ha,
-            fontsize=8.5,
-            fontweight="bold",
-            color="#0f172a",
-        )
-
-    ax.set_xlabel("Relative Shift vs. Prior Median (%)", fontsize=10, fontweight="bold")
-    ax.grid(True, linestyle=":", alpha=0.45, axis="x")
-    max_d = max(18.0, np.max(np.abs(deltas)) * 1.25)
-    ax.set_xlim(-max_d, max_d)
-
-    # Shaded domain groups
-    last_d = None
-    for idx, d_name in enumerate(df_plot["DomainName"]):
-        if d_name != last_d:
-            ax.axhline(idx - 0.5, color="#cbd5e1", linestyle="--", linewidth=0.8)
-            last_d = d_name
-
-    plt.tight_layout(rect=[0, 0.02, 1, 0.96])
+    plt.tight_layout(rect=[0, 0.02, 1, 0.94])
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
     plt.close(fig)
     return target_png
-
-    # Filter numeric deltas
-    df_plot = df_plot[df_plot["Delta_Percent"].notna()].copy()
-    df_plot = df_plot.sort_values(by="Delta_Percent", ascending=True).reset_index(
-        drop=True
-    )
-
-    fig, ax = plt.subplots(figsize=(10, 6.5), dpi=250)
-    fig.suptitle(
-        "Relative Property Shifts: Reinforced Policy vs. Untrained Prior (Δ%)",
-        fontsize=13,
-        fontweight="bold",
-        y=0.98,
-    )
-
-    y_pos = np.arange(len(df_plot))
-    deltas = df_plot["Delta_Percent"].values
-
-    # Determine colors based on desirability
-    colors = []
-    for _, row in df_plot.iterrows():
-        prop = str(row["Property"]).lower()
-        val = float(row["Delta_Percent"])
-        if "sa" in prop:  # SA reduction is good (negative is desirable)
-            colors.append("#059669" if val < 0 else "#dc2626")
-        elif "hac" in prop or "mw" in prop:  # Shrinkage
-            colors.append(
-                "#ea580c" if val < -5.0 else ("#059669" if val >= 0 else "#64748b")
-            )
-        elif "uniqueness" in prop or "validity" in prop:
-            colors.append("#dc2626" if val < -10.0 else "#059669")
-        else:  # ROCS, QED: positive is desirable
-            colors.append("#059669" if val > 0 else "#dc2626")
-
-    bars = ax.barh(
-        y_pos, deltas, color=colors, alpha=0.85, edgecolor="#1e293b", height=0.65
-    )
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(df_plot["Property"], fontsize=9.5, fontweight="bold")
-    ax.axvline(0, color="#1e293b", linewidth=1.2)
-
-    # Annotate bar values
-    for bar, val in zip(bars, deltas):
-        x_offset = 0.6 if val >= 0 else -0.6
-        ha = "left" if val >= 0 else "right"
-        ax.text(
-            val + x_offset,
-            bar.get_y() + bar.get_height() / 2,
-            f"{val:+.1f}%",
-            va="center",
-            ha=ha,
-            fontsize=8.5,
-            fontweight="bold",
-        )
-
-    ax.set_xlabel("Relative Median Shift (%)", fontsize=10, fontweight="bold")
-    ax.grid(True, linestyle=":", alpha=0.5, axis="x")
-    max_d = max(15.0, np.max(np.abs(deltas)) * 1.25)
-    ax.set_xlim(-max_d, max_d)
-
-    plt.tight_layout(rect=[0, 0.02, 1, 0.96])
-    plt.savefig(target_png, dpi=250, bbox_inches="tight")
-    plt.close(fig)
-    return target_png
-
 
 def render_scaffold_diversity_analysis(
     df_before: pd.DataFrame,
     df_after: pd.DataFrame,
     output_png: Path | str,
 ) -> Path:
-    """Render information-theoretic scaffold diversity, cyclic system census, and top dominant core depictions."""
+    """Render scaffold-space diagnostics: coverage collapse, novelty partition, dominant cores.
+
+    The old panel compared a percentage, an entropy in bits and a Gini index on one
+    axis, so the bars were not comparable. The replacement answers the three
+    questions a chemist actually asks about an RL library:
+
+    1. How much of the library do the top scaffolds already explain (coverage)?
+    2. How much chemistry is genuinely new versus inherited from the prior?
+    3. Which cores dominate, and are they novel?
+    """
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
     b_clean = unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1])
     a_clean = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
+    if a_clean.empty:
+        return target_png
 
-    # Ensure scaffolds computed
     def _ensure_scaffolds(df: pd.DataFrame) -> pd.DataFrame:
         df_out = df.copy()
         if std.SCAFFOLD not in df_out.columns or df_out[std.SCAFFOLD].isna().all():
@@ -1474,196 +1467,147 @@ def render_scaffold_diversity_analysis(
     b_clean = _ensure_scaffolds(b_clean)
     a_clean = _ensure_scaffolds(a_clean)
 
-    # Calculate Information-Theoretic Metrics
-    def _calc_diversity_metrics(df: pd.DataFrame) -> dict[str, float]:
-        scafs = df[std.SCAFFOLD][df[std.SCAFFOLD] != ""].dropna()
-        n_total = len(df)
-        if len(scafs) == 0:
-            return {"unique_ratio": 0.0, "shannon_entropy": 0.0, "simpson_index": 0.0}
-        counts = scafs.value_counts().values
-        probs = counts / counts.sum()
-        entropy = -float(np.sum(probs * np.log2(probs)))
-        simpson = 1.0 - float(np.sum(probs ** 2))
-        return {
-            "unique_ratio": float(len(counts) / n_total * 100.0) if n_total > 0 else 0.0,
-            "shannon_entropy": entropy,
-            "simpson_index": simpson,
-        }
+    def _scaffold_counts(df: pd.DataFrame) -> pd.Series:
+        scafs = df[std.SCAFFOLD].fillna("").astype(str)
+        scafs = scafs[scafs != ""]
+        return scafs.value_counts()
 
-    b_div = _calc_diversity_metrics(b_clean)
-    a_div = _calc_diversity_metrics(a_clean)
+    b_counts = _scaffold_counts(b_clean)
+    a_counts = _scaffold_counts(a_clean)
 
-    fig = plt.figure(figsize=(17, 6.2), dpi=250)
+    def _entropy(counts: pd.Series) -> float:
+        if counts.empty:
+            return 0.0
+        p = counts.values / counts.values.sum()
+        return float(-np.sum(p * np.log2(p)))
+
+    b_ent, a_ent = _entropy(b_counts), _entropy(a_counts)
+    b_set, a_set = set(b_counts.index), set(a_counts.index)
+    shared, novel, lost = a_set & b_set, a_set - b_set, b_set - a_set
+    jaccard = len(shared) / len(shared | a_set) if (shared | a_set) else 0.0
+
+    fig = plt.figure(figsize=(18, 6.4), dpi=250)
     fig.suptitle(
-        "Bemis-Murcko Scaffold Diversity, Information Entropy & Cyclic Architecture",
+        "Bemis-Murcko Scaffold Space: Concentration, De Novo Novelty & Dominant Cores",
         fontsize=14,
         fontweight="bold",
         y=0.98,
     )
 
-    # Panel A: Diversity Metrics Comparison (Unique Scaffolds, Shannon Entropy, Gini-Simpson)
+    # Panel A: cumulative coverage — how few cores explain most of the library.
     ax1 = fig.add_subplot(1, 3, 1)
-    metrics_names = ["Unique Scaffolds / 100 mols", "Shannon Entropy (bits)", "Gini-Simpson Diversity"]
-    b_vals = [b_div["unique_ratio"], b_div["shannon_entropy"], b_div["simpson_index"]]
-    a_vals = [a_div["unique_ratio"], a_div["shannon_entropy"], a_div["simpson_index"]]
+    for counts, color, label in [
+        (b_counts, "#64748B", f"Baseline Prior ({len(b_counts)} scaffolds)"),
+        (a_counts, "#4F46E5", f"Reinforced Agent ({len(a_counts)} scaffolds)"),
+    ]:
+        if counts.empty:
+            continue
+        coverage = np.cumsum(counts.values) / counts.values.sum() * 100.0
+        ranks = np.arange(1, len(coverage) + 1)
+        ax1.plot(ranks, coverage, color=color, linewidth=2.0, label=label, zorder=3)
+        ax1.fill_between(ranks, 0, coverage, color=color, alpha=0.10, linewidth=0)
 
-    x = np.arange(len(metrics_names))
-    width = 0.35
-    ax1.bar(x - width / 2, b_vals, width, label="Baseline Prior", color="#64748B", alpha=0.85, edgecolor="#1e293b")
-    ax1.bar(x + width / 2, a_vals, width, label="Reinforced Agent", color="#4F46E5", alpha=0.88, edgecolor="#1e293b")
+    ax1.set_xscale("log")
+    ax1.set_xlabel("Top-N scaffolds (log rank)", fontsize=9.5)
+    ax1.set_ylabel("% of Library Covered", fontsize=9.5)
+    ax1.set_ylim(0, 102)
+    ax1.axhline(80, color="#CBD5E1", linestyle="--", linewidth=1.0, zorder=2)
+    ax1.text(
+        0.98,
+        82,
+        "80% coverage",
+        transform=ax1.get_yaxis_transform(),
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        color="#64748B",
+    )
+    ax1.set_title("(A) Scaffold Concentration Curve", fontsize=11, fontweight="bold")
+    ax1.grid(True, linestyle=":", alpha=0.4)
+    ax1.legend(loc="lower right", fontsize=8.0)
+    ax1.text(
+        0.03,
+        0.96,
+        f"Shannon H: prior {b_ent:.2f} → RL {a_ent:.2f} bits",
+        transform=ax1.transAxes,
+        va="top",
+        fontsize=8.2,
+        color="#334155",
+    )
 
-    for i in range(len(metrics_names)):
-        ax1.text(x[i] - width / 2, b_vals[i] * 1.03 + 0.02, f"{b_vals[i]:.2f}", ha="center", fontsize=8.5)
-        ax1.text(x[i] + width / 2, a_vals[i] * 1.03 + 0.02, f"{a_vals[i]:.2f}", ha="center", fontsize=8.5, fontweight="bold")
-
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(metrics_names, fontsize=8.8, fontweight="bold")
-    ax1.set_title("(A) Information-Theoretic Diversity", fontsize=11, fontweight="bold")
-    ax1.grid(True, linestyle=":", alpha=0.4, axis="y")
-    ax1.legend(loc="upper right", fontsize=8.2)
-
-    # Panel B: Ring System Census Distribution
+    # Panel B: novelty partition — invented vs inherited scaffolds.
     ax2 = fig.add_subplot(1, 3, 2)
-    def _get_ring_counts(df: pd.DataFrame) -> list[int]:
-        rc = []
-        for s in df.get(std.SMILES, []):
-            m = Chem.MolFromSmiles(str(s)) if pd.notna(s) else None
-            rc.append(Lipinski.RingCount(m) if m else 0)
-        return rc
-
-    b_rings = _get_ring_counts(b_clean)
-    a_rings = _get_ring_counts(a_clean)
-    max_r = max(6, max(b_rings + a_rings) if (b_rings + a_rings) else 6)
-    r_bins = np.arange(-0.5, max_r + 1.5, 1)
-
-    ax2.hist(b_rings, bins=r_bins, density=True, alpha=0.45, color="#64748B", edgecolor="#334155", label="Baseline Prior")
-    ax2.hist(a_rings, bins=r_bins, density=True, alpha=0.65, color="#4F46E5", edgecolor="#312E81", label="Reinforced Agent")
-    ax2.set_xlabel("Number of Rings per Molecule", fontsize=9.5)
-    ax2.set_ylabel("Fraction of Library", fontsize=9.5)
-    ax2.set_title("(B) Cyclic Architecture Census", fontsize=11, fontweight="bold")
-    ax2.grid(True, linestyle=":", alpha=0.4)
-    ax2.legend(loc="upper right", fontsize=8.2)
-
-    # Panel C: Top-3 Dominant Murcko Scaffolds
-    ax3 = fig.add_subplot(1, 3, 3)
-    top_scafs = a_clean[std.SCAFFOLD][a_clean[std.SCAFFOLD] != ""].value_counts().head(3)
-    scaf_mols = [Chem.MolFromSmiles(s) for s in top_scafs.index]
-    scaf_legends = [
-        f"Core #{i+1}: {cnt} mols ({cnt / len(a_clean) * 100:.1f}%)"
-        for i, (s, cnt) in enumerate(top_scafs.items())
+    parts = [
+        ("Shared with prior", len(shared), "#94A3B8"),
+        ("De novo (new)", len(novel), "#4F46E5"),
+        ("Prior-only (lost)", len(lost), "#E11D48"),
     ]
+    x = np.arange(len(parts))
+    vals = [v for _, v, _ in parts]
+    bars = ax2.bar(
+        x,
+        vals,
+        color=[c for _, _, c in parts],
+        alpha=0.9,
+        edgecolor="#1e293b",
+        width=0.6,
+    )
+    for bar, val in zip(bars, vals):
+        ax2.text(
+            bar.get_x() + bar.get_width() / 2,
+            val + max(vals) * 0.02 if max(vals) else val,
+            str(val),
+            ha="center",
+            fontsize=9.5,
+            fontweight="bold",
+        )
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([n for n, _, _ in parts], fontsize=8.6)
+    ax2.set_ylabel("Distinct Scaffolds", fontsize=9.5)
+    ax2.set_title("(B) Scaffold Novelty Partition", fontsize=11, fontweight="bold")
+    ax2.grid(True, linestyle=":", alpha=0.4, axis="y")
+    ax2.text(
+        0.5,
+        0.93,
+        f"Jaccard vs prior = {jaccard:.3f}",
+        transform=ax2.transAxes,
+        ha="center",
+        fontsize=8.6,
+        color="#334155",
+    )
 
+    # Panel C: dominant de novo cores, tagged novel vs inherited.
+    ax3 = fig.add_subplot(1, 3, 3)
+    top = a_counts.head(6)
+    scaf_mols = [Chem.MolFromSmiles(s) for s in top.index]
+    total = max(len(a_clean), 1)
+    legends = [
+        f"{cnt / total * 100:.1f}% | {'NEW' if s in novel else 'shared'}"
+        for s, cnt in top.items()
+    ]
     if scaf_mols and all(m is not None for m in scaf_mols):
         img = Draw.MolsToGridImage(
             scaf_mols,
             molsPerRow=3,
-            subImgSize=(240, 200),
-            legends=scaf_legends,
+            subImgSize=(230, 180),
+            legends=legends,
             useSVG=False,
         )
         ax3.imshow(img)
         ax3.axis("off")
-        ax3.set_title("(C) Top-3 Dominant De Novo Scaffolds", fontsize=11, fontweight="bold")
+        ax3.set_title(
+            "(C) Top-6 Reinforced Scaffolds (prevalence | novelty)",
+            fontsize=11,
+            fontweight="bold",
+        )
     else:
-        ax3.text(0.5, 0.5, "Insufficient scaffold diversity data", ha="center", va="center")
+        ax3.text(0.5, 0.5, "Insufficient scaffold data", ha="center", va="center")
         ax3.axis("off")
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.tight_layout(rect=[0, 0.03, 1, 0.94])
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
     plt.close(fig)
     return target_png
-
-
-def render_rocs_shape_vs_color_decomposition(
-    df_after: pd.DataFrame,
-    output_png: Path | str,
-    ref_smiles: str = "",
-) -> Path:
-    """Render ROCS decomposition scatter proving whether shape alignment balances molecular size and synthesizability."""
-    target_png = Path(output_png)
-    target_png.parent.mkdir(parents=True, exist_ok=True)
-
-    df_clean = unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1])
-    if df_clean.empty:
-        return target_png
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5), dpi=250)
-    fig.suptitle(
-        "ROCS Feature Decomposition & Grease/Volume Diagnostic",
-        fontsize=14,
-        fontweight="bold",
-        y=0.98,
-    )
-
-    rocs = df_clean.get(std.ROCS, pd.Series(0.0, index=df_clean.index)).values
-    mw = df_clean.get(std.MW, pd.Series(300.0, index=df_clean.index)).values
-    sa = df_clean.get(
-        "Raw_SA", df_clean.get(std.SA, pd.Series(3.0, index=df_clean.index))
-    ).values
-    qed = df_clean.get(std.QED, pd.Series(0.5, index=df_clean.index)).values
-
-    ref_m = Chem.MolFromSmiles(ref_smiles) if ref_smiles else None
-    ref_mw = float(Descriptors.MolWt(ref_m)) if ref_m else 458.4
-
-    # Panel A: ROCS vs MW colored by SA
-    sc1 = ax1.scatter(
-        mw, rocs, c=sa, cmap="viridis_r", alpha=0.65, edgecolors="none", s=25
-    )
-    cbar1 = fig.colorbar(sc1, ax=ax1)
-    cbar1.set_label("Raw SA (Synthesizability)", fontsize=9)
-    ax1.axvline(
-        ref_mw,
-        color="#dc2626",
-        linestyle="--",
-        linewidth=1.2,
-        label=f"Target MW ({ref_mw:.1f})",
-    )
-    ax1.axhline(
-        0.70,
-        color="#2563eb",
-        linestyle="--",
-        linewidth=1.2,
-        label="ROCS Threshold (0.70)",
-    )
-    ax1.set_title("(A) ROCS Overlap vs. Molecular Size", fontsize=11, fontweight="bold")
-    ax1.set_xlabel("Molecular Weight (Da)")
-    ax1.set_ylabel("ROCS TanimotoCombo")
-    ax1.grid(True, linestyle=":", alpha=0.4)
-    ax1.legend(loc="upper left", fontsize=8.5)
-
-    # Panel B: ROCS vs QED colored by MW
-    sc2 = ax2.scatter(
-        qed, rocs, c=mw, cmap="plasma", alpha=0.65, edgecolors="none", s=25
-    )
-    cbar2 = fig.colorbar(sc2, ax=ax2)
-    cbar2.set_label("Molecular Weight (Da)", fontsize=9)
-    ax2.axvline(
-        0.50,
-        color="#dc2626",
-        linestyle="--",
-        linewidth=1.2,
-        label="QED Threshold (0.50)",
-    )
-    ax2.axhline(
-        0.70,
-        color="#2563eb",
-        linestyle="--",
-        linewidth=1.2,
-        label="ROCS Threshold (0.70)",
-    )
-    ax2.set_title(
-        "(B) ROCS Overlap vs. Drug-Likeness (QED)", fontsize=11, fontweight="bold"
-    )
-    ax2.set_xlabel("QED Score")
-    ax2.set_ylabel("ROCS TanimotoCombo")
-    ax2.grid(True, linestyle=":", alpha=0.4)
-    ax2.legend(loc="upper left", fontsize=8.5)
-
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(target_png, dpi=250, bbox_inches="tight")
-    plt.close(fig)
-    return target_png
-
 
 def render_lead_to_seed_3d_superposition(
     top_leads: pd.DataFrame,
@@ -1854,7 +1798,13 @@ def render_epoch_property_trajectories(
     output_png: Path | str,
     ref_smiles: str = "",
 ) -> Path:
-    """Render longitudinal per-epoch multi-property trajectory (median + IQR + upper p95 ceiling) across training epochs."""
+    """Render the longitudinal 3×3 property panel (median + IQR + p95 + seed).
+
+    Tracks every property the pipeline scores or reports: the two RL objectives
+    (ROCS desirability, raw SA), the optional QED arm, and the medicinal-chemistry
+    drift guards (MW, HAC, LogP, TPSA, Fsp³, rotatable bonds). Raw SA is recomputed
+    from SMILES because ``_smiles.tsv`` stores only its desirability.
+    """
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1862,12 +1812,14 @@ def render_epoch_property_trajectories(
     if not tsv_p.is_file():
         return target_png
 
-    df = pd.read_csv(tsv_p, sep="	")
+    df = pd.read_csv(tsv_p, sep="\t")
     if "Epoch" not in df.columns or "SMILES" not in df.columns:
         return target_png
 
-    # Filter valid smiles and compute descriptors
-    mols = [Chem.MolFromSmiles(str(s)) if pd.notna(s) and str(s).strip() != "" else None for s in df["SMILES"]]
+    mols = [
+        Chem.MolFromSmiles(str(s)) if pd.notna(s) and str(s).strip() != "" else None
+        for s in df["SMILES"]
+    ]
     df["ValidMol"] = [1 if m else 0 for m in mols]
     valid_df = df[df["ValidMol"] == 1].copy()
     valid_mols = [m for m in mols if m is not None]
@@ -1876,70 +1828,129 @@ def render_epoch_property_trajectories(
     valid_df["HAC"] = [m.GetNumHeavyAtoms() for m in valid_mols]
     valid_df["RotB"] = [Lipinski.NumRotatableBonds(m) for m in valid_mols]
     valid_df["Fsp3"] = [rdMolDescriptors.CalcFractionCSP3(m) for m in valid_mols]
+    valid_df["LogP"] = [Descriptors.MolLogP(m) for m in valid_mols]
+    valid_df["TPSA"] = [rdMolDescriptors.CalcTPSA(m) for m in valid_mols]
+    # QED is cheap and molecule-derived, so it is always shown even when the run
+    # did not include it as an RL objective (the monitor then omits the column).
+    if std.QED not in valid_df.columns or valid_df[std.QED].isna().all():
+        valid_df[std.QED] = [QED.qed(m) for m in valid_mols]
+
+    sa_table = epoch_raw_sa_table(valid_df)
 
     ref_m = Chem.MolFromSmiles(ref_smiles) if ref_smiles else None
     ref_vals = {
-        "ROCS": 2.00,
-        "SA": float(calculate_sa_score(ref_m)) if ref_m else 3.74,
+        "ROCS": 1.0,
         "QED": float(QED.qed(ref_m)) if ref_m else 0.21,
+        "RawSA": float(calculate_sa_score(ref_m)) if ref_m else 3.74,
         "MW": float(Descriptors.MolWt(ref_m)) if ref_m else 458.4,
         "HAC": float(ref_m.GetNumHeavyAtoms()) if ref_m else 33.0,
+        "LogP": float(Descriptors.MolLogP(ref_m)) if ref_m else 2.0,
+        "TPSA": float(rdMolDescriptors.CalcTPSA(ref_m)) if ref_m else 200.0,
         "Fsp3": float(rdMolDescriptors.CalcFractionCSP3(ref_m)) if ref_m else 0.36,
+        "RotB": float(Lipinski.NumRotatableBonds(ref_m)) if ref_m else 3.0,
     }
 
-    fig, axes = plt.subplots(2, 3, figsize=(18, 9.5), dpi=250)
+    fig, axes = plt.subplots(3, 3, figsize=(18, 13.5), dpi=250)
     fig.suptitle(
-        "Longitudinal Per-Epoch Multi-Property Trajectories (Median, IQR & Progression Dynamics)",
+        "Longitudinal Per-Epoch Property Trajectories (Median, IQR, p95 & Seed Reference)",
         fontsize=14,
         fontweight="bold",
-        y=0.98,
+        y=0.995,
     )
 
     panels_config = [
-        ("ROCS", "3D ROCS Shape Overlap", "Score", (0.0, 1.8)),
-        ("SA", "Synthetic Accessibility (SA)", "SA (lower = easier)", (1.0, 6.0)),
-        ("MW", "Molecular Weight Dynamics (Size Drift)", "MW (Da)", (150.0, 550.0)),
-        ("HAC", "Heavy Atom Count (HAC / Shrinkage)", "Atoms", (10.0, 45.0)),
-        ("Fsp3", "Carbon sp³ Fraction (Fsp³ / 3D Complexity)", "Fraction", (0.0, 0.8)),
-        ("RotB", "Rotatable Bonds (Flexibility)", "Bonds Count", (0.0, 12.0)),
+        ("ROCS", "ROCS Desirability (3D Shape+Color)", "Desirability (0–1)"),
+        ("QED", "QED Drug-Likeness", "QED (0–1)"),
+        ("RawSA", "Synthetic Accessibility (raw RDKit SA)", "SA (lower = easier)"),
+        ("MW", "Molecular Weight Drift", "MW (Da)"),
+        ("HAC", "Heavy Atom Count (Shrinkage)", "Atoms"),
+        ("LogP", "Lipophilicity", "cLogP"),
+        ("TPSA", "Polar Surface Area", "TPSA (Å²)"),
+        ("Fsp3", "Carbon sp³ Fraction", "Fraction"),
+        ("RotB", "Rotatable Bonds", "Bonds"),
     ]
 
-    epochs = np.sort(valid_df["Epoch"].unique())
-
-    for idx, (col, title, y_lbl, y_lim) in enumerate(panels_config):
+    for idx, (col, title, y_lbl) in enumerate(panels_config):
         ax = axes[idx // 3, idx % 3]
-        if col not in valid_df.columns:
-            continue
+        if col == "RawSA":
+            if sa_table.empty:
+                ax.axis("off")
+                continue
+            source = sa_table
+            value_col = "RawSA"
+        else:
+            if col not in valid_df.columns:
+                ax.axis("off")
+                continue
+            source = valid_df
+            value_col = col
 
-        grp = valid_df.groupby("Epoch")[col]
+        grp = source.groupby("Epoch")[value_col]
         med = grp.median()
         p25 = grp.quantile(0.25)
         p75 = grp.quantile(0.75)
         p95 = grp.quantile(0.95)
+        if med.dropna().empty:
+            ax.axis("off")
+            continue
+        ep = med.index.values
 
-        # Plot median and IQR band
-        ax.plot(epochs, med.values, color="#4F46E5", linewidth=2.0, label="Agent Median", zorder=3)
-        ax.fill_between(epochs, p25.values, p75.values, color="#4F46E5", alpha=0.20, label="IQR (25th-75th %ile)", zorder=2)
-        ax.plot(epochs, p95.values, color="#E11D48", linestyle="-.", linewidth=1.4, alpha=0.85, label="Upper 95th %ile", zorder=3)
+        ax.plot(
+            ep, med.values, color="#4F46E5", linewidth=2.0, label="Agent Median", zorder=4
+        )
+        ax.fill_between(
+            ep,
+            p25.values,
+            p75.values,
+            color="#4F46E5",
+            alpha=0.20,
+            linewidth=0,
+            label="IQR (25th–75th %ile)",
+            zorder=2,
+        )
+        ax.plot(
+            ep,
+            p95.values,
+            color="#E11D48",
+            linestyle="-.",
+            linewidth=1.4,
+            alpha=0.85,
+            label="Upper 95th %ile",
+            zorder=3,
+        )
 
-        # Seed reference
-        if col in ref_vals:
-            ref_v = ref_vals[col]
-            ax.axhline(ref_v, color="#0D9488", linestyle=":", linewidth=1.6, label=f"Seed ({ref_v:.1f})", zorder=2)
+        ref_v = ref_vals.get(col)
+        if ref_v is not None:
+            ref_label = (
+                "Seed ceiling (desirability 1.0)" if col == "ROCS" else f"Seed ({ref_v:.2f})"
+            )
+            ax.axhline(
+                ref_v,
+                color="#0D9488",
+                linestyle=":",
+                linewidth=1.6,
+                label=ref_label,
+                zorder=2,
+            )
 
-        ax.set_title(f"({chr(65+idx)}) {title}", fontsize=11, fontweight="bold")
+        lo = float(np.nanmin(p25.values))
+        hi = float(np.nanmax(p95.values))
+        if ref_v is not None:
+            lo, hi = min(lo, ref_v), max(hi, ref_v)
+        span = hi - lo if hi > lo else 1.0
+        ax.set_ylim(lo - 0.10 * span, hi + 0.10 * span)
+
+        ax.set_title(f"({chr(65 + idx)}) {title}", fontsize=10.5, fontweight="bold")
         ax.set_xlabel("Epoch", fontsize=9.0)
         ax.set_ylabel(y_lbl, fontsize=9.0)
-        ax.set_ylim(y_lim)
         ax.grid(True, linestyle=":", alpha=0.4)
         if idx == 0:
-            ax.legend(loc="upper left", fontsize=7.8)
+            ax.legend(loc="lower right", fontsize=7.4)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.tight_layout(rect=[0, 0.02, 1, 0.97])
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
     plt.close(fig)
     return target_png
-
 
 def render_shrinkage_diagnostic(
     df_after: pd.DataFrame,
@@ -2569,14 +2580,17 @@ class ResultAnalyzer:
             max_leads=5,
         )
 
-        # Figure 6: 06_relative_property_shifts_tornado.png (Grouped by Domain)
-        render_relative_property_shifts_tornado(
-            scorecard_df=scorecard_df,
+        # Figure 6: 06_objective_conflict_correlations.png (Spearman coupling A/B/Δ)
+        render_objective_conflict_correlations(
+            df_before=df_before_clean
+            if df_before_clean is not None
+            else pd.DataFrame(),
+            df_after=df_after_clean,
             output_png=self.paths.figures_dir
-            / "06_relative_property_shifts_tornado.png",
+            / "06_objective_conflict_correlations.png",
         )
 
-        # Figure 7: 07_bemis_murcko_scaffold_diversity.png (Information-Theoretic & Cyclic Census)
+        # Figure 7: 07_bemis_murcko_scaffold_diversity.png (Coverage, novelty, cores)
         if df_before_clean is not None:
             render_scaffold_diversity_analysis(
                 df_before=df_before_clean,
@@ -2584,14 +2598,6 @@ class ResultAnalyzer:
                 output_png=self.paths.figures_dir
                 / "07_bemis_murcko_scaffold_diversity.png",
             )
-
-        # Figure 8: 08_rocs_shape_vs_color_decomposition.png
-        render_rocs_shape_vs_color_decomposition(
-            df_after=df_after_clean,
-            output_png=self.paths.figures_dir
-            / "08_rocs_shape_vs_color_decomposition.png",
-            ref_smiles=ref_smiles,
-        )
 
         # Figure 10: 10_lead_to_seed_3d_superposition.png & top_leads_aligned_to_seed.sdf
         query_sdf = self.paths.raw_data_dir / "query_molecule_3d.sdf"
@@ -2653,12 +2659,10 @@ class ResultAnalyzer:
                 "- [02 Multi-Objective Trade-Offs (Empirical Skylines & 3D Pareto)](figures/02_multiobjective_tradeoffs.png)",
                 "- [03 Training Trajectories (RL Dynamics & Convergence Diagnostics)](figures/03_training_trajectories.png)",
                 "- [05 Prioritized Lead Structures Gallery (Aligned 2D Cards & Badges)](figures/05_lead_structures_gallery.png)",
-                "- [06 Relative Property Shifts Tornado Plot (Domain Grouped Δ%)](figures/06_relative_property_shifts_tornado.png)",
-                "- [07 Bemis-Murcko Information Diversity & Cyclic Census](figures/07_bemis_murcko_scaffold_diversity.png)",
-                "- [08 ROCS Feature Decomposition & Molecular Size](figures/08_rocs_shape_vs_color_decomposition.png)",
+                "- [06 Objective Conflict & Property Coupling (Spearman ρ, A/B/Δ)](figures/06_objective_conflict_correlations.png)",
+                "- [07 Bemis-Murcko Scaffold Concentration & De Novo Novelty](figures/07_bemis_murcko_scaffold_diversity.png)",
                 "- [10 3D Lead-to-Seed Superposition & Mol* Poses](figures/10_lead_to_seed_3d_superposition.png)",
                 "- [11 Longitudinal Per-Epoch Multi-Property Trajectories](figures/11_epoch_property_trajectories.png)",
-                "- [3D Conformer Ensemble Superposition](figures/reference_3d_superposition.png)",
                 "- [Aligned 3D Superposition Structures (SDF)](figures/top_leads_aligned_to_seed.sdf)",
                 "- [Top Prioritized Leads (TSV)](top_prioritized_leads.tsv)",
                 "- [Comparison Scorecard (CSV)](comparison_scorecard.csv)",

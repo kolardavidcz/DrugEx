@@ -136,7 +136,7 @@ _david/output/YYYYmmdd_HHMM_<name>/
 ├── top_prioritized_leads.tsv     # ranked candidates
 ├── models/                       # SequenceRNN_reinforced*.pkg, *_fit.tsv, *_fit.log
 ├── raw_data/                     # baseline + reinforced arms + reference SDF
-├── figures/                      # 10 publication figures + aligned lead SDF
+├── figures/                      # 8 publication figures + aligned lead SDF
 └── logs/                         # reserved for structured logs
 ```
 

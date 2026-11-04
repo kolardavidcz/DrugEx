@@ -80,3 +80,59 @@ Status 2026-11-04: executed — 149 → 143 tests, all green, plus a new regress
   taxonomy bins, figure provenance manifest, RL explorer construction regression, ROCS
   colour-typing wiring, run-directory naming/collisions, MetaCentrum routing/spec/parser/
   job-body behaviour, schema single-name rule and strict reward names.
+
+# Visualization rework — figures 03, 06, 07, 11, drop 08 & reference
+
+Owner request (2026-11-04), figure by figure. Every renderer below is judged by "does
+this panel change a decision?", not by "does it look busy". Palette rule: **full
+saturation only for the values the checkpoint decision is made on** (`desired_ratio`,
+`avg_amean`, `avg_gmean`); every other tracked statistic is pastel/muted.
+
+- [x] **03 A** — arithmetic mean leaves panel A (it is normalized). Panel A keeps
+      `loss_train` only (plus a muted rolling median for trend).
+- [x] **03 B** — becomes the normalized panel: `avg_amean`, `avg_gmean`, `desired_ratio`
+      in full colour; `valid_ratio`, `unique_ratio` in pastel. `unique_ratio` must
+      actually be drawn (it exists in `_fit.tsv`; the old code silently skipped it for
+      runs without the column and nobody noticed). Best-checkpoint marker reads the
+      recorded `best_epoch` column instead of guessing `avg_amean`.
+- [x] **03 C** — objective desirability (ROCS mean, QED mean pastel) on the left axis and
+      **recomputed raw RDKit SA (~3–4)** on a dedicated right axis, median in solid grey
+      with a grey IQR band. The old panel plotted the `[0,1]` SA *desirability* under the
+      label "SA Desirability Mean", i.e. the physical quantity was never on the figure.
+      `_smiles.tsv` stores only desirability, so raw SA is recomputed from SMILES with
+      `drugex...sascorer.calculateScore` on a deterministic ≤256-molecule/epoch subsample
+      (~1000 mol/s, memoised per SMILES) — cheap and unbiased for a median.
+- [x] **03 D** — the epsilon panel was a hard-coded horizontal 0.05 line (no run records
+      an `epsilon` column), so it carried no data. Replace with the per-epoch ROCS
+      distribution: median, IQR band, p95, cumulative-best p95 ceiling. This shows
+      whether the policy converged onto a narrow mode or kept exploring.
+- [x] **06** — delete the Δ% tornado (it restates `comparison_scorecard.csv`) and replace
+      with **objective-conflict correlation matrices**: Spearman ρ over ROCS, raw SA, QED,
+      MW, HAC, LogP, TPSA, RotBonds, Fsp3, rings for baseline, reinforced, and
+      reinforced − baseline. This is the reward-design diagnostic the tornado could not
+      give: it shows which objectives the policy coupled or decoupled.
+- [x] **07** — stop comparing `unique/100`, entropy (bits) and Gini-Simpson on one mixed
+      unit axis. New panels: (A) cumulative scaffold coverage curve (rank → % of library
+      covered) with unique-scaffold/entropy annotations, (B) scaffold novelty partition
+      (shared with prior / novel / lost) plus Jaccard, (C) top-6 scaffold gallery tagged
+      `new` vs `shared`. This answers "did RL invent chemistry or collapse onto one core?".
+- [x] **08** — delete. Desired properties are already in 01/02/11; a ROCS-vs-MW/QED scatter
+      adds no tracked metric.
+- [x] **11** — absorb 08's intent by tracking *more* properties, not fewer panels: 3×3 with
+      ROCS desirability, QED, raw SA, MW, HAC, LogP, TPSA, Fsp3, RotBonds (median + IQR +
+      p95 + seed reference). SA is recomputed raw (same helper as 03 C) — the old panel
+      plotted desirability on a 1–6 axis, so it was effectively broken. Axis limits come
+      from the data, not pinned research constants.
+- [x] **reference_3d_superposition.png** — delete the renderer and its call sites (`pipeline`,
+      `run_audit`, package exports, `summary.md` link). Figure 10 is the better 3D view.
+      Stage 0 still writes `query_molecule_3d.sdf`; only the redundant picture goes.
+
+Constraints: no figure-render tests are added (see policy above); `ruff check _david`
+clean; suite green; verify by rendering from `_david/output/20261104_0447_egcg_eps0/`
+(a real baseline+reinforced arm with a full monitor TSV).
+
+Status 2026-11-05: executed. `visualization.py` now renders 8 figures; the retired three
+(06 tornado, 08 shape/colour, reference ensemble) are removed from the pipeline, the audit
+expectation, the package exports and `summary.md`. `20261104_0445_egcg_gold_oe` and
+`20261104_0447_egcg_eps0` were re-rendered in place from stored arms (≈80 s per run), and
+`ruff check _david` plus 143/143 tests pass.

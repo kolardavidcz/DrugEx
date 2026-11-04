@@ -86,7 +86,7 @@ _david/
 │   ├── pipeline.py                    # 5-stage LBDD execution pipeline and CLI entry point
 │   ├── rocs.py                        # CanonicalROCSScorer (raw TanimotoCombo) and Gaussian volume alignment
 │   ├── schema.py, utils.py            # Standard column names and hardware job allocation
-│   ├── visualization.py               # 10 publication-grade diagnostics & trajectory figures
+│   ├── visualization.py               # 8 publication-grade diagnostics & trajectory figures
 │   ├── audit_rl_runs.py               # Gold-standard conformance + figure-completeness audit
 │   ├── RL_RUN_AUDIT.md                # Generated run table (config vs gold, artifact verdict)
 │   ├── conformer/                     # Conformer suite: four components + results.md
