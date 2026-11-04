@@ -1,61 +1,87 @@
-# MetaCentrum & Remote Cluster Operations Guide
+# MetaCentrum operations
 
-A practical, single-source cheat sheet for executing, monitoring, and synchronizing DrugEx reinforcement learning runs across **MetaCentrum PBS Pro**, **Remote Dichtator (RTX PRO 4000)**, and **Local WSL**.
-
----
-
-## 1. Quick Host Reference
-
-| Target Host | SSH Host Alias | Root Path | Python Environment | Hardware |
-| :--- | :--- | :--- | :--- | :--- |
-| **MetaCentrum** | `meta` / `perun` | `/storage/brno2/brno2/kolardavidcz/DrugEx` | `.../.venv/bin/python` | PBS Pro cluster (CPU & GPU nodes) |
-| **Dichtator** | `dichtator` | `/home/kolarv/DrugEx` | `.../.venv/bin/python` | 48 CPUs, 128 GB RAM, 2x RTX PRO 4000 (Blackwell, 24GB) |
-| **Local WSL** | `localhost` | `/home/kolar/DrugEx` | `.../.venv/bin/python` | Local development & visualization |
+Single guide for DrugEx on MetaCentrum. MetaCentrum runs ~95 % of production
+RL; Dichtator is a secondary host and local WSL is for development, figures and
+the test suite.
 
 ---
 
-## 2. Unified Run Directory Protocol (`_david/code/tmp/`)
+## 1. Storage layout
 
-All execution scripts across MetaCentrum and Dichtator live in `_david/code/tmp/`:
+`STORAGE=/storage/brno2/brno2/kolardavidcz/DrugEx`
 
 ```
-_david/code/tmp/
-├── to_run/          <-- Staged scripts awaiting execution
-└── previous_runs/   <-- Archived scripts already executed (can be safely cleaned)
+$STORAGE/
+├── releases/<commit-sha>/    # immutable `git archive` of a commit, staged by `grid sync`
+├── current -> releases/...   # the release a submission should use
+├── models/                   # Papyrus .pkg/.vocab (copied by `grid sync`)
+├── jobs/<experiment>/spec.json   # exact arguments submitted, per experiment
+├── _david/output/<run-id>/   # one directory per completed run
+├── _david/data/              # canonical conformer inputs
+└── .venv/                    # validated Python environment, kept across code syncs
 ```
 
-### Execution Protocol Rule:
-1. When triggering a script, append execution metadata to the end:
-```bash
-# ==============================================================================
-# CONFIGURASION RUNED at DICHTATOR / METACENTRUM ID: <TARGET_AND_JOB_ID>
-# ==============================================================================
-```
-2. Move the script to `previous_runs/`:
-```bash
-mv _david/code/tmp/to_run/<script_name> _david/code/tmp/previous_runs/
-```
-3. **If a run fails**, move the script back to `to_run/` for debugging.
-4. `previous_runs/` can be safely deleted at any time because every completed run records its exact parameters in `_david/output/<category>/<run_id>/manifest.json`.
+Code is **never** rsynced into a live tree. `grid sync` stages `git archive
+HEAD` under `releases/<sha>` and repoints `current`, so a submitted job always
+names one immutable commit. `job_template.sh` copies that release into
+`$SCRATCHDIR` and runs from there.
 
 ---
 
-## 3. High-Signal Job & Queue Monitoring
+## 2. Run directories
 
-### Informative Job Status with Summary Counts
+Every run lands in one directory named `YYYYmmdd_HHMM[_tag]`:
+
+| Where | Default | Override |
+| :--- | :--- | :--- |
+| Local WSL | `_david/output/20261104_1530_egcg_gold/` | `--run-tag egcg_gold`, or `--output-dir <path>` verbatim |
+| MetaCentrum | `$STORAGE/_david/output/20261104_1530_<experiment>/` | set by `job_template.sh` from `EXP_NAME` |
+
+- The tag is optional: SMILES runs get the bare minute (`20261104_1530`);
+  file-based runs (`--molecule foo.sdf`) use the file stem.
+- A second run in the same minute gets `_2`, `_3` …, so two runs can never
+  share or overwrite a `manifest.json`.
+- `manifest.json` records `run_id`, `pbs_job_id` and `source_revision`, which
+  is what makes a pulled directory self-describing.
+
+Historical directories (`sprint_h1_*`, `egcg_k4_*`, …) predate this rule and
+keep their names: `RL_RUN_AUDIT.md` refers to them.
+
+---
+
+## 3. Submit
+
 ```bash
-# Print active jobs + summary counts of Queued vs Running
+# Stage HEAD (refuses a dirty tracked tree; untracked files are never archived)
+python -m _david.code.metacentrum.grid sync
+
+# One job; `--args` is a shell-quoted string passed to _david.code.pipeline
+python -m _david.code.metacentrum.grid submit \
+    --name egcg_gold_gmean \
+    --args "--epochs 200 --min-epochs 50 --patience 50 --criteria gmean" \
+    --queue p2e_1d --ncpus 16 --mem 32 --ngpus 0
+
+# Predefined arms
+python -m _david.code.metacentrum.grid sprint          # inspect 4-hypothesis matrix
+python -m _david.code.metacentrum.grid grid            # inspect 8-arm matrix
+python -m _david.code.metacentrum.grid submit-sprint --queue p2e_1d --ngpus 0
+```
+
+`submit`/`submit-grid`/`submit-sprint` sync first unless `--no-sync` is given.
+The job name is also the run-directory tag, so keep it unique and descriptive.
+
+---
+
+## 4. Monitoring
+
+```bash
+# Active jobs + Queued/Running counts
 ssh meta 'qstat -u kolardavidcz | awk "NR>5 {print \$0; if (\$10==\"R\") r++; else if (\$10==\"Q\") q++} END {print \"---------------------------------------------------\"; printf \"TOTAL: %d Running, %d Queued\n\", r, q}"'
-```
 
-### Fast Live Epoch & Training Progress (One-Liner)
-Automatically checks all running jobs on their assigned worker scratch nodes:
-```bash
-ssh meta "python3 /storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/metacentrum/monitor_live_epochs.py"
-```
+# Live epoch progress across running jobs (reads worker scratch)
+ssh meta "python3 /storage/brno2/brno2/kolardavidcz/DrugEx/current/_david/code/metacentrum/monitor_live_epochs.py"
 
-### Compare Queue Lengths (Filter Internal Reservations)
-```bash
+# Queue lengths
 ssh meta "qstat -q | grep -E '^(Queue|q_4h|q_1d|p2e_1d|gpu)'"
 ```
 
@@ -65,77 +91,40 @@ ssh meta "qstat -q | grep -E '^(Queue|q_4h|q_1d|p2e_1d|gpu)'"
 | **`q_4h`** | 4h | 16+ CPU cores | **10 – 30 jobs (< 5 min)** | Quick checks / short runs |
 | **`q_1d`** | 24h | 16+ CPU cores | Fast turnaround | Standard 24h CPU runs |
 | **`gpu`** | 24–48h | GPU nodes | **2,000+ jobs (Days)** | Massive deep learning only |
+- usfull: runone, elixir_1d, p2e_1d, cvut
+- what is: charon, gpu_dgx, iti, luna, biocev, elixircz (default), (maybe even p2e_gpu)
 
-### Cancel Specific or All Queued Jobs
 ```bash
-# Cancel single job:
-ssh meta "qdel <JOB_ID>"
-
-# Cancel all your currently queued (Q) jobs without killing running ones:
-ssh meta "qselect -u kolardavidcz -s Q | xargs -r qdel"
+ssh meta "qdel <JOB_ID>"                                    # one job
+ssh meta "qselect -u kolardavidcz -s Q | xargs -r qdel"      # all queued, not running
 ```
 
 ---
 
-## 4. Inspecting Stored Run Results & Scorecards
+## 5. Results
 
-### Print Last 10 Training Epochs for All Runs
 ```bash
-ssh meta 'for r in /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*; do if [ -f "$r/models/SequenceRNN_reinforced_fit.tsv" ]; then echo "==================== $(basename "$r") ===================="; tail -n 10 "$r/models/SequenceRNN_reinforced_fit.tsv"; echo ""; fi; done'
+# Last 10 epochs of every run on storage
+ssh meta 'for r in /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*; do if [ -f "$r/models/SequenceRNN_reinforced_fit.tsv" ]; then echo "==================== $(basename "$r") ===================="; tail -n 10 "$r/models/SequenceRNN_reinforced_fit.tsv"; fi; done'
+
+# Comparison scorecards
+ssh meta 'for r in /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*; do if [ -f "$r/comparison_scorecard.csv" ]; then echo "=== $(basename "$r") ==="; cat "$r/comparison_scorecard.csv"; fi; done'
+
+# Pull every run into _david/output/ (keeps timestamps and manifest.json)
+python -m _david.code.metacentrum.grid pull
 ```
 
-### Print Comparison Scorecards (ROCS, SA, QED, HAC) for All Runs
-```bash
-ssh meta 'for r in /storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/*; do if [ -f "$r/comparison_scorecard.csv" ]; then echo "=== $(basename "$r") ==="; cat "$r/comparison_scorecard.csv"; echo ""; fi; done'
-```
+After a pull, `python -m _david.code.audit_rl_runs` re-checks each run against
+the gold-standard config and reports missing figures.
 
 ---
 
-## 5. Bidirectional Synchronization Workflows
+## 6. Historical runners
 
-### A. WSL $\leftrightarrow$ MetaCentrum
+`scripts/` holds the frozen per-hypothesis PBS scripts (`h1`…`h9`, `egcg_*`,
+supervisor replication, batch submitter). They embed the defaults of their day
+and duplicate `job_template.sh`; keep them as provenance, submit through
+`grid.py` instead. Their trailing comment records the job id that executed them.
 
-```bash
-# PUSH CODE to MetaCentrum:
-rsync -avz --exclude='.venv' --exclude='_david/output' --exclude='*.log' \
-    /home/kolar/DrugEx/_david/code/ meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/
-
-# PULL RUN RESULTS to WSL (skips heavy 22MB .pkg model weights):
-rsync -avz --exclude='*.pkg' \
-    meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/ /home/kolar/DrugEx/_david/output/
-```
-
-### B. WSL $\leftrightarrow$ Dichtator
-
-```bash
-# PUSH CODE to Dichtator:
-rsync -avz --exclude='.venv' --exclude='_david/output' --exclude='*.log' \
-    /home/kolar/DrugEx/_david/code/ dichtator:~/DrugEx/_david/code/
-
-# PULL RESULTS from Dichtator to WSL:
-rsync -avz --exclude='*.pkg' \
-    dichtator:~/DrugEx/_david/output/ /home/kolar/DrugEx/_david/output/
-```
-
----
-
-## 6. Productive `.bashrc` Aliases
-
-Add to your `~/.bashrc`:
-
-```bash
-# Informative job status with count summary
-alias meta-jobs='ssh meta '\''qstat -u kolardavidcz | awk "NR>5 {print \$0; if (\$10==\"R\") r++; else if (\$10==\"Q\") q++} END {print \"---------------------------------------------------\"; printf \"TOTAL: %d Running, %d Queued\n\", r, q}"'\'''
-
-# Live epoch progression
-alias meta-live='ssh meta "python3 /storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/metacentrum/monitor_live_epochs.py"'
-
-# Quick queue comparison
-alias meta-queues='ssh meta "qstat -q | grep -E \"^(Queue|q_4h|q_1d|p2e_1d|gpu)\""'
-
-# Sync commands
-alias meta-push='rsync -avz --exclude=".venv" --exclude="_david/output" --exclude="*.log" /home/kolar/DrugEx/_david/code/ meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/code/'
-alias meta-pull='rsync -avz --exclude="*.pkg" meta:/storage/brno2/brno2/kolardavidcz/DrugEx/_david/output/ /home/kolar/DrugEx/_david/output/'
-alias dichtator-push='rsync -avz --exclude=".venv" --exclude="_david/output" --exclude="*.log" /home/kolar/DrugEx/_david/code/ dichtator:~/DrugEx/_david/code/'
-alias dichtator-pull='rsync -avz --exclude="*.pkg" dichtator:~/DrugEx/_david/output/ /home/kolar/DrugEx/_david/output/'
-```
+Dichtator scripts remain in `_david/code/tmp/previous_runs/` (git-ignored
+scratch). Dichtator is not a supported submission target anymore.

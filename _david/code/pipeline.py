@@ -57,17 +57,21 @@ class MoleculePipeline:
         config: PipelineConfig | None = None,
         paths: RunPaths | None = None,
         output_dir: Path | str | None = None,
+        run_tag: str | None = None,
         **kwargs,
     ) -> None:
         self.config: PipelineConfig = config or PipelineConfig(**kwargs)
         HardwareManager.init_runtime_environment(ratio=self.config.cpu_ratio)
 
+        self.run_tag: str | None = run_tag
         if paths is not None:
-            self.paths: RunPaths = paths
+            self.paths: RunPaths | None = paths
         elif output_dir is not None:
             self.paths = RunPaths.resolve(base_dir=output_dir)
         else:
-            self.paths = RunPaths.resolve()
+            # Resolved in ``run()`` so the default directory can carry the
+            # molecule/tag (``_david/output/20261104_1530_egcg``).
+            self.paths = None
 
         self.preparer: PrepareMolecule = PrepareMolecule(config=self.config)
 
@@ -127,8 +131,20 @@ class MoleculePipeline:
         )
         return df
 
+    @staticmethod
+    def _molecule_tag(molecule: str | Path) -> str | None:
+        """Use a molecule file's stem as the default run tag; SMILES get none."""
+        path = Path(str(molecule))
+        if path.suffix.lower() in {".sdf", ".mol", ".mol2", ".smi", ".csv"}:
+            return path.stem
+        return None
+
     def run(self, molecule: str | Path = DEFAULT_MOLECULE) -> Path:
         """Record the actual configuration and execution outcome beside run data."""
+        if self.paths is None:
+            self.paths = RunPaths.resolve(
+                tag=self.run_tag or self._molecule_tag(molecule)
+            )
         if self.config.training_seed is not None:
             random.seed(self.config.training_seed)
             np.random.seed(self.config.training_seed)
@@ -136,6 +152,7 @@ class MoleculePipeline:
         sources = sorted(Path(__file__).parent.glob("*.py"))
         manifest = dict(
             state="running",
+            run_id=self.paths.root.name,
             query=str(molecule),
             config=asdict(self.config),
             host=socket.gethostname(),
@@ -548,7 +565,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--output-dir",
         type=str,
         default=None,
-        help="Authoritative output root directory",
+        help=(
+            "Exact run directory (overrides the default "
+            "_david/output/YYYYmmdd_HHMM[_tag] naming)"
+        ),
+    )
+    parser.add_argument(
+        "--run-tag",
+        type=str,
+        default=None,
+        help=(
+            "Optional suffix for the default run directory, "
+            "e.g. --run-tag egcg_gold -> _david/output/20261104_1530_egcg_gold"
+        ),
     )
     parser.add_argument(
         "--molecule",
@@ -621,5 +650,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
 if __name__ == "__main__":
     args = parse_args()
     cfg = config_from_args(args)
-    pipe = MoleculePipeline(config=cfg, output_dir=args.output_dir)
+    pipe = MoleculePipeline(
+        config=cfg, output_dir=args.output_dir, run_tag=args.run_tag
+    )
     pipe.run(molecule=args.molecule)

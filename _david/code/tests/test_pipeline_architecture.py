@@ -1,15 +1,72 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 import tempfile
 import unittest
 from rdkit import Chem
 
-from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
+from _david.code.config import (
+    DEFAULT_MOLECULE,
+    PipelineConfig,
+    RunPaths,
+    free_run_directory,
+    run_directory_name,
+)
 from _david.code.environment import create_environment
 from _david.code.reference import PrepareMolecule
 from _david.code.rocs import create_rocs_scorer, has_color, score_pair
 from _david.code.schema import std
+
+
+class TestRunDirectoryNaming(unittest.TestCase):
+    """Runs must be findable by time, and two runs must never share a directory."""
+
+    def test_default_name_is_minute_stamp_with_optional_tag(self) -> None:
+        moment = datetime(2026, 11, 4, 15, 30, 12)
+        self.assertEqual(run_directory_name(now=moment), "20261104_1530")
+        self.assertEqual(
+            run_directory_name("egcg gold/k=4", now=moment),
+            "20261104_1530_egcg_gold_k_4",
+        )
+
+    def test_free_run_directory_never_reuses_a_minute(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = free_run_directory(root, "20261104_1530_egcg")
+            first.mkdir()
+            second = free_run_directory(root, "20261104_1530_egcg")
+            self.assertEqual(second.name, "20261104_1530_egcg_2")
+            second.mkdir()
+            self.assertEqual(
+                free_run_directory(root, "20261104_1530_egcg").name,
+                "20261104_1530_egcg_3",
+            )
+
+    def test_resolve_creates_the_standard_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = RunPaths.resolve(
+                output_root=tmp, tag="egcg", now=datetime(2026, 11, 4, 15, 30)
+            )
+            self.assertEqual(paths.root.name, "20261104_1530_egcg")
+            for directory in (
+                paths.models_dir,
+                paths.raw_data_dir,
+                paths.logs_dir,
+                paths.figures_dir,
+            ):
+                self.assertTrue(directory.is_dir())
+            again = RunPaths.resolve(
+                output_root=tmp, tag="egcg", now=datetime(2026, 11, 4, 15, 30)
+            )
+            self.assertEqual(again.root.name, "20261104_1530_egcg_2")
+
+    def test_explicit_base_dir_is_used_verbatim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "custom_run"
+            paths = RunPaths.resolve(base_dir=target)
+            self.assertEqual(paths.root, target)
+            self.assertTrue(target.is_dir())
 
 
 class TestPipelineArchitecture(unittest.TestCase):

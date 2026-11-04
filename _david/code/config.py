@@ -4,12 +4,21 @@ from dataclasses import dataclass
 from datetime import datetime
 import os
 from pathlib import Path
+import re
 from typing import Literal
 
 from _david.code.chemistry import Optimization
 from _david.code.schema import std
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+
+#: Root that receives one directory per pipeline run.
+OUTPUT_ROOT: Path = PROJECT_ROOT / "_david" / "output"
+
+#: Run directories sort chronologically as ``YYYYmmdd_HHMM``; a short tag is
+#: appended when the caller supplies one (``20261104_1530_egcg_gold``).
+RUN_STAMP_FORMAT: str = "%Y%m%d_%H%M"
+_TAG_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 #: Canonical checkpoint criteria accepted by ``PipelineConfig``.  The CLI maps
 #: short spellings (``gmean``/``mean``) onto these values in ``pipeline.py``.
@@ -245,13 +254,43 @@ class RunPaths:
         cls,
         base_dir: Path | str | None = None,
         run_id: str | None = None,
+        tag: str | None = None,
+        output_root: Path | str | None = None,
+        now: datetime | None = None,
     ) -> RunPaths:
-        """Resolve authoritative output targets directly in _david/output/<timestamp>."""
-        rid = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-        root = Path(base_dir) if base_dir else PROJECT_ROOT / "_david" / "output" / rid
+        """Resolve the run root, defaulting to ``_david/output/YYYYmmdd_HHMM[_tag]``.
+
+        ``base_dir`` is taken verbatim (the pipeline ``--output-dir`` contract).
+        Otherwise the name is generated below ``output_root`` (default
+        :data:`OUTPUT_ROOT`) and suffixed with ``_2``, ``_3`` … if another run
+        already claimed that minute, so two runs can never share a manifest.
+        """
+        if base_dir is not None:
+            root = Path(base_dir)
+        else:
+            parent = Path(output_root) if output_root else OUTPUT_ROOT
+            name = run_id or run_directory_name(tag, now=now)
+            root = free_run_directory(parent, name)
         return cls(
             root=root,
             models_dir=root / "models",
             raw_data_dir=root / "raw_data",
             logs_dir=root / "logs",
         )
+
+
+def run_directory_name(tag: str | None = None, *, now: datetime | None = None) -> str:
+    """``YYYYmmdd_HHMM`` plus an optional human-readable tag."""
+    stamp = (now or datetime.now()).strftime(RUN_STAMP_FORMAT)
+    slug = _TAG_UNSAFE.sub("_", (tag or "").strip()).strip("._-")
+    return f"{stamp}_{slug[:60]}" if slug else stamp
+
+
+def free_run_directory(root: Path, name: str) -> Path:
+    """Return ``root/name``, or the first free ``name_2``, ``name_3`` …"""
+    candidate = root / name
+    suffix = 2
+    while candidate.exists():
+        candidate = root / f"{name}_{suffix}"
+        suffix += 1
+    return candidate

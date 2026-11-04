@@ -18,8 +18,16 @@ EXP_NAME=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["na
 SOURCE_DIR=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["source"])' "$RUN_SPEC")
 export DRUGEX_SOURCE_REVISION
 DRUGEX_SOURCE_REVISION=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$RUN_SPEC")
-OUT_DIR="$SCRATCHDIR/output"
-RESULTS_DIR="$STORAGE_DIR/_david/output/$EXP_NAME"
+# Every run lands in _david/output/YYYYmmdd_HHMM_<experiment>/ on persistent
+# storage, matching the local default naming.
+RUN_ID="$(date +%Y%m%d_%H%M)_${EXP_NAME}"
+RESULTS_DIR="$STORAGE_DIR/_david/output/$RUN_ID"
+if [[ -e "$RESULTS_DIR" ]]; then
+    RUN_ID="${RUN_ID}_$(date +%S)"
+    RESULTS_DIR="$STORAGE_DIR/_david/output/$RUN_ID"
+fi
+OUT_DIR="$SCRATCHDIR/output/$RUN_ID"
+echo "Run directory on persistent storage: $RESULTS_DIR"
 
 cleanup() {
     local status=$?

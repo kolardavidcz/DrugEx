@@ -90,8 +90,11 @@ class MetaCentrumGridManager:
         """Stage a committed release, excluding outputs and preserving older releases."""
         root = Path(local_root)
         pkg, vocab = PipelineConfig().resolve_pretrained_paths()
+        # Untracked files never enter ``git archive``, so only tracked changes
+        # can make the staged release differ from HEAD.
         if subprocess.check_output(
-            ["git", "-C", str(root), "status", "--porcelain"], text=True
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+            text=True,
         ):
             raise ValueError("Commit reviewed task changes before staging a release")
         revision = subprocess.check_output(
@@ -117,6 +120,16 @@ class MetaCentrumGridManager:
                     text=True,
                 )
                 self._check_process_result(res, "codebase staging")
+            # One pointer to the release that `qsub` should use, so nobody has
+            # to guess a SHA or keep a second drifting copy of the tree.
+            link = f"{self.storage_root}/current"
+            link_command = f"ln -sfn {shlex.quote(release)} {shlex.quote(link)}"
+            res = subprocess.run(
+                ["ssh", self.remote_host, link_command],
+                capture_output=True,
+                text=True,
+            )
+            self._check_process_result(res, "release pointer update")
             model_dir = f"{self.storage_root}/models"
             res = subprocess.run(
                 ["ssh", self.remote_host, f"mkdir -p {shlex.quote(model_dir)}"],

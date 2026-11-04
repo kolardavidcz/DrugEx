@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): Primary cluster for multi-arm reinforcement learning training and GPU compute. Managed via `_david/code/metacentrum/grid.py`.
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 99/99 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 103/103 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -102,8 +102,9 @@ _david/
 │   └── metacentrum/                   # MetaCentrum grid submission and cluster orchestration
 │       ├── grid.py                    # MetaCentrumGridManager, CLI, and grid generators
 │       ├── job_template.sh            # PBS Pro cluster execution script
-│       └── scripts/                   # Standalone submission scripts (h1..h4, rl_batch_calibration)
-├── code/tests/                         # 99 unit and regression tests (100% passing)
+│       ├── monitor_live_epochs.py     # Live epoch progress from running worker scratch
+│       └── scripts/                   # Frozen per-hypothesis PBS runners (provenance only)
+├── code/tests/                         # 103 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 
@@ -113,7 +114,7 @@ _david/
 
 - **Connection**: `ssh meta` (Configured in `~/.ssh/config` as `kolardavidcz@tarkil.metacentrum.cz`).
 - **Persistent Storage**: `/storage/brno2/brno2/kolardavidcz/DrugEx/` (2.0 PB total, >370 TB free).
-- **Codebase Releases**: Staged automatically by `MetaCentrumGridManager.sync_codebase_to_grid()` under `${storage_root}/releases/<commit_sha>/`.
+- **Codebase Releases**: Staged automatically by `MetaCentrumGridManager.sync_codebase_to_grid()` under `${storage_root}/releases/<commit_sha>/`, which also repoints `${storage_root}/current` at the new release. There is no live copy of the tree on storage: jobs copy `current` into their PBS scratch directory.
 
 ### Resource Directive Guidelines
 - **CPU Cores & Memory**: `ncpus=16, mem=32gb, scratch_local=15gb, walltime=24:00:00`.
@@ -142,10 +143,24 @@ python -m _david.code.metacentrum.grid pull
 
 ---
 
-## 6. Active Experiments (4-Hypothesis Sprint)
+## 6. Runs, Output Layout & Current State
 
-Submitted to PBS Pro queue `gpu_long` with `:spec=8.0`, `ncpus=4`, and `walltime=25:00:00` (all unminimized Regime 2: $K=1, C=30, \varepsilon=0.05$, 200 epochs max, 50 min/patience):
-1. **`25170006` (`sprint_h1_without_qed_pareto`)**: Supervisor tutorial replication baseline (2-objective `[ROCS, SA]`, Pareto crowding).
-2. **`25170007` (`sprint_h2_without_qed_harrington`)**: Harrington reward scheme isolation (2-objective `[ROCS, SA]`, Harrington desirability).
-3. **`25170008` (`sprint_h3_with_qed_pareto`)**: QED shrinkage causal ablation (3-objective `[ROCS, SA, QED]`, Pareto crowding).
-4. **`25170009` (`sprint_h4_with_qed_harrington`)**: Modernized Run 01 comparison (3-objective `[ROCS, SA, QED]`, Harrington desirability).
+Every run writes one self-describing directory:
+
+```
+_david/output/YYYYmmdd_HHMM[_tag]/
+├── manifest.json      # run_id, full config, host, PBS job id, source revision, versions
+├── models/            # SequenceRNN checkpoints, monitor telemetry, per-epoch TSV
+├── raw_data/          # baseline + reinforced evaluation arms, reference SDF
+├── figures/           # publication figures
+└── logs/              # execution log
+```
+
+- Local default: `_david/output/<minute>[_tag]`; `--run-tag` names it, `--output-dir` overrides the whole path.
+- MetaCentrum: `$STORAGE/_david/output/<minute>_<experiment>`, written by `job_template.sh`.
+- A same-minute collision gets `_2`, `_3` … so two runs cannot share a manifest.
+- Historical runs (`sprint_h1_*`, `egcg_k4_*`, …) keep their original names; `RL_RUN_AUDIT.md` and `manifests` are the authoritative record of what each one is.
+
+No production batch is queued as of 2026-11-04. The gold-standard defaults are
+`avg_gmean` / `n_eval_samples=5000`; run `python -m _david.code.audit_rl_runs`
+after a pull to check which completed runs match them.
