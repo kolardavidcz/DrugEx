@@ -135,7 +135,7 @@ Epoch  valid_ratio  unique_ratio  desired_ratio  avg_amean  avg_gmean  loss_trai
 | `valid_ratio` → 0 near epoch 1 | Wrong vocabulary/checkpoint pairing, or a reference SMILES the tokenizer cannot represent. Read the PBS log. |
 | `loss_train` = `nan` | Numerical blow-up; kill and lower `--epsilon`/`--beta` rather than resuming. |
 | `best_epoch` frozen and epoch > `min_epochs + patience` | Early stopping is about to fire; the run is effectively done. |
-| ETA > walltime remaining | The job will be killed mid-run. The EXIT trap keeps partial results, but plan a longer `--walltime` or fewer epochs. |
+| ETA > walltime remaining | The job will be killed mid-run. `job.py` still copies partial results back, but plan a longer `--walltime` or fewer epochs. |
 
 ## 4. Inside the worker node
 
@@ -177,4 +177,4 @@ ssh meta 'qselect -u kolardavidcz -s Q | xargs -r qdel'    # everything queued, 
 
 `qdel` on a running job sends `SIGTERM`; `job.py`'s `finally` block copies partial results back
 before cleaning scratch. Give it a minute, then `qstat -x -f <id>` to confirm the copy line
-in the log. Never delete a scratch directory by hand while the trap may still be copying.
+in the log. Never delete a scratch directory by hand while `job.py` may still be copying.

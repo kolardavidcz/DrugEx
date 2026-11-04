@@ -101,7 +101,7 @@ or replace them while jobs are queued; a mismatched `.pkg`/`.vocab` pair produce
 
 - `jobs/<name>/spec.json` — one per submission, overwritten if the same name is submitted
   again. This is why unique names matter. Pull it before deleting (chapter 03 §3).
-- `_david/output/<run-id>/` — written by the job's EXIT trap from scratch, then never touched
+- `_david/output/<run-id>/` — written by `job.py`'s copy-back from scratch, then never touched
   by the cluster again. `pull` copies it to WSL.
 
 Scratch (`$SCRATCHDIR`, e.g. `/scratch/job_<id>`) is **not** storage: it is local disk on the

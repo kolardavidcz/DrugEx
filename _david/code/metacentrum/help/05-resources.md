@@ -95,7 +95,7 @@ Measured practice:
 
 Nodes range from small legacy machines to 128-core, ~1 TB nodes; a 32 GB request is easy to
 place, a 128 GB request narrows the pool. PBS kill by the OOM killer is `SIGKILL`
-(`Exit_status = -9`), with no chance for the EXIT trap's graceful message — chapter 04 §6.
+(`Exit_status = -9`), with no chance for `job.py`'s graceful message — chapter 04 §6.
 
 ## 5. Scratch
 

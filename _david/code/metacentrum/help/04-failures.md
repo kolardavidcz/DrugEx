@@ -147,18 +147,18 @@ ssh meta 'qstat -x -f <id> | grep -E "Exit_status|resources_used.walltime|resour
 
 | `Exit_status` | Meaning |
 | :--- | :--- |
-| `-15` / `271` | `SIGTERM`: walltime expiry or `qdel`. Normal kill path; the trap copies results. |
+| `-15` / `271` | `SIGTERM`: walltime expiry or `qdel`. Normal kill path; `job.py` copies results. |
 | `-9` / `137` | `SIGKILL`: OOM killer or hard PBS kill. No cleanup ran; scratch may still hold results. |
 | `-11` / `139` | `SIGSEGV`: native crash (RDKit/OpenMP). Resubmit with `--conformer-threads 1` and a smaller `--conformers`. |
-| `0` but no results | Transfer failed before the trap's `rsync`; see §7. |
+| `0` but no results | Transfer failed before `job.py` copied anything; see §7. |
 
-**Walltime.** The job is `SIGTERM`'d, the `EXIT` trap copies `$OUT_DIR` back, then scratch is
+**Walltime.** The job is `SIGTERM`'d, `job.py` copies `$OUT_DIR` back, then scratch is
 cleaned. The run directory exists on storage with `manifest.state = "running"` (the pipeline
 never got to write `complete`). Epochs and last checkpoint are usable; figures may be absent.
 Options: accept the partial run, or rerun with a walltime that fits the measured epoch rate
 (chapter 02 gives the ETA; chapter 05 the arithmetic).
 
-**OOM.** PBS kills the process group; the trap usually still runs, so results are copied but
+**OOM.** PBS kills the process group; `job.py` usually survives to copy results, so they arrive but
 the model is mid-epoch. `resources_used.mem` in `qstat -x` shows the peak. Raise `--mem`
 (64 GB for 32 cores or large ligands) or reduce `--ncpus` so fewer workers hold conformers
 simultaneously. `PipelineConfig.cpu_ratio = 0.99` means the pipeline will use every granted
@@ -176,7 +176,7 @@ EGCG-scale runs; for large ligands or several thousand minimised conformers go t
 ## 7. Results never arrived
 
 If the job ended green but `$STORAGE/_david/output/` has no new directory, the copy-back
-failed (storage full, permission, or the node lost the mount). The trap prints:
+failed (storage full, permission, or the node lost the mount). `job.py` prints:
 
 ```
 Result transfer FAILED; scratch kept at /scratch…/job_<id>
