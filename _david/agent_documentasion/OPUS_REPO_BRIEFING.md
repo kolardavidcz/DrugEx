@@ -2,6 +2,11 @@
 
 > Written 2026-10-31 from: full repo inspection + `research_state_master_v2.md` (≡ `research_state_master_handoff.md`), `egcg_omnibus_and_panel_critique.md`, `rl01_evaluation_report.md`.
 > Read this top-to-bottom before touching anything. Every number below is empirical, not opinion.
+>
+> **MetaCentrum update (2026-11-04):** `grid.py` and its `grid`/`sprint` verbs were replaced
+> by `submit.py` and a single template. For any cluster work follow
+> [`../code/metacentrum/RUNBOOK.md`](../code/metacentrum/RUNBOOK.md); the grid commands and
+> the multi-arm sprint workflow described below are historical.
 
 ## 0. TL;DR
 

@@ -54,10 +54,6 @@ __all__ = [
     "HardwareManager",
     "get_gpu_telemetry",
     "MoleculePipeline",
-    "GridJobSpec",
-    "MetaCentrumGridManager",
-    "generate_8arm_grid",
-    "generate_4hypothesis_grid",
     "std",
     "unscale_to_physical_metrics",
     "bootstrap_ci",
@@ -72,16 +68,3 @@ __all__ = [
     "render_scaffold_diversity_analysis",
     "render_rocs_shape_vs_color_decomposition",
 ]
-
-
-def __getattr__(name: str) -> object:
-    if name in (
-        "GridJobSpec",
-        "MetaCentrumGridManager",
-        "generate_8arm_grid",
-        "generate_4hypothesis_grid",
-    ):
-        from _david.code.metacentrum import grid
-
-        return getattr(grid, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

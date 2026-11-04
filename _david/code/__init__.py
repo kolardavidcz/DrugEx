@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from _david.code.chemistry import (
     DEFAULT_CANDIDATE_SEED,
     DEFAULT_REFERENCE_SEED,
@@ -83,22 +81,5 @@ __all__ = [
     "HardwareManager",
     "get_gpu_telemetry",
     "MoleculePipeline",
-    "GridJobSpec",
-    "MetaCentrumGridManager",
-    "generate_8arm_grid",
-    "generate_4hypothesis_grid",
     "std",
 ]
-
-
-def __getattr__(name: str) -> Any:
-    if name in (
-        "GridJobSpec",
-        "MetaCentrumGridManager",
-        "generate_8arm_grid",
-        "generate_4hypothesis_grid",
-    ):
-        from _david.code.metacentrum import grid
-
-        return getattr(grid, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

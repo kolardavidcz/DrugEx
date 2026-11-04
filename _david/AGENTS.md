@@ -12,10 +12,10 @@ This document is the authoritative single source of truth for AI agents and huma
 2. **Dual-Host Development Workflow**:
    - **Local Workstation** (`/home/kolar/DrugEx/`): Used for editing, linting (`ruff`), unit test execution (`python -m unittest discover -s _david/code/tests -p "test_*.py" -v`), and lightweight batch profiling.
    - **Remote Lab Server (`dichtator`)** (`kolarv@147.33.72.143`): Primary server for offline model evaluation, deep profiling, and sanity runs. Connect via SSH alias `dichtator`. Always check for user edits before synchronizing (`git status`, `git stash`).
-   - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): Primary cluster for multi-arm reinforcement learning training and GPU compute. Managed via `_david/code/metacentrum/grid.py`.
+   - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): **Ad-hoc** host for occasional single CPU-heavy jobs; not a mirror of the local tree and not the default production queue. Managed via `python -m _david.code.metacentrum.submit`; the agent-facing template is [`code/metacentrum/RUNBOOK.md`](code/metacentrum/RUNBOOK.md).
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 103/103 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 120/120 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -99,47 +99,78 @@ _david/
 │   │   ├── cli.py                     # migrate · registry · figures · study · cache-stats
 │   │   ├── README.md / DESIGN.md      # Package overview / design rationale
 │   │   └── results.md                 # Conformer findings & decision record
-│   └── metacentrum/                   # MetaCentrum grid submission and cluster orchestration
-│       ├── grid.py                    # MetaCentrumGridManager, CLI, and grid generators
-│       ├── job_template.sh            # PBS Pro cluster execution script
-│       ├── monitor_live_epochs.py     # Live epoch progress from running worker scratch
-│       └── scripts/                   # Frozen per-hypothesis PBS runners (provenance only)
-├── code/tests/                         # 103 unit and regression tests (100% passing)
+│   └── metacentrum/                   # Ad-hoc PBS jobs: one CLI, one template, tutorials
+│       ├── RUNBOOK.md                 # The agent-facing template: commands + recipes
+│       ├── submit.py                  # check · sync · submit · status · logs · cancel · pull
+│       ├── job_template.sh            # PBS body: release → scratch → pipeline → copy back
+│       ├── help/                      # 01-submit … 06-storage + monitor_live_epochs.py
+│       ├── scripts/runed/             # Frozen historical PBS runners (provenance only)
+│       └── archive/                   # compare_output_trees.py + its usage contract
+├── code/tests/                         # 120 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 
 ---
 
-## 5. MetaCentrum HPC Cluster Execution Guide
+## 5. MetaCentrum (ad-hoc PBS jobs)
 
-- **Connection**: `ssh meta` (Configured in `~/.ssh/config` as `kolardavidcz@tarkil.metacentrum.cz`).
-- **Persistent Storage**: `/storage/brno2/brno2/kolardavidcz/DrugEx/` (2.0 PB total, >370 TB free).
-- **Codebase Releases**: Staged automatically by `MetaCentrumGridManager.sync_codebase_to_grid()` under `${storage_root}/releases/<commit_sha>/`, which also repoints `${storage_root}/current` at the new release. There is no live copy of the tree on storage: jobs copy `current` into their PBS scratch directory.
+MetaCentrum is used **ad hoc**: periodic single jobs for CPU-heavy ROCS / conformer work,
+when local or `dichtator` throughput is insufficient. It is not a production mirror of the
+local tree. Read [`code/metacentrum/RUNBOOK.md`](code/metacentrum/RUNBOOK.md) before
+submitting; the tutorials in [`code/metacentrum/help/`](code/metacentrum/help/) cover
+monitoring, transfer and failure triage.
 
-### Resource Directive Guidelines
-- **CPU Cores & Memory**: `ncpus=16, mem=32gb, scratch_local=15gb, walltime=24:00:00`.
-- **SPEC Directive**: Use `:spec=8.0` for GPU jobs.
-  - Setting `:spec=10.0` restricts jobs to only `fobos` (spec 12.0) and `bee` (spec 11.0), which can cause long queue wait times.
-  - Setting `:spec=8.0` enables all modern high-performance GPU nodes (Ada Lovelace RTX 4090 on `alfrid` and `fobos`, Hopper H100 on `bee`, Ampere RTX 3090 on `galdor`), giving a pool of >60 GPU nodes while filtering out ancient nodes (`konos`, `glados`).
+- **Connection**: `ssh meta` (configured in `~/.ssh/config` as
+  `kolardavidcz@tarkil.metacentrum.cz`). Kerberos tickets expire and need an interactive
+  2FA `kinit`; `submit.py` detects the failure and prints the fix.
+- **Storage**: `/storage/brno2/brno2/kolardavidcz/DrugEx/` — `releases/<sha>/`, `current`,
+  `models/` (Papyrus `.pkg`/`.vocab`), `jobs/<name>/spec.json`, `_david/output/<run-id>/`,
+  and a `.venv/` (5.7 GB, Python 3.11 + CUDA torch) that must never be deleted casually.
+  `$HOME` is a different filesystem (`/storage/praha1/home/kolardavidcz`) and only receives
+  PBS `.o<id>` logs.
+- **Releases**: `submit.py sync` streams `git archive HEAD` to `releases/<sha>/`, repoints
+  `current` and refreshes `models/`. A job copies its release into `$SCRATCHDIR/DrugEx` and
+  runs from there, so later local edits cannot change a running or queued job. `sync`
+  refuses a dirty tracked tree for the same reason.
+- **Defaults**: pipeline hyperparameters come from `PipelineConfig`; a submission carries only
+  the requested deltas. `--output-dir`, `--agent-path` and `--vocab-path` are owned by the
+  template and rejected if passed.
 
-### Common CLI Commands
 ```bash
-# Check PBS Pro job status
-python -m _david.code.metacentrum.grid status
-# (or directly via SSH: ssh meta "qstat -u kolardavidcz")
+# Preview (prints release, resources and the exact qsub line; nothing is submitted)
+.venv/bin/python -m _david.code.metacentrum.submit submit \
+    --name egcg_gold_gmean --dry-run -- "--criteria gmean"
 
-# Synchronize local codebase release to MetaCentrum storage
-python -m _david.code.metacentrum.grid sync
+# Submit with all PipelineConfig defaults, then watch and collect
+.venv/bin/python -m _david.code.metacentrum.submit submit --name egcg_default
+.venv/bin/python -m _david.code.metacentrum.submit status
+.venv/bin/python -m _david.code.metacentrum.submit logs egcg_default -f
+.venv/bin/python -m _david.code.metacentrum.submit pull
+.venv/bin/python -m _david.code.audit_rl_runs
 
-# Preview the 4-hypothesis Daytime Sprint
-python -m _david.code.metacentrum.grid sprint
-
-# Submit the 4-hypothesis Daytime Sprint to PBS Pro (4 CPUs, gpu_long, 25h walltime, spec>=8.0)
-python -m _david.code.metacentrum.grid submit-sprint --queue gpu_long --ncpus 4 --walltime 25:00:00 --spec 8.0
-
-# Pull completed deliverables from MetaCentrum to local _david/output/
-python -m _david.code.metacentrum.grid pull
+# Live epochs (reads worker scratch; stdlib-only, runs on the login node)
+ssh meta 'python3 /storage/brno2/brno2/kolardavidcz/DrugEx/current/_david/code/metacentrum/help/monitor_live_epochs.py'
 ```
+
+### Resource defaults
+
+- **CPU job**: `ncpus=16, mem=32gb, scratch_local=15gb, walltime=24:00:00`,
+  `queue=p2e_1d`, `spec=8.0`, `ngpus=0`. This is what completed the 200-epoch unminimised
+  sprint arms inside 24 h.
+- **`p2e_1d` over `q_1d`**: same 24 h limit, orders of magnitude shorter queue.
+- **`spec=8.0`**: excludes ancient nodes without shrinking the pool to `fobos`/`bee` as
+  `spec=10.0` does.
+- **GPU**: only on explicit request (`--ngpus 1 --queue gpu_long`); the generic `gpu` queue
+  currently holds 2000+ jobs and ROCS is CPU-bound.
+- **Minimised candidates** cost roughly 4× more wall-clock than unminimised ETKDGv3; a
+  200-epoch minimised run does not fit in 24 h.
+
+### Collection policy
+
+`pull` is MetaCentrum → WSL only. Before deleting anything remote, verify with
+`compare_output_trees.py` (`code/metacentrum/archive/file_folder_tree_comparasion/`) and
+pull the specs and PBS logs into `_david/output/_metacentrum_jobs/`. Historical runs exist
+only locally since the 2026-11-04 cleanup; see [`code/metacentrum/help/06-storage.md`](code/metacentrum/help/06-storage.md).
 
 ---
 
@@ -149,7 +180,9 @@ Every run writes one self-describing directory:
 
 ```
 _david/output/YYYYmmdd_HHMM[_tag]/
-├── manifest.json      # run_id, full config, host, PBS job id, source revision, versions
+├── manifest.json      # run_id, state, full config, host, PBS job id, source revision
+├── submission.json    # MetaCentrum only: exact args + release that produced the run
+├── execution.log      # MetaCentrum only: live pipeline stdout/stderr
 ├── models/            # SequenceRNN checkpoints, monitor telemetry, per-epoch TSV
 ├── raw_data/          # baseline + reinforced evaluation arms, reference SDF
 ├── figures/           # publication figures
