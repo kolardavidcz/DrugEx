@@ -214,9 +214,16 @@ def human_seconds(value: float | int | None) -> str:
     return f"{minutes}:{secs:02d}"
 
 
-def pbs_log_tail(name: str, lines: int) -> tuple[str, str]:
-    """Newest ``$HOME/<name>.o*`` on this login node (the PBS stdout)."""
-    candidates = glob.glob(os.path.expanduser(f"~/{name}.o*"))
+def pbs_log_tail(name: str, lines: int, short_id: str | None = None) -> tuple[str, str]:
+    """PBS stdout for this job, not merely for its name.
+
+    A reused ``--name`` leaves the logs of earlier attempts in ``$HOME``; picking the
+    newest ``<name>.o*`` then shows a stale failure while the current job is still
+    running (job 25256877 on 2026-11-04). Prefer ``<name>.o<short_id>*`` when the
+    qstat id is known.
+    """
+    pattern = f"~/{name}.o{short_id}*" if short_id else f"~/{name}.o*"
+    candidates = glob.glob(os.path.expanduser(pattern))
     if not candidates:
         return "", ""
     path = max(candidates, key=os.path.getmtime)
@@ -268,7 +275,7 @@ def job_report(job: Job, lines: int) -> dict[str, object]:
                 report["eta_s"] = max(target_epochs - done, 0) * per_epoch
         report["run_dir"] = probe.get("run", "")
     elif job.state == "R":
-        path, tail = pbs_log_tail(job.name, PBS_LOG_LINES)
+        path, tail = pbs_log_tail(job.name, PBS_LOG_LINES, job.short_id)
         report["pbs_log"] = path
         report["log_tail"] = tail
 
