@@ -117,34 +117,38 @@ Never pass `--output-dir`, `--agent-path`, `--vocab-path`; the template and stag
 
 **Each flag is one argument after `--`.** `-- --epochs 50 --no-include-qed` works;
 `-- "--epochs 50 --no-include-qed"` is rejected on purpose. The quoted form reaches argparse
-as a single string, which the pipeline cannot parse — that failure (`unrecognized arguments:
---molecule CC(O)C --epochs 1 …`) killed the first 2026-11-04 smoke job. `--args "…"` is the
-spelling that *does* take one quoted string, and it is tokenised with `shlex.split`.
+as a single string, which the pipeline cannot parse — that failure
+(`unrecognized arguments: --molecule CC(O)C --epochs 1 …`) killed job `25256773` on
+2026-11-04. `--args "…"` is the spelling that *does* take one quoted string, and it is
+tokenised with `shlex.split`.
 
-## 5. Dry run and the qsub line
+## 5. What a submission prints
 
-```bash
-$PY -m _david.code.metacentrum.submit submit --name test --dry-run -- "--epochs 1"
-```
+There is no preview or dry-run mode. `submit` always queues the job; before `qsub` it prints
+the block that describes the request:
 
 ```
   release : /storage/brno2/brno2/kolardavidcz/DrugEx/releases/<sha>
-  queue   : default router → q_1d
-  resources: select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=8.0, walltime=24:00:00 (routed by walltime; shorter walltime = shorter queue)
-  pipeline: --epochs 1
+  queue   : q_1d (default router)
+  resources: select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=8.0, walltime=24:00:00
+  pipeline: --criteria gmean
 
-$ ssh meta qsub -N test -l select=... -l walltime=24:00:00 -v RUN_SPEC=...,STORAGE_DIR=... /storage/.../job_template.sh
+Submitted egcg_gold_gmean: <job id>
+Watch it: python -m _david.code.metacentrum.submit logs egcg_gold_gmean -f
 ```
 
 There is **no `-q`** in the default command. That is deliberate: from the frontends we are
 allowed to use, execution queues reject direct submissions (`p2e_1d` via `acl_hosts`,
 `q_2h`…`q_2d` via `from_route_only`), and the `default` router selects the queue from
-`-l walltime`. The printed `queue :` line is the router's destination, so a 1 h smoke test
-shows `q_2h` and a 24 h production run shows `q_1d`. Details and the full table:
+`-l walltime`. The default request is 24 h, which the router places in `q_1d`; that is the
+lane every job uses. Do not shorten the walltime to reach a shallower queue — a truncated
+budget kills the job before it finishes. Details and the full table:
 [`05-resources.md`](05-resources.md) §2.
 
-`--dry-run` still runs `sync` unless `--no-sync` is given, because the printed release path
-must exist. If you only want to see resources without touching storage, add `--no-sync`.
+Because `sync` runs before the queue sees the job, the printed `release:` path exists by the
+time the job starts. If the `pipeline:` line is wrong, cancel and resubmit: the job is
+already queued, which is exactly why the block is printed before `qsub` rather than in a
+rehearsal mode.
 
 ## 6. Command mapping from the grid era
 
@@ -173,7 +177,7 @@ ROCS work and no longer accepted from this frontend; the new default is `ngpus=0
 | `Missing validated environment: …/.venv/bin/python` | `.venv` was deleted on storage; recreate it (chapter 06) before submitting. |
 | `Kerberos ticket missing or expired` | `ssh meta kinit kolardavidcz@META` interactively (2FA), then retry. |
 | `qsub: Unknown queue` | `qstat -q` to list queues; typically a typo or a queue retired since the last run. |
-| `qsub: Access from host not allowed, or unknown host` | You passed `--queue` for an execution queue (`p2e_1d` and friends). Drop `--queue` and let the router pick, or shorten `--walltime`. |
+| `qsub: Access from host not allowed, or unknown host` | You passed `--queue` for an execution queue (`p2e_1d` and friends). Drop `--queue`; the router picks `q_1d` from the default 24 h walltime. |
 | `qsub: Access to queue is denied` | The queue is `from_route_only` or not granted to this account. Same fix: omit `--queue`. |
 | `--output-dir is owned by the MetaCentrum template…` | Remove the flag from the pipeline arguments. |
 | `Pass pipeline flags either with --args or after --, not both` | Pick one spelling. |

@@ -58,7 +58,8 @@ Rules:
 
 - Never delete or "refresh" `.venv` to fix a dependency problem without the user's explicit
   go-ahead. Rebuilding is a manual, version-sensitive operation (CVMFS python + uv + the CUDA
-  torch wheel), and the result must be validated with a 1-epoch smoke test in `runone`.
+  torch wheel), and the result must be validated by a real submission: the template guards
+  plus the first epoch row in `models/SequenceRNN_reinforced_fit.tsv` are the acceptance test.
 - `sync` does not touch `.venv`. Code updates never invalidate it, because the code is
   supplied by the release, not installed into the venv.
 - If `.venv` ever disappears, every submission fails at the template's first guard with
@@ -146,7 +147,8 @@ Result: 6.2 GB → 5.7 GB, with storage containing only `.venv`, one release, `c
 files | local-only 48`. The 48 local-only directories are expected: the remote copy was
 intentionally removed after verification.
 
-After the first end-to-end smoke of the rewritten package (job `25256775`, release `78ec60a`):
+After the first end-to-end validation of the rewritten package (job `25256775`, release
+`78ec60a`):
 
 - Two run directories (`20261104_0339_…`, `20261104_0344_…`) pulled and verified → deleted.
 - Three `spec.json` files (`jobs/drugex_smoke_{e7c6b8a,a8e26b4,78ec60a}`) and four PBS logs

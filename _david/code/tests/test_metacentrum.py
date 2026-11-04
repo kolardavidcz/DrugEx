@@ -52,7 +52,9 @@ class TestJobSpec(unittest.TestCase):
         self.assertEqual(spec.scratch_gb, 15)
         self.assertEqual(spec.walltime, "24:00:00")
         self.assertIsNone(spec.queue)
-        self.assertEqual(spec.queue_label, "default router → q_1d")
+        # The only lane: 24 h routes to q_1d, and that is what every job asks for.
+        self.assertEqual(submit.routed_queue(submit.DEFAULT_WALLTIME), "q_1d")
+        self.assertEqual(spec.queue_label, "q_1d (default router)")
         self.assertEqual(spec.ngpus, 0)
         self.assertIn("spec=8.0", spec.resources)
         self.assertNotIn("ngpus", spec.resources)
@@ -142,10 +144,8 @@ class TestSubmissionPayload(unittest.TestCase):
         self.assertIn("-q gpu_long", command)
 
     def test_split_cli_keeps_pipeline_flags_out_of_argparse(self) -> None:
-        cli, pipeline = split_cli(
-            ["submit", "--name", "x", "--dry-run", "--", "--criteria", "gmean"]
-        )
-        self.assertEqual(cli, ["submit", "--name", "x", "--dry-run"])
+        cli, pipeline = split_cli(["submit", "--name", "x", "--", "--criteria", "gmean"])
+        self.assertEqual(cli, ["submit", "--name", "x"])
         self.assertEqual(pipeline, ["--criteria", "gmean"])
         self.assertEqual(split_cli(["status"]), (["status"], []))
 
@@ -178,7 +178,12 @@ class TestCliDefaults(unittest.TestCase):
         self.assertIsNone(args.queue)
         self.assertEqual(args.spec, 8.0)
         self.assertEqual(args.ngpus, 0)
-        self.assertFalse(args.dry_run)
+
+    def test_there_is_no_preview_mode(self) -> None:
+        """A submission is always a real submission; printing the qsub line was removed."""
+        self.assertFalse(hasattr(build_parser().parse_args(["submit", "--name", "x"]), "dry_run"))
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["submit", "--name", "x", "--dry-run"])
 
 
 class TestQstatParsing(unittest.TestCase):

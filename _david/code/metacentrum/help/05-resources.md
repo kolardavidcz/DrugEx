@@ -11,7 +11,7 @@ a GPU allocation is usually a waste of a scarce queue slot unless the user asks 
 ```
 select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=8.0
 walltime=24:00:00
-(no -q: the `default` router sends a 24 h job to q_1d)
+(no -q: 24 h routes to q_1d, the default and only normal lane)
 ngpus=0
 ```
 
@@ -36,7 +36,7 @@ So the queue is a **function of `--walltime`**, through the `default` router
 
 | `--walltime` up to | Routed queue | Observed depth (2026-11-04) |
 | :--- | :--- | :--- |
-| 2 h | `q_2h` | shallow; the smoke-test lane |
+| 2 h | `q_2h` | shallow |
 | 4 h | `q_4h` | 471 running / 28 queued |
 | 24 h | `q_1d` | 1581 running / 3873 queued |
 | 48 h | `q_2d` | 267 running / 4986 queued |
@@ -44,16 +44,17 @@ So the queue is a **function of `--walltime`**, through the `default` router
 | 2 weeks | `q_2w` | deepest |
 
 `p2e_1d` (705 running / 4 queued at the same time) is a fast lane we cannot address
-directly; short jobs routed to `q_2h` were observed executing there, so PBS rebalances
-behind the router. Do not try to force it: a direct `-q p2e_1d` fails at submission.
+directly. Do not try to force it: a direct `-q p2e_1d` fails at submission.
 
 Practical consequences:
 
-- **Want a fast start?** Request less walltime. A 1-epoch smoke test at `--walltime
-  01:00:00` goes to `q_2h` and normally starts within minutes; the same job at 24 h goes to
-  `q_1d` behind thousands of other jobs.
-- **Need 24 h of real compute?** You land in `q_1d`; measure the wait with `submit status`
-  and plan accordingly. There is no faster 24 h lane from this frontend.
+- **One lane: 24 h → `q_1d`.** Every normal job asks for a full day and waits there. The
+  queue is deep; that is the price of a budget that does not truncate the run, and
+  `submit status` is how you measure the wait.
+- **Walltime is a budget, not a queue knob.** Do not request 2 h to reach `q_2h`: the job is
+  killed at the limit with partial results, and the time already spent queueing is wasted.
+  Ask for the compute the scientific plan needs (24 h default, `48:00:00` → `q_2d` only for
+  minimised 200-epoch sets that genuinely exceed a day).
 - `--queue` remains as an escape hatch for a route queue or a special queue an administrator
   grants (`--queue gpu_long` for GPU work). It is never needed for a normal CPU run.
 
@@ -74,7 +75,6 @@ the cores PBS granted, so `--ncpus` is the only knob that matters.
 
 | Situation | `--ncpus` |
 | :--- | ---: |
-| Smoke test (`--epochs 1 --samples 10`) | 4 |
 | Default ROCS run | 16 |
 | Minimised candidates, large ligand, or many conformers | 32 |
 | Anything above 32 | Rarely worth it: ROCS is per-molecule serial, and the straggler molecule bounds each epoch. |
@@ -89,7 +89,6 @@ Measured practice:
 
 | Request | Fits |
 | :--- | :--- |
-| `--mem 8` | smoke tests, 4 cores |
 | `--mem 32` | 16 cores, 20-30 conformers, EGCG-scale ligands |
 | `--mem 64` | 32 cores, or ligands with many rotatable bonds |
 | `--mem 128` | very large ligands / minimised runs with many workers |
@@ -110,7 +109,6 @@ Rules of thumb:
 
 | Workload | `--scratch` |
 | :--- | ---: |
-| Smoke test | 5 |
 | Default EGCG run, C=20, 5000 eval | 15 |
 | Minimised, C=40, or large ligand | 30 |
 | Several thousand minimised conformers | 50 |
@@ -135,8 +133,8 @@ Practical guidance:
 
 - Start from the default 24 h. If `monitor_live_epochs.py` shows an ETA beyond the limit,
   kill early and resubmit with the right budget — a killed job still consumes its walltime.
-- Requesting **less** walltime is the only way to reach a faster queue (§2), so quote the
-  budget you actually need rather than a round 24 h.
+- The 24 h request is deliberate: it is the default lane (`q_1d`) and the budget the
+  historical 200-epoch unminimised arms needed. Do not trim it to chase a shallower queue.
 - `--epochs 200` is a **cap**: early stopping (`min_epochs=50`, `patience=50`) usually ends a
   converged run before 200.
 - Walltime above the routed queue's maximum is rejected at submission; the router would have
@@ -161,5 +159,7 @@ core-hours of a shared national resource. Consequences for how we operate:
 
 - Do not leave a converged run queued for days; kill it.
 - Do not submit four near-identical arms "just in case"; submit the one the user asked for.
-- A 1-epoch smoke test before a 24-hour production run is cheap insurance and is the
-  recommended pattern after any code change.
+- There is no rehearsal job. The template's startup guards (environment, spec, release,
+  scratch) fail within seconds of the job starting, and `logs <name>` shows that immediately;
+  a separate 1-epoch probe adds a queue wait without telling you anything the real job's first
+  epoch does not.

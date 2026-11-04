@@ -48,19 +48,28 @@ staged revision, and `--revision <sha>` to run an older one.
 
 ## 2. Submitting a run
 
-### 2a. Preview first — always
+### 2a. There is no preview mode
 
-```bash
-$PY -m _david.code.metacentrum.submit submit \
-    --name egcg_gold_gmean \
-    --dry-run -- "--criteria gmean"
+`submit` always hands the job to PBS. There is no `--dry-run`: a submission that prints
+resources but does not queue anything is a rehearsal, and rehearsals hide the errors that
+matter (ACL refusals, Kerberos expiry, a bad resource expression). The submission prints the
+release, the routed queue, the resource expression and the pipeline deltas **before** `qsub`
+runs, so the block on screen is the record of what was actually requested:
+
+```
+  release : /storage/brno2/brno2/kolardavidcz/DrugEx/releases/<sha>
+  queue   : q_1d (default router)
+  resources: select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=8.0, walltime=24:00:00
+  pipeline: --criteria gmean
+
+Submitted egcg_gold_gmean: <job id>
 ```
 
-The dry run prints the release path, the resolved PBS resources and the exact
-`ssh meta qsub ...` line. It does **not** submit, but it does stage HEAD first so the printed
-release path exists; commit before previewing (an uncommitted tracked change is refused).
-Add `--no-sync` to inspect resources without touching storage. Check that the `pipeline:` line
-contains only intended deltas — everything else is `PipelineConfig`.
+`sync` runs as part of that block, so HEAD is staged before the queue sees the job; commit
+first (an uncommitted tracked change is refused). If the `pipeline:` line shows anything
+beyond the intended deltas, the job is already submitted — cancel it, fix the invocation,
+resubmit. Getting the invocation right is a matter of reading `PipelineConfig`, not of
+printing a rehearsal command.
 
 ### 2b. The default job
 
@@ -90,9 +99,12 @@ without `-q` goes through the `default` router, which picks the queue from the w
 | 48 h | `q_2d` |
 | 1 week | `q_1w` |
 
-So **walltime is the queue knob**: a short walltime also means a shorter, faster-admitting
-queue. `--queue` still exists for the rare route queue or a special queue an administrator
-grants; it is not needed for normal work.
+**The default is the only lane we use: 24 h → `q_1d`.** Do not shorten the walltime to land in
+a shallower queue — a job that needs 20 hours but asks for 2 is killed at hour two, and the
+queue wait is not a thing to optimise by lying about the budget. Ask for the compute the run
+needs. `--walltime 48:00:00` (→ `q_2d`) is the only documented deviation, for minimised
+candidate sets that genuinely do not fit in a day. `--queue` is reserved for a route queue or
+a special queue an administrator grants; it is never needed for normal work.
 
 ### 2c. "Defaults plus one speciality"
 
@@ -114,7 +126,8 @@ Both spellings of the pipeline arguments are equivalent (`--args "…"` or after
 never use both in one command. **After `--` every flag is its own argument** — write
 `-- --epochs 50 --no-include-qed`, not `-- "--epochs 50 --no-include-qed"`. The quoted
 form is refused with an explicit error, because the whole string would otherwise reach
-argparse as a single nonsensical argument (this is exactly how the first smoke job failed).
+argparse as a single nonsensical argument (this is exactly how job `25256773` failed on
+2026-11-04).
 `--output-dir`, `--agent-path` and `--vocab-path` are reserved: the release contract and
 the staged checkpoint own them, and `JobSpec` rejects them loudly.
 
@@ -211,10 +224,10 @@ and partial results survive a walltime kill.
 | Situation | Flags |
 | :--- | :--- |
 | Default CPU ROCS run | *(nothing)* — 16 CPU / 32 GB / 15 GB / 24 h → `q_1d` |
-| 1-epoch pipeline smoke test | `--ngpus 0 --ncpus 4 --mem 8 --walltime 01:00:00` + `-- "--epochs 1 --samples 10 --batch-size 10 --eval-samples 10"` (→ `q_2h`) |
-| Many conformers / large ligand | `--mem 64 --ncpus 32 --walltime 24:00:00` |
-| Shorter queue wait | Shorten `--walltime` (2 h → `q_2h`, 4 h → `q_4h`); never pass an execution queue |
-| Debug node | `--queue runone --walltime 02:00:00` if the account is allowed there (usually denied) |
+| Many conformers / large ligand | `--mem 64 --ncpus 32` (walltime stays 24 h → `q_1d`) |
+| Minimised 200-epoch run that cannot fit in a day | `--walltime 48:00:00` → `q_2d` |
+| GPU, only when the user asks | `--queue gpu_long --ngpus 1 --gpu-cap sm_89` |
+| Debug node | `--queue runone` if the account is allowed there (usually denied) |
 
 Queue lengths, memory sizing and walltime arithmetic: [`help/05-resources.md`](help/05-resources.md).
 
@@ -223,7 +236,8 @@ Queue lengths, memory sizing and walltime arithmetic: [`help/05-resources.md`](h
 ## 7. Before you say "submitted"
 
 - [ ] `git status --porcelain --untracked-files=no` is empty (or `sync` already passed).
-- [ ] `submit --dry-run` shows the intended pipeline deltas and nothing else.
+- [ ] The submission block printed `pipeline:` with the intended deltas and nothing else.
 - [ ] Job name is unique and descriptive; it becomes the run tag.
 - [ ] `status` shows the job (`Q` is fine; `H` means held — see `help/04-failures.md`).
-- [ ] You have told the user the `run id`, the queue and the expected wall-clock cost.
+- [ ] You have told the user the `run id`, the queue (`q_1d` by default) and the expected
+      wall-clock cost.

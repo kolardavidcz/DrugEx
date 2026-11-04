@@ -49,6 +49,11 @@ QUEUE_ROUTING: tuple[tuple[int, str], ...] = (
     (336, "q_2w"),
 )
 
+#: The one lane every job uses: 24 h, which the ``default`` router places in ``q_1d``.
+#: Walltime is not a queue-jumping knob — ask for the compute the run needs, not a
+#: shorter slot to land in a shallower queue.
+DEFAULT_WALLTIME = "24:00:00"
+
 _WALLTIME_RE = re.compile(r"^(\d{1,3}):([0-5]\d):([0-5]\d)$")
 _NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
 _KERBEROS_MARKERS = (
@@ -125,7 +130,7 @@ class JobSpec:
     ncpus: int = 16
     mem_gb: int = 32
     scratch_gb: int = 15
-    walltime: str = "24:00:00"
+    walltime: str = DEFAULT_WALLTIME
     queue: str | None = None
     spec: float | None = 8.0
     ngpus: int = 0
@@ -148,10 +153,10 @@ class JobSpec:
 
     @property
     def queue_label(self) -> str:
-        """What the operator should expect: an explicit queue, or the routed one."""
+        """What the operator should expect: an explicit queue, or the routed default."""
         if self.queue:
             return self.queue
-        return f"default router → {routed_queue(self.walltime)}"
+        return f"{routed_queue(self.walltime)} (default router)"
 
     @property
     def resources(self) -> str:
@@ -191,7 +196,7 @@ def spec_payload(spec: JobSpec, storage: str, revision: str) -> dict:
 
 
 def qsub_command(spec: JobSpec, storage: str, revision: str, host: str = DEFAULT_HOST) -> list[str]:
-    """Full ``ssh <host> qsub …`` argv for one job (also what ``--dry-run`` prints)."""
+    """Full ``ssh <host> qsub …`` argv for one job."""
     remote = ["qsub", "-N", spec.name]
     if spec.queue:
         remote += ["-q", spec.queue]
@@ -326,12 +331,13 @@ def submit_job(
     revision: str,
     host: str = DEFAULT_HOST,
     storage: str = storage_root(),
-    dry_run: bool = False,
-) -> str | None:
-    """Stage the spec and submit. Returns the PBS job id, or ``None`` for a dry run."""
+) -> str:
+    """Stage the spec, submit, and return the PBS job id.
+
+    There is no preview mode: the printed resource block in ``_do_submit`` is the
+    only summary, and the job is always handed to PBS.
+    """
     command = qsub_command(spec, storage, revision, host)
-    if dry_run:
-        return None
     stage_spec(host, storage, spec, revision)
     out = subprocess.run(command, capture_output=True, text=True)
     if out.returncode != 0:
@@ -547,13 +553,17 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--ncpus", type=int, default=JobSpec.ncpus)
     submit.add_argument("--mem", type=int, default=JobSpec.mem_gb, help="RAM in GB")
     submit.add_argument("--scratch", type=int, default=JobSpec.scratch_gb, help="scratch GB")
-    submit.add_argument("--walltime", default=JobSpec.walltime, help="HH:MM:SS; also picks the queue")
+    submit.add_argument(
+        "--walltime",
+        default=JobSpec.walltime,
+        help="HH:MM:SS compute budget (default: 24 h → q_1d)",
+    )
     submit.add_argument(
         "--queue",
         default=None,
         help=(
-            "route queue to submit to (default: none; PBS routes by walltime). "
-            "Execution queues such as p2e_1d/q_1d reject direct submissions."
+            "route/special queue only, e.g. gpu_long (default: none; PBS routes the "
+            "job by walltime into q_1d). Execution queues reject direct submissions."
         ),
     )
     submit.add_argument("--spec", type=float, default=JobSpec.spec, help="min node SPEC score")
@@ -561,7 +571,6 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--gpu-cap", default=None)
     submit.add_argument("--revision", default=None, help="commit to run (default: HEAD)")
     submit.add_argument("--no-sync", action="store_true", help="reuse an already staged release")
-    submit.add_argument("--dry-run", action="store_true", help="print the qsub command only")
 
     status = actions.add_parser("status", help="queue table for the current user")
     _common(status)
@@ -652,14 +661,8 @@ def _do_submit(args: argparse.Namespace, pipeline_args: list[str], storage: str)
 
     print(f"  release : {release_path(storage, revision)}")
     print(f"  queue   : {spec.queue_label}")
-    print(
-        f"  resources: {spec.resources}, walltime={spec.walltime}"
-        + ("" if spec.queue else " (routed by walltime; shorter walltime = shorter queue)")
-    )
+    print(f"  resources: {spec.resources}, walltime={spec.walltime}")
     print(f"  pipeline: {shlex.join(spec.args) or '(all PipelineConfig defaults)'}")
-    if args.dry_run:
-        print("\n$ " + shlex.join(qsub_command(spec, storage, revision, args.host)))
-        return
     job_id = submit_job(spec, revision, host=args.host, storage=storage)
     print(f"\nSubmitted {spec.name}: {job_id}")
     print(f"Watch it: python -m _david.code.metacentrum.submit logs {spec.name} -f")

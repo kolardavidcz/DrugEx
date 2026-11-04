@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): **Ad-hoc** host for occasional single CPU-heavy jobs; not a mirror of the local tree and not the default production queue. Managed via `python -m _david.code.metacentrum.submit`; the agent-facing template is [`code/metacentrum/RUNBOOK.md`](code/metacentrum/RUNBOOK.md).
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 130/130 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 131/131 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -106,7 +106,7 @@ _david/
 │       ├── help/                      # 01-submit … 06-storage + monitor_live_epochs.py
 │       ├── scripts/runed/             # Frozen historical PBS runners (provenance only)
 │       └── archive/                   # compare_output_trees.py + its usage contract
-├── code/tests/                         # 130 unit and regression tests (100% passing)
+├── code/tests/                         # 131 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 
@@ -137,10 +137,6 @@ monitoring, transfer and failure triage.
   template and rejected if passed.
 
 ```bash
-# Preview (prints release, resources and the exact qsub line; nothing is submitted)
-.venv/bin/python -m _david.code.metacentrum.submit submit \
-    --name egcg_gold_gmean --dry-run -- "--criteria gmean"
-
 # Submit with all PipelineConfig defaults, then watch and collect
 .venv/bin/python -m _david.code.metacentrum.submit submit --name egcg_default
 .venv/bin/python -m _david.code.metacentrum.submit status
@@ -152,6 +148,10 @@ monitoring, transfer and failure triage.
 ssh meta 'python3 /storage/brno2/brno2/kolardavidcz/DrugEx/current/_david/code/metacentrum/help/monitor_live_epochs.py'
 ```
 
+There is no preview/dry-run mode and no 1-epoch rehearsal: a submission queues the real job,
+prints its release, queue, resources and pipeline deltas before `qsub`, and the job's own
+startup guards plus its first epoch are the check.
+
 ### Resource defaults
 
 - **CPU job**: `ncpus=16, mem=32gb, scratch_local=15gb, walltime=24:00:00`, `spec=8.0`,
@@ -160,10 +160,10 @@ ssh meta 'python3 /storage/brno2/brno2/kolardavidcz/DrugEx/current/_david/code/m
 - **Queues are routed, not chosen**: from `tarkil`, `-q p2e_1d` fails with `Access from host
   not allowed` (`acl_hosts`) and `q_2h`/`q_4h`/`q_1d`/`q_2d` fail with `Access to queue is
   denied` (`from_route_only`). The `default` router picks by walltime: ≤2 h → `q_2h`,
-  ≤4 h → `q_4h`, ≤24 h → `q_1d`, ≤48 h → `q_2d`, ≤1 week → `q_1w`. **Shortening the
-  walltime is the only way to reach a faster queue**; a 24 h job waits behind thousands in
-  `q_1d`, while a 1 h smoke test in `q_2h` starts in minutes. `--queue` exists only for a
-  route queue/administrator grant such as `--queue gpu_long`.
+  ≤4 h → `q_4h`, ≤24 h → `q_1d`, ≤48 h → `q_2d`, ≤1 week → `q_1w`. **The default is the only
+  lane: 24 h → `q_1d`.** Do not shorten the walltime to land in a shallower queue; request
+  the budget the run needs (`48:00:00` → `q_2d` only for minimised sets that cannot fit in a
+  day). `--queue` exists only for a route queue/administrator grant such as `--queue gpu_long`.
 - **`spec=8.0`**: excludes ancient nodes without shrinking the pool to `fobos`/`bee` as
   `spec=10.0` does.
 - **GPU**: only on explicit request (`--ngpus 1 --queue gpu_long`); the generic `gpu` queue

@@ -40,8 +40,9 @@ ssh meta 'qstat -q | grep -E "^(Queue|q_2h|q_4h|q_1d|q_2d|gpu_long)"'
 - `H` with `comment = Job held by ...` — an administrator or the scheduler held it; usually
   the requested resources exceed the queue's per-job limit. Resubmit smaller.
 - `Q` with a huge queue depth — normal for `q_1d` (thousands waiting) and `gpu`. You cannot
-  pick a different execution queue; **shorten `--walltime`** so the router uses `q_2h`/`q_4h`.
-  Only ask for a GPU when the workload truly needs one.
+  pick a different execution queue, and trimming `--walltime` to reach `q_2h` just guarantees
+  a killed job. Wait, or kill and resubmit only if the budget was actually wrong. Never ask
+  for a GPU unless the workload truly needs one.
 - `Q` with `comment = Not Running: Insufficient amount of resource` and no queue depth —
   the request is unsatisfiable: `--mem` above the node class or `--ncpus` above the queue
   cap. Chapter 05 has the limits.
@@ -127,9 +128,9 @@ ssh <node> 'ls -l /scratch*/job_<id>*/output/*/; tail -20 /scratch*/job_<id>*/ou
 
 If `execution.log` stops before Stage 1 and no epoch appears within an hour, the process is
 wedged in setup or a pathological conformer embedding. Kill it and resubmit with
-`--timeout 20` (per-molecule ETKDG cap) and, if needed, `--epochs 1 --samples 10
---batch-size 10 --eval-samples 10` as a smoke test. Do not "wait it out": a held core still
-burns walltime.
+`--timeout 20` (per-molecule ETKDG cap). Do not "wait it out": a held core still burns
+walltime, and there is no cheaper probe than reading the first epoch's telemetry in
+`logs <name>`.
 
 For any traceback, reproduce locally first when it is cheap — the same commit runs on WSL:
 

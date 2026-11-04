@@ -61,7 +61,7 @@ before deleting anything. Full semantics:
 [`../archive/file_folder_tree_comparasion/COMPARE_OUTPUT_TREES.md`](../archive/file_folder_tree_comparasion/COMPARE_OUTPUT_TREES.md).
 
 For byte-level proof of a specific file (the layout checker deliberately does not audit CSV
-content), use rsync's dry-run checksum mode or md5:
+content), use rsync's checksum comparison mode or md5:
 
 ```bash
 rsync -anc "meta:$STORAGE/_david/output/" _david/output/ | head
