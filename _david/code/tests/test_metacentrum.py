@@ -139,7 +139,9 @@ class TestSubmissionPayload(unittest.TestCase):
         # No -q by default: the frontend may only reach the router.
         self.assertNotIn("-q ", command)
         self.assertIn(
-            f"RUN_SPEC={STORAGE}/jobs/egcg/spec.json,STORAGE_DIR={STORAGE}", command
+            f"RUN_SPEC={STORAGE}/jobs/egcg/spec.json,STORAGE_DIR={STORAGE},"
+            f"RELEASE_DIR={STORAGE}/releases/{REVISION}",
+            command,
         )
         self.assertIn(f"{STORAGE}/releases/{REVISION}/_david/code/metacentrum/", command)
         self.assertIn("pbs_launcher.sh", command)
@@ -294,17 +296,25 @@ class TestLauncher(unittest.TestCase):
 
     def test_launcher_is_a_strict_exec_shim(self) -> None:
         self.assertIn("set -euo pipefail", self.text)
-        self.assertIn('exec "$PYTHON" "$RELEASE/_david/code/metacentrum/job.py"', self.text)
+        self.assertIn('exec "$PYTHON" "$RELEASE_DIR/_david/code/metacentrum/job.py"', self.text)
         self.assertIn('"$STORAGE_DIR/.venv/bin/python"', self.text)
         self.assertIn("Missing validated environment", self.text)
 
-    def test_launcher_keeps_only_the_two_required_environment_checks(self) -> None:
+    def test_launcher_keeps_only_the_three_required_environment_checks(self) -> None:
         body = self.text.split("set -euo pipefail", 1)[1]
-        for variable in ("STORAGE_DIR", "RUN_SPEC"):
+        for variable in ("STORAGE_DIR", "RUN_SPEC", "RELEASE_DIR"):
             self.assertIn(f': "${{{variable}:?', body)
         # Run ids, copy-back, tee and signal handling all live in job.py now.
         for legacy in ("rsync", "tee ", "date +%Y", "trap ", "PBS_JOBID"):
             self.assertNotIn(legacy, body)
+
+    def test_launcher_never_derives_the_release_from_its_own_path(self) -> None:
+        # Regression pin: PBS spools the script to /var/spool/pbs/..., so
+        # dirname(BASH_SOURCE) resolved to /var/spool/_david and job.py vanished
+        # (jobs 25256872/25256873 died in one second on 2026-11-04).
+        for marker in ("BASH_SOURCE", "dirname"):
+            self.assertNotIn(marker, self.text)
+        self.assertIn("${RELEASE_DIR:?", self.text)
 
     def test_pbs_fallbacks_match_the_routed_default(self) -> None:
         self.assertIn("#PBS -l walltime=24:00:00", self.text)

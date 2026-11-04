@@ -12,7 +12,7 @@ entry point, commit before submitting).
 | :--- | :--- |
 | [`RUNBOOK.md`](RUNBOOK.md) | The template: commands, recipes, checklist. Start here. |
 | [`submit.py`](submit.py) | The CLI: `check · sync · submit · status · logs · cancel · pull`. |
-| [`pbs_launcher.sh`](pbs_launcher.sh) | PBS entry point: six lines that check the environment and `exec` the job body. No logic. |
+| [`pbs_launcher.sh`](pbs_launcher.sh) | PBS entry point: checks the environment and `exec`s the job body from `RELEASE_DIR`. No logic. |
 | [`job.py`](job.py) | The job body: release copy, run id, pipeline invocation, log mirroring, copy-back and signal exit codes. Stdlib-only and unit-tested. |
 | [`help/`](help/README.md) | Long-form tutorials: submitting, monitoring, collecting, failures, resources, storage. Includes [`monitor_live_epochs.py`](help/monitor_live_epochs.py). |
 | [`scripts/runed/`](scripts/runed/README.md) | Frozen PBS scripts from the grid era (provenance only, never re-run). |

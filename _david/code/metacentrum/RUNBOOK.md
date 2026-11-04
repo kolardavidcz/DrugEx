@@ -205,9 +205,11 @@ storage layout: [`help/03-collect.md`](help/03-collect.md) and
    `Papyrus05.5_smiles_rnn_PT.{pkg,vocab}` to `$STORAGE/models/`.
 2. It writes `$STORAGE/jobs/<name>/spec.json` with the exact argument vector, release path
    and revision.
-3. `qsub` starts `pbs_launcher.sh` with `RUN_SPEC` and `STORAGE_DIR` in the environment.
-   The launcher checks the two variables and the stored venv, then `exec`s
-   `$STORAGE/.venv/bin/python <release>/_david/code/metacentrum/job.py --release <release>`.
+3. `qsub` starts `pbs_launcher.sh` with `RUN_SPEC`, `STORAGE_DIR` and `RELEASE_DIR` in the
+   environment. PBS spools the script outside the release, so the release path must be passed
+   explicitly — never derived from the launcher's own location. The launcher checks the three
+   variables and the stored venv, then `exec`s
+   `$STORAGE/.venv/bin/python $RELEASE_DIR/_david/code/metacentrum/job.py --release $RELEASE_DIR`.
 4. `job.py` validates `spec.json`, claims a new run id, copies the release into
    `$SCRATCHDIR/DrugEx`, and runs
    `python -u -m _david.code.pipeline --output-dir $SCRATCHDIR/output/<run-id> <args>`,

@@ -70,10 +70,13 @@ Storage daemon details and cleanup rules: [`06-storage.md`](06-storage.md).
 
 ## 3. The launcher and the job body
 
-PBS needs a script, so the entry point is [`pbs_launcher.sh`](../pbs_launcher.sh): six lines
-that require `STORAGE_DIR` and `RUN_SPEC`, check `$STORAGE/.venv/bin/python`, derive the
-release root from their own path, and `exec` [`job.py`](../job.py) with the stored
-interpreter. Everything else is Python, because the interesting part is not shell-shaped:
+PBS needs a script, so the entry point is [`pbs_launcher.sh`](../pbs_launcher.sh): a few
+lines that require `STORAGE_DIR`, `RUN_SPEC` and `RELEASE_DIR`, check
+`$STORAGE/.venv/bin/python`, and `exec` [`job.py`](../job.py) from that release with the
+stored interpreter. `RELEASE_DIR` is passed by `submit.py` because **PBS spools the script
+outside the release**: `dirname(BASH_SOURCE)` resolves to `/var/spool/pbs` on the worker, not
+to `releases/<sha>/`. Everything else is Python, because the interesting part is not
+shell-shaped:
 
 1. `job.py` fails fast if `PBS_JOBID`, `SCRATCHDIR`, `STORAGE_DIR` or `RUN_SPEC` is missing,
    if the venv is gone, if the spec is malformed, or if the launcher's release and

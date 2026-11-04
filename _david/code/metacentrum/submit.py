@@ -206,7 +206,10 @@ def qsub_command(spec: JobSpec, storage: str, revision: str, host: str = DEFAULT
         "-l",
         f"walltime={spec.walltime}",
         "-v",
-        f"RUN_SPEC={spec_path(storage, spec.name)},STORAGE_DIR={storage}",
+        (
+            f"RUN_SPEC={spec_path(storage, spec.name)},STORAGE_DIR={storage},"
+            f"RELEASE_DIR={release_path(storage, revision)}"
+        ),
         launcher_path(storage, revision),
     ]
     return ["ssh", host, shlex.join(remote)]
