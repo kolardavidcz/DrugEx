@@ -98,7 +98,7 @@ Read the first 40 lines of the PBS log, not the last.
 | `qsub: Job violates queue resource limits` | Request exceeds the queue cap. Lower `--ncpus/--mem/--walltime` (chapter 05). |
 | `RuntimeError: BatchMode SSH…` | Kerberos, §3. |
 
-The PBS log's first block is the template header. If it is absent, the job never reached our
+The PBS log's first block is the `job.py` header. If it is absent, the job never reached our
 script — the failure is entirely in PBS (request or environment), not in DrugEx.
 
 ## 5. Python traceback
@@ -170,7 +170,7 @@ writing an SDF. The run's scratch holds the release (~23 MB), the run directory 
 EGCG-scale runs; for large ligands or several thousand minimised conformers go to 30 GB:
 
 ```bash
-… submit --name big_lig --scratch 30 -- "--conformers 40"
+… submit --name big_lig --scratch 30 -- --conformers 40
 ```
 
 ## 7. Results never arrived

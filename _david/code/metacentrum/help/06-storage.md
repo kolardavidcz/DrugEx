@@ -11,7 +11,7 @@ is the most expensive mistake in this package.
 | Written by | PBS (`<job>.o<seq>` logs) | `sync`, jobs, `pull` |
 | Holds | PBS stdout/stderr | releases, models, specs, run results, `.venv` |
 
-`~` on the login node is the **praha1** home, not brno2. `job_template.sh` never writes to
+`~` on the login node is the **praha1** home, not brno2. The launcher and `job.py` never write to
 `$HOME`; PBS does (stdout/stderr). Long runs produce tens of megabytes there because Python
 warning floods are repeated per process, so sweep `$HOME/*.o*` after pulling them (chapter
 03 §3).
@@ -58,11 +58,12 @@ Rules:
 
 - Never delete or "refresh" `.venv` to fix a dependency problem without the user's explicit
   go-ahead. Rebuilding is a manual, version-sensitive operation (CVMFS python + uv + the CUDA
-  torch wheel), and the result must be validated by a real submission: the template guards
-  plus the first epoch row in `models/SequenceRNN_reinforced_fit.tsv` are the acceptance test.
+  torch wheel), and the result must be validated by a real submission: the launcher's
+  environment check plus the first epoch row in `models/SequenceRNN_reinforced_fit.tsv` are
+  the acceptance test.
 - `sync` does not touch `.venv`. Code updates never invalidate it, because the code is
   supplied by the release, not installed into the venv.
-- If `.venv` ever disappears, every submission fails at the template's first guard with
+- If `.venv` ever disappears, every submission fails at the launcher's first check with
   `Missing validated environment`; that is the intended failure mode (chapter 04 §4).
 
 ## 3. Releases
@@ -105,7 +106,7 @@ or replace them while jobs are queued; a mismatched `.pkg`/`.vocab` pair produce
 
 Scratch (`$SCRATCHDIR`, e.g. `/scratch/job_<id>`) is **not** storage: it is local disk on the
 worker, invisible from the login node unless you SSH to the node, and purged after the job.
-The template copies the run directory back before cleaning it, and refuses to clean if the
+`job.py` copies the run directory back before cleaning it, and refuses to clean if the
 copy failed.
 
 ## 6. Quotas and accounting

@@ -67,16 +67,16 @@ $PY -m _david.code.metacentrum.submit logs <name> -n 200
 ssh meta 'ls -t $HOME/<name>.o* | head -3'                 # several attempts of one name
 ```
 
-The first 15 lines are the template header — job id, node, queue, cpus, scratch path,
+The first lines are the `job.py` header — job id, node, queue, cpus, scratch path,
 release, revision, run id and the final results directory. After that, the pipeline's own
 log. Two harmless lines that look alarming:
 
 - `RuntimeWarning: '_david.code.pipeline' found in sys.modules after import of package
   '_david.code'` — an artefact of `python -m` plus the package `__init__`; ignore it.
-- Matplotlib backend messages — the template forces `Agg`, so figures are written, not shown.
+- Matplotlib backend messages — the job body forces `Agg`, so figures are written, not shown.
 
 The log does **not** contain per-epoch metrics (those go to the run directory). It contains
-startup guards, tracebacks, and the final `Results copied to …` line from the EXIT trap.
+startup guards, tracebacks, and the final `Results copied to …` line from `job.py`.
 PBS may create the file only when the job ends, so `logs` returning "No PBS log" for a
 running job is not proof that the job failed — check `status` first.
 
@@ -175,6 +175,6 @@ $PY -m _david.code.metacentrum.submit cancel 25244717      # one job id
 ssh meta 'qselect -u kolardavidcz -s Q | xargs -r qdel'    # everything queued, nothing running
 ```
 
-`qdel` on a running job sends `SIGTERM`; the template's trap copies partial results back
+`qdel` on a running job sends `SIGTERM`; `job.py`'s `finally` block copies partial results back
 before cleaning scratch. Give it a minute, then `qstat -x -f <id>` to confirm the copy line
 in the log. Never delete a scratch directory by hand while the trap may still be copying.

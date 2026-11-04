@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): **Ad-hoc** host for occasional single CPU-heavy jobs; not a mirror of the local tree and not the default production queue. Managed via `python -m _david.code.metacentrum.submit`; the agent-facing template is [`code/metacentrum/RUNBOOK.md`](code/metacentrum/RUNBOOK.md).
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 131/131 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 143/143 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -99,14 +99,15 @@ _david/
 │   │   ├── cli.py                     # migrate · registry · figures · study · cache-stats
 │   │   ├── README.md / DESIGN.md      # Package overview / design rationale
 │   │   └── results.md                 # Conformer findings & decision record
-│   └── metacentrum/                   # Ad-hoc PBS jobs: one CLI, one template, tutorials
+│   └── metacentrum/                   # Ad-hoc PBS jobs: one CLI, one launcher + job body, tutorials
 │       ├── RUNBOOK.md                 # The agent-facing template: commands + recipes
 │       ├── submit.py                  # check · sync · submit · status · logs · cancel · pull
-│       ├── job_template.sh            # PBS body: release → scratch → pipeline → copy back
+│       ├── pbs_launcher.sh            # PBS entry: env guards + exec, no logic
+│       ├── job.py                     # PBS body: run id, release copy, pipeline, copy-back
 │       ├── help/                      # 01-submit … 06-storage + monitor_live_epochs.py
 │       ├── scripts/runed/             # Frozen historical PBS runners (provenance only)
 │       └── archive/                   # compare_output_trees.py + its usage contract
-├── code/tests/                         # 131 unit and regression tests (100% passing)
+├── code/tests/                         # 143 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 
@@ -196,7 +197,7 @@ _david/output/YYYYmmdd_HHMM[_tag]/
 ```
 
 - Local default: `_david/output/<minute>[_tag]`; `--run-tag` names it, `--output-dir` overrides the whole path.
-- MetaCentrum: `$STORAGE/_david/output/<minute>_<experiment>`, written by `job_template.sh`.
+- MetaCentrum: `$STORAGE/_david/output/<minute>_<experiment>`, written by `job.py`.
 - A same-minute collision gets `_2`, `_3` … so two runs cannot share a manifest.
 - Historical runs (`sprint_h1_*`, `egcg_k4_*`, …) keep their original names; `RL_RUN_AUDIT.md` and `manifests` are the authoritative record of what each one is.
 

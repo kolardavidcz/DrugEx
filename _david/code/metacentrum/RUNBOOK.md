@@ -5,9 +5,9 @@ local workstation or `dichtator` cannot deliver the cores. It is not a productio
 that mirrors the local tree.
 
 If an agent is asked to "run X on meta", this file is the whole contract. Do not invent a
-new shell script, do not edit `job_template.sh` for one experiment, do not call `qsub`
-directly. `submit.py` stages a release, writes the job spec and submits it;
-`job_template.sh` is the PBS body and never changes per run.
+new shell script, do not edit `pbs_launcher.sh` or `job.py` for one experiment, do not call
+`qsub` directly. `submit.py` stages a release, writes the job spec and submits it; the PBS
+side is a six-line launcher plus `job.py`, and neither changes per run.
 
 ---
 
@@ -111,15 +111,15 @@ a special queue an administrator grants; it is never needed for normal work.
 ```bash
 # Geometric-mean checkpointing only
 $PY -m _david.code.metacentrum.submit submit \
-    --name egcg_gmean -- "--criteria gmean"
+    --name egcg_gmean -- --criteria gmean
 
 # No QED objective, 50 epoch cap
 $PY -m _david.code.metacentrum.submit submit \
-    --name egcg_noqed_50 -- "--epochs 50 --no-include-qed"
+    --name egcg_noqed_50 -- --epochs 50 --no-include-qed
 
 # Minimised candidates (slower, ~4x; only when asked)
 $PY -m _david.code.metacentrum.submit submit \
-    --name egcg_min -- "--minimize-candidates --conformers 20"
+    --name egcg_min -- --minimize-candidates --conformers 20
 ```
 
 Both spellings of the pipeline arguments are equivalent (`--args "…"` or after `--`);
@@ -140,7 +140,7 @@ accepted; the generic `gpu` queue is the same but far deeper):
 ```bash
 $PY -m _david.code.metacentrum.submit submit \
     --name egcg_gpu --queue gpu_long --ngpus 1 --gpu-cap "sm_89" --walltime 24:00:00 \
-    -- "--epochs 100"
+    -- --epochs 100
 ```
 
 `--spec` defaults to `8.0` for both CPU and GPU: it excludes ancient nodes without
@@ -205,11 +205,14 @@ storage layout: [`help/03-collect.md`](help/03-collect.md) and
    `Papyrus05.5_smiles_rnn_PT.{pkg,vocab}` to `$STORAGE/models/`.
 2. It writes `$STORAGE/jobs/<name>/spec.json` with the exact argument vector, release path
    and revision.
-3. `qsub` starts `job_template.sh` with `RUN_SPEC` and `STORAGE_DIR` in the environment.
-4. The template checks `$STORAGE/.venv/bin/python`, claims a new run id, copies the release
-   into `$SCRATCHDIR/DrugEx`, and runs
-   `python -m _david.code.pipeline --output-dir $SCRATCHDIR/output/<run-id> <args>`.
-5. An `EXIT` trap copies the run directory back to `$STORAGE/_david/output/<run-id>` on
+3. `qsub` starts `pbs_launcher.sh` with `RUN_SPEC` and `STORAGE_DIR` in the environment.
+   The launcher checks the two variables and the stored venv, then `exec`s
+   `$STORAGE/.venv/bin/python <release>/_david/code/metacentrum/job.py --release <release>`.
+4. `job.py` validates `spec.json`, claims a new run id, copies the release into
+   `$SCRATCHDIR/DrugEx`, and runs
+   `python -u -m _david.code.pipeline --output-dir $SCRATCHDIR/output/<run-id> <args>`,
+   mirroring stdout+stderr into `<run>/execution.log`.
+5. A `finally` block copies the run directory back to `$STORAGE/_david/output/<run-id>` on
    success, failure, `SIGTERM` (walltime) and `SIGINT`, then cleans scratch. A failed
    transfer keeps scratch alive and exits non-zero.
 

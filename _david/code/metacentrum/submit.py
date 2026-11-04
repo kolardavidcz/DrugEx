@@ -2,7 +2,7 @@
 
 This module is the *only* command an operator (or an agent) needs. It stages an
 immutable release of the committed tree, writes the per-job specification and
-calls ``qsub``; the PBS work itself is done by ``job_template.sh``.
+calls ``qsub``; the PBS work itself is done by ``pbs_launcher.sh`` + ``job.py``.
 
 Read ``RUNBOOK.md`` next to this file for the recipes, ``help/`` for the
 long-form tutorials. Pipeline hyperparameters are **not** duplicated here: every
@@ -27,8 +27,8 @@ DEFAULT_HOST = "meta"
 DEFAULT_USER = "kolardavidcz"
 DEFAULT_SITE = "brno2"
 
-#: PBS script executed inside the job; shipped with the release, never edited per run.
-TEMPLATE_NAME = "job_template.sh"
+#: PBS entry point: a shell shim that execs ``job.py`` from the same release.
+LAUNCHER_NAME = "pbs_launcher.sh"
 MODEL_STEM = "Papyrus05.5_smiles_rnn_PT"
 
 #: Flags the template owns. Letting a caller set them would silently override
@@ -90,9 +90,9 @@ def spec_path(storage: str, name: str) -> str:
     return f"{storage}/jobs/{name}/spec.json"
 
 
-def template_path(storage: str, revision: str) -> str:
-    """PBS script shipped inside the release, so a job can never drift from its code."""
-    return f"{release_path(storage, revision)}/_david/code/metacentrum/{TEMPLATE_NAME}"
+def launcher_path(storage: str, revision: str) -> str:
+    """PBS shim shipped inside the release, so a job can never drift from its code."""
+    return f"{release_path(storage, revision)}/_david/code/metacentrum/{LAUNCHER_NAME}"
 
 
 def walltime_seconds(value: str) -> int:
@@ -148,7 +148,7 @@ class JobSpec:
         for flag in RESERVED_FLAGS:
             if any(arg == flag or arg.startswith(f"{flag}=") for arg in self.args):
                 raise ValueError(
-                    f"{flag} is owned by the MetaCentrum template and must not be passed"
+                    f"{flag} is owned by the MetaCentrum job body and must not be passed"
                 )
 
     @property
@@ -175,7 +175,7 @@ class JobSpec:
 
 
 def spec_payload(spec: JobSpec, storage: str, revision: str) -> dict:
-    """JSON handed to ``job_template.sh``.
+    """JSON handed to ``job.py``.
 
     ``--agent-path``/``--vocab-path`` are appended here because the checkpoint is
     staged on storage, not shipped in the release.
@@ -207,7 +207,7 @@ def qsub_command(spec: JobSpec, storage: str, revision: str, host: str = DEFAULT
         f"walltime={spec.walltime}",
         "-v",
         f"RUN_SPEC={spec_path(storage, spec.name)},STORAGE_DIR={storage}",
-        template_path(storage, revision),
+        launcher_path(storage, revision),
     ]
     return ["ssh", host, shlex.join(remote)]
 

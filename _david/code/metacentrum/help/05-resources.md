@@ -113,7 +113,7 @@ Rules of thumb:
 | Minimised, C=40, or large ligand | 30 |
 | Several thousand minimised conformers | 50 |
 
-Scratch is local disk on the worker, wiped by the template after the copy-back. It is **not**
+Scratch is local disk on the worker, wiped by `job.py` after the copy-back. It is **not**
 a place to keep results; only `$STORAGE` survives the job.
 
 ## 6. Walltime arithmetic
@@ -159,7 +159,7 @@ core-hours of a shared national resource. Consequences for how we operate:
 
 - Do not leave a converged run queued for days; kill it.
 - Do not submit four near-identical arms "just in case"; submit the one the user asked for.
-- There is no rehearsal job. The template's startup guards (environment, spec, release,
-  scratch) fail within seconds of the job starting, and `logs <name>` shows that immediately;
-  a separate 1-epoch probe adds a queue wait without telling you anything the real job's first
-  epoch does not.
+- There is no rehearsal job. The launcher's environment check and `job.py`'s spec, release and
+  scratch validation fail within seconds of the job starting, and `logs <name>` shows that
+  immediately; a separate 1-epoch probe adds a queue wait without telling you anything the
+  real job's first epoch does not.

@@ -36,7 +36,7 @@ All thesis code lives in **`_david/`**. The DrugEx core (`drugex/`, repo root) i
 │   ├── AGENTS.md      # authoritative technical rules (this file's superset)
 │   ├── code/          # pipeline: config schema utils chemistry reference rocs models environment pipeline visualization
 │   │   ├── conformer/ # calibration research package (see §9)
-│   │   └── metacentrum/ # grid.py, job_template.sh, scripts/h1..h4
+│   │   └── metacentrum/ # submit.py, pbs_launcher.sh, job.py, help/, scripts/runed/
 │   ├── tests/         # 74 tests (see §9)
 │   ├── reference/     # 5 architecture/context markdown docs (~56 KB)
 │   ├── onboarding/    # model-harness-transfer/HANDOFF.md + this file
@@ -160,7 +160,7 @@ Repo: https://github.com/fulopjoz/DrugEx/tree/egcg-rocs-tutorial/tutorial/advanc
 
 **`_david/tests/`** (74, all passing): `test_candidate_embedding_parallel.py` (15) · `test_conformer_analysis.py` (2) · `test_joint_calibration.py` (21) · `test_pipeline_configuration.py` (15) · `test_rocs.py` (5) · `test_self_recovery.py` (4) · `test_sequencer_pipeline.py` (12).
 
-**`_david/code/metacentrum/`**: `grid.py` (CLI verbs: `test sync status pull submit grid submit-grid sprint submit-sprint`; stages `git archive` of a **committed** revision to `/storage/.../releases/<sha>/`; Kerberos-aware), `job_template.sh` (reads JSON `RUN_SPEC`, never `eval`; `DRUGEX_MP_CONTEXT=forkserver`; cleanup trap rsyncs results back), `scripts/h1..h4_*.sh` + `submit_all_hypotheses.sh`. Note `_david/metacentrum/` (top level) is stale — only a `.pyc`.
+**`_david/code/metacentrum/`**: `submit.py` (CLI verbs: `check sync submit status logs cancel pull`; stages `git archive` of a **committed** revision to `/storage/.../releases/<sha>/`; Kerberos-aware), `pbs_launcher.sh` (six-line PBS entry that `exec`s `job.py` with the stored venv), `job.py` (stdlib-only job body: spec validation, run id, release copy, pipeline invocation, log mirroring, copy-back and 128+signal exit codes), `help/` (chapters 01–06 + live-epoch monitor), `scripts/runed/` (frozen historical PBS runners). The old grid/sprint machinery and `job_template.sh` are gone; `_david/metacentrum/` (top level) is stale — only a `.pyc`.
 
 **`_david/output/`** (key dirs): `20261028_2145_joint_calibration/`, `20261029_egcg_omnibus_diagnostic/` (12,600-cell grid + CSVs + `drug121_*` caches), `20261029_1155_reward_calibration/` (dichtator), `rl_suite_egcg_6arm/`, `rollback_checkpoints/`, `run16_sequencer_weighted_sum`, `run17_baseline_50ep`, `run18_epsilon_zero_50ep`.
 

@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import io
+import json
+import os
+import signal
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime
 from unittest.mock import patch
 
-from _david.code.metacentrum import submit
+from _david.code.metacentrum import job, submit
 from _david.code.metacentrum.submit import (
     MODEL_STEM,
     RESERVED_FLAGS,
@@ -135,7 +142,7 @@ class TestSubmissionPayload(unittest.TestCase):
             f"RUN_SPEC={STORAGE}/jobs/egcg/spec.json,STORAGE_DIR={STORAGE}", command
         )
         self.assertIn(f"{STORAGE}/releases/{REVISION}/_david/code/metacentrum/", command)
-        self.assertIn("job_template.sh", command)
+        self.assertIn("pbs_launcher.sh", command)
         # The pipeline arguments stay in spec.json; qsub only carries PBS state.
         self.assertNotIn("gmean", command)
 
@@ -278,40 +285,212 @@ class TestPull(unittest.TestCase):
             self.assertFalse(dest.exists())
 
 
-class TestJobTemplateContract(unittest.TestCase):
-    """The PBS script owns the release/scratch contract; these are its invariants."""
+class TestLauncher(unittest.TestCase):
+    """The PBS entry point is a shim; job logic must not creep back into bash."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        template = Path(submit.__file__).with_name(submit.TEMPLATE_NAME)
-        cls.text = template.read_text()
+        cls.text = Path(submit.__file__).with_name(submit.LAUNCHER_NAME).read_text()
 
-    def test_template_fails_fast_on_missing_pbs_environment(self) -> None:
+    def test_launcher_is_a_strict_exec_shim(self) -> None:
         self.assertIn("set -euo pipefail", self.text)
-        for variable in ("PBS_JOBID", "SCRATCHDIR", "STORAGE_DIR", "RUN_SPEC"):
-            self.assertIn(f": \"${{{variable}:?", self.text)
+        self.assertIn('exec "$PYTHON" "$RELEASE/_david/code/metacentrum/job.py"', self.text)
+        self.assertIn('"$STORAGE_DIR/.venv/bin/python"', self.text)
+        self.assertIn("Missing validated environment", self.text)
 
-    def test_template_claims_a_free_run_directory_like_the_local_pipeline(self) -> None:
-        self.assertIn("date +%Y%m%d_%H%M", self.text)
-        self.assertIn('suffix=2', self.text)
-        self.assertIn('_${suffix}', self.text)
+    def test_launcher_keeps_only_the_two_required_environment_checks(self) -> None:
+        body = self.text.split("set -euo pipefail", 1)[1]
+        for variable in ("STORAGE_DIR", "RUN_SPEC"):
+            self.assertIn(f': "${{{variable}:?', body)
+        # Run ids, copy-back, tee and signal handling all live in job.py now.
+        for legacy in ("rsync", "tee ", "date +%Y", "trap ", "PBS_JOBID"):
+            self.assertNotIn(legacy, body)
 
-    def test_template_copies_back_on_every_exit_path(self) -> None:
-        self.assertIn("trap cleanup EXIT", self.text)
-        self.assertIn("trap 'exit 143' TERM", self.text)
-        self.assertIn("trap 'exit 130' INT", self.text)
-        self.assertIn("rsync -a \"$OUT_DIR/\" \"$RESULTS_DIR/\"", self.text)
-        self.assertIn("submission.json", self.text)
+    def test_pbs_fallbacks_match_the_routed_default(self) -> None:
+        self.assertIn("#PBS -l walltime=24:00:00", self.text)
+        self.assertIn("#PBS -j oe", self.text)
 
-    def test_template_passes_arguments_as_json_not_as_a_shell_string(self) -> None:
-        self.assertIn("json.load(handle)", self.text)
-        self.assertIn('"--output-dir"', self.text)
-        self.assertNotIn("eval ", self.text)
 
-    def test_template_reports_the_granted_core_count(self) -> None:
-        """PBS `NCPUS` was 1 for a 4-core job; the node file is authoritative."""
-        self.assertIn("PBS_NODEFILE", self.text)
-        self.assertIn("${JOB_CPUS:-?}", self.text)
+class TestJobBody(unittest.TestCase):
+    """job.py is the PBS body: stdlib-only, so its contract is unit-tested, not grepped."""
+
+    def test_job_body_does_not_import_the_project(self) -> None:
+        source = Path(job.__file__).read_text()
+        for marker in ("from _david", "import _david", "import torch", "import rdkit"):
+            self.assertNotIn(marker, source)
+
+    def test_spec_round_trips_from_submit_to_job(self) -> None:
+        spec = JobSpec(name="egcg", args=("--criteria", "gmean"))
+        payload = spec_payload(spec, STORAGE, REVISION)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "spec.json"
+            path.write_text(json.dumps(payload))
+            self.assertEqual(job.read_spec(path), payload)
+
+    def test_spec_missing_or_malformed_fields_are_fatal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "spec.json"
+            path.write_text('{"name": "x"}')
+            with self.assertRaises(job.JobError) as ctx:
+                job.read_spec(path)
+            self.assertIn("args, source, revision", str(ctx.exception))
+            path.write_text('{"name": "x", "args": [1], "source": "s", "revision": "r"}')
+            with self.assertRaises(job.JobError):
+                job.read_spec(path)
+            with self.assertRaises(job.JobError):
+                job.read_spec(Path(tmp) / "nope.json")
+
+    def test_missing_pbs_environment_is_one_actionable_line(self) -> None:
+        with patch.dict(os.environ, {}, clear=True), redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(job.main([]), 1)
+        self.assertIn("Missing PBS environment", err.getvalue())
+
+    def test_run_id_matches_the_local_scheme_and_avoids_collisions(self) -> None:
+        when = datetime(2026, 11, 4, 15, 30)
+        with tempfile.TemporaryDirectory() as tmp:
+            storage, scratch = Path(tmp) / "storage", Path(tmp) / "scratch"
+            (storage / "_david" / "output").mkdir(parents=True)
+            results, out = job.results_layout(storage, scratch, "egcg", when)
+            self.assertEqual(results.name, "20261104_1530_egcg")
+            self.assertEqual(out, scratch / "output" / results.name)
+            results.mkdir()
+            again, _ = job.results_layout(storage, scratch, "egcg", when)
+            self.assertEqual(again.name, "20261104_1530_egcg_2")
+
+    def test_core_count_comes_from_the_node_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            nodefile = Path(tmp) / "nodefile"
+            nodefile.write_text("n1\nn1\nn1\nn1\n")
+            self.assertEqual(job.job_cpus({"PBS_NODEFILE": str(nodefile), "NCPUS": "1"}), "4")
+            self.assertEqual(job.job_cpus({"NCPUS": "1"}), "1")
+            self.assertEqual(job.job_cpus({}), "?")
+
+    def test_pipeline_command_owns_the_output_directory(self) -> None:
+        spec = {"name": "x", "args": ["--criteria", "gmean"], "source": "/r", "revision": "abc"}
+        command = job.pipeline_command(Path("/py"), Path("/out"), spec)
+        self.assertEqual(command[:5], ["/py", "-u", "-m", "_david.code.pipeline", "--output-dir"])
+        self.assertEqual(command[5], "/out")
+        self.assertEqual(command[6:], ["--criteria", "gmean"])
+
+    def test_worker_environment_pins_threads_and_the_scratch_release(self) -> None:
+        env = job.job_environment(
+            {"PYTHONPATH": "/elsewhere"}, Path("/scratch/DrugEx"), {"revision": "abc"}
+        )
+        self.assertEqual(env["MPLBACKEND"], "Agg")
+        self.assertEqual(env["DRUGEX_MP_CONTEXT"], "forkserver")
+        self.assertEqual(env["DRUGEX_SOURCE_REVISION"], "abc")
+        self.assertEqual(env["PYTHONPATH"], "/scratch/DrugEx:/elsewhere")
+
+    def test_prepare_run_copies_the_release_and_the_spec(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            release = Path(tmp) / "release"
+            (release / "_david" / "code").mkdir(parents=True)
+            (release / "_david" / "code" / "pipeline.py").write_text("# code\n")
+            spec_path = Path(tmp) / "spec.json"
+            spec_path.write_text("{}\n")
+            out_dir = Path(tmp) / "out" / "run"
+            copy = Path(tmp) / "scratch" / "DrugEx"
+            job.prepare_run(release, copy, spec_path, out_dir)
+            self.assertTrue((copy / "_david" / "code" / "pipeline.py").is_file())
+            self.assertEqual((out_dir / "submission.json").read_text(), "{}\n")
+
+    def test_pipeline_output_is_mirrored_to_stdout_and_the_log(self) -> None:
+        command = [
+            sys.executable,
+            "-c",
+            "import sys; print('out'); print('err', file=sys.stderr); raise SystemExit(3)",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "execution.log"
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                status = job.run_pipeline(command, Path(tmp), dict(os.environ), log_path)
+            self.assertEqual(status, 3)
+            self.assertIn("out", stdout.getvalue())
+            self.assertIn("err", stdout.getvalue())
+            log = log_path.read_text()
+            self.assertIn("out", log)
+            self.assertIn("err", log)
+
+    def test_finalize_copies_results_then_cleans_scratch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / "scratch"
+            out_dir = scratch / "output" / "run"
+            out_dir.mkdir(parents=True)
+            (out_dir / "manifest.json").write_text("{}")
+            (scratch / "DrugEx").mkdir()
+            results = Path(tmp) / "storage" / "output" / "run"
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(job.finalize(out_dir, results, scratch, 7), 7)
+            self.assertEqual((results / "manifest.json").read_text(), "{}")
+            self.assertFalse((scratch / "DrugEx").exists())
+
+    def test_failed_transfer_keeps_scratch_and_exits_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / "scratch"
+            out_dir = scratch / "output" / "run"
+            out_dir.mkdir(parents=True)
+            (out_dir / "manifest.json").write_text("{}")
+            results = Path(tmp) / "storage" / "output" / "run"
+            results.parent.mkdir(parents=True)
+            results.write_text("a file where the directory should be")
+            with redirect_stderr(io.StringIO()) as err:
+                status = job.finalize(out_dir, results, scratch, 0)
+            self.assertEqual(status, 1)
+            self.assertIn("scratch kept", err.getvalue())
+            self.assertTrue(out_dir.exists())
+
+    def test_main_orchestrates_release_run_and_copy_back(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            storage, scratch, release = root / "storage", root / "scratch", root / "release"
+            (storage / "_david" / "output").mkdir(parents=True)
+            (storage / ".venv" / "bin").mkdir(parents=True)
+            (storage / ".venv" / "bin" / "python").symlink_to(sys.executable)
+            (release / "_david" / "code").mkdir(parents=True)
+            (release / "_david" / "code" / "pipeline.py").write_text("# code\n")
+            spec = root / "spec.json"
+            spec.write_text(
+                json.dumps({"name": "egcg", "args": [], "source": str(release), "revision": "abc"})
+            )
+            nodefile = root / "nodefile"
+            nodefile.write_text("n1\nn1\n")
+            env = {
+                "PBS_JOBID": "1.pbs-m1",
+                "SCRATCHDIR": str(scratch),
+                "STORAGE_DIR": str(storage),
+                "RUN_SPEC": str(spec),
+                "PBS_NODEFILE": str(nodefile),
+            }
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, env, clear=True),
+                patch.object(job, "run_pipeline", return_value=0) as run,
+                redirect_stdout(output),
+            ):
+                self.assertEqual(job.main(["--release", str(release)]), 0)
+            self.assertIn("cpus       : 2", output.getvalue())
+            self.assertEqual(run.call_args.kwargs["cwd"], scratch / "DrugEx")
+            commands = run.call_args.args[0]
+            self.assertIn("--output-dir", commands)
+            self.assertTrue(str(commands[commands.index("--output-dir") + 1]).startswith(str(scratch)))
+            results = list((storage / "_david" / "output").iterdir())
+            self.assertEqual(len(results), 1)
+            self.assertTrue((results[0] / "submission.json").is_file())
+            self.assertFalse((scratch / "DrugEx").exists())
+
+    def test_walltime_and_interrupt_become_shell_exit_codes(self) -> None:
+        previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+        try:
+            job.install_signal_handlers()
+            for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130)):
+                handler = signal.getsignal(signum)
+                with self.assertRaises(SystemExit) as ctx:
+                    handler(signum, None)
+                self.assertEqual(ctx.exception.code, code)
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
 
 
 if __name__ == "__main__":

@@ -8,11 +8,11 @@ now wrong:
 
 - storage detection that scans `/storage/brno2/brno2` and `/storage/brno2/home` at runtime;
 - per-script `#PBS` resources, several with `spec=10.0` and even `ngpus=1` on a CPU queue;
-- their own copy of the pipeline bootstrap, so they can drift from `job_template.sh`;
+- their own copy of the pipeline bootstrap, so they drift from `job.py`;
 - argument lists that name old code paths and old reference ensembles.
 
 Use [`../../RUNBOOK.md`](../../RUNBOOK.md): one commit, one `submit.py` invocation, one
-`job_template.sh`.
+`pbs_launcher.sh` + `job.py`.
 
 ## What each script was
 
@@ -40,12 +40,12 @@ logs in `_david/output/_metacentrum_jobs/pbs_logs/`.
 ## How to reproduce one of these runs today
 
 Read the script's header, translate its intent into pipeline flags, and submit through the
-current template. Example, the gold-standard 5k run:
+current `submit.py` contract. Example, the gold-standard 5k run:
 
 ```bash
 .venv/bin/python -m _david.code.metacentrum.submit submit \
     --name egcg_raw_5k_replay \
-    -- "--criteria gmean --eval-samples 5000 --conformers 20 --minimize-candidates"
+    -- --criteria gmean --eval-samples 5000 --conformers 20 --minimize-candidates
 ```
 
 The point of the exercise is the same science, not the same file.
