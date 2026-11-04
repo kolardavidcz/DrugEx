@@ -123,12 +123,19 @@ $PY -m _david.code.metacentrum.submit submit --name test --dry-run -- "--epochs 
 
 ```
   release : /storage/brno2/brno2/kolardavidcz/DrugEx/releases/<sha>
-  queue   : p2e_1d
-  resources: select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=8.0, walltime=24:00:00
+  queue   : default router → q_1d
+  resources: select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=8.0, walltime=24:00:00 (routed by walltime; shorter walltime = shorter queue)
   pipeline: --epochs 1
 
-$ ssh meta qsub -N test -q p2e_1d -l select=... -l walltime=24:00:00 -v RUN_SPEC=...,STORAGE_DIR=... /storage/.../job_template.sh
+$ ssh meta qsub -N test -l select=... -l walltime=24:00:00 -v RUN_SPEC=...,STORAGE_DIR=... /storage/.../job_template.sh
 ```
+
+There is **no `-q`** in the default command. That is deliberate: from the frontends we are
+allowed to use, execution queues reject direct submissions (`p2e_1d` via `acl_hosts`,
+`q_2h`…`q_2d` via `from_route_only`), and the `default` router selects the queue from
+`-l walltime`. The printed `queue :` line is the router's destination, so a 1 h smoke test
+shows `q_2h` and a 24 h production run shows `q_1d`. Details and the full table:
+[`05-resources.md`](05-resources.md) §2.
 
 `--dry-run` still runs `sync` unless `--no-sync` is given, because the printed release path
 must exist. If you only want to see resources without touching storage, add `--no-sync`.
@@ -148,8 +155,9 @@ runs; the only genuinely useful part (release staging + qsub) is now `submit.py`
 | `grid grid` / `grid submit-grid` | gone |
 | `scripts/submit_all_hypotheses.sh` | `scripts/runed/` (frozen, do not run) |
 
-`grid.py` also defaulted to `ngpus=1` and `spec=10.0`, which is wrong for CPU ROCS work;
-the new default is `ngpus=0`, `spec=8.0`, queue `p2e_1d`.
+`grid.py` also defaulted to `ngpus=1`, `spec=10.0` and `-q p2e_1d`, which is wrong for CPU
+ROCS work and no longer accepted from this frontend; the new default is `ngpus=0`,
+`spec=8.0`, no `-q` (PBS routes by walltime).
 
 ## 7. Common submission errors
 
@@ -159,6 +167,8 @@ the new default is `ngpus=0`, `spec=8.0`, queue `p2e_1d`.
 | `Missing validated environment: …/.venv/bin/python` | `.venv` was deleted on storage; recreate it (chapter 06) before submitting. |
 | `Kerberos ticket missing or expired` | `ssh meta kinit kolardavidcz@META` interactively (2FA), then retry. |
 | `qsub: Unknown queue` | `qstat -q` to list queues; typically a typo or a queue retired since the last run. |
+| `qsub: Access from host not allowed, or unknown host` | You passed `--queue` for an execution queue (`p2e_1d` and friends). Drop `--queue` and let the router pick, or shorten `--walltime`. |
+| `qsub: Access to queue is denied` | The queue is `from_route_only` or not granted to this account. Same fix: omit `--queue`. |
 | `--output-dir is owned by the MetaCentrum template…` | Remove the flag from the pipeline arguments. |
 | `Pass pipeline flags either with --args or after --, not both` | Pick one spelling. |
 | `.pkg`/`.vocab` not found in `$STORAGE/models` | `submit sync` again; the checkpoint is outside the release by design. |

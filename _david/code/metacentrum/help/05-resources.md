@@ -11,38 +11,61 @@ a GPU allocation is usually a waste of a scarce queue slot unless the user asks 
 ```
 select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=8.0
 walltime=24:00:00
-queue=p2e_1d, ngpus=0
+(no -q: the `default` router sends a 24 h job to q_1d)
+ngpus=0
 ```
 
 That is the configuration under which the 200-epoch, 30-conformer, unminimised arms
 (`sprint_h1`…`h4`) completed in under 24 h. Treat any deviation as a deliberate,
 documented change.
 
-## 2. Queues (observed 2026-11-04)
+## 2. Queues and routing
 
-| Queue | Max walltime | Running | Queued | Use for |
-| :--- | ---: | ---: | ---: | :--- |
-| `p2e_1d` | 24 h | 705 | 4 | **Default.** Fast admission, 24 h budget. |
-| `q_4h` | 4 h | 471 | 28 | Smoke tests and short parameter checks. |
-| `q_1d` | 24 h | 1581 | 3873 | Alternative to `p2e_1d`; much deeper queue. |
-| `q_2d` | 48 h | 267 | 4986 | Only when 24 h is provably insufficient. |
-| `runone` | 24 h | 0 | 22 | Interactive/debug single job (1 per user). |
-| `interactive` | 48 h | 18 | 1 | Debug shells; not for batch runs. |
-| `gpu` | 48 h | 160 | 2010 | Avoid: multi-thousand queue. |
-| `gpu_long` | 336 h | 44 | 43 | The only sane GPU queue. |
-| `large_mem` | 168 h | 10 | 55 | >1 TB RAM nodes. |
-| `default` | 720 h | 0 | 9 | Not ours; do not use. |
+**You cannot name an execution queue.** Verified 2026-11-04 from `tarkil` (the host behind
+`ssh meta`):
 
-Queue depths move hourly; the numbers above are context, not a contract. Check before
-choosing:
+| Attempt | Result |
+| :--- | :--- |
+| `qsub -q p2e_1d …` | `qsub: Access from host not allowed, or unknown host` (`acl_hosts = pbs-m1.metacentrum.cz`) |
+| `qsub -q q_2h` / `q_4h` / `q_1d` / `q_2d` | `qsub: Access to queue is denied` (`from_route_only = True`) |
+| `qsub …` with no `-q` | accepted, then routed by walltime |
+| `qsub -q default …` | accepted, same routing |
+
+So the queue is a **function of `--walltime`**, through the `default` router
+(`route_destinations = q_2h,q_4h,q_1d,q_2d,q_4d,q_1w,q_2w,q_2w_plus,gpu,gpu_long`):
+
+| `--walltime` up to | Routed queue | Observed depth (2026-11-04) |
+| :--- | :--- | :--- |
+| 2 h | `q_2h` | shallow; the smoke-test lane |
+| 4 h | `q_4h` | 471 running / 28 queued |
+| 24 h | `q_1d` | 1581 running / 3873 queued |
+| 48 h | `q_2d` | 267 running / 4986 queued |
+| 1 week | `q_1w` | deep |
+| 2 weeks | `q_2w` | deepest |
+
+`p2e_1d` (705 running / 4 queued at the same time) is a fast lane we cannot address
+directly; short jobs routed to `q_2h` were observed executing there, so PBS rebalances
+behind the router. Do not try to force it: a direct `-q p2e_1d` fails at submission.
+
+Practical consequences:
+
+- **Want a fast start?** Request less walltime. A 1-epoch smoke test at `--walltime
+  01:00:00` goes to `q_2h` and normally starts within minutes; the same job at 24 h goes to
+  `q_1d` behind thousands of other jobs.
+- **Need 24 h of real compute?** You land in `q_1d`; measure the wait with `submit status`
+  and plan accordingly. There is no faster 24 h lane from this frontend.
+- `--queue` remains as an escape hatch for a route queue or a special queue an administrator
+  grants (`--queue gpu_long` for GPU work). It is never needed for a normal CPU run.
+
+Queue depths move hourly; treat the numbers as context, not a contract:
 
 ```bash
-ssh meta 'qstat -q | grep -E "^(Queue|p2e_1d|q_4h|q_1d|q_2d|gpu_long|runone)"'
+ssh meta 'qstat -q | grep -E "^(Queue|q_2h|q_4h|q_1d|q_2d|p2e_1d|gpu_long)"'
+ssh meta 'qstat -Qf default | grep route_destinations'
 ```
 
-`p2e_1d` is preferred over `q_1d` for the same walltime because its queue is two to three
-orders of magnitude shorter. `runone` is useful for a 1-epoch smoke test: one job at a time,
-starts almost immediately, but it will not accept a second concurrent job.
+`runone` (interactive, one job at a time) and `interactive` exist but are not granted to
+this account; the attempt returns `Access to queue is denied`.
 
 ## 3. Cores
 
@@ -105,16 +128,19 @@ epochs_that_fit = floor(walltime_hours * 60 / minutes_per_epoch)
 
 From the historical runs: 200 epochs × 500 samples with `--no-minimize-candidates`,
 C=30, 16 cores finished inside 24 h. Minimisation costs roughly **4×** more (conformer
-embedding with MMFF94s, dielectric 78.4), so a minimised 200-epoch run does not fit in
-`p2e_1d`; use `--walltime 48:00:00 --queue q_2d` or reduce `--epochs`.
+embedding with MMFF94s, dielectric 78.4), so a minimised 200-epoch run does not fit in 24 h;
+use `--walltime 48:00:00` (routes to `q_2d`) or reduce `--epochs`.
 
 Practical guidance:
 
 - Start from the default 24 h. If `monitor_live_epochs.py` shows an ETA beyond the limit,
   kill early and resubmit with the right budget — a killed job still consumes its walltime.
+- Requesting **less** walltime is the only way to reach a faster queue (§2), so quote the
+  budget you actually need rather than a round 24 h.
 - `--epochs 200` is a **cap**: early stopping (`min_epochs=50`, `patience=50`) usually ends a
   converged run before 200.
-- Never request more walltime than the queue's maximum; `qsub` rejects it at submission.
+- Walltime above the routed queue's maximum is rejected at submission; the router would have
+  to pick a deeper queue anyway.
 
 ## 7. `spec` and GPU accounting
 

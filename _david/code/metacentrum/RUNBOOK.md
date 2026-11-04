@@ -64,8 +64,9 @@ contains only intended deltas — everything else is `PipelineConfig`.
 
 ### 2b. The default job
 
-A CPU job: 16 cores, 32 GB RAM, 15 GB scratch, 24 h, queue `p2e_1d`, no GPU. This is the
-scientifically relevant default (ROCS + conformer generation is CPU-bound; the RNN is tiny).
+A CPU job: 16 cores, 32 GB RAM, 15 GB scratch, 24 h, no GPU, **no `-q`** — PBS routes it by
+walltime (24 h → `q_1d`). This is the scientifically relevant default (ROCS + conformer
+generation is CPU-bound; the RNN is tiny).
 
 ```bash
 $PY -m _david.code.metacentrum.submit submit --name egcg_default
@@ -75,6 +76,23 @@ Reads as: "run the pipeline with `PipelineConfig` defaults, 200 epochs max, earl
 after 50 epochs without improvement, raw ROCS TanimotoCombo + SA, Pareto reward,
 `avg_gmean` checkpoint, 5000-molecule evaluation arm". Nothing is passed because
 `config.py` already says that.
+
+**Queue selection.** MetaCentrum frontends cannot submit to an execution queue directly:
+`p2e_1d` has `acl_hosts = pbs-m1.metacentrum.cz` (error: `Access from host not allowed`) and
+`q_2h`/`q_4h`/`q_1d`/`q_2d` are `from_route_only` (`Access to queue is denied`). Submitting
+without `-q` goes through the `default` router, which picks the queue from the walltime:
+
+| `--walltime` up to | Queue |
+| :--- | :--- |
+| 2 h | `q_2h` |
+| 4 h | `q_4h` |
+| 24 h | `q_1d` |
+| 48 h | `q_2d` |
+| 1 week | `q_1w` |
+
+So **walltime is the queue knob**: a short walltime also means a shorter, faster-admitting
+queue. `--queue` still exists for the rare route queue or a special queue an administrator
+grants; it is not needed for normal work.
 
 ### 2c. "Defaults plus one speciality"
 
@@ -100,7 +118,8 @@ them loudly.
 ### 2d. GPU
 
 GPU queues are currently 2000+ jobs deep. Only reach for one when the user explicitly asks
-for GPU compute, and prefer `gpu_long`:
+for GPU compute, and prefer `gpu_long` (a route destination, so `--queue gpu_long` is
+accepted; the generic `gpu` queue is the same but far deeper):
 
 ```bash
 $PY -m _david.code.metacentrum.submit submit \
@@ -188,11 +207,11 @@ and partial results survive a walltime kill.
 
 | Situation | Flags |
 | :--- | :--- |
-| Default CPU ROCS run | *(nothing)* — 16 CPU / 32 GB / 15 GB / 24 h / `p2e_1d` |
-| 1-epoch pipeline smoke test | `--ngpus 0 --ncpus 4 --mem 8 --walltime 01:00:00` + `-- "--epochs 1 --samples 10 --batch-size 10 --eval-samples 10"` |
+| Default CPU ROCS run | *(nothing)* — 16 CPU / 32 GB / 15 GB / 24 h → `q_1d` |
+| 1-epoch pipeline smoke test | `--ngpus 0 --ncpus 4 --mem 8 --walltime 01:00:00` + `-- "--epochs 1 --samples 10 --batch-size 10 --eval-samples 10"` (→ `q_2h`) |
 | Many conformers / large ligand | `--mem 64 --ncpus 32 --walltime 24:00:00` |
-| Queue is slow | `--queue q_4h` for short jobs, `--queue p2e_1d` otherwise |
-| Debug node | `--queue runone --walltime 02:00:00` (1 job at a time, immediate) |
+| Shorter queue wait | Shorten `--walltime` (2 h → `q_2h`, 4 h → `q_4h`); never pass an execution queue |
+| Debug node | `--queue runone --walltime 02:00:00` if the account is allowed there (usually denied) |
 
 Queue lengths, memory sizing and walltime arithmetic: [`help/05-resources.md`](help/05-resources.md).
 

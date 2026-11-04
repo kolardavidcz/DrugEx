@@ -51,13 +51,34 @@ class TestJobSpec(unittest.TestCase):
         self.assertEqual(spec.mem_gb, 32)
         self.assertEqual(spec.scratch_gb, 15)
         self.assertEqual(spec.walltime, "24:00:00")
-        self.assertEqual(spec.queue, "p2e_1d")
+        self.assertIsNone(spec.queue)
+        self.assertEqual(spec.queue_label, "default router → q_1d")
         self.assertEqual(spec.ngpus, 0)
         self.assertIn("spec=8.0", spec.resources)
         self.assertNotIn("ngpus", spec.resources)
 
-    def test_gpu_request_adds_ngpus_and_cap(self) -> None:
+    def test_walltime_selects_the_routed_queue(self) -> None:
+        """Frontends cannot submit to execution queues directly; walltime routes the job."""
+        cases = {
+            "00:30:00": "q_2h",
+            "02:00:00": "q_2h",
+            "04:00:00": "q_4h",
+            "12:00:00": "q_1d",
+            "24:00:00": "q_1d",
+            "48:00:00": "q_2d",
+            "168:00:00": "q_1w",
+            "300:00:00": "q_2w",
+        }
+        for walltime, queue in cases.items():
+            self.assertEqual(submit.routed_queue(walltime), queue, walltime)
+        with self.assertRaises(ValueError):
+            submit.routed_queue("900:00:00")
+        with self.assertRaises(ValueError):
+            JobSpec(name="bad", walltime="1 day")
+
+    def test_explicit_queue_overrides_the_router(self) -> None:
         spec = JobSpec(name="gpu_run", ngpus=1, gpu_cap="sm_89", queue="gpu_long")
+        self.assertEqual(spec.queue_label, "gpu_long")
         self.assertIn("ngpus=1", spec.resources)
         self.assertIn("gpu_cap=sm_89", spec.resources)
 
@@ -106,7 +127,8 @@ class TestSubmissionPayload(unittest.TestCase):
         self.assertEqual(argv[:2], ["ssh", "meta"])
         command = argv[2]
         self.assertIn("-N egcg", command)
-        self.assertIn("-q p2e_1d", command)
+        # No -q by default: the frontend may only reach the router.
+        self.assertNotIn("-q ", command)
         self.assertIn(
             f"RUN_SPEC={STORAGE}/jobs/egcg/spec.json,STORAGE_DIR={STORAGE}", command
         )
@@ -114,6 +136,10 @@ class TestSubmissionPayload(unittest.TestCase):
         self.assertIn("job_template.sh", command)
         # The pipeline arguments stay in spec.json; qsub only carries PBS state.
         self.assertNotIn("gmean", command)
+
+    def test_explicit_queue_reaches_the_qsub_line(self) -> None:
+        command = qsub_command(JobSpec(name="gpu", queue="gpu_long"), STORAGE, REVISION)[2]
+        self.assertIn("-q gpu_long", command)
 
     def test_split_cli_keeps_pipeline_flags_out_of_argparse(self) -> None:
         cli, pipeline = split_cli(
@@ -138,7 +164,7 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(args.mem, 32)
         self.assertEqual(args.scratch, 15)
         self.assertEqual(args.walltime, "24:00:00")
-        self.assertEqual(args.queue, "p2e_1d")
+        self.assertIsNone(args.queue)
         self.assertEqual(args.spec, 8.0)
         self.assertEqual(args.ngpus, 0)
         self.assertFalse(args.dry_run)

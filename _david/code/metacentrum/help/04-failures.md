@@ -34,17 +34,26 @@ Classify before acting:
 
 ```bash
 ssh meta 'qstat -f <id> | grep -E "comment|estimated|Resource_List.select|queue"'
-ssh meta 'qstat -q | grep -E "^(Queue|q_4h|q_1d|p2e_1d|gpu)"'
+ssh meta 'qstat -q | grep -E "^(Queue|q_2h|q_4h|q_1d|q_2d|gpu_long)"'
 ```
 
 - `H` with `comment = Job held by ...` — an administrator or the scheduler held it; usually
   the requested resources exceed the queue's per-job limit. Resubmit smaller.
-- `Q` with a huge queue depth — normal on `gpu` (2000+ waiting). Move to a CPU queue
-  (`p2e_1d`, `q_4h`) unless the workload truly needs a GPU.
+- `Q` with a huge queue depth — normal for `q_1d` (thousands waiting) and `gpu`. You cannot
+  pick a different execution queue; **shorten `--walltime`** so the router uses `q_2h`/`q_4h`.
+  Only ask for a GPU when the workload truly needs one.
 - `Q` with `comment = Not Running: Insufficient amount of resource` and no queue depth —
   the request is unsatisfiable: `--mem` above the node class or `--ncpus` above the queue
   cap. Chapter 05 has the limits.
 - `spec=10.0` shrinks the pool to two nodes; we default to `8.0` for that reason.
+
+Submission-time refusals mean the queue was named explicitly:
+
+| Message | Meaning |
+| :--- | :--- |
+| `Access from host not allowed, or unknown host` | `--queue p2e_1d` (or another `acl_hosts`-restricted queue) from a frontend that is not allowed. Drop `--queue`. |
+| `Access to queue is denied` | Queue is `from_route_only` (`q_2h`, `q_4h`, `q_1d`, `q_2d`, …) or not granted to the account. Drop `--queue`. |
+| `Unknown queue` | Typo, or the queue was retired. `qstat -q` lists the live ones. |
 
 Cancel and resubmit rather than waiting out a bad request:
 

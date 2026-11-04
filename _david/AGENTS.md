@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): **Ad-hoc** host for occasional single CPU-heavy jobs; not a mirror of the local tree and not the default production queue. Managed via `python -m _david.code.metacentrum.submit`; the agent-facing template is [`code/metacentrum/RUNBOOK.md`](code/metacentrum/RUNBOOK.md).
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 120/120 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 126/126 passing; 10 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
 ---
@@ -106,7 +106,7 @@ _david/
 │       ├── help/                      # 01-submit … 06-storage + monitor_live_epochs.py
 │       ├── scripts/runed/             # Frozen historical PBS runners (provenance only)
 │       └── archive/                   # compare_output_trees.py + its usage contract
-├── code/tests/                         # 120 unit and regression tests (100% passing)
+├── code/tests/                         # 126 unit and regression tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 
@@ -154,10 +154,16 @@ ssh meta 'python3 /storage/brno2/brno2/kolardavidcz/DrugEx/current/_david/code/m
 
 ### Resource defaults
 
-- **CPU job**: `ncpus=16, mem=32gb, scratch_local=15gb, walltime=24:00:00`,
-  `queue=p2e_1d`, `spec=8.0`, `ngpus=0`. This is what completed the 200-epoch unminimised
-  sprint arms inside 24 h.
-- **`p2e_1d` over `q_1d`**: same 24 h limit, orders of magnitude shorter queue.
+- **CPU job**: `ncpus=16, mem=32gb, scratch_local=15gb, walltime=24:00:00`, `spec=8.0`,
+  `ngpus=0`, and **no `-q`**. This is what completed the 200-epoch unminimised sprint arms
+  inside 24 h.
+- **Queues are routed, not chosen**: from `tarkil`, `-q p2e_1d` fails with `Access from host
+  not allowed` (`acl_hosts`) and `q_2h`/`q_4h`/`q_1d`/`q_2d` fail with `Access to queue is
+  denied` (`from_route_only`). The `default` router picks by walltime: ≤2 h → `q_2h`,
+  ≤4 h → `q_4h`, ≤24 h → `q_1d`, ≤48 h → `q_2d`, ≤1 week → `q_1w`. **Shortening the
+  walltime is the only way to reach a faster queue**; a 24 h job waits behind thousands in
+  `q_1d`, while a 1 h smoke test in `q_2h` starts in minutes. `--queue` exists only for a
+  route queue/administrator grant such as `--queue gpu_long`.
 - **`spec=8.0`**: excludes ancient nodes without shrinking the pool to `fobos`/`bee` as
   `spec=10.0` does.
 - **GPU**: only on explicit request (`--ngpus 1 --queue gpu_long`); the generic `gpu` queue

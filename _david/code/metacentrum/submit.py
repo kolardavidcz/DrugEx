@@ -35,6 +35,21 @@ MODEL_STEM = "Papyrus05.5_smiles_rnn_PT"
 #: the release/scratch contract or point the job at a model that is not staged.
 RESERVED_FLAGS = ("--output-dir", "--agent-path", "--vocab-path")
 
+#: Walltime ceiling (hours) → execution queue reached through the ``default`` router.
+#: The frontends may not submit to an execution queue directly (``q_2h``…``q_2d`` and
+#: ``p2e_1d`` are either ``from_route_only`` or restricted by ``acl_hosts``), so the
+#: requested walltime is what actually chooses the queue. Verified on tarkil 2026-11-04.
+QUEUE_ROUTING: tuple[tuple[int, str], ...] = (
+    (2, "q_2h"),
+    (4, "q_4h"),
+    (24, "q_1d"),
+    (48, "q_2d"),
+    (96, "q_4d"),
+    (168, "q_1w"),
+    (336, "q_2w"),
+)
+
+_WALLTIME_RE = re.compile(r"^(\d{1,3}):([0-5]\d):([0-5]\d)$")
 _NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
 _KERBEROS_MARKERS = (
     "15010",
@@ -75,6 +90,27 @@ def template_path(storage: str, revision: str) -> str:
     return f"{release_path(storage, revision)}/_david/code/metacentrum/{TEMPLATE_NAME}"
 
 
+def walltime_seconds(value: str) -> int:
+    """``HH:MM:SS`` → seconds; raises ``ValueError`` on anything else."""
+    match = _WALLTIME_RE.match(value.strip())
+    if not match:
+        raise ValueError(f"Invalid walltime {value!r}: expected HH:MM:SS")
+    hours, minutes, seconds = (int(part) for part in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def routed_queue(walltime: str) -> str:
+    """Execution queue the ``default`` router picks for this walltime."""
+    seconds = walltime_seconds(walltime)
+    for hours, queue in QUEUE_ROUTING:
+        if seconds <= hours * 3600:
+            return queue
+    raise ValueError(
+        f"Walltime {walltime} exceeds the longest routed queue "
+        f"({QUEUE_ROUTING[-1][0]} h); submit to a special queue explicitly."
+    )
+
+
 # --------------------------------------------------------------------------- #
 # job specification
 # --------------------------------------------------------------------------- #
@@ -90,7 +126,7 @@ class JobSpec:
     mem_gb: int = 32
     scratch_gb: int = 15
     walltime: str = "24:00:00"
-    queue: str | None = "p2e_1d"
+    queue: str | None = None
     spec: float | None = 8.0
     ngpus: int = 0
     gpu_cap: str | None = None
@@ -103,11 +139,19 @@ class JobSpec:
             )
         if min(self.ncpus, self.mem_gb, self.scratch_gb) < 1 or self.ngpus < 0:
             raise ValueError("PBS resources must be positive (ngpus may be 0)")
+        walltime_seconds(self.walltime)
         for flag in RESERVED_FLAGS:
             if any(arg == flag or arg.startswith(f"{flag}=") for arg in self.args):
                 raise ValueError(
                     f"{flag} is owned by the MetaCentrum template and must not be passed"
                 )
+
+    @property
+    def queue_label(self) -> str:
+        """What the operator should expect: an explicit queue, or the routed one."""
+        if self.queue:
+            return self.queue
+        return f"default router → {routed_queue(self.walltime)}"
 
     @property
     def resources(self) -> str:
@@ -478,8 +522,15 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--ncpus", type=int, default=JobSpec.ncpus)
     submit.add_argument("--mem", type=int, default=JobSpec.mem_gb, help="RAM in GB")
     submit.add_argument("--scratch", type=int, default=JobSpec.scratch_gb, help="scratch GB")
-    submit.add_argument("--walltime", default=JobSpec.walltime)
-    submit.add_argument("--queue", default=JobSpec.queue, help="PBS queue (default: p2e_1d)")
+    submit.add_argument("--walltime", default=JobSpec.walltime, help="HH:MM:SS; also picks the queue")
+    submit.add_argument(
+        "--queue",
+        default=None,
+        help=(
+            "route queue to submit to (default: none; PBS routes by walltime). "
+            "Execution queues such as p2e_1d/q_1d reject direct submissions."
+        ),
+    )
     submit.add_argument("--spec", type=float, default=JobSpec.spec, help="min node SPEC score")
     submit.add_argument("--ngpus", type=int, default=JobSpec.ngpus)
     submit.add_argument("--gpu-cap", default=None)
@@ -558,8 +609,11 @@ def _do_submit(args: argparse.Namespace, pipeline_args: list[str], storage: str)
         print(f"Reusing staged revision {revision[:8]}")
 
     print(f"  release : {release_path(storage, revision)}")
-    print(f"  queue   : {spec.queue or '(script default)'}")
-    print(f"  resources: {spec.resources}, walltime={spec.walltime}")
+    print(f"  queue   : {spec.queue_label}")
+    print(
+        f"  resources: {spec.resources}, walltime={spec.walltime}"
+        + ("" if spec.queue else " (routed by walltime; shorter walltime = shorter queue)")
+    )
     print(f"  pipeline: {' '.join(spec.args) or '(all PipelineConfig defaults)'}")
     if args.dry_run:
         print("\n$ " + shlex.join(qsub_command(spec, storage, revision, args.host)))
