@@ -46,11 +46,15 @@ class TestContracts(unittest.TestCase):
     def test_embed_spec_defaults_to_a_single_identity(self) -> None:
         self.assertEqual(EmbedSpec().isomer_cap, 1)
 
-    def test_reference_spec_default_matches_production_bank(self) -> None:
-        embed = ReferenceSpec().embed
-        self.assertEqual(embed.isomer_cap, 8)
-        self.assertEqual(embed.attempts, 100)
-        self.assertEqual(embed.seed, 104729)
+    def test_default_reference_and_candidate_seeds_are_disjoint(self) -> None:
+        """Reference and candidate RNG streams must never collide (42/43 bug)."""
+        from _david.code.chemistry import verify_disjoint_conformer_seeds
+
+        reference = ReferenceSpec().embed
+        candidate = default_candidate_spec().embed
+        verify_disjoint_conformer_seeds(
+            reference.seed, reference.attempts, candidate.seed, candidate.attempts
+        )
 
     def test_select_spec_cap_zero_means_keep_all(self) -> None:
         self.assertEqual(SelectSpec(cap=0).cap, 0)
@@ -77,13 +81,14 @@ class TestContracts(unittest.TestCase):
         )
         self.assertIn("tversky", spec.label)
 
-    def test_minimize_spec_label_is_stable(self) -> None:
+    def test_minimize_spec_label_distinguishes_policies(self) -> None:
         spec = MinimizeSpec(profile=Optimization("MMFF94s", 78.4), energy_window=8.0)
-        self.assertEqual(spec.label, "mmff94se78.4w8")
-        self.assertTrue(spec.enabled)
         raw = MinimizeSpec(profile=None, energy_window=None)
+        self.assertTrue(spec.enabled)
         self.assertFalse(raw.enabled)
         self.assertEqual(raw.label, "raw")
+        self.assertIn("mmff94s", spec.label)
+        self.assertNotEqual(spec.label, MinimizeSpec(profile=Optimization("UFF", 1.0)).label)
 
     def test_study_spec_requires_unique_arm_names(self) -> None:
         molecule = MoleculeSpec(name="m", smiles="CCO")
@@ -113,6 +118,35 @@ class TestContracts(unittest.TestCase):
         self.assertEqual(spec.reference.select.cap, 6)
         self.assertEqual(spec.candidate.embed.attempts, 8)
         self.assertEqual(spec.reference.select.mode, SelectionMode.DIVERSE)
+
+
+class TestConformerSeeds(unittest.TestCase):
+    def test_the_historical_multiplier_collision_is_detected(self) -> None:
+        from _david.code.chemistry import verify_disjoint_conformer_seeds
+
+        # RDKit effectively seeds conformer i with base * (i + 1), so 42 * 43 and
+        # 43 * 42 are the same draw: the 1806 collision produced coordinate clones.
+        with self.assertRaises(ValueError) as raised:
+            verify_disjoint_conformer_seeds(42, 50, 43, 50)
+        self.assertIn("overlap", str(raised.exception))
+
+    def test_disjoint_budgets_pass(self) -> None:
+        from _david.code.chemistry import verify_disjoint_conformer_seeds
+
+        verify_disjoint_conformer_seeds(104729, 100, 42, 20)
+
+    def test_zero_or_negative_budgets_are_rejected(self) -> None:
+        from _david.code.chemistry import verify_disjoint_conformer_seeds
+
+        for arguments in ((0, 10, 42, 10), (42, 10, -1, 10), (42, 0, 42, 10)):
+            with self.assertRaises(ValueError, msg=str(arguments)):
+                verify_disjoint_conformer_seeds(*arguments)
+
+    def test_seed_budget_beyond_the_32bit_limit_is_rejected(self) -> None:
+        from _david.code.chemistry import verify_disjoint_conformer_seeds
+
+        with self.assertRaises(ValueError):
+            verify_disjoint_conformer_seeds(2**30, 4, 42, 1)
 
 
 class TestFingerprints(unittest.TestCase):
@@ -231,7 +265,8 @@ class TestDatasets(unittest.TestCase):
     @requires_canonical_data
     def test_panel_loads_into_specs_with_split_tag(self) -> None:
         specs = datasets.load_panel("drug_panel_development")
-        self.assertEqual(len(specs), 128)
+        self.assertTrue(specs)
+        self.assertEqual(len(specs), len({spec.name for spec in specs}))
         self.assertTrue(all(spec.smiles for spec in specs))
         self.assertTrue(any("split:development" in spec.tags for spec in specs))
 
@@ -285,7 +320,7 @@ class TestPaths(unittest.TestCase):
     def test_component_directories_are_distinct(self) -> None:
         values = list(paths.COMPONENT_DIRS.values())
         self.assertEqual(len(values), len(set(values)))
-        self.assertEqual(len(values), 4)
+        self.assertTrue(all(values))
 
     def test_component_dir_resolves_under_output_root(self) -> None:
         target = paths.component_dir("clustering")

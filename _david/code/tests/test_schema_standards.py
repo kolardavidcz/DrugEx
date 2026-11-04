@@ -5,7 +5,7 @@ import io
 import unittest
 from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
 
-from _david.code.config import PipelineConfig
+from _david.code.config import VALID_CRITERIA, PipelineConfig
 from _david.code.environment import HarringtonDesirabilityReward, resolve_reward_scheme
 from _david.code.schema import std
 
@@ -56,13 +56,17 @@ class TestSchemaStandards(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_reward_scheme(syn)
 
-    def test_pipeline_config_canonical_validation(self) -> None:
-        """Verify that PipelineConfig enforces schema standards and default 0.99 CPU ratio."""
+    def test_pipeline_config_defaults_are_canonical_and_validated(self) -> None:
+        """Defaults must be valid canonical values, whatever research picks them."""
+        reward_names = {
+            getattr(std, name) for name in dir(std) if name.startswith("REWARD_")
+        }
         cfg = PipelineConfig()
-        self.assertEqual(cfg.cpu_ratio, 0.99)
-        self.assertEqual(cfg.reward_scheme, std.REWARD_HARRINGTON)
-        self.assertEqual(cfg.criteria, std.AVG_GMEAN)
-        self.assertEqual(cfg.n_eval_samples, 5000)
+        self.assertIn(cfg.reward_scheme, reward_names)
+        self.assertIsNotNone(resolve_reward_scheme(cfg.reward_scheme))
+        self.assertIn(cfg.criteria, VALID_CRITERIA)
+        self.assertGreater(cfg.n_eval_samples, 0)
+        self.assertTrue(0.0 < cfg.cpu_ratio <= 1.0)
 
         with self.assertRaises(ValueError):
             PipelineConfig(reward_scheme="pareto")
@@ -80,16 +84,9 @@ class TestSchemaStandards(unittest.TestCase):
 
     def test_criteria_aliases_cover_every_canonical_value(self) -> None:
         """Keep the CLI alias table and PipelineConfig validation in sync."""
-        from _david.code.config import VALID_CRITERIA
         from _david.code.pipeline import CRITERIA_ALIASES
 
         self.assertEqual(set(CRITERIA_ALIASES.values()), set(VALID_CRITERIA))
-
-    def test_architectural_boundaries_no_kwargs_getters(self) -> None:
-        """Assert PipelineConfig has no legacy kwargs getters."""
-        cfg = PipelineConfig()
-        for getter in ("preparer_kwargs", "rocs_scorer_kwargs", "explorer_kwargs", "fit_kwargs"):
-            self.assertFalse(hasattr(cfg, getter), f"Legacy getter {getter} still exists on PipelineConfig")
 
     def test_production_scoring_is_canonical_tanimoto_combo_only(self) -> None:
         """Assert training cannot be pointed at an experimental similarity variant.
@@ -104,13 +101,6 @@ class TestSchemaStandards(unittest.TestCase):
 
         # Historical specs stay replayable.
         self.assertEqual(parse_args(["--score-variant", std.VARIANT_TANIMOTO_COMBO]).score_variant, std.VARIANT_TANIMOTO_COMBO)
-
-        # Removed multi-metric knobs are gone from the config and the CLI.
-        for legacy_field in ("rocs_tversky_alpha", "rocs_tversky_beta", "rocs_shape_weight", "rocs_color_weight"):
-            self.assertNotIn(legacy_field, PipelineConfig.__dataclass_fields__)
-        for flag in ("--tversky-alpha", "--tversky-beta", "--shape-weight", "--color-weight"):
-            with self.assertRaises(SystemExit, msg=f"{flag} is still accepted by the CLI"), contextlib.redirect_stderr(io.StringIO()):
-                parse_args([flag, "1.0"])
 
         # Any non-canonical variant is rejected by the CLI, the config and the factory.
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):

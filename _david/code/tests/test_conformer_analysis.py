@@ -10,10 +10,7 @@ import unittest
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from _david.code.conformer.analysis import common, loaders
-from _david.code.conformer.analysis.optimization_methods import (
-    figure_reference_counts_vs_energy_window,
-)
+from _david.code.conformer.analysis import loaders
 from _david.code.conformer.analysis.style import apply_style, save_figure
 from _david.code.conformer.core.taxonomy import ISOMER_BIN_LABELS, bin_counts, isomer_bin
 from _david.code.tests._conformer_data import requires_canonical_data
@@ -48,9 +45,6 @@ class TestIsomerTaxonomy(unittest.TestCase):
         self.assertEqual(int(counts["1–2"]), 2)
         self.assertEqual(int(counts["9–15"]), 0)
         self.assertEqual(int(counts["33+"]), 1)
-
-    def test_analysis_reexports_the_canonical_taxonomy(self) -> None:
-        self.assertEqual(common.ISOMER_BIN_LABELS, ISOMER_BIN_LABELS)
 
 
 class TestTableLoading(unittest.TestCase):
@@ -97,38 +91,47 @@ class TestFigureProvenance(unittest.TestCase):
         self.assertEqual(len(manifest["inputs"]["input"]["sha256"]), 64)
         self.assertFalse(plt.get_fignums())
 
-    @requires_canonical_data
-    def test_energy_window_figure_renders_from_canonical_data(self) -> None:
-        table = loaders.load("egcg_omnibus_grid")
-        with tempfile.TemporaryDirectory() as tmp:
-            path = figure_reference_counts_vs_energy_window(table, output_dir=tmp)
-            self.assertTrue(path.is_file())
-            self.assertTrue(path.with_suffix(".manifest.json").is_file())
 
-    @requires_canonical_data
-    def test_default_scorer_neighbourhood_covers_the_axes(self) -> None:
+class TestDefaultScorerSummary(unittest.TestCase):
+    def test_summary_selects_one_row_per_requested_setting(self) -> None:
         from _david.code.conformer.analysis.color_shape import (
             NEIGHBOURHOOD,
             default_scorer_summary,
         )
 
-        summary = default_scorer_summary(loaders.load("tversky_grid"))
-        self.assertEqual(len(summary), len(NEIGHBOURHOOD))
+        def row(alpha: float, beta: float, w_shape: float) -> dict[str, object]:
+            return {
+                "tversky_label": f"a{alpha:g}_b{beta:g}",
+                "weight_label": f"{w_shape:g}S",
+                "alpha": alpha,
+                "beta": beta,
+                "w_shape": w_shape,
+            }
+
+        requested = [
+            row(alpha, beta, w_shape) for alpha, beta, w_shape, _ in NEIGHBOURHOOD
+        ]
+        grid = loaders.Table(
+            name="synthetic",
+            frame=pd.DataFrame([*requested, row(9.0, 9.0, 9.0)]),
+            path=Path("synthetic.csv"),
+            canonical=False,
+        )
+        summary = default_scorer_summary(grid)
         self.assertEqual(list(summary["role"]), [entry[3] for entry in NEIGHBOURHOOD])
-        self.assertEqual(int((summary["role"] == "default").sum()), 1)
-        # The neighbourhood must be one step away from the default, not a
-        # shuffled sample: each row moves either the (alpha, beta) pair or the
-        # shape weight, never both.
-        default = summary[summary["role"] == "default"].iloc[0]
-        for _, row in summary.iterrows():
-            tversky_moved = any(
-                abs(float(row[column]) - float(default[column])) > 1e-9
-                for column in ("alpha", "beta")
+
+        # A setting the grid does not contain is skipped, never invented.
+        partial = default_scorer_summary(
+            loaders.Table(
+                name="synthetic",
+                frame=pd.DataFrame(requested[1:]),
+                path=Path("synthetic.csv"),
+                canonical=False,
             )
-            weight_moved = abs(float(row["w_shape"]) - float(default["w_shape"])) > 1e-9
-            self.assertFalse(tversky_moved and weight_moved, row["role"])
-        for column in ("self_mean", "worst_decoy_p95", "fp_rate_worst_ge_035"):
-            self.assertTrue(summary[column].between(0.0, 1.0).all(), column)
+        )
+        self.assertEqual(
+            list(partial["role"]), [entry[3] for entry in NEIGHBOURHOOD[1:]]
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

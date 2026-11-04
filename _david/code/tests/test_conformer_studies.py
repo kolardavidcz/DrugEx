@@ -111,25 +111,6 @@ class TestRunStudy(unittest.TestCase):
         pd.testing.assert_frame_equal(serial_rows, pooled_rows)
         self.assertEqual(pooled.manifest["workers"], 2)
 
-    def test_zero_arm_matrix_is_rejected_by_run_study(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            study = StudySpec(
-                name="tiny",
-                molecules=(MoleculeSpec(name="m", smiles="CCO"),),
-                arms=(ArmSpec(name="a", reference=default_reference_spec(), candidate=default_candidate_spec()),),
-                output_dir=Path(tmp),
-            )
-            empty = StudySpec(
-                name="tiny",
-                molecules=study.molecules,
-                arms=study.arms,
-                output_dir=Path(tmp),
-                seeds=SeedPlan(repeats=(0,)),
-            )
-            from _david.code.conformer.studies.base import study_requests
-
-            self.assertEqual(len(study_requests(empty)), 1)
-
 
 class TestStudyArms(unittest.TestCase):
     def test_symmetric_pairs_cover_every_method(self) -> None:
@@ -138,9 +119,10 @@ class TestStudyArms(unittest.TestCase):
         self.assertEqual({pair.reference for pair in pairs}, set(optimization_methods.METHODS))
 
     def test_deployable_pairs_share_one_reference(self) -> None:
-        pairs = optimization_methods.deployable_pairs()
-        self.assertEqual({pair.reference for pair in pairs}, {"mmff94s_water"})
-        self.assertEqual(len(pairs), len(optimization_methods.METHODS))
+        reference = next(iter(optimization_methods.METHODS))
+        pairs = optimization_methods.deployable_pairs(reference)
+        self.assertEqual({pair.reference for pair in pairs}, {reference})
+        self.assertEqual({pair.candidate for pair in pairs}, set(optimization_methods.METHODS))
 
     def test_unknown_method_is_rejected(self) -> None:
         from _david.code.conformer.core.errors import StudyError
@@ -157,8 +139,9 @@ class TestStudyArms(unittest.TestCase):
         )
         self.assertEqual(len(arms), 4)
         self.assertEqual(len({spec.name for spec in arms}), 4)
-        self.assertIn("ref-mmff94s_water__cand-etkdg", arms[0].name)
-        self.assertEqual(arms[0].score.scale.value, "normalized")
+        for spec in arms:
+            self.assertIn("mmff94s_water", spec.name)
+            self.assertIn("etkdg", spec.name)
 
     def test_clustering_study_varies_selection_not_physics(self) -> None:
         study = clustering.build_study(

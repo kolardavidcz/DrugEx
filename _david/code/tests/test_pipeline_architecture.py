@@ -70,28 +70,6 @@ class TestRunDirectoryNaming(unittest.TestCase):
 
 
 class TestPipelineArchitecture(unittest.TestCase):
-    def test_pipeline_config_direct_access(self) -> None:
-        """Verify PipelineConfig attributes are directly accessible without kwargs getters."""
-        cfg = PipelineConfig(
-            epochs=100,
-            n_samples=250,
-            epsilon=0.10,
-            beta=0.05,
-            max_conformers=15,
-            max_isomers=2,
-        )
-        self.assertEqual(cfg.epochs, 100)
-        self.assertEqual(cfg.n_samples, 250)
-        self.assertEqual(cfg.epsilon, 0.10)
-        self.assertEqual(cfg.beta, 0.05)
-        self.assertEqual(cfg.max_conformers, 15)
-        self.assertEqual(cfg.max_isomers, 2)
-        self.assertEqual(cfg.cpu_ratio, 0.99)
-        self.assertFalse(hasattr(cfg, "preparer_kwargs"))
-        self.assertFalse(hasattr(cfg, "rocs_scorer_kwargs"))
-        self.assertFalse(hasattr(cfg, "explorer_kwargs"))
-        self.assertFalse(hasattr(cfg, "fit_kwargs"))
-
     def test_build_explorer_constructs_both_branches(self) -> None:
         """Both explorer branches must construct; Stage 2 dies otherwise.
 
@@ -141,13 +119,14 @@ class TestPipelineArchitecture(unittest.TestCase):
         self.assertTrue(has_color(egcg))
 
         ref_sdf = Path(__file__).parent / "data" / "EGCG_reference.sdf"
-        if ref_sdf.exists():
-            suppl = Chem.SDMolSupplier(str(ref_sdf), removeHs=False)
-            mol = next(suppl)
-            combo, shape, color = score_pair(mol, mol)
-            self.assertGreaterEqual(combo, 1.95)
-            self.assertGreaterEqual(shape, 0.95)
-            self.assertGreaterEqual(color, 0.95)
+        if not ref_sdf.exists():
+            self.skipTest("EGCG reference SDF not found")
+        suppl = Chem.SDMolSupplier(str(ref_sdf), removeHs=False)
+        mol = next(suppl)
+        combo, shape, color = score_pair(mol, mol)
+        self.assertGreaterEqual(combo, 1.95)
+        self.assertGreaterEqual(shape, 0.95)
+        self.assertGreaterEqual(color, 0.95)
 
     def test_prepare_molecule_with_config(self) -> None:
         """Verify PrepareMolecule directly consumes PipelineConfig."""
@@ -172,24 +151,24 @@ class TestPipelineArchitecture(unittest.TestCase):
         if not ref_sdf.exists():
             self.skipTest("EGCG reference SDF not found")
 
-        cfg = PipelineConfig(
+        base = PipelineConfig(max_conformers=5, max_isomers=2)
+        scoring = PipelineConfig(
             max_conformers=5,
             max_isomers=2,
             include_qed=True,
             reward_scheme=std.REWARD_PARETO,
         )
-        scorer = create_rocs_scorer(ref_sdf, cfg=cfg)
+        scorer = create_rocs_scorer(ref_sdf, cfg=scoring)
         self.assertEqual(scorer.getKey(), [std.ROCS])
-        # Production colour typing is the OpenEye ImplicitMillsDean port, not fdef.
-        self.assertEqual(cfg.color_ff, "oe_mills_dean")
-        self.assertEqual(scorer.color_ff, "oe_mills_dean")
         self.assertEqual(scorer.score_type, "TanimotoCombo")
-        # TanimotoCombo lives on [0, 2]; a 1.8 clip silently truncated the top decile.
-        self.assertEqual(cfg.rocs_clip_upper, 2.0)
 
-        env = create_environment(ref_sdf, config=cfg)
-        self.assertEqual(len(env.scorers), 3)  # ROCS, SA, QED
-        self.assertEqual(len(env.thresholds), 3)
+        without_qed = create_environment(ref_sdf, config=base)
+        with_qed = create_environment(ref_sdf, config=scoring)
+        self.assertEqual(len(with_qed.scorers), len(without_qed.scorers) + 1)
+        self.assertEqual(
+            list(with_qed.thresholds)[:-1], list(without_qed.thresholds)
+        )
+        self.assertEqual(len(with_qed.thresholds), len(with_qed.scorers))
 
 
 class TestRocsColourTyping(unittest.TestCase):

@@ -113,7 +113,11 @@ class TestPrepareMolecule(unittest.TestCase):
 
 class TestRegistryTables(unittest.TestCase):
     def test_registry_columns_and_flags(self) -> None:
-        from _david.code.conformer.analysis.preparation import REGISTRY_COLUMNS, build_registry
+        from _david.code.conformer.analysis.preparation import (
+            REGISTRY_COLUMNS,
+            REGISTRY_ISOMER_CAP,
+            build_registry,
+        )
 
         frame, errors = build_registry(
             [
@@ -127,7 +131,7 @@ class TestRegistryTables(unittest.TestCase):
         self.assertFalse(bool(frame["hit_enumeration_cap"].any()))
         row = frame[frame["name"] == "ala"].iloc[0]
         self.assertEqual(row["isomers_enumerated"], 2)
-        self.assertEqual(row["enumeration_cap"], 32)
+        self.assertEqual(int(row["enumeration_cap"]), REGISTRY_ISOMER_CAP)
 
     def test_reference_count_summary_derives_ratios(self) -> None:
         from _david.code.conformer.analysis.preparation import reference_count_summary
