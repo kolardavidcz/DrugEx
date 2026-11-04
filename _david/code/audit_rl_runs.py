@@ -793,9 +793,9 @@ def build_markdown(
         lines.append("| Run | Epochs | Samples | Purpose |")
         lines.append("| :--- | ---: | ---: | :--- |")
         for run in smoke:
-            purpose = ""
+            purpose = "-"
             if run.manifest:
-                purpose = str(run.manifest.get("purpose", ""))
+                purpose = str(run.manifest.get("purpose") or "-")
             lines.append(
                 f"| `{_short_rel(run.rel)}` | {_fmt(run.config.get('epochs'))} | "
                 f"{_fmt(run.config.get('n_samples'))} | {purpose} |"

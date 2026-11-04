@@ -146,6 +146,14 @@ Result: 6.2 GB → 5.7 GB, with storage containing only `.venv`, one release, `c
 files | local-only 48`. The 48 local-only directories are expected: the remote copy was
 intentionally removed after verification.
 
+After the first end-to-end smoke of the rewritten package (job `25256775`, release `78ec60a`):
+
+- Two run directories (`20261104_0339_…`, `20261104_0344_…`) pulled and verified → deleted.
+- Three `spec.json` files (`jobs/drugex_smoke_{e7c6b8a,a8e26b4,78ec60a}`) and four PBS logs
+  (`drugex_smoke_*.o*`, `acl_*.o*`) → pulled to `_david/output/_metacentrum_jobs/` → deleted.
+- Stale releases `e7c6b8a`, `a8e26b4`, `ece2f23`, `5012debb` removed; `78ec60a` is the only
+  release left and no job referenced the others (`qstat -u` was empty).
+
 Since then, **local `_david/output/` is the only copy of every historical result**. If a
 backup is wanted, make it off both hosts (external drive / cloud), not by re-uploading to
 MetaCentrum.
