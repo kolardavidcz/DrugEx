@@ -243,6 +243,8 @@ def job_report(job: Job, lines: int) -> dict[str, object]:
     }
 
     rows = probe.get("rows")
+    report["run_dir"] = probe.get("run", "")
+    report["scratch"] = probe.get("scratch", "")
     if isinstance(rows, list) and rows:
         header = probe.get("header")
         report["header"] = header[0] if isinstance(header, list) and header else ""
@@ -332,7 +334,12 @@ def print_human(jobs: list[Job], reports: list[dict[str, object]]) -> None:
             if report.get("manifest_state") and report.get("manifest_state") != "running":
                 print(f"    manifest state: {report.get('manifest_state')}")
         else:
-            print("    (no epoch rows yet — job is starting, or scratch is not reachable)")
+            run_dir = report.get("run_dir")
+            if run_dir:
+                print(f"    scratch run dir: {run_dir}")
+                print("    (setup still running — no epoch rows yet)")
+            else:
+                print("    (scratch not reachable yet — job still starting, or another node fs)")
             log_path = report.get("pbs_log")
             if log_path:
                 print(f"    PBS log: {log_path}")

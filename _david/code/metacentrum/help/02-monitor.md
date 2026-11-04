@@ -27,12 +27,15 @@ walltime limit and name, plus a running/queued count.
 | `C` | Completed (only with `qstat -x`). | Check `Exit_status` and pull results. |
 
 Do **not** use `qstat -F json`: this PBS build rejects the format (`qstat: conflicting
-options.`). The long format `qstat -f` is the parseable one and is what `submit.py` uses.
+options.`). Neither does `qstat -u <user> -f` work: it silently prints the *short* table, so
+`submit.py` and the monitor resolve ids with `qselect -u <user>` and then call
+`qstat -f <id>…`. Parsing the short table is unsafe because long job names shift the columns.
 
 Useful raw queries:
 
 ```bash
 ssh meta 'qstat -u kolardavidcz'                      # compact table
+ssh meta 'qselect -u kolardavidcz'                    # just the job ids
 ssh meta 'qstat -f 25244717'                          # every field of one job
 ssh meta 'qstat -x -f 25244717 | grep -E "Exit_status|resources_used"'   # after it ends
 ssh meta 'qstat -q | head -20'                         # queue depths
@@ -41,8 +44,11 @@ ssh meta 'qstat -u kolardavidcz -n'                    # running jobs with node 
 
 Fields worth reading in `qstat -f`:
 
-- `exec_host` — worker node; strip everything after `/` (that is the core index).
-- `Resource_List.walltime` vs `resources_used.walltime` — budget vs burn.
+- `exec_host` — worker node, sometimes **short** (`eluo1-2`) and therefore unresolvable from
+  the login node; `exec_host2` carries `node.hw.elixir-czech.cz:port`, which is what the
+  monitor uses. Strip everything after `/` (core index) and after `:` (port).
+- `Resource_List.walltime` vs `resources_used.walltime` — budget vs burn. `walltime` updates
+  lazily, so it lags the real elapsed time by a minute or two.
 - `Resource_List.select` — what was actually granted (`ncpus`, `mem`, `ngpus`).
 - `comment` — hold/queue reason, e.g. "Not Running: Insufficient amount of resource".
 - `Submit_arguments` — the exact `-v RUN_SPEC=…` path, hence the exact spec that ran.
@@ -71,6 +77,8 @@ log. Two harmless lines that look alarming:
 
 The log does **not** contain per-epoch metrics (those go to the run directory). It contains
 startup guards, tracebacks, and the final `Results copied to …` line from the EXIT trap.
+PBS may create the file only when the job ends, so `logs` returning "No PBS log" for a
+running job is not proof that the job failed — check `status` first.
 
 ## 3. Epoch telemetry
 
@@ -91,9 +99,14 @@ release. Useful options:
 
 For each running job it prints: job id, name, node, elapsed/limit walltime, the last
 `--lines` rows of `models/SequenceRNN_reinforced_fit.tsv`, the total epoch count, the age of
-the newest epoch row, an epoch-rate estimate and an ETA against the walltime limit. If the
-scratch directory cannot be found (job just started, or a node filesystem we cannot see), it
-falls back to the tail of the PBS log.
+the newest epoch row, an epoch-rate estimate and an ETA against the walltime limit. Before
+the first epoch it prints the scratch run directory it found (`setup still running`); if the
+scratch cannot be found at all, it falls back to the tail of the PBS log in `$HOME`.
+
+The TSV only appears after epoch 1, and the PBS `.o` file is often created at the end of the
+job, so **"no epoch rows and no PBS log" is normal for the first few minutes**. Look at
+`resources_used.cput`/`mem` growth and the scratch directory listing before suspecting a hang.
+Reference preparation and the first ROCS calibration dominate that setup phase.
 
 ### Reading `SequenceRNN_reinforced_fit.tsv`
 
