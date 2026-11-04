@@ -44,13 +44,19 @@ done
 RUN_ID="$(basename "$RESULTS_DIR")"
 OUT_DIR="$SCRATCHDIR/output/$RUN_ID"
 
+# PBS sets NCPUS inconsistently (1 for a 4-core job); the node file is the contract.
+JOB_CPUS="${NCPUS:-}"
+if [[ -n "${PBS_NODEFILE:-}" && -r "${PBS_NODEFILE:-}" ]]; then
+    JOB_CPUS=$(wc -l < "$PBS_NODEFILE")
+fi
+
 cat <<HEADER
 ================ DrugEx job ================
 job        : $PBS_JOBID
 name       : $EXP_NAME
 node       : $(hostname)
 queue      : ${PBS_QUEUE:-unknown}
-cpus       : ${NCPUS:-?}
+cpus       : ${JOB_CPUS:-?}
 scratch    : $SCRATCHDIR
 release    : $SOURCE_DIR
 revision   : $DRUGEX_SOURCE_REVISION

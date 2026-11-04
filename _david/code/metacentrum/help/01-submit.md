@@ -115,6 +115,12 @@ Anything after `--` (or inside `--args "…"`) is handed to
 
 Never pass `--output-dir`, `--agent-path`, `--vocab-path`; the template and staging own them.
 
+**Each flag is one argument after `--`.** `-- --epochs 50 --no-include-qed` works;
+`-- "--epochs 50 --no-include-qed"` is rejected on purpose. The quoted form reaches argparse
+as a single string, which the pipeline cannot parse — that failure (`unrecognized arguments:
+--molecule CC(O)C --epochs 1 …`) killed the first 2026-11-04 smoke job. `--args "…"` is the
+spelling that *does* take one quoted string, and it is tokenised with `shlex.split`.
+
 ## 5. Dry run and the qsub line
 
 ```bash
@@ -171,6 +177,7 @@ ROCS work and no longer accepted from this frontend; the new default is `ngpus=0
 | `qsub: Access to queue is denied` | The queue is `from_route_only` or not granted to this account. Same fix: omit `--queue`. |
 | `--output-dir is owned by the MetaCentrum template…` | Remove the flag from the pipeline arguments. |
 | `Pass pipeline flags either with --args or after --, not both` | Pick one spelling. |
+| `Pipeline flags after '--' must be separate arguments…` | You quoted the whole tail. Drop the outer quotes, or use `--args "…"`. |
 | `.pkg`/`.vocab` not found in `$STORAGE/models` | `submit sync` again; the checkpoint is outside the release by design. |
 
 Deeper failure analysis: [`04-failures.md`](04-failures.md).

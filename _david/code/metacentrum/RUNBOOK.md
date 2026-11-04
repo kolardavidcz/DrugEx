@@ -111,9 +111,12 @@ $PY -m _david.code.metacentrum.submit submit \
 ```
 
 Both spellings of the pipeline arguments are equivalent (`--args "…"` or after `--`);
-never use both in one command. `--output-dir`, `--agent-path` and `--vocab-path` are
-reserved: the release contract and the staged checkpoint own them, and `JobSpec` rejects
-them loudly.
+never use both in one command. **After `--` every flag is its own argument** — write
+`-- --epochs 50 --no-include-qed`, not `-- "--epochs 50 --no-include-qed"`. The quoted
+form is refused with an explicit error, because the whole string would otherwise reach
+argparse as a single nonsensical argument (this is exactly how the first smoke job failed).
+`--output-dir`, `--agent-path` and `--vocab-path` are reserved: the release contract and
+the staged checkpoint own them, and `JobSpec` rejects them loudly.
 
 ### 2d. GPU
 

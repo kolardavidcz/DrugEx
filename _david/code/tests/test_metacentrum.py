@@ -149,6 +149,17 @@ class TestSubmissionPayload(unittest.TestCase):
         self.assertEqual(pipeline, ["--criteria", "gmean"])
         self.assertEqual(split_cli(["status"]), (["status"], []))
 
+    def test_a_quoted_blob_after_double_dash_is_refused(self) -> None:
+        """Job 25256773 failed because the whole tail arrived as one argv element."""
+        with self.assertRaises(SystemExit) as ctx:
+            submit._assert_unquoted_pipeline_tokens(
+                ["--molecule CC(O)C --epochs 1 --samples 10"]
+            )
+        self.assertIn("separate arguments", str(ctx.exception))
+        submit._assert_unquoted_pipeline_tokens(
+            ["--molecule", "CC(O)C", "--epochs", "1", "--run-tag", "my run"]
+        )
+
     def test_storage_root_uses_the_canonical_double_site_path(self) -> None:
         self.assertEqual(storage_root("kolardavidcz", "brno2"), STORAGE)
         self.assertEqual(
@@ -171,6 +182,35 @@ class TestCliDefaults(unittest.TestCase):
 
 
 class TestQstatParsing(unittest.TestCase):
+    def test_list_jobs_resolves_ids_before_asking_for_long_format(self) -> None:
+        """`qstat -u user -f` returns the short table on this PBS; ids must be expanded."""
+        long_format = (
+            "Job Id: 25256773.pbs-m1.metacentrum.cz\n"
+            "    Job_Name = drugex_smoke\n"
+            "    job_state = R\n"
+            "    queue = p2e_1d\n"
+        )
+        calls: list[str] = []
+
+        def fake_remote(host: str, command: str, stdin=None):
+            calls.append(command)
+            stdout = "25256773.pbs-m1.metacentrum.cz\n" if command.startswith("qselect") else long_format
+            return SimpleNamespace(stdout=stdout)
+
+        with patch.object(submit, "remote", side_effect=fake_remote):
+            jobs = submit.list_jobs("meta", "kolardavidcz")
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].name, "drugex_smoke")
+        self.assertEqual(jobs[0].state, "R")
+        self.assertEqual(calls[0], "qselect -u kolardavidcz")
+        self.assertIn("qstat -f 25256773.pbs-m1.metacentrum.cz", calls[1])
+        self.assertNotIn("-u kolardavidcz -f", calls[1])
+
+    def test_empty_queue_needs_no_second_call(self) -> None:
+        with patch.object(submit, "remote", return_value=SimpleNamespace(stdout="")) as call:
+            self.assertEqual(submit.list_jobs("meta", "kolardavidcz"), [])
+        self.assertEqual(call.call_count, 1)
+
     def test_long_format_is_parsed_without_column_assumptions(self) -> None:
         jobs = parse_qstat_full(QSTAT_FULL)
         self.assertEqual([job.short_id for job in jobs], ["25249720", "25249783"])
@@ -262,6 +302,11 @@ class TestJobTemplateContract(unittest.TestCase):
         self.assertIn("json.load(handle)", self.text)
         self.assertIn('"--output-dir"', self.text)
         self.assertNotIn("eval ", self.text)
+
+    def test_template_reports_the_granted_core_count(self) -> None:
+        """PBS `NCPUS` was 1 for a 4-core job; the node file is authoritative."""
+        self.assertIn("PBS_NODEFILE", self.text)
+        self.assertIn("${JOB_CPUS:-?}", self.text)
 
 
 if __name__ == "__main__":

@@ -370,10 +370,12 @@ class RemoteJob:
 
 
 def parse_qstat_full(text: str) -> list[RemoteJob]:
-    """Parse ``qstat -u <user> -f`` blocks (PBS Pro emits ``Key = Value`` lines).
+    """Parse long-format ``qstat -f <job id>`` blocks (PBS Pro emits ``Key = Value`` lines).
 
     PBS output is column-based in the short format and shifts with long job
-    names, so the long format is parsed instead of slicing whitespace.
+    names, so the long format is parsed instead of slicing whitespace. Note that
+    ``qstat -u <user> -f`` on this build prints the *short* table regardless, which is
+    why :func:`list_jobs` resolves ids first.
     """
     jobs: list[RemoteJob] = []
     current: dict[str, str] | None = None
@@ -393,8 +395,22 @@ def parse_qstat_full(text: str) -> list[RemoteJob]:
     return jobs
 
 
+def _node_name(fields: dict[str, str]) -> str:
+    """Fully qualified worker name.
+
+    ``exec_host`` may be a bare short name (``eluo1-2/4*4``) that does not resolve from
+    the login node, while ``exec_host2`` carries the domain and a port
+    (``eluo1-2.hw.elixir-czech.cz:15002/4*4``). Prefer the resolvable one.
+    """
+    for key in ("exec_host2", "exec_host"):
+        raw = fields.get(key, "").strip()
+        if raw:
+            return raw.split("/")[0].split(":")[0].strip()
+    return ""
+
+
 def _job_from_fields(fields: dict[str, str]) -> RemoteJob:
-    node = fields.get("exec_host", "").split("/")[0].strip()
+    node = _node_name(fields)
     return RemoteJob(
         job_id=fields.get("Job_Id", ""),
         name=fields.get("Job_Name", "?"),
@@ -408,8 +424,17 @@ def _job_from_fields(fields: dict[str, str]) -> RemoteJob:
 
 
 def list_jobs(host: str = DEFAULT_HOST, user: str = DEFAULT_USER) -> list[RemoteJob]:
-    """Current queue contents for ``user`` (running + queued + held)."""
-    return parse_qstat_full(remote(host, f"qstat -u {shlex.quote(user)} -f").stdout)
+    """Current queue contents for ``user`` (running + queued + held).
+
+    This PBS build prints the *short* table when ``-f`` is combined with ``-u``, so the
+    job ids are collected first and expanded one ``qstat -f`` call. Column parsing of the
+    short table would break on the long job names we use.
+    """
+    ids = remote(host, f"qselect -u {shlex.quote(user)}").stdout.split()
+    if not ids:
+        return []
+    listing = remote(host, "qstat -f " + " ".join(shlex.quote(job) for job in ids))
+    return parse_qstat_full(listing.stdout)
 
 
 def cancel(host: str, user: str, targets: list[str]) -> list[str]:
@@ -586,9 +611,26 @@ def _do_check(host: str, user: str, storage: str) -> None:
     print(remote(host, script).stdout.strip())
 
 
+def _assert_unquoted_pipeline_tokens(tokens: list[str]) -> None:
+    """Catch ``-- "--epochs 1 --samples 10"``: one quoted blob is not a flag list.
+
+    Everything after ``--`` is forwarded verbatim, exactly like ``argv`` in a shell.
+    A token that starts with ``-`` and contains whitespace can only be a quoted group
+    of flags, which argparse would pass to the pipeline as one nonsense argument.
+    """
+    for token in tokens:
+        if token.startswith("-") and any(char.isspace() for char in token):
+            raise SystemExit(
+                f"Pipeline flags after '--' must be separate arguments, but got one "
+                f"quoted blob: {token!r}.\n"
+                "Drop the surrounding quotes, or use --args \"…\" instead."
+            )
+
+
 def _do_submit(args: argparse.Namespace, pipeline_args: list[str], storage: str) -> None:
     if args.args and pipeline_args:
         raise SystemExit("Pass pipeline flags either with --args or after --, not both")
+    _assert_unquoted_pipeline_tokens(pipeline_args)
     spec = JobSpec(
         name=args.name,
         args=tuple(pipeline_args) if pipeline_args else _split_args(args.args),
@@ -614,7 +656,7 @@ def _do_submit(args: argparse.Namespace, pipeline_args: list[str], storage: str)
         f"  resources: {spec.resources}, walltime={spec.walltime}"
         + ("" if spec.queue else " (routed by walltime; shorter walltime = shorter queue)")
     )
-    print(f"  pipeline: {' '.join(spec.args) or '(all PipelineConfig defaults)'}")
+    print(f"  pipeline: {shlex.join(spec.args) or '(all PipelineConfig defaults)'}")
     if args.dry_run:
         print("\n$ " + shlex.join(qsub_command(spec, storage, revision, args.host)))
         return

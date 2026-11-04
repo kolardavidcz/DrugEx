@@ -76,7 +76,7 @@ def parse_walltime(value: str) -> int | None:
 
 
 def parse_qstat_full(text: str) -> list[Job]:
-    """Parse ``qstat -u <user> -f`` blocks (``Key = Value`` lines)."""
+    """Parse long-format ``qstat -f <id>`` blocks (``Key = Value`` lines)."""
     blocks: list[dict[str, str]] = []
     current: dict[str, str] = {}
     for line in text.splitlines():
@@ -103,7 +103,7 @@ def parse_qstat_full(text: str) -> list[Job]:
                 name=fields.get("Job_Name", "?"),
                 state=fields.get("job_state", "?"),
                 queue=fields.get("queue", ""),
-                node=fields.get("exec_host", "").split("/")[0].strip() or "unknown",
+                node=_node_name(fields),
                 elapsed=parse_walltime(fields.get("resources_used.walltime", "")),
                 limit=parse_walltime(fields.get("Resource_List.walltime", "")),
                 comment=fields.get("comment", ""),
@@ -112,8 +112,25 @@ def parse_qstat_full(text: str) -> list[Job]:
     return jobs
 
 
+def _node_name(fields: dict[str, str]) -> str:
+    """Resolvable worker name: `exec_host2` has the domain, `exec_host` may be short."""
+    for key in ("exec_host2", "exec_host"):
+        raw = fields.get(key, "").strip()
+        if raw:
+            return raw.split("/")[0].split(":")[0].strip()
+    return "unknown"
+
+
 def queue_snapshot(user: str) -> list[Job]:
-    return parse_qstat_full(run(["qstat", "-u", user, "-f"]))
+    """Long-format job blocks for ``user``.
+
+    This PBS build returns the *short* table for ``qstat -u <user> -f``, so ids are
+    resolved first and expanded with ``qstat -f <id>...``.
+    """
+    ids = run(["qselect", "-u", user]).split()
+    if not ids:
+        return []
+    return parse_qstat_full(run(["qstat", "-f", *ids]))
 
 
 # --------------------------------------------------------------------------- #
