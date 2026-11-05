@@ -126,21 +126,111 @@ class TestPush(unittest.TestCase):
             self.assertTrue(command.startswith("rsync -aR"))
 
 
+DATASET_NAME = "prior_test"
+DATASET_RECORD = {
+    "name": DATASET_NAME,
+    "manifest_sha256": "a" * 64,
+    "csv_sha256": "b" * 64,
+    "reference_sha256": "c" * 64,
+}
+
+
+def _dataset(root: Path) -> Path:
+    path = root / DATASET_NAME
+    path.mkdir(parents=True, exist_ok=True)
+    (path / seval.MANIFEST_NAME).write_text(
+        json.dumps({"scoring": {"sa_score_lower": 5.0, "sa_score_upper": 3.0}})
+    )
+    return path
+
+
+def _arm(root: Path, name: str, **overrides) -> Path:
+    run = _run(root / name, checkpoint=True)
+    target = run / seval.STANDARD_DIR
+    target.mkdir()
+    (target / seval.CSV_NAME).write_text(name)
+    manifest = {
+        "run": name,
+        "resampled": True,
+        "n_requested": 5000,
+        "dataset": dict(DATASET_RECORD),
+        "files": {seval.CSV_NAME: seval.sha256_file(target / seval.CSV_NAME)},
+    }
+    manifest.update(overrides)
+    (target / seval.MANIFEST_NAME).write_text(json.dumps(manifest))
+    return run
+
+
+class TestProtocol(unittest.TestCase):
+    """Two arms are comparable only when their scoring protocol hash agrees."""
+
+    def setUp(self) -> None:
+        self.cfg = seval._standard_config({"scoring": {}})
+
+    def test_execution_only_fields_do_not_change_the_hash(self) -> None:
+        other = PipelineConfig(
+            **{
+                **seval.asdict(self.cfg),
+                "gpu": "cpu",
+                "conformer_threads": 8,
+                "batch_size": 8,
+                "epochs": 7,
+            }
+        )
+        first = seval.scoring_protocol(self.cfg, DATASET_RECORD)
+        second = seval.scoring_protocol(other, DATASET_RECORD)
+        self.assertEqual(first["sha256"], second["sha256"])
+
+    def test_a_scoring_field_changes_the_hash(self) -> None:
+        other = PipelineConfig(**{**seval.asdict(self.cfg), "max_conformers": 99})
+        self.assertNotEqual(
+            seval.scoring_protocol(self.cfg, DATASET_RECORD)["sha256"],
+            seval.scoring_protocol(other, DATASET_RECORD)["sha256"],
+        )
+
+    def test_the_dataset_identity_changes_the_hash(self) -> None:
+        other = {**DATASET_RECORD, "csv_sha256": "d" * 64}
+        self.assertNotEqual(
+            seval.scoring_protocol(self.cfg, DATASET_RECORD)["sha256"],
+            seval.scoring_protocol(self.cfg, other)["sha256"],
+        )
+
+    def test_arms_on_one_protocol_verify_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _dataset(root)
+            _arm(root, "20261101_1200_a")
+            _arm(root, "20261101_1200_b")
+            self.assertEqual(seval.verify(root, dataset_root=root), [])
+
+    def test_a_recorded_protocol_that_no_longer_matches_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _dataset(root)
+            _arm(root, "20261101_1200_a", protocol={"sha256": "0" * 64})
+            problems = seval.verify(root, dataset_root=root)
+            self.assertTrue(any("does not match" in problem for problem in problems))
+
+    def test_arms_on_different_arm_sizes_are_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _dataset(root)
+            _arm(root, "20261101_1200_a")
+            _arm(root, "20261101_1200_b", n_requested=1000)
+            problems = seval.verify(root, dataset_root=root)
+            self.assertTrue(any("arm size" in problem for problem in problems))
+
+
 class TestVerify(unittest.TestCase):
     def test_a_modified_standard_arm_fails_verification(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            run = _run(root / "20261101_1200_a", checkpoint=True)
+            _dataset(root)
+            run = _arm(root, "20261101_1200_a")
             target = run / seval.STANDARD_DIR
-            target.mkdir()
-            (target / seval.CSV_NAME).write_text("content")
-            manifest = {
-                "files": {seval.CSV_NAME: seval.sha256_file(target / seval.CSV_NAME)}
-            }
-            (target / seval.MANIFEST_NAME).write_text(json.dumps(manifest))
-            self.assertEqual(seval.verify(root), [])
+            self.assertEqual(seval.verify(root, dataset_root=root), [])
             (target / seval.CSV_NAME).write_text("changed")
-            self.assertTrue(seval.verify(root))
+            self.assertTrue(seval.verify(root, dataset_root=root))
 
 
 class TestPbsScript(unittest.TestCase):

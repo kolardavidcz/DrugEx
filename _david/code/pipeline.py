@@ -23,6 +23,11 @@ from drugex.training.monitors import FileMonitor
 from rdkit import Chem, rdBase
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+
+#: Bump when a PipelineConfig field is added, renamed or changes meaning. A manifest
+#: without this version was written by a release whose config lacks the newer keys,
+#: so the audit must treat those keys as unknown rather than as the current default.
+CONFIG_SCHEMA_VERSION: int = 1
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -234,12 +239,20 @@ class MoleculePipeline:
             random.seed(self.config.training_seed)
             np.random.seed(self.config.training_seed)
             torch.manual_seed(self.config.training_seed)
-        sources = sorted(Path(__file__).parent.glob("*.py"))
+        # Hash every module that can move a score, not only the top-level ones: the
+        # conformer and environment subpackages are part of the measurement.
+        excluded = {"tests", "archive", "__pycache__", "run_audit"}
+        sources = sorted(
+            path
+            for path in Path(__file__).parent.rglob("*.py")
+            if not excluded.intersection(path.relative_to(Path(__file__).parent).parts)
+        )
         manifest = dict(
             state="running",
             run_id=self.paths.root.name,
             query=str(molecule),
             config=asdict(self.config),
+            config_schema_version=CONFIG_SCHEMA_VERSION,
             host=socket.gethostname(),
             pbs_job_id=os.environ.get("PBS_JOBID"),
             source_revision=os.environ.get("DRUGEX_SOURCE_REVISION"),

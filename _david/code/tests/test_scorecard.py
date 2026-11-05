@@ -77,5 +77,77 @@ class TestScorecardStatistics(unittest.TestCase):
         self.assertTrue(pd.isna(rows.loc["ROCS (Median)", "Reinforced_Median"]))
 
 
+class TestFigureEvaluationScope(unittest.TestCase):
+    """Distributional figures must describe the evaluated arm, not the last epoch."""
+
+    def _run(self, tmp: str) -> tuple[object, object]:
+        from pathlib import Path
+
+        from _david.code.run_audit.audit_rl_runs import RunAudit
+
+        root = Path(tmp) / "20261101_1200_scope"
+        (root / "raw_data").mkdir(parents=True)
+        pd.DataFrame(
+            [{"SMILES": "CCO", "ROCS": 0.2, "SA": 0.5, "QED": 0.5, "Valid": 1,
+              "Raw_ROCS": 0.2, "Raw_SA": 1.0}]
+        ).to_csv(root / "raw_data" / "reinforced_raw.csv.gz", index=False)
+        pd.DataFrame(
+            [{"SMILES": "CCC", "ROCS": 0.3, "SA": 0.5, "QED": 0.5, "Valid": 1,
+              "Raw_ROCS": 0.3, "Raw_SA": 1.0}]
+        ).to_csv(root / "raw_data" / "baseline_raw.csv.gz", index=False)
+        run = RunAudit(
+            path=root,
+            rel=root.name,
+            manifest=None,
+            provenance=None,
+            state="complete",
+            host="",
+            pbs_job_id="",
+            source_revision="",
+            elapsed_seconds=None,
+            query="CCO",
+            config={},
+            fingerprint=None,
+        )
+        return run, root
+
+    def test_the_standard_arm_wins_when_it_exists(self) -> None:
+        import tempfile
+        import json
+
+        from _david.code.run_audit.audit_rl_runs import evaluation_frames
+        from _david.code.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run, root = self._run(tmp)
+            target = root / STANDARD_DIR
+            target.mkdir()
+            pd.DataFrame(
+                [
+                    {"SMILES": "CCN", "ROCS": 0.9, "SA": 0.5, "QED": 0.5,
+                     "Valid": 1, "Raw_ROCS": 0.9, "Raw_SA": 1.0}
+                ]
+            ).to_csv(target / CSV_NAME, index=False)
+            (target / MANIFEST_NAME).write_text(
+                json.dumps({"n_requested": 5000, "resampled": True, "dataset": {}})
+            )
+            after, _before, provenance = evaluation_frames(run)
+
+        self.assertEqual(provenance["eval_source"], "standard_arm")
+        self.assertEqual(list(after["SMILES"]), ["CCN"])
+
+    def test_the_historical_arm_is_the_documented_fallback(self) -> None:
+        import tempfile
+
+        from _david.code.run_audit.audit_rl_runs import evaluation_frames
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run, _root = self._run(tmp)
+            after, _before, provenance = evaluation_frames(run)
+
+        self.assertEqual(provenance["eval_source"], "historical_arm")
+        self.assertEqual(list(after["SMILES"]), ["CCO"])
+
+
 if __name__ == "__main__":
     unittest.main()

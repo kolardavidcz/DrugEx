@@ -47,6 +47,7 @@ from typing import Any, Iterable
 import pandas as pd
 
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT, PipelineConfig, RunPaths
+from _david.code.prior_dataset import DATASET_ROOT
 from _david.code.schema import std
 
 OUTPUT_ROOT: Path = PROJECT_ROOT / "_david" / "output"
@@ -207,8 +208,11 @@ class RunAudit:
     @property
     def can_regenerate(self) -> bool:
         models = self.path / "models"
+        standard_arm = (
+            self.path / "standard_eval" / "reinforced_standard.csv.gz"
+        ).is_file()
         return (
-            self.raw_ready
+            (self.raw_ready or standard_arm)
             and (models / "SequenceRNN_reinforced_smiles.tsv").is_file()
             and (models / "SequenceRNN_reinforced_fit.tsv").is_file()
         )
@@ -557,6 +561,83 @@ def _write_normalized_monitor_tsv(
     return notes
 
 
+def evaluation_frames(
+    run: RunAudit,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+    """Return the ``(after, before, provenance)`` frames for the distributional figures.
+
+    The model a run is named after is its best-validation checkpoint, so the
+    distributional figures must describe the arm re-sampled from that checkpoint
+    (``standard_eval/``), not the last-epoch arm the buggy Stage 3 stored. The
+    historical arm is only used when no standard arm exists yet, and the
+    provenance block says which one was rendered.
+    """
+    from _david.code.rocs_scale import correct_run_frame
+    from _david.code.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
+
+    raw = run.path / "raw_data"
+    target = run.path / STANDARD_DIR
+    manifest_path = target / MANIFEST_NAME
+    arm_path = target / CSV_NAME
+    if manifest_path.is_file() and arm_path.is_file():
+        manifest = json.loads(manifest_path.read_text())
+        after = correct_run_frame(run.path, _normalize_frame(pd.read_csv(arm_path)))
+        dataset = (manifest.get("dataset") or {}).get("name")
+        dataset_dir = Path(DATASET_ROOT) / str(dataset) if dataset else None
+        prior = dataset_dir / "prior_molecules.csv.gz" if dataset_dir else None
+        protocol = (manifest.get("protocol") or {}).get("sha256")
+        if protocol is None and dataset_dir is not None:
+            dataset_manifest = dataset_dir / "manifest.json"
+            if dataset_manifest.is_file():
+                from _david.code.standard_eval import protocol_from_manifest
+
+                protocol = protocol_from_manifest(
+                    manifest, json.loads(dataset_manifest.read_text())
+                ).get("sha256")
+        before: pd.DataFrame
+        if prior is not None and prior.is_file():
+            before = correct_run_frame(run.path, _normalize_frame(pd.read_csv(prior)))
+        else:
+            before = correct_run_frame(
+                run.path, _normalize_frame(pd.read_csv(raw / "baseline_raw.csv.gz"))
+            )
+        provenance = {
+            "eval_source": "standard_arm",
+            "eval_arm": f"{STANDARD_DIR}/{CSV_NAME}",
+            "eval_arm_sha256": _sha256(arm_path),
+            "eval_n_actual": int(len(after)),
+            "eval_n_requested": manifest.get("n_requested"),
+            "eval_resampled": bool(manifest.get("resampled")),
+            "eval_checkpoint_sha256": manifest.get("checkpoint_sha256"),
+            "eval_protocol_sha256": protocol,
+            "baseline_arm": (
+                f"{(dataset or '')}/prior_molecules.csv.gz"
+                if prior is not None and prior.is_file()
+                else "raw_data/baseline_raw.csv.gz"
+            ),
+        }
+        return after, before, provenance
+
+    after = correct_run_frame(
+        run.path, _normalize_frame(pd.read_csv(raw / "reinforced_raw.csv.gz"))
+    )
+    before = correct_run_frame(
+        run.path, _normalize_frame(pd.read_csv(raw / "baseline_raw.csv.gz"))
+    )
+    provenance = {
+        "eval_source": "historical_arm",
+        "eval_arm": "raw_data/reinforced_raw.csv.gz",
+        "eval_arm_sha256": _sha256(raw / "reinforced_raw.csv.gz"),
+        "eval_n_actual": int(len(after)),
+        "eval_n_requested": run.config.get("n_eval_samples"),
+        "eval_resampled": False,
+        "eval_checkpoint_sha256": None,
+        "eval_protocol_sha256": None,
+        "baseline_arm": "raw_data/baseline_raw.csv.gz",
+    }
+    return after, before, provenance
+
+
 def regenerate(run: RunAudit) -> list[str]:
     """Rebuild every missing deliverable from the stored arms. Returns messages."""
     from rdkit import Chem
@@ -572,10 +653,7 @@ def regenerate(run: RunAudit) -> list[str]:
     figures = run.figures
     figures.mkdir(parents=True, exist_ok=True)
 
-    from _david.code.rocs_scale import correct_run_frame
-
-    after = correct_run_frame(run.path, _normalize_frame(pd.read_csv(raw / "reinforced_raw.csv.gz")))
-    before = correct_run_frame(run.path, _normalize_frame(pd.read_csv(raw / "baseline_raw.csv.gz")))
+    after, before, eval_provenance = evaluation_frames(run)
 
     paths = RunPaths(
         root=run.path,
@@ -605,7 +683,6 @@ def regenerate(run: RunAudit) -> list[str]:
     )
     messages.append(f"04 (legacy diagnostic, ref heavy atoms {ref_heavy})")
 
-    arm_rows = len(after)
     (figures / "RENDER_PROVENANCE.json").write_text(
         json.dumps(
             {
@@ -613,11 +690,17 @@ def regenerate(run: RunAudit) -> list[str]:
                 "run": run.rel,
                 "source_revision": run.source_revision or None,
                 "figures": list(CURRENT_FIGURES),
-                "eval_n_actual": int(arm_rows),
-                "eval_n_configured": run.config.get("n_eval_samples"),
+                **eval_provenance,
+                "training_trace_figures": [
+                    name
+                    for name in CURRENT_FIGURES
+                    if name.startswith(("03_", "11_", "12_", "13_", "14_", "15_", "16_"))
+                ],
                 "note": (
-                    "Rendered from the stored arms with the current ResultAnalyzer. "
-                    "Molecules are not resampled; a historical arm keeps its own n."
+                    "Figures 01/02/05/06/07/10 and the scorecard are rendered from "
+                    "the evaluated arm named in eval_arm; 03 and 11-16 come from the "
+                    "per-epoch monitor trace and are longitudinal diagnostics, not "
+                    "distributional statistics."
                 ),
             },
             indent=2,
@@ -868,6 +951,42 @@ def _last_epoch(run: RunAudit) -> str:
     return "-"
 
 
+def _provenance_record(run: RunAudit) -> dict[str, Any]:
+    """Evaluation provenance of a run, read from the manifests without loading arms."""
+    from _david.code.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
+
+    record: dict[str, Any] = {
+        "eval_source": "historical_arm",
+        "eval_n": run.config.get("n_eval_samples"),
+        "eval_arm_sha256": _sha256(run.path / "raw_data" / "reinforced_raw.csv.gz"),
+        "eval_protocol_sha256": None,
+        "eval_checkpoint_sha256": None,
+    }
+    target = run.path / STANDARD_DIR
+    manifest_path = target / MANIFEST_NAME
+    if manifest_path.is_file() and (target / CSV_NAME).is_file():
+        manifest = json.loads(manifest_path.read_text())
+        protocol = (manifest.get("protocol") or {}).get("sha256")
+        dataset = (manifest.get("dataset") or {}).get("name")
+        dataset_manifest = Path(DATASET_ROOT) / str(dataset) / "manifest.json"
+        if protocol is None and dataset_manifest.is_file():
+            from _david.code.standard_eval import protocol_from_manifest
+
+            protocol = protocol_from_manifest(
+                manifest, json.loads(dataset_manifest.read_text())
+            ).get("sha256")
+        record.update(
+            {
+                "eval_source": "standard_arm",
+                "eval_n": manifest.get("n_used") or manifest.get("n_requested"),
+                "eval_arm_sha256": _sha256(target / CSV_NAME),
+                "eval_protocol_sha256": protocol,
+                "eval_checkpoint_sha256": manifest.get("checkpoint_sha256"),
+            }
+        )
+    return record
+
+
 def build_csv(runs: Iterable[RunAudit], cfg: PipelineConfig) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for run in runs:
@@ -889,6 +1008,7 @@ def build_csv(runs: Iterable[RunAudit], cfg: PipelineConfig) -> pd.DataFrame:
                 "current_figures": run.current_figure_count(),
                 "legacy_figures": run.legacy_figure_count(),
                 "verdict": run.verdict(),
+                **_provenance_record(run),
                 **{f"cfg_{key}": _fmt(value) for key, value in run.config.items()},
                 **{
                     f"gold_{key}": _fmt(_gold_value(key, cfg))

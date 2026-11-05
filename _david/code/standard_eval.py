@@ -27,13 +27,15 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 import os
 import random
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -57,6 +59,9 @@ from _david.code.schema import std
 LOGGER = logging.getLogger(__name__)
 
 SCHEMA_VERSION: int = 1
+#: Version of the scoring protocol below. Bump it when a change to the code or the
+#: dataset makes old and new arms incomparable even though every input looks equal.
+PROTOCOL_VERSION: int = 1
 STANDARD_DIR: str = "standard_eval"
 CSV_NAME: str = "reinforced_standard.csv.gz"
 MANIFEST_NAME: str = "manifest.json"
@@ -70,6 +75,87 @@ RESAMPLE_ACTIONS: tuple[str, ...] = ("resample", "rescore", "skip", "done")
 STANDARD_REWARD_SCHEME: str = "harrington"
 STANDARD_REWARD_WEIGHTS: tuple[float, ...] = (0.50, 0.25, 0.25)
 STANDARD_REWARD_THRESHOLDS: tuple[float, ...] = (0.35, 0.50, 0.50)
+
+
+#: Config fields that only steer execution or training and therefore cannot change a
+#: molecule's score. Everything else is part of the protocol hash, so a changed
+#: scoring default invalidates comparability instead of passing unnoticed.
+EXECUTION_ONLY_FIELDS: frozenset[str] = frozenset({
+    "epochs",
+    "patience",
+    "min_epochs",
+    "n_samples",
+    "val_samples",
+    "n_eval_samples",
+    "batch_size",
+    "prior_dataset",
+    "criteria",
+    "beta",
+    "epsilon",
+    "epsilon_end",
+    "decay_start_epoch",
+    "decay_epochs",
+    "decay_type",
+    "use_epsilon_decay",
+    "training_seed",
+    "gpu",
+    "cpu_ratio",
+    "conformer_threads",
+    "agent_path",
+    "vocab_path",
+})
+
+
+def scoring_protocol(
+    config: PipelineConfig,
+    dataset: dict[str, Any],
+    *,
+    reward_scheme: str = STANDARD_REWARD_SCHEME,
+    reward_weights: tuple[float, ...] = STANDARD_REWARD_WEIGHTS,
+    reward_thresholds: tuple[float, ...] = STANDARD_REWARD_THRESHOLDS,
+) -> dict[str, Any]:
+    """Describe and hash the frozen re-evaluation protocol.
+
+    Two arms are comparable only if they share ``sha256``. The hash covers the
+    dataset identity, the reward definition and every config field that can move a
+    score; execution-only fields (threads, device, training knobs) are excluded so
+    the same science on different hardware keeps the same hash.
+    """
+    payload = {
+        "version": int(PROTOCOL_VERSION),
+        "dataset": {
+            key: dataset.get(key)
+            for key in ("manifest_sha256", "csv_sha256", "reference_sha256")
+        },
+        "reward": {
+            "scheme": reward_scheme,
+            "weights": [float(value) for value in reward_weights],
+            "thresholds": [float(value) for value in reward_thresholds],
+        },
+        "config": {
+            key: value
+            for key, value in sorted(asdict(config).items())
+            if key not in EXECUTION_ONLY_FIELDS
+        },
+    }
+    canonical = json.dumps(payload, sort_keys=True, default=str).encode()
+    payload["sha256"] = hashlib.sha256(canonical).hexdigest()
+    return payload
+
+
+def protocol_from_manifest(manifest: dict[str, Any], dataset: dict[str, Any]) -> dict[str, Any]:
+    """Recompute an arm's protocol hash from its recorded inputs.
+
+    Arms written before the protocol block existed only record four config values;
+    the rest of the environment is rebuilt from ``_standard_config``. Because the
+    modules that define those defaults are byte-identical between the producing
+    releases, the recomputed hash is what the old run would have recorded.
+    """
+    recorded = manifest.get("protocol")
+    if isinstance(recorded, dict) and recorded.get("sha256"):
+        return recorded
+    config = _standard_config(dataset)
+    return scoring_protocol(config, dataset)
 
 
 def _seed_everything(seed: int) -> None:
@@ -294,6 +380,12 @@ def evaluate_run(
         statistics_path, lambda tmp: tmp.write_text(json.dumps(statistics, indent=2) + "\n")
     )
 
+    dataset_record = {
+        "name": dataset_dir.name,
+        "manifest_sha256": sha256_file(dataset_dir / MANIFEST_NAME),
+        "csv_sha256": sha256_file(dataset_dir / "prior_molecules.csv.gz"),
+        "reference_sha256": sha256_file(reference),
+    }
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "run": run.name,
@@ -308,12 +400,7 @@ def evaluate_run(
         if plan.checkpoint
         else None,
         "stored_arm_sha256": sha256_file(plan.arm) if plan.arm else None,
-        "dataset": {
-            "name": dataset_dir.name,
-            "manifest_sha256": sha256_file(dataset_dir / MANIFEST_NAME),
-            "csv_sha256": sha256_file(dataset_dir / "prior_molecules.csv.gz"),
-            "reference_sha256": sha256_file(reference),
-        },
+        "dataset": dataset_record,
         "config": {
             "include_qed": config.include_qed,
             "rocs_use_modifier": config.rocs_use_modifier,
@@ -329,6 +416,16 @@ def evaluate_run(
         "files": {
             CSV_NAME: sha256_file(csv_path),
             STATISTICS_NAME: sha256_file(statistics_path),
+        },
+        "protocol": scoring_protocol(config, dataset_record),
+        "sampling": {
+            "resampled": resampled,
+            "n_requested": int(n),
+            "seed": int(seed) if resampled else None,
+            "checkpoint": plan.checkpoint.name if plan.checkpoint else None,
+            "checkpoint_sha256": sha256_file(plan.checkpoint)
+            if plan.checkpoint
+            else None,
         },
         "elapsed_seconds": round(time.time() - started, 1),
     }
@@ -554,9 +651,21 @@ def pull_standard_arms(
     return copied
 
 
-def verify(root: Path | str = OUTPUT_ROOT) -> list[str]:
-    """Check every standard arm's recorded hashes."""
-    problems = []
+def verify(
+    root: Path | str = OUTPUT_ROOT,
+    *,
+    dataset_root: Path | str = DATASET_ROOT,
+) -> list[str]:
+    """Check every standard arm's hashes and its place in the shared protocol.
+
+    Beyond the file hashes, every arm must resolve to one protocol hash: that is
+    what licenses a cross-run comparison. An arm that carries a recorded protocol
+    block is re-derived from the dataset manifest on disk, so an edited config or a
+    changed scoring default shows up as a mismatch instead of a silent drift.
+    """
+    problems: list[str] = []
+    protocols: dict[str, list[str]] = {}
+    arm_sizes: dict[int, list[str]] = {}
     for run in discover_runs(root):
         target = run / STANDARD_DIR
         manifest_path = target / MANIFEST_NAME
@@ -569,6 +678,37 @@ def verify(root: Path | str = OUTPUT_ROOT) -> list[str]:
                 problems.append(
                     f"{run.name}/{filename}: expected {expected[:12]}… got {actual[:12]}…"
                 )
+
+        dataset_record = manifest.get("dataset") or {}
+        name = dataset_record.get("name")
+        dataset_dir = Path(dataset_root) / name if name else None
+        dataset_manifest_path = dataset_dir / MANIFEST_NAME if dataset_dir else None
+        if dataset_manifest_path is None or not dataset_manifest_path.is_file():
+            problems.append(f"{run.name}: dataset {name!r} is not available to verify the protocol")
+            continue
+        dataset = json.loads(dataset_manifest_path.read_text())
+        recomputed = scoring_protocol(_standard_config(dataset), dataset_record)
+        recorded = (manifest.get("protocol") or {}).get("sha256")
+        if recorded and recorded != recomputed["sha256"]:
+            problems.append(
+                f"{run.name}: recorded protocol {recorded[:12]}… does not match the "
+                f"current scoring defaults {recomputed['sha256'][:12]}…"
+            )
+        protocols.setdefault(recomputed["sha256"], []).append(run.name)
+        if manifest.get("resampled"):
+            arm_sizes.setdefault(int(manifest.get("n_requested") or 0), []).append(run.name)
+
+    if len(protocols) > 1:
+        detail = "; ".join(
+            f"{sha[:12]}… ({len(names)} arms: {', '.join(sorted(names)[:3])}…)"
+            for sha, names in sorted(protocols.items(), key=lambda item: -len(item[1]))
+        )
+        problems.append(f"arms do not share one scoring protocol: {detail}")
+    if len(arm_sizes) > 1:
+        detail = "; ".join(
+            f"n={size} ({len(names)} arms)" for size, names in sorted(arm_sizes.items())
+        )
+        problems.append(f"resampled arms do not share one arm size: {detail}")
     return problems
 
 
@@ -637,7 +777,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.action == "verify":
-        problems = verify(args.root)
+        problems = verify(args.root, dataset_root=args.dataset_root)
         for problem in problems:
             print(f"- {problem}")
         print("OK" if not problems else f"{len(problems)} problem(s)")
