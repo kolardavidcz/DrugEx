@@ -4217,15 +4217,17 @@ def build_diagnostic_scorecard(
         else 95.0
     )
 
+    # An arm with no parsable molecule has no uniqueness: reporting a default
+    # 95 % would hide a collapsed run behind a plausible-looking number.
     b_uniq = (
         float(b_clean[std.CANONICAL_SMILES].nunique() / len(b_clean) * 100.0)
         if std.CANONICAL_SMILES in b_clean.columns and len(b_clean) > 0
-        else 95.0
+        else float("nan")
     )
     a_uniq = (
         float(a_clean[std.CANONICAL_SMILES].nunique() / len(a_clean) * 100.0)
         if std.CANONICAL_SMILES in a_clean.columns and len(a_clean) > 0
-        else 95.0
+        else float("nan")
     )
 
     # Upper decile ROCS
@@ -4486,7 +4488,7 @@ def build_diagnostic_scorecard(
             "Baseline_Median": round(b_val, 1),
             "Reinforced_Median": round(a_val, 1),
             "Delta_Absolute": round(a_val - b_val, 1),
-            "Delta_Percent": round((a_val - b_val) / b_val * 100.0, 1),
+            "Delta_Percent": round((a_val - b_val) / b_val * 100.0, 1) if b_val else float("nan"),
             "Status_Critique": "[PASS] High chemical grammar integrity",
         },
         {
@@ -4495,7 +4497,9 @@ def build_diagnostic_scorecard(
             "Baseline_Median": round(b_uniq, 1),
             "Reinforced_Median": round(a_uniq, 1),
             "Delta_Absolute": round(a_uniq - b_uniq, 1),
-            "Delta_Percent": round((a_uniq - b_uniq) / b_uniq * 100.0, 1),
+            "Delta_Percent": round((a_uniq - b_uniq) / b_uniq * 100.0, 1)
+            if b_uniq and b_uniq == b_uniq
+            else float("nan"),
             "Status_Critique": "[PASS] High diversity; zero mode collapse",
         },
     ]
@@ -4560,7 +4564,11 @@ class ResultAnalyzer:
             by="Desirability_Rank_Score", ascending=False
         ).reset_index(drop=True)
 
-        # Save top leads
+        # Lead tables and lead figures rank molecules, so a failed parse never
+        # appears there even though it stays in the saved arm for the record.
+        df_leads = _valid_subset(df_sorted)
+        if df_leads.empty:
+            df_leads = df_sorted
         top_leads_tsv = self.paths.root / "top_prioritized_leads.tsv"
         df_sorted.to_csv(top_leads_tsv, sep="\t", index=False)
 
@@ -4615,11 +4623,11 @@ class ResultAnalyzer:
 
         # Figure 5: 05_lead_structures_gallery.png
         depicter = AlignedDepicter(ref_smiles)
-        df_rocs = df_after_clean.sort_values(
-            by=std.ROCS, ascending=False
-        ).reset_index(drop=True)
+        df_rocs = df_leads.sort_values(by=std.ROCS, ascending=False).reset_index(
+            drop=True
+        )
         depicter.render_leads(
-            df_sorted,
+            df_leads,
             output_png=self.paths.figures_dir / "05_lead_structures_gallery.png",
             max_leads=5,
             rocs_ranked=df_rocs,
@@ -4648,7 +4656,7 @@ class ResultAnalyzer:
         query_sdf = self.paths.raw_data_dir / "query_molecule_3d.sdf"
         ref_3d_target = query_sdf if query_sdf.is_file() else ref_smiles
         render_lead_to_seed_3d_superposition(
-            top_leads=df_sorted.head(5),
+            top_leads=df_leads.head(5),
             ref_sdf_or_mol=ref_3d_target,
             output_png=self.paths.figures_dir
             / "10_lead_to_seed_3d_superposition.png",
@@ -4741,7 +4749,7 @@ class ResultAnalyzer:
 
         # Write summary.md
         summary_md = self.paths.root / "summary.md"
-        top5 = df_sorted.head(5)
+        top5 = df_leads.head(5)
         lines = [
             f"# DrugEx Run Summary: {self.paths.root.name}",
             "",
@@ -4758,12 +4766,21 @@ class ResultAnalyzer:
             "| Property | Target Seed | Baseline Prior | Reinforced Agent | Shift (Δ%) | Diagnostic Status & Critique |",
             "| :--- | :---: | :---: | :---: | :---: | :--- |",
         ]
+        def _shown(value: float | str) -> str:
+            """A missing measurement reads 'n/a', never 'nan'."""
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            return "n/a" if number != number else str(value)
+
         for _, row in scorecard_df.iterrows():
             prop = str(row["Property"])
             seed = str(row["Target_Seed"])
-            base = str(row["Baseline_Median"])
-            reinf = str(row["Reinforced_Median"])
-            pct = f"{float(row['Delta_Percent']):+.1f}%"
+            base = _shown(row["Baseline_Median"])
+            reinf = _shown(row["Reinforced_Median"])
+            delta = row["Delta_Percent"]
+            pct = "n/a" if float(delta) != float(delta) else f"{float(delta):+.1f}%"
             crit = str(row["Status_Critique"])
             icon = (
                 "🟢"
