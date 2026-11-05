@@ -2459,6 +2459,21 @@ def _sa_desirability(
     return np.clip((lo - values) / (lo - hi), 0.0, 1.0)
 
 
+def eval_source_text(manifest: dict) -> str:
+    """Where the evaluation arm's weights came from, in words a reader can trust.
+
+    Runs made before the best-epoch restore recorded nothing; saying so is
+    better than implying that the arm is the best model.
+    """
+    source = str(manifest.get("evaluation_source") or "")
+    epoch = manifest.get("best_epoch")
+    if source == "best_epoch":
+        return f"from the best checkpoint (epoch {epoch})" if epoch else "from the best checkpoint"
+    if source == "last_epoch":
+        return "from the last epoch (no best checkpoint was recorded)"
+    return "from the saved checkpoint (provenance not recorded)"
+
+
 def write_training_candidates(
     table: pd.DataFrame, root: Path, *, limit: int = 25
 ) -> Path | None:
@@ -4716,13 +4731,7 @@ class ResultAnalyzer:
             "",
             f"- **Target Molecule**: `{ref_smiles[:45]}...`",
             f"- **Total Candidates Evaluated**: `{len(df_after_clean)}`",
-            f"- **Evaluation arm**: one final sample of `{len(df_after_clean)}` molecules from the "
-            f"{run_manifest.get('evaluation_source', 'recorded').replace('_', ' ')}"
-            + (
-                f" (epoch {run_manifest['best_epoch']})"
-                if run_manifest.get("best_epoch")
-                else ""
-            ),
+            f"- **Evaluation arm**: one final sample of `{len(df_after_clean)}` molecules {eval_source_text(run_manifest)}",
             "- **Analysis scope**: the distributions, scorecard and lead tables below use this "
             "final arm only. Per-epoch samples feed the longitudinal figures (03, 11-16) and "
             "`training_candidates.tsv`, and are never pooled into these statistics.",

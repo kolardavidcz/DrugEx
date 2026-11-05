@@ -158,6 +158,19 @@ class TestConsumers(unittest.TestCase):
         self.assertAlmostEqual(float(raw["ROCS"].iloc[0]), 0.9)
         self.assertAlmostEqual(float(raw["ROCS"].iloc[1]), 1.8)
 
+    def test_the_summary_names_the_model_that_produced_the_arm(self) -> None:
+        from _david.code.visualization import eval_source_text
+
+        self.assertEqual(
+            eval_source_text({"evaluation_source": "best_epoch", "best_epoch": 21}),
+            "from the best checkpoint (epoch 21)",
+        )
+        self.assertIn("last epoch", eval_source_text({"evaluation_source": "last_epoch"}))
+        self.assertIn(
+            "provenance not recorded",
+            eval_source_text({}),
+        )
+
     def test_training_candidates_are_written_best_first_and_invalid_dropped(self) -> None:
         from _david.code.visualization import write_training_candidates
 

@@ -443,7 +443,7 @@ Scope contract, recorded per run in the manifest as `analysis_scope`:
   best-of tables, the dashboard and every cross-run comparison.
 * `training_trace` — `models/SequenceRNN_reinforced_smiles.tsv`, the per-epoch
   samples. Used for longitudinal diagnostics (figures 03, 11–16) and for candidate
-  discovery (`best_training_candidates.tsv`), never pooled into the statistics
+  discovery (`training_candidates.tsv`), never pooled into the statistics
   above. Its molecules come from earlier, weaker policies, so mixing them into the
   final distribution flattens exactly the contrast the figures are meant to show.
 

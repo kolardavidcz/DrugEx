@@ -28,6 +28,8 @@ Historical runs are **not** retroactively re-sampled: their figures are rebuilt 
 | `20261103_0054_egcg_k4_c20_candidates_unminimized` | elmo3-5.hw.elixir-czech.cz / 25223669.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / no | 7/13 (+04) | 0 | UNVERIFIABLE |
 | `20261104_0445_egcg_gold_oe` | eluo1-4.hw.elixir-czech.cz / 25256877.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 13/13 | 0 | OK* |
 | `20261104_0447_egcg_eps0` | elmu1-15.hw.elixir-czech.cz / 25256882.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0 | 4 / 20 / yes | 13/13 | 0 | OK* |
+| `20261105_1013_egcg_p30_beta35` | adan19.grid.cesnet.cz / 25284658.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 11/13 (+04) | 0 | UNVERIFIABLE |
+| `20261105_1013_egcg_p30_bs128` | tyra22.metacentrum.cz / 25284654.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 13/13 (+04) | 0 | OK |
 | `archive/historical_rl_graph_runs/run16_sequencer_weighted_sum` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
 | `archive/historical_rl_graph_runs/run17_baseline_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
 
@@ -184,6 +186,23 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
 | exploration (`epsilon`) | `0` | `0.05` |
+
+### `20261105_1013_egcg_p30_beta35`
+
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `5f1c0c86b3d1b5263f114e23229fdcfb31fb4fe5`
+- Wall clock: 2.2 h
+
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| baseline penalty (`beta`) | `0.35` | `0` |
+
+### `20261105_1013_egcg_p30_bs128`
+
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `5f1c0c86b3d1b5263f114e23229fdcfb31fb4fe5`
+- Wall clock: 7.4 h
+- No deviations from the gold standard.
 
 ### `archive/historical_rl_graph_runs/run16_sequencer_weighted_sum`
 
