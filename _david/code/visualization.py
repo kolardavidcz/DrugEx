@@ -1525,19 +1525,43 @@ class AlignedDepicter:
 
         ncols = max(len(r) for r in rows)
         nrows = len(rows)
-        fig, axes = plt.subplots(
-            nrows,
-            ncols,
-            figsize=(3.55 * ncols, 5.2 * nrows + 0.9),
-            dpi=250,
-            squeeze=False,
-        )
+
+        # Layout: each card keeps the depiction's own 760:540 aspect, so the axes add no
+        # vertical slack. The old 5.2-inch-tall cells left ~25 % white space above and
+        # below every image because imshow fits the wider image to the cell width.
+        dpi = 250
+        card_w_in = 3.55
+        card_h_in = card_w_in * 540 / 760
+        pad_x_in = 0.06
+        caption_in = 1.22
+        title_in = 0.52
+        fig_w = ncols * card_w_in + (ncols + 1) * pad_x_in
+        fig_h = title_in + nrows * (card_h_in + caption_in)
+        fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi)
+        axes: list[list[Any]] = []
+        for r_idx in range(nrows):
+            row_axes = []
+            row_top = fig_h - title_in - r_idx * (card_h_in + caption_in)
+            for c_idx in range(ncols):
+                left = pad_x_in + c_idx * (card_w_in + pad_x_in)
+                row_axes.append(
+                    fig.add_axes(
+                        [
+                            left / fig_w,
+                            (row_top - card_h_in) / fig_h,
+                            card_w_in / fig_w,
+                            card_h_in / fig_h,
+                        ]
+                    )
+                )
+            axes.append(row_axes)
 
         fig.suptitle(
             "Prioritized Leads (row 1) vs. Best-ROCS Hits (row 2): Aligned 2D Topology",
             fontsize=13,
             fontweight="bold",
-            y=0.995,
+            x=0.5,
+            y=1 - 0.30 / fig_h,
         )
 
         for r_idx, row_cards in enumerate(rows):
@@ -1566,9 +1590,10 @@ class AlignedDepicter:
                         )
                     continue
 
-                # Render at the cell's native resolution: the axes are ~3.55 in wide at
-                # 250 dpi, so a 340 px image was being upscaled ~2.6x and looked soft.
-                img = Draw.MolToImage(card["mol"], size=(760, 540))
+                # Render at the cell's native resolution so no upscaling happens.
+                img = Draw.MolToImage(
+                    card["mol"], size=(round(card_w_in * dpi), round(card_h_in * dpi))
+                )
                 ax.imshow(img)
 
                 header_color = (
@@ -1689,8 +1714,7 @@ class AlignedDepicter:
                     color="#475569",
                 )
 
-        plt.subplots_adjust(top=0.92, bottom=0.14, wspace=0.12, hspace=0.62)
-        plt.savefig(target_png, dpi=250, bbox_inches="tight")
+        fig.savefig(target_png, dpi=dpi)
         plt.close(fig)
         return target_png
 
