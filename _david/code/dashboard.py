@@ -203,6 +203,7 @@ class RunSummary:
     config: dict[str, Any]
     evaluation_source: str = ""
     best_epoch: int | None = None
+    standard_source: str = ""
     metrics: dict[str, Any] = field(default_factory=dict)
     standard_metrics: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, bool] = field(default_factory=dict)
@@ -220,6 +221,7 @@ class RunSummary:
             "config": self.config,
             "evaluation_source": self.evaluation_source,
             "best_epoch": self.best_epoch,
+            "standard_source": self.standard_source,
             "metrics": self.metrics,
             "standard_metrics": self.standard_metrics,
             "artifacts": self.artifacts,
@@ -236,6 +238,41 @@ def _read_manifest(run: Path) -> dict[str, Any]:
         return payload if isinstance(payload, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def standard_model(run: Path) -> str:
+    """Name the model behind ``standard_eval``: the best checkpoint or a rescore.
+
+    ``evaluate_run`` reloads ``models/SequenceRNN_reinforced.pkg`` and samples;
+    when no checkpoint exists it only rescores the delivered molecules. The
+    checkpoint is the best epoch kept by the training monitor, so its epoch is
+    reported next to the label.
+    """
+    manifest_path = run / "standard_eval" / "manifest.json"
+    if not manifest_path.is_file():
+        return ""
+    try:
+        payload = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not payload.get("resampled"):
+        return "rescore"
+    best = _best_epoch(run)
+    return f"best@{best}" if best else "best"
+
+
+def _best_epoch(run: Path) -> int | None:
+    fit = run / "models" / "SequenceRNN_reinforced_fit.tsv"
+    if not fit.is_file():
+        return None
+    try:
+        frame = pd.read_csv(fit, sep="\t")
+    except (OSError, ValueError):
+        return None
+    if "best_epoch" not in frame.columns or frame.empty:
+        return None
+    value = pd.to_numeric(frame["best_epoch"], errors="coerce").dropna()
+    return int(value.iloc[-1]) if not value.empty else None
 
 
 def _arm_columns(run: Path) -> tuple[Path | None, pd.DataFrame | None]:
@@ -418,6 +455,7 @@ def collect(
             summary.metrics = summarize_arm(frame, config, rocs_factor)
         if standard is not None:
             summary.standard_metrics = summarize_arm(standard, config)
+            summary.standard_source = standard_model(run_dir)
         # A comparable standard arm outranks the historical one for cross-run
         # statements and best-of tables; the historical metrics stay visible.
         chosen = standard if standard is not None else frame
@@ -699,12 +737,12 @@ function sortable(table) {
 function modelLabel(run) {
   if (run.evaluation_source === 'best_epoch' && run.best_epoch) return `best@${run.best_epoch}`;
   if (run.evaluation_source === 'last_epoch') return 'last';
-  return '—';
+  return 'unrecorded';
 }
 
 function renderRuns() {
-  const cols = ['Run', 'Started', 'State', 'Arm model', 'ROCS med', 'ROCS p90', 'QED med', 'SA med', 'Valid',
-                'Eval n', 'Arm n', 'Std ROCS', 'Std QED', 'Std SA', 'Hours', 'Host / job', 'Standard eval'];
+  const cols = ['Run', 'Started', 'State', 'Arm model', 'ROCS med', 'ROCS p90', 'QED med', 'SA des', 'Valid',
+                'Eval n', 'Arm n', 'Std ROCS', 'Std QED', 'Std SA des', 'Hours', 'Host / job', 'Std model', 'Standard eval'];
   const head = cols.map(c => `<th>${esc(c)}</th>`).join('');
   const rows = P.runs.map(r => {
     const m = r.metrics || {};
@@ -713,19 +751,20 @@ function renderRuns() {
       <td data-sort="${esc(r.name)}"><b>${esc(r.name)}</b><br><span class="muted">${esc(r.source_revision.slice(0,7) || 'no revision')}</span></td>
       <td data-sort="${esc(r.started)}">${esc(r.started.replace('T',' '))}</td>
       <td>${stateBadge(r.state)}</td>
+      <td>${esc(modelLabel(r))}</td>
       <td class="num" data-sort="${m.rocs_median ?? ''}">${fmt(m.rocs_median)}</td>
       <td class="num" data-sort="${m.rocs_tail_median ?? ''}">${fmt(m.rocs_tail_median)}</td>
       <td class="num" data-sort="${m.qed_median ?? ''}">${fmt(m.qed_median)}</td>
       <td class="num" data-sort="${m.sa_median ?? ''}">${fmt(m.sa_median)}</td>
       <td class="num" data-sort="${m.valid_ratio ?? ''}">${m.valid_ratio === undefined ? '—' : (100*m.valid_ratio).toFixed(0)+' %'}</td>
       <td class="num" data-sort="${cfg(r,'n_eval_samples')}">${cfg(r,'n_eval_samples')}</td>
-      <td>${esc(modelLabel(r))}</td>
       <td class="num" data-sort="${m.n_rows ?? ''}">${m.n_rows ?? '—'}</td>
       <td class="num" data-sort="${sm.rocs_median ?? ''}">${fmt(sm.rocs_median)}</td>
       <td class="num" data-sort="${sm.qed_median ?? ''}">${fmt(sm.qed_median)}</td>
       <td class="num" data-sort="${sm.sa_median ?? ''}">${fmt(sm.sa_median)}</td>
       <td class="num" data-sort="${r.elapsed_hours ?? ''}">${fmt(r.elapsed_hours, 1)}</td>
       <td>${esc(r.host || '—')}<br><span class="muted">${esc(r.pbs_job_id || '')}</span></td>
+      <td>${esc(r.standard_source || '—')}</td>
       <td>${r.artifacts.standard_arm ? '✓ comparable' : (r.artifacts.standard_eval ? 'dir only' : '—')}</td>
     </tr>`;
   }).join('');

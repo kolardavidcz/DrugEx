@@ -159,6 +159,23 @@ class TestStandardArm(unittest.TestCase):
             self.assertEqual(payload["totals"]["with_standard_arm"], 1)
 
 
+    def test_the_standard_arm_names_its_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = _make_run(root / "20261105_1013_best")
+            standard = run / "standard_eval"
+            standard.mkdir()
+            (standard / "manifest.json").write_text(json.dumps({"resampled": True}))
+            (run / "models").mkdir(exist_ok=True)
+            pd.DataFrame({"Epoch": [1, 2, 3], "best_epoch": [1, 2, 2]}).to_csv(
+                run / "models" / "SequenceRNN_reinforced_fit.tsv", sep="\t", index=False
+            )
+            self.assertEqual(dashboard.standard_model(run), "best@2")
+
+            (standard / "manifest.json").write_text(json.dumps({"resampled": False}))
+            self.assertEqual(dashboard.standard_model(run), "rescore")
+
+
 class TestRendering(unittest.TestCase):
     def test_payload_cannot_close_the_script_tag(self) -> None:
         payload = {
