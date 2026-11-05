@@ -397,6 +397,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"RL selection criteria for best checkpoint (default: {defaults.criteria})",
     )
     parser.add_argument(
+        "--weights",
+        type=float,
+        nargs="+",
+        default=defaults.weights,
+        help=(
+            "Per-objective reward weights (ROCS SA [QED]); normalised by their sum. "
+            f"Default auto-calibrates to {defaults.weights} "
+            "(0.50/0.25/0.25 with --include-qed)"
+        ),
+    )
+    parser.add_argument(
         "--reward-scheme",
         type=str,
         default=defaults.reward_scheme,
@@ -626,6 +637,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         beta=args.beta,
         criteria=CRITERIA_ALIASES[args.criteria],
         reward_scheme=args.reward_scheme,
+        weights=tuple(args.weights) if args.weights is not None else None,
         score_variant=args.score_variant,
         color_ff=args.color_ff,
         rocs_clip_upper=args.rocs_clip_upper,

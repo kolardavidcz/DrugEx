@@ -13,7 +13,8 @@ from _david.code.config import (
     free_run_directory,
     run_directory_name,
 )
-from _david.code.environment import create_environment
+from _david.code.environment import HarringtonDesirabilityReward, create_environment
+from _david.code.pipeline import config_from_args, parse_args
 from _david.code.reference import PrepareMolecule
 from _david.code.rocs import create_rocs_scorer, has_color, score_pair
 from _david.code.schema import std
@@ -169,6 +170,30 @@ class TestPipelineArchitecture(unittest.TestCase):
             list(with_qed.thresholds)[:-1], list(without_qed.thresholds)
         )
         self.assertEqual(len(with_qed.thresholds), len(with_qed.scorers))
+
+
+class TestRewardWeightOverrides(unittest.TestCase):
+    """``--weights`` must reach ``PipelineConfig`` and dominate the reward it names."""
+
+    def test_cli_weights_override_the_auto_calibrated_pair(self) -> None:
+        args = parse_args(["--weights", "0.95", "0.05"])
+        self.assertEqual(tuple(args.weights), (0.95, 0.05))
+        self.assertEqual(config_from_args(args).weights, (0.95, 0.05))
+
+    def test_absent_weights_keep_the_calibrated_defaults(self) -> None:
+        cfg = config_from_args(parse_args([]))
+        self.assertEqual(cfg.weights, PipelineConfig().weights)
+
+    def test_lopsided_weights_make_rocs_dominate_the_reward(self) -> None:
+        scores = [[0.40, 1.0], [0.60, 1.0]]
+        balanced = HarringtonDesirabilityReward(weights=(0.75, 0.25))(scores).ravel()
+        rocs_only = HarringtonDesirabilityReward(weights=(0.95, 0.05))(scores).ravel()
+        # Both rank the higher-ROCS molecule first; the lopsided pair is steeper.
+        self.assertLess(balanced[0], balanced[1])
+        self.assertLess(rocs_only[0], rocs_only[1])
+        self.assertGreater(
+            rocs_only[1] / rocs_only[0], balanced[1] / balanced[0]
+        )
 
 
 class TestRocsColourTyping(unittest.TestCase):

@@ -256,3 +256,55 @@ re-scoring the monitor five times.
 
 Status 2026-11-05: executed. Both runs re-rendered in place (13 PNGs each, ≈2 min per run),
 `ruff check _david` clean, full suite green.
+
+---
+
+## Round 4 — 2026-11-05, batch B (six single-knob ablations on the gold base)
+
+The two completed arms (`20261104_0445_egcg_gold_oe`, `20261104_0447_egcg_eps0`) agree on the
+headline: **the delivered arm does not enrich the ROCS tail** (fig. 16: eps0 EF 0.70×/0.49×/0.55×,
+gold 1.20×/1.01×/1.00×) while validity (96 %→60/78 %) and size (HAC 26→14/22) degrade. Round 4
+therefore tests *why the policy degrades*, not new objectives, and every arm keeps the gold base so
+the six arms are mutually comparable.
+
+Measured facts that fixed the design:
+
+- `loss_train` falls 21→3 in the eps0 run (corr with epoch −0.63) while `avg_gmean` is flat
+  (0.722→0.709) and validity drops to 60 %. With `beta=0` the REINFORCE loss is
+  `-mean(logp·r)` with every `r>0`, i.e. it measures policy sharpening, not objective progress;
+  invalid molecules (reward 0) receive a *weak positive* weight rather than a negative one.
+- The reward is already ROCS-dominated in log space: Gompertz ROCS anchors
+  (0.40→0.05, 1.20→0.80) over an observed combo band of 0.35–0.65 contribute a log-reward spread
+  ≈5× the SA term, and the SA objective is a `ClippedScore(5.0, 3.0)` that the baseline already
+  saturates (median raw SA 2.63 → desirability 1.0). There is no live SA or QED pressure to trade
+  away; a "ROCS-heavy" arm can only mean shrinking the residual SA weight.
+- Per-epoch mean reward measured from the stored populations: 0.336 (eps0), 0.378 (gold) → the
+  advantage-centering baseline is `beta ≈ 0.35`.
+- Anchors are **not** changed: `AGENTS.md` §3.1 records anchor compression as a solved root cause,
+  and the supervisor run that did show a large ROCS gain achieved it with
+  `ParetoCrowdingDistance` on the raw combo, which has no anchors at all.
+
+Arms (all `q_1d`, 16 cores, 32 GB, 15 GB scratch, `patience=30`, `min_epochs=50`):
+
+| Run tag | Deltas from `PipelineConfig` | Question |
+| :--- | :--- | :--- |
+| `egcg_p30_epsdecay` | `--epsilon 0.15 --use-decay --decay-start-epoch 5 --decay-epochs 60` | Does early ε→0 annealing hold validity up while still moving combo? |
+| `egcg_p30_bs128` | `--batch-size 128` | Is the collapse driven by 8 Adam steps/epoch rather than the objective? |
+| `egcg_p30_s1k` | `--samples 1000 --epochs 100` | Is the per-epoch sampling budget (figs 14/15) the binding constraint? |
+| `egcg_p30_pareto` | `--reward-scheme pareto_crowding` | Gold-base version of the supervisor's winning scheme (rank/crowding, no Gompertz map). |
+| `egcg_p30_beta35` | `--beta 0.35` | Advantage centering so the loss measures contrast instead of entropy collapse. |
+| `egcg_p30_rocs95` | `--weights 0.95 0.05` | ROCS-only reward (SA reduced to a 5 % residual), QED already off. |
+
+New code needed by `egcg_p30_rocs95`: `PipelineConfig.weights` existed but had no CLI surface, so
+`--weights` was added to `pipeline.py` (`nargs="+"`, default `None` → auto-calibrated pair, so the
+default run is byte-identical). Three behaviour tests pin the contract: the flag reaches
+`PipelineConfig.weights`, absence keeps the calibrated defaults, and lopsided weights make the
+ROCS term dominate the reward ratio.
+
+Known limitation, accepted by the user: no same-config replicate is in this batch, so a difference
+of a few percent between arms is not interpretable as an effect. `egcg_p30_bs128` and
+`egcg_p30_pareto` are the cheapest candidates for a replicate in the next batch.
+
+Expected wall clock from the measured 2026-11-04 rate (≈7.2 min/epoch including setup and the
+5000-molecule arm): 6–9 h for the single-knob arms, up to ~21 h for `bs128` if it keeps improving to
+the 200-epoch cap, and 14–18 h for `s1k` under its 100-epoch cap (still inside `q_1d`).
