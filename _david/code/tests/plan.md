@@ -555,3 +555,14 @@ sits beside `raw_data/`.
 Both arms are raw (`Raw_ROCS == ROCS`, modifier off). The all-zero `beta35` arm
 is classified `raw`, not `unknown`: a collapsed arm has no positive ratio, but
 the two columns still agree row by row (behaviour test added).
+
+### Synchronisation with `dichtator` (2026-11-05)
+
+A non-force push was rejected because the remote checkout carried 38 modified
+and 22 untracked paths from a much older tree (conformer modules that no longer
+exist, the old `_david/tests` files, a diverged `visualization.py`). Nothing was
+discarded: the remote working tree was saved as
+`stash@{0}: workstation sync 2026-11-05`, the checkout became clean, and
+`main` fast-forwarded from `aab6ae1` to `d24726f`. `main...dichtator/main`
+is now level; two older stashes (`auto-stash before sync`, `user_note_edits_merged_in_1ac9950`)
+remain untouched on the remote.
