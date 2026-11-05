@@ -1,0 +1,27 @@
+{
+    "target_id": "8ZVP_sirt6",
+    "pdb_id": "8ZVP",
+    "common_name": "Sirtuin 6 (SIRT6 Deacylase)",
+    "uniprot_id": "Q8N6T7",
+    "biological_class": "Hydrolase (EC 3.5.1.- / EC 2.3.1.-)",
+    "ec_number": "3.5.1.-",
+    "resolution_angstrom": 2.5,
+    "experimental_method": "X-ray Diffraction",
+    "functional_role": "Chromatin modifier / longevity deacetylase; allosteric pocket modulation with ADP-ribose",
+    "native_ligand_resname": "KDH",
+    "native_ligand_chain": "A",
+    "native_ligand_seqid": 403,
+    "box_center": [
+        -25.097,
+        -26.822,
+        -17.088
+    ],
+    "box_size": [
+        22.612,
+        26.272,
+        26.695
+    ],
+    "receptor_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/8ZVP_sirt6/receptor.pdbqt",
+    "native_kdh_pdb": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/8ZVP_sirt6/native_kdh.pdb",
+    "native_kdh_pdbqt": "/home/kolar/build_projects/drugex_edu/repo/_david/validation/receptors/8ZVP_sirt6/native_kdh.pdbqt"
+}
