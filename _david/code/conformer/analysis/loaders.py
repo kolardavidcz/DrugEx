@@ -23,8 +23,16 @@ from _david.code.conformer.core import datasets
 from _david.code.conformer.core.paths import DAVID_ROOT
 from _david.code.conformer.core.provenance import sha256_file
 
-#: Historical roots used only until the canonical copy exists.
-LEGACY_SELF_SIMILARITY = DAVID_ROOT / "output" / "20261028_conformer_self_similarity"
+#: Historical roots used only until the canonical copy exists. The study tree moved to
+#: ``output/conformer/self_similarity``; the flat path is kept for hosts not yet
+#: reorganized, so resolve whichever exists.
+def _legacy_self_similarity() -> Path:
+    categorized = DAVID_ROOT / "output" / "conformer" / "self_similarity"
+    flat = DAVID_ROOT / "output" / "20261028_conformer_self_similarity"
+    return categorized if categorized.is_dir() else flat
+
+
+LEGACY_SELF_SIMILARITY = _legacy_self_similarity()
 LEGACY_SELECTIVITY = (
     LEGACY_SELF_SIMILARITY / "20261029_1400_pareto_selectivity_163_drugs"
 )

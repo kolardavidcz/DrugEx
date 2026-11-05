@@ -21,6 +21,7 @@ from rdkit.Chem.EnumerateStereoisomers import (
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
 IDENTITY_REJECTED: int = -2  # Thesis validation result, not a native force-field status.
+MINIMIZE_CRASHED: int = -3  # RDKit solver raised instead of returning a status.
 DEFAULT_CANDIDATE_SEED: int = 42
 DEFAULT_REFERENCE_SEED: int = 104729
 
@@ -637,13 +638,31 @@ def _minimize_single_record(
     if not _has_finite_3d_conformer(record):
         return None, -1
     mol = Chem.Mol(record)
-    field = _build_force_field(mol, settings)
+    try:
+        field = _build_force_field(mol, settings)
+    except RuntimeError as exc:
+        logging.getLogger(__name__).warning(
+            "Conformer rejected: force field could not be built (%s)", exc
+        )
+        return None, MINIMIZE_CRASHED
     if field is None:
         return None, -1
-    status = int(field.Minimize(maxIts=settings.max_iterations))
+    try:
+        status = int(field.Minimize(maxIts=settings.max_iterations))
+    except RuntimeError as exc:
+        # RDKit's BFGS wrapper can raise "Invariant Violation: bad direction in
+        # linearSearch" on pathological geometries. That is a property of this one
+        # conformer, not of the run: log it, drop the conformer, keep the arm.
+        logging.getLogger(__name__).warning(
+            "Conformer rejected: minimisation crashed (%s)", exc
+        )
+        return None, MINIMIZE_CRASHED
     if status != 0:
         return None, status
-    energy = float(field.CalcEnergy())
+    try:
+        energy = float(field.CalcEnergy())
+    except RuntimeError:
+        return None, MINIMIZE_CRASHED
     if not np.isfinite(energy):
         return None, -1
     try:
@@ -681,7 +700,8 @@ def optimize_conformers(
 
     Status 0 means converged, 1 means more iterations are needed, and -1 means
     invalid geometry/missing parameters. IDENTITY_REJECTED (-2) means the solver
-    converged but stereo/connectivity or SDF validation failed.
+    converged but stereo/connectivity or SDF validation failed. MINIMIZE_CRASHED
+    (-3) means RDKit's solver raised on this conformer (dropped, run continues).
     """
     if settings.method not in {"MMFF94", "MMFF94s", "UFF"}:
         raise ValueError(f"Unsupported optimization method: {settings.method}")

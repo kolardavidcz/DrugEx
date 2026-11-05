@@ -330,3 +330,57 @@ class TestPaths(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestMinimizerCrashIsolation(unittest.TestCase):
+    """One pathological conformer must not abort a run (RDKit BFGS invariant)."""
+
+    @staticmethod
+    def _conformer() -> Chem.Mol:
+        mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        from rdkit.Chem import AllChem
+
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        return mol
+
+    def test_force_field_construction_crash_drops_only_that_conformer(self) -> None:
+        from unittest import mock
+
+        from _david.code import chemistry as chem
+
+        with mock.patch.object(chem, "_build_force_field", side_effect=RuntimeError("boom")):
+            validated, status = chem._minimize_single_record(
+                self._conformer(), Optimization("MMFF94s", 78.4)
+            )
+        self.assertIsNone(validated)
+        self.assertEqual(status, chem.MINIMIZE_CRASHED)
+
+    def test_solver_crash_drops_only_that_conformer(self) -> None:
+        from unittest import mock
+
+        from _david.code import chemistry as chem
+
+        class _ExplodingField:
+            def Minimize(self, maxIts: int = 0) -> int:  # noqa: N802 - RDKit casing
+                raise RuntimeError("bad direction in linearSearch")
+
+        with mock.patch.object(chem, "_build_force_field", return_value=_ExplodingField()):
+            validated, status = chem._minimize_single_record(
+                self._conformer(), Optimization("MMFF94s", 78.4)
+            )
+        self.assertIsNone(validated)
+        self.assertEqual(status, chem.MINIMIZE_CRASHED)
+
+    def test_optimize_conformers_returns_statuses_instead_of_raising(self) -> None:
+        from unittest import mock
+
+        from _david.code import chemistry as chem
+
+        with mock.patch.object(chem, "_build_force_field", side_effect=RuntimeError("boom")):
+            minimized, statuses = chem.optimize_conformers(
+                [self._conformer(), self._conformer()],
+                Optimization("MMFF94s", 78.4),
+                n_jobs=1,
+            )
+        self.assertEqual(minimized, [])
+        self.assertEqual(statuses, [chem.MINIMIZE_CRASHED] * 2)

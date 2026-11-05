@@ -10,6 +10,8 @@ knowing any specific molecule name.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from _david.code.conformer.core.contracts import MoleculeSpec
 from _david.code.conformer.core.paths import DAVID_ROOT
 
@@ -108,8 +110,16 @@ EGCG_STRESS_PANEL: tuple[tuple[str, str, str, str], ...] = (
     ),
 )
 
-#: Legacy output roots referenced by the migration command.
-LEGACY_OUTPUT_ROOT = DAVID_ROOT / "output" / "20261028_conformer_self_similarity"
+#: Legacy output root referenced by the migration command. The tree was moved to
+#: ``output/conformer/self_similarity`` by the output normalizer; hosts that were not
+#: reorganized yet still carry the flat directory, so resolve instead of pinning one.
+def _legacy_output_root() -> Path:
+    categorized = DAVID_ROOT / "output" / "conformer" / "self_similarity"
+    flat = DAVID_ROOT / "output" / "20261028_conformer_self_similarity"
+    return categorized if categorized.is_dir() else flat
+
+
+LEGACY_OUTPUT_ROOT = _legacy_output_root()
 
 
 def egcg_panel() -> tuple[MoleculeSpec, ...]:
