@@ -18,6 +18,41 @@ from _david.code.utils import HardwareManager
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 
+def decayed_epsilon(
+    epoch: int,
+    *,
+    epsilon_start: float,
+    epsilon_end: float,
+    decay_start_epoch: int,
+    decay_epochs: int,
+    decay_type: str,
+    use_decay: bool,
+) -> float:
+    """Exploration noise epsilon for a 1-based epoch (single source of truth).
+
+    Used by ``DecayingSequenceExplorer`` during training and by the training-dynamics
+    figure, so the plotted schedule is exactly the schedule the agent followed.
+    """
+    if not use_decay or decay_epochs <= decay_start_epoch:
+        return epsilon_start
+    if epoch <= decay_start_epoch:
+        return epsilon_start
+    if epoch >= decay_epochs:
+        return epsilon_end
+
+    progress = (epoch - decay_start_epoch) / (decay_epochs - decay_start_epoch)
+    if decay_type == "linear":
+        return epsilon_start + progress * (epsilon_end - epsilon_start)
+    if decay_type == "cosine":
+        # ~ [Loshchilov & Hutter, SGDR: Stochastic Gradient Descent with Warm Restarts, ICLR 2017]
+        cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return epsilon_end + (epsilon_start - epsilon_end) * cosine_factor
+    raise ValueError(
+        f"Unsupported decay_type: '{decay_type}'. Choose 'cosine' or 'linear'."
+    )
+
+
+
 class DecayingSequenceExplorer(SequenceExplorer):
     """SequenceExplorer with scheduled exploration noise (epsilon) decay."""
 
@@ -58,31 +93,16 @@ class DecayingSequenceExplorer(SequenceExplorer):
 
     def get_decayed_epsilon(self, epoch: int) -> float:
         """Compute scheduled exploration noise epsilon for the given 1-based epoch."""
-        if not self.use_decay or self.decay_epochs <= self.decay_start_epoch:
-            return self.epsilon_start
-        if epoch <= self.decay_start_epoch:
-            return self.epsilon_start
-        if epoch >= self.decay_epochs:
-            return self.epsilon_end
-
-        progress = (epoch - self.decay_start_epoch) / (
-            self.decay_epochs - self.decay_start_epoch
+        return decayed_epsilon(
+            epoch,
+            epsilon_start=self.epsilon_start,
+            epsilon_end=self.epsilon_end,
+            decay_start_epoch=self.decay_start_epoch,
+            decay_epochs=self.decay_epochs,
+            decay_type=self.decay_type,
+            use_decay=self.use_decay,
         )
-        if self.decay_type == "linear":
-            return self.epsilon_start + progress * (
-                self.epsilon_end - self.epsilon_start
-            )
-        elif self.decay_type == "cosine":
-            # ~ [Loshchilov & Hutter, SGDR: Stochastic Gradient Descent with Warm Restarts, ICLR 2017]
-            cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
-            return (
-                self.epsilon_end
-                + (self.epsilon_start - self.epsilon_end) * cosine_factor
-            )
-        else:
-            raise ValueError(
-                f"Unsupported decay_type: '{self.decay_type}'. Choose 'cosine' or 'linear'."
-            )
+
 
     def forward(self) -> tuple[Any, Any]:
         """Advance epoch counter, update exploration noise if scheduled, and generate sample batch."""

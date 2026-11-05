@@ -136,3 +136,41 @@ Status 2026-11-05: executed. `visualization.py` now renders 8 figures; the retir
 expectation, the package exports and `summary.md`. `20261104_0445_egcg_gold_oe` and
 `20261104_0447_egcg_eps0` were re-rendered in place from stored arms (≈80 s per run), and
 `ruff check _david` plus 143/143 tests pass.
+
+## Round 2 (2026-11-05, user figure-by-figure review)
+
+- [x] **03 A** — drop the "loss 15-epoch median" overlay (it duplicated the loss trend and
+      shared its axis). Add the exploration noise ε on its **own right axis**, read from
+      `manifest.json → config` (`epsilon`, `epsilon_end`, `decay_start_epoch`, `decay_epochs`,
+      `decay_type`, `use_epsilon_decay`). No run records an epsilon column, so the schedule is
+      reconstructed by the single source of truth `models.decayed_epsilon()`, which
+      `DecayingSequenceExplorer.get_decayed_epsilon` now delegates to — the plotted curve is
+      exactly the schedule training followed. Flat schedules are labelled with their value
+      (`ε = 0.00`), runs without a manifest say so explicitly.
+- [x] **03 B** — the criterion is self-inspected: `config.criteria` when it names a tracked
+      column, otherwise the metric whose argmax epoch equals the monitor's `best_epoch`. The
+      criterion keeps full colour + ★, every other tracked statistic goes pastel/dashed, and
+      the panel title names the detected criterion. The unique-ratio "no data" bug is real
+      but not missing data: `unique_ratio` is computed over valid molecules, so on runs where
+      every valid molecule is unique it is *bit-identical* to `valid_ratio` and the second
+      line hides underneath. When `np.allclose` holds the two collapse into one honest line
+      ("Valid = Unique Ratio (no duplicates)") instead of silently plotting an invisible series.
+- [x] **03 C** — mean (solid, full colour) and median (dashed, lighter) for ROCS and QED, plus
+      raw SA mean + median + IQR band on the dedicated right axis. Removes the mean/median
+      ambiguity that made the old single line unreadable.
+- [x] **03 D** — kept as-is and extended: the monitor stores only the combined TanimotoCombo,
+      so shape and colour are recovered by re-scoring a deterministic ≤20-molecule/epoch
+      subsample (one ETKDG conformer, seed `0xC0FFEE`, ≈0.05 s per molecule, 2.7× faster with
+      an 8-worker fork pool and bit-identical) and drawn on a third axis. Labelled as a
+      diagnostic re-scoring, not the training reward.
+- [x] **05** — two-row gallery. Row 1: seed + top-5 by desirability. Row 2: top-5 by
+      TanimotoCombo **excluding** every SMILES already shown, with an explanatory caption cell
+      in column 0. Makes "what the reward selected" vs. "what ROCS alone would select" a
+      direct visual comparison (e.g. ROCS picks 0.995/0.939/0.931/0.887/0.886 at much worse SA).
+- [x] `ResultAnalyzer.analyze` reads `manifest.json` and passes `run_config` +
+      `query_molecule_3d.sdf` to figure 03 and a ROCS-ranked frame to figure 05.
+
+Status 2026-11-05: executed. 03 renders in ≈1m45s per run (7 axes, ε on axis 4, raw SA on
+axis 5, shape/color on axis 6; shape 0.42–0.53, colour 0.05–0.09). 05 renders 12 axes
+(seed, LEAD #1–#5, caption, ROCS #1–#5). Both runs re-rendered in place, `ruff check _david`
+clean, 143/143 tests pass.

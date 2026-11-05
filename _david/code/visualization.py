@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 from textwrap import fill
 from typing import Any, Sequence
@@ -143,6 +145,107 @@ def epoch_raw_sa_table(
     out = sub.copy()
     out["RawSA"] = compute_raw_sa(sub[std.SMILES].tolist())
     return out
+
+
+def _epsilon_schedule(epochs: np.ndarray, run_config: dict | None) -> np.ndarray | None:
+    """Return the per-epoch exploration epsilon recorded in the run config, if any."""
+    if not run_config or "epsilon" not in run_config:
+        return None
+    from _david.code.models import decayed_epsilon
+
+    eps_start = float(run_config.get("epsilon", 0.0))
+    return np.array(
+        [
+            decayed_epsilon(
+                int(epoch),
+                epsilon_start=eps_start,
+                epsilon_end=float(run_config.get("epsilon_end", eps_start)),
+                decay_start_epoch=int(run_config.get("decay_start_epoch", 1)),
+                decay_epochs=int(run_config.get("decay_epochs", 1)),
+                decay_type=str(run_config.get("decay_type", "linear")).lower(),
+                use_decay=bool(run_config.get("use_epsilon_decay", False)),
+            )
+            for epoch in epochs
+        ],
+        dtype=float,
+    )
+
+
+def _shape_color_for_smiles(
+    smiles: str, reference: Chem.Mol, random_seed: int = 0xC0FFEE
+) -> tuple[float, float, float]:
+    """Score one SMILES with RDKit ROCS and keep (combo, shape, color)."""
+    from rdkit.Chem import AllChem
+
+    from _david.code.rocs import score_pair
+
+    mol = Chem.MolFromSmiles(smiles) if smiles else None
+    if mol is None or reference is None:
+        return np.nan, np.nan, np.nan
+    mol = Chem.AddHs(mol)
+    params = AllChem.ETKDGv3()
+    params.randomSeed = random_seed
+    if AllChem.EmbedMolecule(mol, params) != 0:
+        return np.nan, np.nan, np.nan
+    return score_pair(mol, reference)
+
+
+_SHAPE_COLOR_REFERENCE: Chem.Mol | None = None
+
+
+def _shape_color_worker_init(reference: Chem.Mol) -> None:
+    global _SHAPE_COLOR_REFERENCE
+    _SHAPE_COLOR_REFERENCE = reference
+
+
+def _shape_color_worker(smiles: str) -> tuple[float, float, float]:
+    return _shape_color_for_smiles(smiles, _SHAPE_COLOR_REFERENCE)
+
+
+def epoch_shape_color_table(
+    df: pd.DataFrame,
+    reference: Chem.Mol | None,
+    max_per_epoch: int | None = 20,
+    n_jobs: int | None = None,
+) -> pd.DataFrame:
+    """Per-epoch shape/color decomposition on a deterministic single-conformer subsample.
+
+    The monitor stores only the combined TanimotoCombo desirability, and splitting it
+    after the fact is impossible. A short re-scoring pass recovers the two channels for
+    a subsample, which is enough to see whether a ROCS gain came from the shape or the
+    pharmacophore channel. Values are a diagnostic trend, not the training reward.
+    """
+    if df.empty or reference is None or "Epoch" not in df.columns:
+        return pd.DataFrame(columns=["Epoch", "Shape", "Color"])
+
+    sub = _deterministic_epoch_subsample(df[["Epoch", std.SMILES]], max_per_epoch)
+    smiles_values = [str(s) for s in sub[std.SMILES]]
+    unique_smiles = list(dict.fromkeys(smiles_values))
+
+    workers = n_jobs if n_jobs is not None else min(8, os.cpu_count() or 1)
+    scored: dict[str, tuple[float, float, float]] = {}
+    if workers > 1 and len(unique_smiles) > 1:
+        from drugex.training.scorers.parallel import pool_context
+
+        ctx = pool_context()
+        with ctx.Pool(
+            processes=workers,
+            initializer=_shape_color_worker_init,
+            initargs=(reference,),
+        ) as pool:
+            results = pool.map(
+                _shape_color_worker, unique_smiles, chunksize=max(1, len(unique_smiles) // (workers * 4))
+            )
+        scored = dict(zip(unique_smiles, results))
+    else:
+        for smiles in unique_smiles:
+            scored[smiles] = _shape_color_for_smiles(smiles, reference)
+
+    rows = [
+        (float(epoch), scored[smiles][1], scored[smiles][2])
+        for epoch, smiles in zip(sub["Epoch"], smiles_values)
+    ]
+    return pd.DataFrame(rows, columns=["Epoch", "Shape", "Color"])
 
 
 def bootstrap_ci(
@@ -581,12 +684,15 @@ def render_training_trajectories(
     history_file_or_df: Path | str | pd.DataFrame,
     output_png: Path | str,
     smiles_file: Path | str | None = None,
+    run_config: dict | None = None,
+    reference_sdf: Path | str | None = None,
 ) -> Path | None:
     """Render the 4-panel training-dynamics dashboard.
 
-    (A) policy-gradient loss, (B) normalized selection criteria and library
-    quality guards, (C) objective desirability with raw SA on a dedicated axis,
-    (D) per-epoch ROCS distribution and ceiling.
+    (A) policy-gradient loss with the epsilon schedule on its own axis, (B) normalized
+    selection criteria (the recorded checkpoint criterion full colour, the rest pastel)
+    and library quality guards, (C) mean and median of every objective with raw SA on a
+    dedicated axis, (D) per-epoch ROCS distribution, ceiling and shape/color split.
     """
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
@@ -627,8 +733,10 @@ def render_training_trajectories(
         cols_to_agg = [c for c in ["ROCS", "QED"] if c in sm_df.columns]
         if cols_to_agg:
             ep_means = sm_df.groupby("Epoch")[cols_to_agg].mean()
+            ep_medians = sm_df.groupby("Epoch")[cols_to_agg].median()
             for col in cols_to_agg:
                 df[col] = df["Epoch"].map(ep_means[col])
+                df[f"{col}_median"] = df["Epoch"].map(ep_medians[col])
         if "ROCS" in sm_df.columns:
             rocs_grp = sm_df.groupby("Epoch")["ROCS"]
             rocs_median = rocs_grp.median()
@@ -641,6 +749,16 @@ def render_training_trajectories(
     # Raw RDKit SA is not stored by the monitor (only its desirability), so it is
     # recomputed from SMILES on a deterministic per-epoch subsample.
     sa_table = epoch_raw_sa_table(sm_df) if sm_df is not None else pd.DataFrame()
+
+    # Shape/color split: recomputed per epoch because the monitor stores only the combo.
+    shape_color_table = pd.DataFrame(columns=["Epoch", "Shape", "Color"])
+    reference_mol = None
+    if reference_sdf and Path(reference_sdf).is_file():
+        suppl = Chem.SDMolSupplier(str(reference_sdf), removeHs=False)
+        reference_mol = next((m for m in suppl if m is not None), None)
+    if sm_df is not None and reference_mol is not None:
+        shape_color_table = epoch_shape_color_table(sm_df, reference_mol)
+
 
     fig, axes = plt.subplots(2, 2, figsize=(15, 9), dpi=250)
     fig.suptitle(
@@ -682,7 +800,7 @@ def render_training_trajectories(
             zorder=2,
         )
 
-    # Panel A: Training loss only — the normalized criteria now live in panel B.
+    # Panel A: Training loss (left) and the exploration schedule (right, its own scale).
     ax1 = axes[0, 0]
     _mark_events(ax1, is_legend=True)
     if "loss_train" in df.columns:
@@ -690,72 +808,179 @@ def render_training_trajectories(
             epochs,
             df["loss_train"],
             color="#dc2626",
-            linewidth=1.4,
-            alpha=0.85,
+            linewidth=1.8,
             label="Train Loss",
             zorder=3,
         )
-        rolling = df["loss_train"].rolling(15, min_periods=1, center=True).median()
-        ax1.plot(
-            epochs,
-            rolling,
-            color="#fca5a5",
-            linewidth=2.2,
-            label="Loss (15-epoch median)",
-            zorder=4,
-        )
     ax1.set_title(
-        "(A) Policy-Gradient Training Loss", fontsize=11, fontweight="bold"
+        "(A) Training Loss & Exploration Rate", fontsize=11, fontweight="bold"
     )
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
     ax1.grid(True, linestyle=":", alpha=0.4)
-    ax1.legend(loc="best", fontsize=8.0)
 
-    # Panel B: normalized model-selection criteria (full colour) + quality guards (pastel).
+    epsilon_series = _epsilon_schedule(epochs.values, run_config)
+    handles, labels = ax1.get_legend_handles_labels()
+    if epsilon_series is not None:
+        ax1r = ax1.twinx()
+        eps_vals = np.asarray(epsilon_series, dtype=float)
+        eps_label = (
+            f"ε = {eps_vals[0]:.2f} (right axis)"
+            if np.allclose(eps_vals, eps_vals[0])
+            else "ε schedule (right axis)"
+        )
+        ax1r.plot(
+            epochs,
+            eps_vals,
+            color="#EA580C",
+            linewidth=1.8,
+            linestyle="--",
+            label=eps_label,
+            zorder=4,
+        )
+        eps_top = max(float(np.nanmax(eps_vals)), 0.01)
+        ax1r.set_ylim(-0.03 * eps_top, eps_top * 1.35)
+        ax1r.set_ylabel("Exploration ε", color="#9A3412")
+        ax1r.tick_params(axis="y", colors="#9A3412")
+        h2, l2 = ax1r.get_legend_handles_labels()
+        handles, labels = handles + h2, labels + l2
+    elif handles:
+        ax1.text(
+            0.98,
+            0.04,
+            "ε schedule not recorded in manifest",
+            transform=ax1.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=7.6,
+            color="#94A3B8",
+        )
+    if handles:
+        ax1.legend(handles, labels, loc="best", fontsize=8.0)
+
+    # Panel B: normalized selection criteria. The metric the run actually checkpointed on
+    # gets the full colour; every other tracked statistic is pastel.
     ax2 = axes[0, 1]
     _mark_events(ax2)
-    criterion_series = [
-        ("avg_gmean", "#7C3AED", 2.4, "Avg Geometric Mean (criterion)"),
-        ("avg_amean", "#2563eb", 2.0, "Avg Arithmetic Mean"),
-        ("desired_ratio", "#0D9488", 2.0, "Desired Ratio"),
+
+    series_specs = [
+        ("avg_gmean", "Avg Geometric Mean"),
+        ("avg_amean", "Avg Arithmetic Mean"),
+        ("desired_ratio", "Desired Ratio"),
+        ("valid_ratio", "Valid Ratio"),
+        ("unique_ratio", "Unique Ratio"),
     ]
-    guard_series = [
-        ("valid_ratio", "#94A3B8", 1.5, "--", "Valid Ratio"),
-        ("unique_ratio", "#7DD3FC", 1.5, ":", "Unique Ratio"),
-    ]
-    for col, color, lw, label in criterion_series:
-        if col in df.columns and not df[col].dropna().empty:
-            ax2.plot(epochs, df[col], color=color, linewidth=lw, label=label, zorder=4)
-    for col, color, lw, style, label in guard_series:
-        if col in df.columns and not df[col].dropna().empty:
-            ax2.plot(
-                epochs,
-                df[col],
-                color=color,
-                linewidth=lw,
-                linestyle=style,
-                label=label,
-                zorder=3,
-            )
+    candidate_cols = [c for c, _ in series_specs if c in df.columns and not df[c].dropna().empty]
+
+    recorded_criterion = str((run_config or {}).get("criteria", ""))
+    if recorded_criterion in candidate_cols:
+        eval_metric = recorded_criterion
+    else:
+        # Self-inspection: the checkpoint criterion is the metric whose own maximum is
+        # the epoch the monitor recorded in ``best_epoch``.
+        eval_metric = next(
+            (
+                col
+                for col in candidate_cols
+                if int(df.loc[df[col].idxmax(), "Epoch"]) == best_epoch
+            ),
+            None,
+        )
+
+    full_colors = {
+        "avg_gmean": "#7C3AED",
+        "avg_amean": "#2563EB",
+        "desired_ratio": "#0D9488",
+        "valid_ratio": "#0D9488",
+        "unique_ratio": "#0D9488",
+    }
+    pastel_colors = {
+        "avg_gmean": "#C4B5FD",
+        "avg_amean": "#93C5FD",
+        "desired_ratio": "#99F6E4",
+        "valid_ratio": "#CBD5E1",
+        "unique_ratio": "#7DD3FC",
+    }
+    # ``unique_ratio`` is computed over valid molecules, so on runs where every valid
+    # molecule is unique the two series are identical and the second line is invisible.
+    # Collapse them into one honest, labelled line instead of hiding a series.
+    merged_valid_unique = (
+        {"valid_ratio", "unique_ratio"} <= set(candidate_cols)
+        and np.allclose(
+            df["valid_ratio"].fillna(-1.0).to_numpy(dtype=float),
+            df["unique_ratio"].fillna(-1.0).to_numpy(dtype=float),
+        )
+    )
+
+    legend_handles: list[Any] = []
+    legend_labels: list[str] = []
+    for col, label in series_specs:
+        if col not in candidate_cols:
+            continue
+        if col == "unique_ratio" and merged_valid_unique:
+            continue
+        if col == "valid_ratio" and merged_valid_unique:
+            label = "Valid = Unique Ratio (no duplicates)"
+        is_criterion = col == eval_metric
+        line, = ax2.plot(
+            epochs,
+            df[col],
+            color=full_colors[col] if is_criterion else pastel_colors[col],
+            linewidth=2.4 if is_criterion else 1.6,
+            linestyle="-" if is_criterion else "--",
+            label=f"{label} ★" if is_criterion else label,
+            zorder=4 if is_criterion else 3,
+        )
+        legend_handles.append(line)
+        legend_labels.append(line.get_label())
+
+    criterion_label = dict(series_specs).get(eval_metric, eval_metric or "not recorded")
     ax2.set_title(
-        "(B) Selection Criteria & Library Quality (normalized)", fontsize=11, fontweight="bold"
+        f"(B) Selection Criteria & Quality — criterion: {criterion_label}",
+        fontsize=11,
+        fontweight="bold",
     )
     ax2.set_xlabel("Epoch")
     ax2.set_ylim(-0.05, 1.05)
     ax2.grid(True, linestyle=":", alpha=0.4)
-    ax2.legend(loc="best", fontsize=8.0, ncol=2)
+    if legend_handles:
+        ax2.legend(
+            legend_handles,
+            legend_labels,
+            loc="best",
+            fontsize=8.0,
+            ncol=2,
+        )
 
-    # Panel C: objective desirability (left axis) and physical raw SA (right axis).
+    # Panel C: mean (full colour) and median (lighter) for every objective; raw SA,
+    # which lives on a physical 1–6 scale, gets its own right axis.
     ax3 = axes[1, 0]
     _mark_events(ax3)
     plotted_objs = False
-    for col, color, lbl in [
-        ("ROCS", "#2563eb", "ROCS Desirability Mean"),
-        ("QED", "#FCD34D", "QED Drug-Likeness Mean"),
+    for col, mean_color, median_color, lbl in [
+        ("ROCS", "#2563EB", "#93C5FD", "ROCS"),
+        ("QED", "#F59E0B", "#FDE68A", "QED"),
     ]:
         if col in df.columns and not df[col].dropna().empty:
-            ax3.plot(epochs, df[col], color=color, linewidth=2.0, label=lbl, zorder=3)
+            ax3.plot(
+                epochs,
+                df[col],
+                color=mean_color,
+                linewidth=2.1,
+                label=f"{lbl} Mean",
+                zorder=4,
+            )
+            median_col = f"{col}_median"
+            if median_col in df.columns and not df[median_col].dropna().empty:
+                ax3.plot(
+                    epochs,
+                    df[median_col],
+                    color=median_color,
+                    linewidth=1.6,
+                    linestyle="--",
+                    label=f"{lbl} Median",
+                    zorder=3,
+                )
             plotted_objs = True
     if not plotted_objs and "avg_gmean" in df.columns:
         ax3.plot(
@@ -767,7 +992,7 @@ def render_training_trajectories(
             zorder=3,
         )
     ax3.set_title(
-        "(C) Objective Desirability (left) & Raw Synthesizability (right)",
+        "(C) Objective Mean/Median (left) & Raw Synthesizability (right)",
         fontsize=11,
         fontweight="bold",
     )
@@ -779,27 +1004,37 @@ def render_training_trajectories(
     handles, labels = ax3.get_legend_handles_labels()
     if not sa_table.empty and sa_table["RawSA"].notna().any():
         sa_grp = sa_table.groupby("Epoch")["RawSA"]
-        sa_med = sa_grp.median()
+        sai_mean = sa_grp.mean()
+        sai_med = sa_grp.median()
         sa_q25 = sa_grp.quantile(0.25)
         sa_q75 = sa_grp.quantile(0.75)
         ax3r = ax3.twinx()
         ax3r.fill_between(
-            sa_med.index,
+            sai_med.index,
             sa_q25.values,
             sa_q75.values,
-            color="#9CA3AF",
-            alpha=0.20,
+            color="#D1D5DB",
+            alpha=0.30,
             linewidth=0,
             label="Raw SA IQR",
             zorder=2,
         )
         ax3r.plot(
-            sa_med.index,
-            sa_med.values,
-            color="#6B7280",
-            linewidth=2.2,
-            label="Raw SA Median (right axis)",
+            sai_mean.index,
+            sai_mean.values,
+            color="#4B5563",
+            linewidth=2.1,
+            label="Raw SA Mean (right)",
             zorder=5,
+        )
+        ax3r.plot(
+            sai_med.index,
+            sai_med.values,
+            color="#9CA3AF",
+            linewidth=1.6,
+            linestyle="--",
+            label="Raw SA Median (right)",
+            zorder=4,
         )
         sa_lo = float(np.nanmin(sa_q25.values))
         sa_hi = float(np.nanmax(sa_q75.values))
@@ -810,7 +1045,7 @@ def render_training_trajectories(
         h2, l2 = ax3r.get_legend_handles_labels()
         handles, labels = handles + h2, labels + l2
     if handles:
-        ax3.legend(handles, labels, loc="lower right", fontsize=8.0)
+        ax3.legend(handles, labels, loc="lower right", fontsize=7.6, ncol=2)
 
     # Panel D: per-epoch ROCS distribution — converged mode vs. explored tail.
     ax4 = axes[1, 1]
@@ -855,13 +1090,42 @@ def render_training_trajectories(
                 zorder=3,
             )
         ax4.set_title(
-            "(D) ROCS Desirability Distribution per Epoch", fontsize=11, fontweight="bold"
+            "(D) ROCS Distribution & Shape/Color Split", fontsize=11, fontweight="bold"
         )
         ax4.set_xlabel("Epoch")
-        ax4.set_ylabel("ROCS Desirability")
+        ax4.set_ylabel("ROCS Desirability (combo)")
         ax4.set_ylim(-0.02, 1.02)
         ax4.grid(True, linestyle=":", alpha=0.4)
-        ax4.legend(loc="lower right", fontsize=8.0)
+
+        h4, l4 = ax4.get_legend_handles_labels()
+        if not shape_color_table.empty:
+            sc = shape_color_table.groupby("Epoch")[["Shape", "Color"]].median()
+            if not sc.dropna(how="all").empty:
+                ax4r = ax4.twinx()
+                line_s, = ax4r.plot(
+                    sc.index,
+                    sc["Shape"].values,
+                    color="#0D9488",
+                    linewidth=1.7,
+                    label="Shape Tanimoto (right)",
+                    zorder=5,
+                )
+                line_c, = ax4r.plot(
+                    sc.index,
+                    sc["Color"].values,
+                    color="#D97706",
+                    linewidth=1.7,
+                    label="Color Tanimoto (right)",
+                    zorder=5,
+                )
+                sc_hi = float(np.nanmax(sc.to_numpy())) if np.isfinite(sc.to_numpy()).any() else 0.1
+                ax4r.set_ylim(0.0, max(sc_hi * 1.25, 0.1))
+                ax4r.set_ylabel("Recomputed Tanimoto (right)", fontsize=8.6)
+                h4, l4 = h4 + [line_s, line_c], l4 + [
+                    line_s.get_label(),
+                    line_c.get_label(),
+                ]
+        ax4.legend(h4, l4, loc="lower right", fontsize=7.2, ncol=2)
     else:
         ax4.text(
             0.5,
@@ -1056,17 +1320,61 @@ class AlignedDepicter:
 
         return mol_copy
 
+    def _lead_card(
+        self,
+        row: pd.Series,
+        title: str,
+        seed_hac: int,
+        seed_fp: Any,
+    ) -> dict[str, Any] | None:
+        """Build one lead card dict from a scored DataFrame row."""
+        smi = str(row.get(std.SMILES, ""))
+        m = Chem.MolFromSmiles(smi)
+        if m is None:
+            return None
+        m_clean = Chem.RemoveHs(m)
+        m_aligned = self.align_molecule(m_clean)
+        hac = int(m_clean.GetNumHeavyAtoms())
+        mw = float(row.get(std.MW, Descriptors.MolWt(m_clean)))
+        rocs = float(row.get(std.ROCS, 0.0))
+        sa = float(row.get("Raw_SA", row.get(std.SA, 0.0)))
+        qed_val = float(row.get(std.QED, 0.0))
+        lead_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(m_clean, 2, nBits=2048)
+        sim = (
+            float(DataStructs.TanimotoSimilarity(seed_fp, lead_fp)) if seed_fp else 0.0
+        )
+        return {
+            "mol": m_aligned,
+            "title": title,
+            "is_seed": False,
+            "rocs": rocs,
+            "sa": sa,
+            "qed": qed_val,
+            "mw": mw,
+            "hac": hac,
+            "delta_hac": hac - seed_hac,
+            "sim": sim,
+        }
+
     def render_leads(
         self,
         molecules: Sequence[str | Chem.Mol] | pd.DataFrame,
         output_png: Path | str | None = None,
         max_leads: int = 5,
+        rocs_ranked: pd.DataFrame | None = None,
     ) -> Path | None:
-        """Render aligned 2D chemical structure cards with color-coded property badges."""
+        """Render aligned 2D cards: prioritized leads on row 1, best-ROCS hits on row 2.
+
+        Row 1 is the seed followed by the desirability-ranked leads. Row 2 repeats the
+        exercise ranked purely by ROCS TanimotoCombo, skipping molecules already shown,
+        so the two selection criteria can be compared visually.
+        """
         target_png = Path(output_png) if output_png else Path("lead_structures_2d.png")
         target_png.parent.mkdir(parents=True, exist_ok=True)
 
-        cards_data: list[dict[str, Any]] = []
+        top_row: list[dict[str, Any]] = []
+        second_row: list[dict[str, Any]] = []
+        seen_smiles: set[str] = set()
 
         # Reference molecule card
         if self.ref_mol is not None:
@@ -1075,7 +1383,7 @@ class AlignedDepicter:
             mw = float(Descriptors.MolWt(ref_clean))
             qed_val = float(QED.qed(ref_clean))
             sa_val = float(calculate_sa_score(ref_clean))
-            cards_data.append(
+            top_row.append(
                 {
                     "mol": self.align_molecule(ref_clean),
                     "title": "TARGET QUERY SEED",
@@ -1089,9 +1397,9 @@ class AlignedDepicter:
                     "sim": 1.0,
                 }
             )
+            seen_smiles.add(Chem.MolToSmiles(ref_clean))
 
-        # Lead cards
-        seed_hac = cards_data[0]["hac"] if cards_data else 33
+        seed_hac = top_row[0]["hac"] if top_row else 33
         seed_fp = (
             rdMolDescriptors.GetMorganFingerprintAsBitVect(self.ref_mol, 2, nBits=2048)
             if self.ref_mol
@@ -1099,111 +1407,143 @@ class AlignedDepicter:
         )
 
         if isinstance(molecules, pd.DataFrame):
-            df_leads = molecules.head(max_leads)
-            for rank_num, (_, row) in enumerate(df_leads.iterrows(), start=1):
-                smi = str(row.get(std.SMILES, ""))
-                m = Chem.MolFromSmiles(smi)
-                if m is not None:
-                    m_clean = Chem.RemoveHs(m)
-                    m_aligned = self.align_molecule(m_clean)
-                    hac = int(m_clean.GetNumHeavyAtoms())
-                    mw = float(row.get(std.MW, Descriptors.MolWt(m_clean)))
-                    rocs = float(row.get(std.ROCS, 0.0))
-                    sa = float(row.get("Raw_SA", row.get(std.SA, 0.0)))
-                    qed_val = float(row.get(std.QED, 0.0))
-                    lead_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
-                        m_clean, 2, nBits=2048
-                    )
-                    sim = (
-                        float(DataStructs.TanimotoSimilarity(seed_fp, lead_fp))
-                        if seed_fp
-                        else 0.0
-                    )
-                    cards_data.append(
-                        {
-                            "mol": m_aligned,
-                            "title": f"LEAD #{rank_num}",
-                            "is_seed": False,
-                            "rocs": rocs,
-                            "sa": sa,
-                            "qed": qed_val,
-                            "mw": mw,
-                            "hac": hac,
-                            "delta_hac": hac - seed_hac,
-                            "sim": sim,
-                        }
-                    )
+            for rank_num, (_, row) in enumerate(molecules.head(max_leads).iterrows(), start=1):
+                card = self._lead_card(row, f"LEAD #{rank_num}", seed_hac, seed_fp)
+                if card is None:
+                    continue
+                top_row.append(card)
+                mol = Chem.MolFromSmiles(str(row.get(std.SMILES, "")))
+                if mol is not None:
+                    seen_smiles.add(Chem.MolToSmiles(mol))
 
-        if not cards_data:
+        if isinstance(rocs_ranked, pd.DataFrame):
+            taken = 0
+            for _, row in rocs_ranked.iterrows():
+                if taken >= max_leads:
+                    break
+                mol = Chem.MolFromSmiles(str(row.get(std.SMILES, "")))
+                if mol is None:
+                    continue
+                canonical = Chem.MolToSmiles(mol)
+                if canonical in seen_smiles:
+                    continue
+                card = self._lead_card(
+                    row, f"ROCS #{taken + 1}", seed_hac, seed_fp
+                )
+                if card is None:
+                    continue
+                second_row.append(card)
+                seen_smiles.add(canonical)
+                taken += 1
+
+        if not top_row and not second_row:
             return None
 
-        # Build Matplotlib multi-card figure with color-coded property badges
-        n_cards = len(cards_data)
-        fig, axes = plt.subplots(1, n_cards, figsize=(3.8 * n_cards, 5.4), dpi=250)
-        if n_cards == 1:
-            axes = [axes]
+        rows: list[list[dict[str, Any] | None]] = [top_row]
+        if second_row:
+            # Align the first ROCS hit under the first prioritized lead.
+            rows.append([None] + second_row)
 
-        fig.suptitle(
-            "Prioritized Lead Chemical Structures (Aligned 2D Topology & Score Badges)",
-            fontsize=13,
-            fontweight="bold",
-            y=0.98,
+        ncols = max(len(r) for r in rows)
+        nrows = len(rows)
+        fig, axes = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(3.55 * ncols, 5.2 * nrows + 0.9),
+            dpi=250,
+            squeeze=False,
         )
 
-        for ax, card in zip(axes, cards_data):
-            img = Draw.MolToImage(card["mol"], size=(340, 240))
-            ax.imshow(img)
-            ax.axis("off")
+        fig.suptitle(
+            "Prioritized Leads (row 1) vs. Best-ROCS Hits (row 2): Aligned 2D Topology",
+            fontsize=13,
+            fontweight="bold",
+            y=0.995,
+        )
 
-            header_color = "#1e3a8a" if card["is_seed"] else "#1e293b"
-            ax.text(
-                0.5,
-                -0.05,
-                card["title"],
-                transform=ax.transAxes,
-                ha="center",
-                va="top",
-                fontsize=10.5,
-                fontweight="bold",
-                color=header_color,
-            )
+        for r_idx, row_cards in enumerate(rows):
+            for c_idx in range(ncols):
+                ax = axes[r_idx][c_idx]
+                ax.axis("off")
+                card = row_cards[c_idx] if c_idx < len(row_cards) else None
+                if card is None:
+                    if r_idx == 1 and c_idx == 0 and second_row:
+                        ax.text(
+                            0.5,
+                            0.62,
+                            "BEST ROCS HITS\n\nTop-5 by TanimotoCombo,\n"
+                            "excluding the leads above",
+                            transform=ax.transAxes,
+                            ha="center",
+                            va="center",
+                            fontsize=9.0,
+                            fontweight="bold",
+                            color="#475569",
+                            bbox=dict(
+                                boxstyle="round,pad=0.5",
+                                facecolor="#f8fafc",
+                                edgecolor="#cbd5e1",
+                            ),
+                        )
+                    continue
 
-            if card["is_seed"]:
-                line1 = f"HAC: {card['hac']}  |  MW: {card['mw']:.1f} Da"
-                line2 = f"SA: {card['sa']:.2f}  |  QED: {card['qed']:.2f}"
-                ax.text(
-                    0.5,
-                    -0.16,
-                    line1,
-                    transform=ax.transAxes,
-                    ha="center",
-                    va="top",
-                    fontsize=8.5,
-                    fontweight="medium",
-                    bbox=dict(
-                        boxstyle="round,pad=0.25",
-                        facecolor="#f1f5f9",
-                        edgecolor="#cbd5e1",
-                        linewidth=0.8,
-                    ),
+                img = Draw.MolToImage(card["mol"], size=(340, 240))
+                ax.imshow(img)
+
+                header_color = (
+                    "#1e3a8a"
+                    if card["is_seed"]
+                    else ("#0f766e" if str(card["title"]).startswith("ROCS") else "#1e293b")
                 )
                 ax.text(
                     0.5,
-                    -0.28,
-                    line2,
+                    -0.05,
+                    card["title"],
                     transform=ax.transAxes,
                     ha="center",
                     va="top",
-                    fontsize=8.5,
-                    fontweight="medium",
-                    bbox=dict(
-                        boxstyle="round,pad=0.25",
-                        facecolor="#f1f5f9",
-                        edgecolor="#cbd5e1",
-                        linewidth=0.8,
-                    ),
+                    fontsize=10.5,
+                    fontweight="bold",
+                    color=header_color,
                 )
-            else:
+
+                if card["is_seed"]:
+                    line1 = f"HAC: {card['hac']}  |  MW: {card['mw']:.1f} Da"
+                    line2 = f"SA: {card['sa']:.2f}  |  QED: {card['qed']:.2f}"
+                    ax.text(
+                        0.5,
+                        -0.16,
+                        line1,
+                        transform=ax.transAxes,
+                        ha="center",
+                        va="top",
+                        fontsize=8.5,
+                        fontweight="medium",
+                        bbox=dict(
+                            boxstyle="round,pad=0.25",
+                            facecolor="#f1f5f9",
+                            edgecolor="#cbd5e1",
+                            linewidth=0.8,
+                        ),
+                    )
+                    ax.text(
+                        0.5,
+                        -0.28,
+                        line2,
+                        transform=ax.transAxes,
+                        ha="center",
+                        va="top",
+                        fontsize=8.5,
+                        fontweight="medium",
+                        bbox=dict(
+                            boxstyle="round,pad=0.25",
+                            facecolor="#f1f5f9",
+                            edgecolor="#cbd5e1",
+                            linewidth=0.8,
+                        ),
+                    )
+                    continue
+
                 rocs_c = (
                     "#dcfce7"
                     if card["rocs"] >= 1.0
@@ -1217,9 +1557,7 @@ class AlignedDepicter:
 
                 dh = card["delta_hac"]
                 dh_c = (
-                    "#dcfce7"
-                    if abs(dh) <= 3
-                    else ("#fee2e2" if dh < -3 else "#dbeafe")
+                    "#dcfce7" if abs(dh) <= 3 else ("#fee2e2" if dh < -3 else "#dbeafe")
                 )
                 dh_e = (
                     "#15803d"
@@ -1270,11 +1608,10 @@ class AlignedDepicter:
                     color="#475569",
                 )
 
-        plt.subplots_adjust(top=0.90, bottom=0.18, wspace=0.15)
+        plt.subplots_adjust(top=0.92, bottom=0.14, wspace=0.12, hspace=0.62)
         plt.savefig(target_png, dpi=250, bbox_inches="tight")
         plt.close(fig)
         return target_png
-
 
 def render_lead_structures_gallery(
     top_leads: pd.DataFrame,
@@ -2562,6 +2899,13 @@ class ResultAnalyzer:
         )
 
         # Figure 3: 03_training_trajectories.png
+        run_config: dict[str, Any] = {}
+        manifest_path = self.paths.root / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                run_config = json.loads(manifest_path.read_text()).get("config", {}) or {}
+            except (OSError, json.JSONDecodeError):
+                run_config = {}
         smiles_tsv = None
         if monitor_prefix:
             fit_tsv = Path(f"{monitor_prefix}_fit.tsv")
@@ -2570,14 +2914,20 @@ class ResultAnalyzer:
                 history_file_or_df=fit_tsv,
                 output_png=self.paths.figures_dir / "03_training_trajectories.png",
                 smiles_file=smiles_tsv,
+                run_config=run_config,
+                reference_sdf=self.paths.raw_data_dir / "query_molecule_3d.sdf",
             )
 
         # Figure 5: 05_lead_structures_gallery.png
         depicter = AlignedDepicter(ref_smiles)
+        df_rocs = df_after_clean.sort_values(
+            by=std.ROCS, ascending=False
+        ).reset_index(drop=True)
         depicter.render_leads(
             df_sorted,
             output_png=self.paths.figures_dir / "05_lead_structures_gallery.png",
             max_leads=5,
+            rocs_ranked=df_rocs,
         )
 
         # Figure 6: 06_objective_conflict_correlations.png (Spearman coupling A/B/Δ)
@@ -2658,7 +3008,7 @@ class ResultAnalyzer:
                 "- [01 Hierarchical Property Diagnostic Dashboard (3x3 Distributions + 95% CI)](figures/01_before_after_distributions.png)",
                 "- [02 Multi-Objective Trade-Offs (Empirical Skylines & 3D Pareto)](figures/02_multiobjective_tradeoffs.png)",
                 "- [03 Training Trajectories (RL Dynamics & Convergence Diagnostics)](figures/03_training_trajectories.png)",
-                "- [05 Prioritized Lead Structures Gallery (Aligned 2D Cards & Badges)](figures/05_lead_structures_gallery.png)",
+                "- [05 Prioritized Leads vs. Best-ROCS Hits (Two-Row Aligned 2D Cards)](figures/05_lead_structures_gallery.png)",
                 "- [06 Objective Conflict & Property Coupling (Spearman ρ, A/B/Δ)](figures/06_objective_conflict_correlations.png)",
                 "- [07 Bemis-Murcko Scaffold Concentration & De Novo Novelty](figures/07_bemis_murcko_scaffold_diversity.png)",
                 "- [10 3D Lead-to-Seed Superposition & Mol* Poses](figures/10_lead_to_seed_3d_superposition.png)",
