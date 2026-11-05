@@ -406,6 +406,10 @@ action classification, no-overwrite contract, rescore path keeps the stored coun
 - `standard_eval push --all` copies only `manifest.json`, the checkpoint and the stored
   arm to `<storage>/_david/output/<run>/`, so runs produced on dichtator or the
   workstation can be evaluated on MetaCentrum; `pull` brings back only `standard_eval/`.
+- A single PBS job can build the dataset and evaluate every pushed run:
+  `standard_eval submit --dataset egcg_prior_5000_s20261105 --build-dataset
+  --dataset-seed 20261105 --max-runs 20`. The build is skipped when the dataset
+  manifest already exists; `prior_dataset pull --name ...` copies it back.
 - Standard reward is fixed (`harrington`, weights 0.50/0.25/0.25 over ROCS/SA/QED,
   thresholds 0.35/0.50/0.50, raw TanimotoCombo) and recorded in each standard manifest,
   so it cannot drift with whichever dataset happens to be loaded.

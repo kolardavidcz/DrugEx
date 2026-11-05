@@ -260,7 +260,8 @@ PY=.venv/bin/python
 $PY -m _david.code.standard_eval plan                        # what each arm allows
 $PY -m _david.code.prior_dataset sync --name <dataset>       # dataset → <storage>/datasets/
 $PY -m _david.code.standard_eval push --all                  # manifests + checkpoints → storage
-$PY -m _david.code.standard_eval submit --dataset <dataset> --max-runs 20
+$PY -m _david.code.standard_eval submit --dataset <dataset> --max-runs 20 \
+    [--build-dataset --dataset-seed 20261105]   # optional: freeze it on storage first
 $PY -m _david.code.standard_eval pull                        # only <run>/standard_eval/ back
 $PY -m _david.code.standard_eval verify
 ```
@@ -276,5 +277,9 @@ Classification is by artifact, not by history:
 The job is idempotent: a run whose `standard_eval/reinforced_standard.csv.gz` already exists
 is `done`, so a walltime-killed job is resumed by submitting it again. The dataset must be on
 storage first; the job refuses a missing dataset rather than falling back to a local arm.
+With `--build-dataset` the same job first builds the dataset on storage (skipped when its
+`manifest.json` already exists), so a fresh dataset and the re-evaluation need only one
+submission. Pull the dataset back with
+`python -m _david.code.prior_dataset pull --name <dataset>`.
 Every standard manifest records the dataset hash, the seed, the checkpoint hash and the
 fixed reward definition (`harrington`, weights 0.50/0.25/0.25, raw TanimotoCombo).

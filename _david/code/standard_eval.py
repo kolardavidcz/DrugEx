@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +39,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from _david.code.config import OUTPUT_ROOT, PipelineConfig
+from _david.code.config import DEFAULT_MOLECULE, OUTPUT_ROOT, PipelineConfig
 from _david.code.dashboard import discover_runs
 from _david.code.prior_dataset import (
     DATASET_ROOT,
@@ -111,8 +113,10 @@ class EvalPlan:
 def plan_run(run: Path | str, n: int | None = None) -> EvalPlan:
     """Classify one run: already done, resample, rescore or skip."""
     run = Path(run)
-    target = run / STANDARD_DIR / CSV_NAME
-    if target.is_file():
+    target = run / STANDARD_DIR
+    # Both files are renamed into place only when complete, so their joint presence
+    # means the arm is whole; a walltime kill leaves a temporary file behind.
+    if (target / CSV_NAME).is_file() and (target / MANIFEST_NAME).is_file():
         return EvalPlan(run=run, action="done", reason="standard arm already exists")
     checkpoint = _checkpoint(run)
     if checkpoint is not None:
@@ -208,6 +212,13 @@ def _resample(policy: Path, n: int, config: PipelineConfig, seed: int) -> pd.Dat
     return pd.DataFrame({std.SMILES: generated["SMILES"].tolist()})
 
 
+def _atomic_write(path: Path, writer: Callable[[Path], None]) -> None:
+    """Write beside the target and rename, so a kill never leaves a half-written arm."""
+    tmp = path.with_name(path.name + ".tmp")
+    writer(tmp)
+    os.replace(tmp, path)
+
+
 def evaluate_run(
     run: Path | str,
     dataset: str | Path | None = None,
@@ -268,7 +279,10 @@ def evaluate_run(
     target = run / STANDARD_DIR
     target.mkdir(parents=True, exist_ok=True)
     csv_path = target / CSV_NAME
-    frame.to_csv(csv_path, index=False, compression="gzip")
+    _atomic_write(
+        csv_path,
+        lambda tmp: frame.to_csv(tmp, index=False, compression="gzip"),
+    )
 
     statistics = compute_statistics(
         frame,
@@ -276,7 +290,9 @@ def evaluate_run(
         thresholds=STANDARD_REWARD_THRESHOLDS,
     )
     statistics_path = target / STATISTICS_NAME
-    statistics_path.write_text(json.dumps(statistics, indent=2) + "\n")
+    _atomic_write(
+        statistics_path, lambda tmp: tmp.write_text(json.dumps(statistics, indent=2) + "\n")
+    )
 
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -316,7 +332,10 @@ def evaluate_run(
         },
         "elapsed_seconds": round(time.time() - started, 1),
     }
-    (target / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2) + "\n")
+    _atomic_write(
+        target / MANIFEST_NAME,
+        lambda tmp: tmp.write_text(json.dumps(manifest, indent=2) + "\n"),
+    )
     LOGGER.info(
         "%s: %s arm (%d molecules) in %.1f min -> %s",
         run.name,
@@ -369,8 +388,28 @@ def pbs_script(
     seed: int = DEFAULT_SEED,
     max_runs: int = 6,
     walltime: str = "24:00:00",
+    dataset_seed: int | None = None,
+    build_dataset: bool = False,
+    molecule: str = DEFAULT_MOLECULE,
 ) -> str:
-    """PBS job that re-evaluates runs in place on storage (no scratch copy-back)."""
+    """PBS job that re-evaluates runs in place on storage (no scratch copy-back).
+
+    With ``build_dataset`` the job first freezes the prior arm on storage under
+    ``<storage>/datasets`` and only then evaluates; the build is skipped when that
+    dataset already has a manifest, so the job is safe to resubmit.
+    """
+    dataset_dir = f"{storage}/datasets/{dataset}"
+    build = ""
+    if build_dataset:
+        build = f"""DATASET_DIR={dataset_dir!r}
+if [ ! -f "$DATASET_DIR/manifest.json" ]; then
+    export DRUGEX_PRETRAINED_DIR="$STORAGE_DIR/models"
+    "$STORAGE_DIR/.venv/bin/python" -u -m _david.code.prior_dataset build \\
+        --molecule {molecule!r} --name {dataset!r} \\
+        --n {int(n)} --seed {int(dataset_seed or seed)} \\
+        --root "$STORAGE_DIR/datasets"
+fi
+"""
     return f"""#!/usr/bin/env bash
 #PBS -N {JOB_NAME}
 #PBS -l select=1:ncpus=16:mem=32gb:scratch_local=5gb:spec=8.0
@@ -385,9 +424,10 @@ export PYTHONPATH="$RELEASE_DIR"
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export DRUGEX_SCORE_NJOBS=16
-exec "$STORAGE_DIR/.venv/bin/python" -u -m _david.code.standard_eval run \
-    --all --root "$STORAGE_DIR/_david/output" \
-    --dataset {dataset!r} --dataset-root {storage + "/datasets"!r} \
+export DRUGEX_SOURCE_REVISION="${{DRUGEX_SOURCE_REVISION:-unknown}}"
+{build}exec "$STORAGE_DIR/.venv/bin/python" -u -m _david.code.standard_eval run \\
+    --all --root "$STORAGE_DIR/_david/output" \\
+    --dataset {dataset_dir!r} --dataset-root {storage + "/datasets"!r} \\
     --n {int(n)} --seed {int(seed)} --max-runs {int(max_runs)}
 """
 
@@ -400,6 +440,9 @@ def submit_job(
     seed: int = DEFAULT_SEED,
     max_runs: int = 6,
     walltime: str = "24:00:00",
+    build_dataset: bool = False,
+    dataset_seed: int | None = None,
+    molecule: str = DEFAULT_MOLECULE,
     dry_run: bool = False,
 ) -> str:
     """Stage HEAD as a release and qsub the standard-evaluation job."""
@@ -410,11 +453,14 @@ def submit_job(
     script = pbs_script(
         storage,
         f"{storage}/current",
-        dataset=f"{storage}/datasets/{dataset_path.name}",
+        dataset=dataset_path.name,
         n=n,
         seed=seed,
         max_runs=max_runs,
         walltime=walltime,
+        dataset_seed=dataset_seed,
+        build_dataset=build_dataset,
+        molecule=molecule,
     )
     target = f"{storage}/jobs/standard_eval/{JOB_SCRIPT_NAME}"
     if dry_run:
@@ -541,6 +587,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--max-runs", type=int, default=6)
+    parser.add_argument("--build-dataset", action="store_true")
+    parser.add_argument("--dataset-seed", type=int, default=None)
+    parser.add_argument("--molecule", default=DEFAULT_MOLECULE)
     parser.add_argument("--walltime", default="24:00:00")
     parser.add_argument("--host", default="meta")
     parser.add_argument("--dry-run", action="store_true")
@@ -565,6 +614,9 @@ def main(argv: list[str] | None = None) -> int:
                 seed=args.seed,
                 max_runs=args.max_runs,
                 walltime=args.walltime,
+                build_dataset=args.build_dataset,
+                dataset_seed=args.dataset_seed,
+                molecule=args.molecule,
                 dry_run=args.dry_run,
             )
         )

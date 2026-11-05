@@ -57,6 +57,7 @@ from rdkit import Chem, DataStructs, rdBase
 from rdkit.Chem import Descriptors, Lipinski, QED, rdMolDescriptors
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
+from _david.code.chemistry import DEFAULT_REFERENCE_SEED
 from _david.code.config import (
     DEFAULT_MOLECULE,
     OUTPUT_ROOT,
@@ -499,7 +500,9 @@ def build(
             "reward_scheme": cfg.reward_scheme,
             "weights": list(cfg.weights or ()),
             "reference_conformers": int(cfg.max_reference_conformers),
-            "reference_seed": cfg.reference_random_seed,
+            "reference_seed": cfg.reference_random_seed
+            if cfg.reference_random_seed is not None
+            else DEFAULT_REFERENCE_SEED,
         },
         "source_revision": revision,
         "versions": {
@@ -632,6 +635,24 @@ def remote_storage(host: str = "meta") -> str:
     return storage_root()
 
 
+def pull(
+    name: str,
+    *,
+    host: str = "meta",
+    root: Path = DATASET_ROOT,
+    dry_run: bool = False,
+) -> Path:
+    """Copy a dataset built on MetaCentrum back into the local category folder."""
+    remote_dir = f"{remote_storage(host)}/datasets/{name}"
+    target = Path(root) / name
+    command = ["rsync", "-a", f"{host}:{remote_dir}/", f"{target}/"]
+    if dry_run:
+        return target
+    target.mkdir(parents=True, exist_ok=True)
+    subprocess.run(command, check=True)
+    return target
+
+
 def sync(
     name_or_path: str | Path,
     *,
@@ -670,9 +691,11 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("build", "list", "verify", "sync"))
+    parser.add_argument("action", choices=("build", "list", "verify", "sync", "pull"))
     parser.add_argument("--name", default=None, help="dataset name or directory")
     parser.add_argument("--molecule", default=DEFAULT_MOLECULE)
+    parser.add_argument("--agent-path", default=None)
+    parser.add_argument("--vocab-path", default=None)
     parser.add_argument("--n", type=int, default=DEFAULT_N)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--force", action="store_true")
@@ -682,11 +705,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.action == "build":
+        config = (
+            PipelineConfig(agent_path=args.agent_path, vocab_path=args.vocab_path)
+            if args.agent_path or args.vocab_path
+            else None
+        )
         target = build(
             args.molecule,
             name=args.name,
             n=args.n,
             seed=args.seed,
+            config=config,
             root=args.root,
             force=args.force,
         )
@@ -707,6 +736,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"seed={manifest.get('seed', '?'):>9} "
                 f"created={manifest.get('created', '?')}"
             )
+        return 0
+
+    if args.action == "pull":
+        if not args.name:
+            parser.error("pull needs --name <dataset>")
+        print(pull(args.name, host=args.host, root=args.root, dry_run=args.dry_run))
         return 0
 
     target = resolve_dataset(args.name or _single_dataset(args.root), root=args.root)

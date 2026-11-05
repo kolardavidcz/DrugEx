@@ -54,7 +54,16 @@ class TestPlanning(unittest.TestCase):
             target = run / seval.STANDARD_DIR
             target.mkdir()
             (target / seval.CSV_NAME).write_text("x")
+            (target / seval.MANIFEST_NAME).write_text("{}")
             self.assertEqual(seval.plan_run(run).action, "done")
+
+    def test_a_half_written_arm_is_rebuilt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = _run(Path(tmp) / "20261101_1200_a", checkpoint=True)
+            target = run / seval.STANDARD_DIR
+            target.mkdir()
+            (target / seval.CSV_NAME).write_text("truncated")
+            self.assertEqual(seval.plan_run(run).action, "resample")
 
     def test_the_selected_checkpoint_is_preferred_to_the_final_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -121,6 +121,24 @@ class TestPlan(unittest.TestCase):
                 ["conformer"],
             )
 
+    def test_a_stamped_suite_container_is_dissolved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "output"
+            root.mkdir()
+            (root / "archive").mkdir()
+            suite = root / "20261030_0200_rl_suite_egcg_6arm"
+            _make_run(suite / "rl01_arm")
+            _make_run(suite / "rl02_arm")
+            executed = org.apply(root)
+            self.assertTrue(executed)
+            self.assertFalse(suite.exists(), "the container itself must not survive")
+            self.assertEqual(
+                sorted(path.name for path in root.glob("*_rl01_arm")),
+                ["20261101_1441_rl01_arm"],
+            )
+            self.assertTrue(list(root.glob("*_rl02_arm")))
+            self.assertFalse(org.plan(root), "a dissolved suite must replan empty")
+
     def test_plan_does_not_touch_the_filesystem(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root, group = self._tree(tmp)
