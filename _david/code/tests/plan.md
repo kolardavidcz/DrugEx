@@ -413,3 +413,122 @@ action classification, no-overwrite contract, rescore path keeps the stored coun
 - Standard reward is fixed (`harrington`, weights 0.50/0.25/0.25 over ROCS/SA/QED,
   thresholds 0.35/0.50/0.50, raw TanimotoCombo) and recorded in each standard manifest,
   so it cannot drift with whichever dataset happens to be loaded.
+
+## Round 6 — 2026-11-05, analysis scope and the ROCS clip defect
+
+Two findings from the user after Round 5; both are correctness issues, not features.
+
+### 6.1 The final arm was sampled from the last epoch, not the best one
+
+`drugex.training.explorers.sequence_explorer.SequenceExplorer.fit` keeps the best
+weights in `self.bestState`, writes them to `models/SequenceRNN_reinforced.pkg`
+through `saveBestState -> monitor.saveModel`, and only copies them back into
+`self.agent` when `epoch % reload_interval == 0`. `pipeline.py` passes
+`reload_interval=epochs + 1`, so that reset never fires: Stage 3 samples the
+**last** epoch, while the saved checkpoint is the **best** epoch. Every historical
+`reinforced_raw.csv.gz` is therefore a last-epoch arm, even though the run's own
+checkpoint is the best model.
+
+Fix: after `explorer.fit`, load `models/SequenceRNN_reinforced.pkg` back into the
+agent before Stage 3, log the epoch that produced it, and record
+`evaluation_source` / `best_epoch` in the manifest. `standard_eval` already
+reloads exactly that checkpoint, so the standard arms were always best-model arms —
+the historical and standard arms differ in *both* sample count and model quality,
+and the dashboard must keep saying so.
+
+Scope contract, recorded per run in the manifest as `analysis_scope`:
+
+* `final_arm` — the `n_eval_samples` arm sampled once, from the best model. This is
+  the **only** input to distributional statistics, the diagnostic scorecard,
+  best-of tables, the dashboard and every cross-run comparison.
+* `training_trace` — `models/SequenceRNN_reinforced_smiles.tsv`, the per-epoch
+  samples. Used for longitudinal diagnostics (figures 03, 11–16) and for candidate
+  discovery (`best_training_candidates.tsv`), never pooled into the statistics
+  above. Its molecules come from earlier, weaker policies, so mixing them into the
+  final distribution flattens exactly the contrast the figures are meant to show.
+
+### 6.2 `rocs_use_modifier` + `rocs_clip_upper=1.8` inflated ROCS
+
+Until commit `9aa5d88` (2026-11-04) the ROCS modifier was applied with
+`rocs_clip_upper=1.8`: the scorer returned `min(raw, 1.8) / 1.8`, a desirability in
+[0, 1]. `unscale_to_physical_metrics` then treated any arm whose maximum was ≤ 1.0
+as "normalized to [0, 1]" and multiplied by **2.0**, the ratio of the *full*
+TanimotoCombo range. For a clip of 1.8 the correct factor is 1.8, so the recovered
+value is inflated by 2.0/1.8 = 1.111: a molecule at raw 1.81 becomes 2.01, and
+everything at or above 1.8 saturates at 2.0. Runs scored after `9aa5d88` are
+unaffected (modifier off, raw [0, 2] preserved); runs before `986d63a` always had
+the modifier on.
+
+Detection is forensic, not guessed from a name:
+
+| Evidence on disk | Verdict |
+| :--- | :--- |
+| `Raw_ROCS` present and `Raw_ROCS == ROCS` | raw [0, 2], no correction |
+| `Raw_ROCS present` and `Raw_ROCS == clip * ROCS` | normalized; recover raw with the clip |
+| no `Raw_ROCS`, max ≤ 1.0, code era applied the modifier | normalized with the era's clip |
+| no `Raw_ROCS`, values above 1.0 | raw [0, 2] |
+
+`_david/code/rocs_scale.py` implements that table, writes
+`raw_data/rocs_scale.json` per run (clip, factor, saturated fraction, evidence) and
+`ROCS_SCALE_AUDIT.md` at the tree root. Ambiguous arms (no manifest, no
+`Raw_ROCS`) are settled by rescoring a small sample with the raw scorer and
+comparing to the stored value; a run that cannot be settled is marked `unknown`
+and excluded from ROCS rankings rather than silently trusted.
+
+Re-render after correction: `audit_rl_runs --force-render` re-runs the figures for
+the affected runs, and the correction is passed into `unscale_to_physical_metrics`
+instead of the hard-coded 2.0. Saturated molecules keep a `ROCS_Saturated` flag so
+a best-of table can prefer unsaturated molecules at equal score.
+
+### Order of work
+
+1. `rocs_scale` audit + tests; produce the evidence table before changing any figure.
+2. Correct `unscale_to_physical_metrics`, re-render the affected runs locally.
+3. Best-epoch evaluation arm + `analysis_scope` provenance + tests.
+4. Regenerate dashboard and audit; record the corrected tables here.
+
+### Execution status (2026-11-05 evening)
+
+The audit ran over the whole tree. Exactly one arm was inflated by the
+`2.0`-vs-`1.8` mismatch:
+
+| Run | Verdict | Clip | Evidence |
+| :--- | :--- | ---: | :--- |
+| `20261027_2035_run18_epsilon_zero_50ep` | normalized | 1.80 | no `Raw_ROCS`, max 0.460 ≤ 1, era applied the modifier (clip 1.8) |
+| `20261030_1700_rl_option_one` | normalized | 2.00 | `Raw_ROCS = 2.000 × ROCS`; the old hard-coded 2.0 was correct here |
+| `20261102_2205_supervisor_reproduction_eps0.1` | raw | — | empirically settled: stored/fresh ROCS ratio 1.025 over 10 re-embedded molecules |
+| every post-`9aa5d88` run | raw | — | `Raw_ROCS == ROCS` |
+
+Correction of the one inflated arm (historical 1000-molecule arm, valid rows):
+
+| Statistic | Rendered before | Rendered after | Independent check |
+| :--- | ---: | ---: | :--- |
+| ROCS median | 1.294 | 0.582 | 0.3236 stored × 1.8 |
+| ROCS tail (top 10 %) | 1.535 | 0.691 | 0.3839 stored × 1.8 |
+| ROCS max | 1.840 | 0.828 | 0.4599 stored × 1.8 |
+| Standard arm median (5000, best model, raw) | 0.644 | 0.644 | unchanged, confirms the corrected scale |
+
+The old number was inflated by `4.0 / 1.8 = 2.222`: the arm was multiplied by 2.0
+for the distribution and again for the scorecard, while the correct clip is 1.8.
+Injecting `Raw_ROCS` in `correct_frame` makes every later `unscale_to_physical_metrics`
+call idempotent, which removes the double-scaling path entirely.
+
+Scale plumbing was also found in two more places and fixed:
+
+* `audit_rl_runs._write_normalized_monitor_tsv` multiplied the monitor ROCS by a
+  hard-coded 2.0 for pre-manifest runs. It now leaves the value alone and
+  `ResultAnalyzer`/`render_training_trajectories` apply the audited factor exactly
+  once, so figures 03 and 12–16 agree with the arms.
+* `dashboard._raw_rocs`/`summarize_arm`/`_candidate_table` take the audited factor
+  instead of assuming 2.0; the payload exposes `artifacts.rocs_scale`.
+
+Discovery fixes: `audit_rl_runs.discover` now computes `rel` against the root it
+was given and skips `standard_eval` manifests, so the re-evaluation of a run is
+never reported as a second run (two behaviour tests added).
+`epoch_molecule_table(rocs_scale=)` and `write_training_candidates` have behaviour
+tests: scale applied once, invalid training molecules excluded and candidates
+sorted best-first.
+
+Dashboard re-rendered from 18 discovered runs: 12 arms, 15 standard arms, 3
+configuration clusters, 12 global best molecules; the JS renders in a stubbed DOM
+with a `best@N`/`last` "Arm model" column and no `NaN`/`undefined`.

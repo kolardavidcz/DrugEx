@@ -11,6 +11,7 @@ import socket
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -74,6 +75,9 @@ class MoleculePipeline:
             self.paths = None
 
         self.preparer: PrepareMolecule = PrepareMolecule(config=self.config)
+        #: Which model produced the evaluation arm and which epoch it came from.
+        #: Filled during Stage 3 and merged into the manifest by ``run``.
+        self.evaluation_provenance: dict[str, Any] = {}
 
     @staticmethod
     def sample_and_score(
@@ -214,6 +218,19 @@ class MoleculePipeline:
             ),
             training_seed=self.config.training_seed,
             determinism="Seeded RNGs when requested; deterministic GPU kernels are not enforced",
+            analysis_scope={
+                "final_arm": "raw_data/reinforced_raw.csv.gz",
+                "final_arm_purpose": (
+                    "distributional statistics, diagnostic scorecard, best-of tables "
+                    "and every cross-run comparison"
+                ),
+                "training_trace": "models/SequenceRNN_reinforced_smiles.tsv",
+                "training_trace_purpose": (
+                    "longitudinal diagnostics and candidate discovery only; never "
+                    "pooled into the final-arm statistics"
+                ),
+                "statistics_source": "final_arm",
+            },
         )
         target = self.paths.root / "manifest.json"
         target.write_text(json.dumps(manifest, indent=2, default=str) + "\n")
@@ -226,6 +243,7 @@ class MoleculePipeline:
             manifest.update(state="failed", error=f"{type(exc).__name__}: {exc}")
             raise
         finally:
+            manifest.update(self.evaluation_provenance)
             manifest["elapsed_seconds"] = time.perf_counter() - started
             ref = self.paths.raw_data_dir / "query_molecule_3d.sdf"
             if ref.exists():
@@ -331,6 +349,36 @@ class MoleculePipeline:
         final_pkg = self.paths.models_dir / "SequenceRNN_reinforced_final_epoch.pkg"
         torch.save(agent.getModel(), str(final_pkg))
         logger.info(f"Saved final-epoch checkpoint to: {final_pkg}")
+
+        # Restoration of the best epoch. ``Explorer.fit`` only copies ``bestState`` back
+        # into the agent every ``reload_interval`` epochs, and the pipeline disables that
+        # reset so the live policy cannot silently rewind mid-run. The checkpoint on disk
+        # is therefore the best epoch while the in-memory agent is the last one, and the
+        # evaluation arm must describe the model the run is named after.
+        best_pkg = self.paths.models_dir / "SequenceRNN_reinforced.pkg"
+        best_epoch = getattr(explorer, "last_save", None)
+        evaluation_source = "last_epoch"
+        if best_pkg.is_file() and isinstance(best_epoch, int) and best_epoch >= 1:
+            agent.loadStatesFromFile(str(best_pkg))
+            agent.eval()
+            evaluation_source = "best_epoch"
+            logger.info(
+                f"Restored the best checkpoint (epoch {best_epoch}) for the evaluation arm."
+            )
+        else:
+            logger.warning(
+                "No best-epoch checkpoint was recorded; the evaluation arm samples the "
+                "last epoch instead."
+            )
+        self.evaluation_provenance = {
+            "evaluation_source": evaluation_source,
+            "best_epoch": best_epoch if evaluation_source == "best_epoch" else None,
+            "best_checkpoint_sha256": (
+                hashlib.sha256(best_pkg.read_bytes()).hexdigest()
+                if best_pkg.is_file()
+                else None
+            ),
+        }
 
         # Stage 3: Reinforced Agent Evaluation Arm
         logger.info(

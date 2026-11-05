@@ -201,6 +201,8 @@ class RunSummary:
     pbs_job_id: str
     source_revision: str
     config: dict[str, Any]
+    evaluation_source: str = ""
+    best_epoch: int | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
     standard_metrics: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, bool] = field(default_factory=dict)
@@ -216,6 +218,8 @@ class RunSummary:
             "pbs_job_id": self.pbs_job_id,
             "source_revision": self.source_revision,
             "config": self.config,
+            "evaluation_source": self.evaluation_source,
+            "best_epoch": self.best_epoch,
             "metrics": self.metrics,
             "standard_metrics": self.standard_metrics,
             "artifacts": self.artifacts,
@@ -257,11 +261,12 @@ def _standard_arm(run: Path) -> pd.DataFrame | None:
         return None
 
 
-def _raw_rocs(frame: pd.DataFrame) -> pd.Series:
+def _raw_rocs(frame: pd.DataFrame, rocs_factor: float = 2.0) -> pd.Series:
+    """Raw TanimotoCombo, recovered with the run's audited clip, never a guess."""
     if "Raw_ROCS" in frame.columns:
         return pd.to_numeric(frame["Raw_ROCS"], errors="coerce")
     values = pd.to_numeric(frame.get(std.ROCS, pd.Series(dtype=float)), errors="coerce")
-    return values * 2.0 if not values.empty and values.max() <= 1.0001 else values
+    return values * float(rocs_factor) if not values.empty and values.max() <= 1.0001 else values
 
 
 def _raw_sa(frame: pd.DataFrame) -> pd.Series | None:
@@ -283,10 +288,12 @@ def _qed_series(frame: pd.DataFrame) -> pd.Series:
     )
 
 
-def summarize_arm(frame: pd.DataFrame, run_config: dict[str, Any]) -> dict[str, Any]:
+def summarize_arm(
+    frame: pd.DataFrame, run_config: dict[str, Any], rocs_factor: float = 2.0
+) -> dict[str, Any]:
     """Baseline/reinforced medians that need no re-scoring of the whole arm."""
     valid = frame[frame[std.VALID] == 1] if std.VALID in frame.columns else frame
-    rocs = _raw_rocs(valid)
+    rocs = _raw_rocs(valid, rocs_factor)
     qed = _qed_series(valid)
     sa_scaled = pd.to_numeric(valid.get(std.SA, pd.Series(dtype=float)), errors="coerce")
     metrics: dict[str, Any] = {
@@ -313,6 +320,7 @@ def _candidate_table(
     pool: int = CANDIDATE_POOL,
     *,
     arm: str = "historical",
+    rocs_factor: float = 2.0,
 ) -> pd.DataFrame:
     """Cheap pre-ranking, then exact desirability on the survivors.
 
@@ -332,7 +340,7 @@ def _candidate_table(
     work = pd.DataFrame(
         {
             "SMILES": valid[std.SMILES].astype(str),
-            "ROCS": _raw_rocs(valid).fillna(0.0),
+            "ROCS": _raw_rocs(valid, rocs_factor).fillna(0.0),
             "QED": _qed_series(valid).fillna(0.0),
         }
     )
@@ -387,8 +395,14 @@ def collect(
             pbs_job_id=str(manifest.get("pbs_job_id") or ""),
             source_revision=str(manifest.get("source_revision") or ""),
             config=config,
+            evaluation_source=str(manifest.get("evaluation_source") or ""),
+            best_epoch=manifest.get("best_epoch"),
             error=manifest.get("error"),
         )
+        from _david.code.rocs_scale import ensure_verdict
+
+        scale = ensure_verdict(run_dir)
+        rocs_factor = 1.0 if scale.is_raw else scale.factor
         arm, frame = _arm_columns(run_dir)
         standard = _standard_arm(run_dir)
         summary.artifacts = {
@@ -398,9 +412,10 @@ def collect(
             "figures": (run_dir / "figures").is_dir(),
             "standard_eval": (run_dir / "standard_eval").is_dir(),
             "standard_arm": standard is not None,
+            "rocs_scale": scale.verdict,
         }
         if frame is not None:
-            summary.metrics = summarize_arm(frame, config)
+            summary.metrics = summarize_arm(frame, config, rocs_factor)
         if standard is not None:
             summary.standard_metrics = summarize_arm(standard, config)
         # A comparable standard arm outranks the historical one for cross-run
@@ -412,6 +427,7 @@ def collect(
                     summary.name,
                     chosen,
                     arm="standard" if standard is not None else "historical",
+                    rocs_factor=rocs_factor,
                 )
             )
         runs.append(summary)
@@ -680,8 +696,14 @@ function sortable(table) {
   });
 }
 
+function modelLabel(run) {
+  if (run.evaluation_source === 'best_epoch' && run.best_epoch) return `best@${run.best_epoch}`;
+  if (run.evaluation_source === 'last_epoch') return 'last';
+  return '—';
+}
+
 function renderRuns() {
-  const cols = ['Run', 'Started', 'State', 'ROCS med', 'ROCS p90', 'QED med', 'SA med', 'Valid',
+  const cols = ['Run', 'Started', 'State', 'Arm model', 'ROCS med', 'ROCS p90', 'QED med', 'SA med', 'Valid',
                 'Eval n', 'Arm n', 'Std ROCS', 'Std QED', 'Std SA', 'Hours', 'Host / job', 'Standard eval'];
   const head = cols.map(c => `<th>${esc(c)}</th>`).join('');
   const rows = P.runs.map(r => {
@@ -697,6 +719,7 @@ function renderRuns() {
       <td class="num" data-sort="${m.sa_median ?? ''}">${fmt(m.sa_median)}</td>
       <td class="num" data-sort="${m.valid_ratio ?? ''}">${m.valid_ratio === undefined ? '—' : (100*m.valid_ratio).toFixed(0)+' %'}</td>
       <td class="num" data-sort="${cfg(r,'n_eval_samples')}">${cfg(r,'n_eval_samples')}</td>
+      <td>${esc(modelLabel(r))}</td>
       <td class="num" data-sort="${m.n_rows ?? ''}">${m.n_rows ?? '—'}</td>
       <td class="num" data-sort="${sm.rocs_median ?? ''}">${fmt(sm.rocs_median)}</td>
       <td class="num" data-sort="${sm.qed_median ?? ''}">${fmt(sm.qed_median)}</td>

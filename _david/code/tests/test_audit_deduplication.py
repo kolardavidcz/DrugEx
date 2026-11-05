@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,6 +55,37 @@ class TestDeduplication(unittest.TestCase):
             second = _entry(root / "b", "b", archived=False, fingerprint="two")
             runs = audit._deduplicate([first, second])
             self.assertEqual({run.rel for run in runs}, {"a", "b"})
+
+
+def _rl_manifest(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "state": "complete",
+                "config": {"reward_scheme": "harrington", "n_samples": 500},
+            }
+        )
+    )
+
+
+class TestDiscovery(unittest.TestCase):
+    def test_a_standard_eval_subdirectory_is_not_a_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _rl_manifest(root / "20261101_1200_run" / "manifest.json")
+            # The re-evaluation manifest must be ignored even when its config
+            # carries the RL keys the discovery rule looks for.
+            _rl_manifest(root / "20261101_1200_run" / "standard_eval" / "manifest.json")
+            runs = audit.discover(root)
+            self.assertEqual([run.rel for run in runs], ["20261101_1200_run"])
+
+    def test_relative_paths_are_computed_against_the_given_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _rl_manifest(root / "20261101_1200_run" / "manifest.json")
+            [run] = audit.discover(root)
+            self.assertEqual(run.rel, "20261101_1200_run")
 
 
 if __name__ == "__main__":

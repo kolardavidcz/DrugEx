@@ -16,7 +16,7 @@ Historical runs are **not** retroactively re-sampled: their figures are rebuilt 
 
 | Run | Host / job | Epochs | Criterion | Similarity | Eval n | QED | Reward | ε | K / C / min | Figures | Copies | Verdict |
 | :--- | :--- | ---: | :--- | :--- | ---: | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| `20261027_2035_run18_epsilon_zero_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
+| `20261027_2035_run18_epsilon_zero_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 13/13 (+04) | 0 | OK |
 | `20261030_1700_rl_option_one` | dichtator | 250 | `avg_amean` | `tversky_mild_color_heavy` | 1000 | - | `harrington` | 0.15 -> 0.02 | 4 / 20 / yes | 5/13 (+04) | 1 | UNVERIFIABLE |
 | `20261101_1500_sprint_h1_without_qed_pareto` | adan40.grid.cesnet.cz / 25184273.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
 | `20261102_0630_sprint_h2_without_qed_harrington` | elmu1-22.hw.elixir-czech.cz / 25193151.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `harrington` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
@@ -203,6 +203,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | `20261031_0130_rl02_opt2_scaffold_hop` | running | dichtator | - | no |
 | `20261103_2102_egcg_k4_c20_candidates_minimized_gold_gmean` | failed | elmu1-5.hw.elixir-czech.cz / 25249720.pbs-m1.metacentrum.cz | - | no |
 | `20261103_2113_egcg_k4_c20_raw_tanimoto_gmean_5k` | running | elmu1-5.hw.elixir-czech.cz / 25249783.pbs-m1.metacentrum.cz | - | no |
+| `20261104_0446_egcg_to60` | running | elmu1-8.hw.elixir-czech.cz / 25256880.pbs-m1.metacentrum.cz | 132 | no |
 | `20261104_0447_egcg_eps01_cos30` | failed | elmu1-20.hw.elixir-czech.cz / 25256883.pbs-m1.metacentrum.cz | - | no |
 | `archive/duplicate_runs/partial_4cpu_sprint_h1_without_qed_pareto` | running | galdor17.metacentrum.cz / 25170006.pbs-m1.metacentrum.cz | 35 | no |
 | `archive/duplicate_runs/partial_4cpu_sprint_h2_without_qed_harrington` | running | galdor5.metacentrum.cz / 25170007.pbs-m1.metacentrum.cz | 11 | no |

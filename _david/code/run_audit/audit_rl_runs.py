@@ -261,10 +261,13 @@ def _legacy_provenance(run_dir: Path) -> dict[str, Any] | None:
         return None
 
 
-def _make_audit(run_dir: Path) -> RunAudit | None:
+def _make_audit(run_dir: Path, root: Path = OUTPUT_ROOT) -> RunAudit | None:
     manifest = _read_manifest(run_dir)
     provenance = _legacy_provenance(run_dir)
-    rel = run_dir.relative_to(OUTPUT_ROOT).as_posix()
+    try:
+        rel = run_dir.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        rel = run_dir.name
     archived = "/archive/" in f"/{rel}/"
 
     if manifest is not None:
@@ -325,17 +328,28 @@ def _make_audit(run_dir: Path) -> RunAudit | None:
 
 
 def discover(output_root: Path = OUTPUT_ROOT) -> list[RunAudit]:
-    """Find every run directory, including archived copies, then deduplicate."""
+    """Find every run directory, including archived copies, then deduplicate.
+
+    ``standard_eval`` subdirectories carry their own ``manifest.json``, but they
+    describe a re-evaluation of a run's checkpoint, not a reinforcement-learning
+    run: their arms are a comparable measurement beside the historical one and
+    must never appear as separate runs in the audit.
+    """
+    output_root = Path(output_root)
     found: list[RunAudit] = []
     for manifest in sorted(output_root.rglob("manifest.json")):
-        audit = _make_audit(manifest.parent)
+        if "standard_eval" in manifest.parent.parts:
+            continue
+        audit = _make_audit(manifest.parent, output_root)
         if audit is not None:
             found.append(audit)
     for telemetry in sorted(output_root.rglob("SequenceRNN_reinforced_fit.tsv")):
         run_dir = telemetry.parent.parent
+        if "standard_eval" in run_dir.parts:
+            continue
         if (run_dir / "manifest.json").is_file():
             continue
-        audit = _make_audit(run_dir)
+        audit = _make_audit(run_dir, output_root)
         if audit is not None:
             found.append(audit)
     return _deduplicate(found)
@@ -501,13 +515,11 @@ def _write_normalized_monitor_tsv(
     """Write a monitor TSV on the physical scale for the figure renderer.
 
     The production monitor records the *desirability* SA (clipped to [0, 1]) and
-    older runs recorded ROCS divided by two. Figure 11 must show physical
-    quantities, so the audit passes a normalized copy instead of changing the
-    production renderer:
-
-    * ``ROCS`` (or its historical aliases) is mapped to the raw [0, 2] scale;
-    * ``SA`` is recomputed from the SMILES because the stored column is the
-      clipped reward input, not synthetic accessibility.
+    the value the ROCS scorer returned, which for a modifier-era run is
+    ``min(raw, clip) / clip``. The ROCS scale is therefore left untouched here:
+    ``ResultAnalyzer`` knows the run's audited clip and applies it once, for both
+    the trajectory panels and the per-molecule table. This function only maps
+    historical aliases and recomputes physical SA.
     """
     from drugex.training.scorers.sascorer import calculateScore as calculate_sa_score
     from rdkit import Chem
@@ -523,13 +535,8 @@ def _write_normalized_monitor_tsv(
                 notes.append(f"ROCS<-{alias}")
                 break
 
-    # Pre-manifest 2026-10-26 runs stored the monitor ROCS divided by two.
-    legacy_normalized = run.manifest is None and run.provenance is None
-    if std.ROCS in frame.columns and legacy_normalized:
-        frame[std.ROCS] = pd.to_numeric(frame[std.ROCS], errors="coerce") * 2.0
-        notes.append("ROCS x2 (legacy normalized)")
-    elif std.ROCS in frame.columns:
-        notes.append("ROCS already raw")
+    if std.ROCS in frame.columns:
+        notes.append("ROCS scale left to the analyzer's audited clip")
 
     mols = [
         Chem.MolFromSmiles(str(value)) if pd.notna(value) and str(value).strip() else None
@@ -565,8 +572,10 @@ def regenerate(run: RunAudit) -> list[str]:
     figures = run.figures
     figures.mkdir(parents=True, exist_ok=True)
 
-    after = _normalize_frame(pd.read_csv(raw / "reinforced_raw.csv.gz"))
-    before = _normalize_frame(pd.read_csv(raw / "baseline_raw.csv.gz"))
+    from _david.code.rocs_scale import correct_run_frame
+
+    after = correct_run_frame(run.path, _normalize_frame(pd.read_csv(raw / "reinforced_raw.csv.gz")))
+    before = correct_run_frame(run.path, _normalize_frame(pd.read_csv(raw / "baseline_raw.csv.gz")))
 
     paths = RunPaths(
         root=run.path,

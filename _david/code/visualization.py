@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from textwrap import fill
@@ -19,6 +20,8 @@ from scipy.stats import gaussian_kde
 from _david.code.config import RunPaths
 from _david.code.rocs import align_to_reference
 from _david.code.schema import std
+
+LOGGER = logging.getLogger(__name__)
 
 
 def unscale_to_physical_metrics(
@@ -688,6 +691,7 @@ def render_training_trajectories(
     smiles_file: Path | str | None = None,
     run_config: dict | None = None,
     reference_sdf: Path | str | None = None,
+    rocs_scale: float = 1.0,
 ) -> Path | None:
     """Render the 4-panel training-dynamics dashboard.
 
@@ -726,6 +730,11 @@ def render_training_trajectories(
             sm_df = pd.read_csv(smiles_p, sep="\t")
             if sm_df.empty or "Epoch" not in sm_df.columns:
                 sm_df = None
+            elif rocs_scale != 1.0 and std.ROCS in sm_df.columns:
+                # The monitor stores what the scorer returned; a modifier-era run
+                # holds a [0, 1] desirability, which must be recovered with the
+                # run's configured clip before the panel claims a physical ROCS.
+                sm_df[std.ROCS] = pd.to_numeric(sm_df[std.ROCS], errors="coerce") * float(rocs_scale)
         except Exception:
             sm_df = None
 
@@ -2450,10 +2459,43 @@ def _sa_desirability(
     return np.clip((lo - values) / (lo - hi), 0.0, 1.0)
 
 
+def write_training_candidates(
+    table: pd.DataFrame, root: Path, *, limit: int = 25
+) -> Path | None:
+    """Best molecules seen during training, for candidate review only.
+
+    These come from earlier, weaker policies, so they are deliberately *not* a
+    statistic: they are never pooled into the final-arm distributions, the
+    scorecard or a cross-run comparison. The file exists so that a good hit found
+    in an intermediate epoch is not lost when the run continues.
+    """
+    if table.empty or std.SMILES not in table.columns:
+        return None
+    work = table.copy()
+    if "ValidMol" in work.columns:
+        work = work[work["ValidMol"].astype(int) == 1]
+    if work.empty:
+        return None
+    key = "Canonical" if "Canonical" in work.columns else std.SMILES
+    sort_keys = [c for c in ("Desired", "ROCS") if c in work.columns]
+    if sort_keys:
+        work = work.sort_values(by=sort_keys, ascending=False)
+    work = work.drop_duplicates(subset=[key]).head(limit)
+    columns = [
+        c
+        for c in ("Epoch", "SMILES", "Canonical", "ROCS", "QED", "RawSA", "SimToSeed", "Desired")
+        if c in work.columns
+    ]
+    target = Path(root) / "training_candidates.tsv"
+    work[columns].to_csv(target, sep="\t", index=False)
+    return target
+
+
 def epoch_molecule_table(
     df: pd.DataFrame,
     ref_smiles: str = "",
     run_config: dict | None = None,
+    rocs_scale: float = 1.0,
 ) -> pd.DataFrame:
     """Per-molecule monitor table with recomputed chemistry and the reward channels.
 
@@ -2531,6 +2573,12 @@ def epoch_molecule_table(
     out["ROCS"] = pd.to_numeric(
         out.get(std.ROCS, pd.Series(np.nan, index=out.index)), errors="coerce"
     )
+    if rocs_scale != 1.0:
+        # The monitor writes the value the scorer produced. A run scored with a
+        # ClippedScore modifier therefore holds ``min(raw, clip) / clip`` here too,
+        # and the longitudinal figures would otherwise be on a different scale
+        # from the evaluation arm they are compared with.
+        out["ROCS"] = out["ROCS"] * float(rocs_scale)
     out["Desired"] = pd.to_numeric(
         out.get(std.DESIRED, pd.Series(0, index=out.index)), errors="coerce"
     ).fillna(0)
@@ -4443,7 +4491,19 @@ class ResultAnalyzer:
         ref_smiles: str = "",
         monitor_prefix: str | None = None,
     ) -> Path:
-        """Process candidate evaluation arm, sort top leads, and render all primary presentation artifacts."""
+        """Process candidate evaluation arm, sort top leads, and render all primary presentation artifacts.
+
+        The stored arms are put on the raw [0, 2] TanimotoCombo scale first: a run
+        scored with the pre-2026-11-04 ``ClippedScore`` modifier stored
+        ``min(raw, clip) / clip``, and reading that as a [0, 1] normalization of
+        the full range inflated ROCS by ``2.0 / clip``.
+        """
+        from _david.code.rocs_scale import correct_run_frame, ensure_verdict
+
+        scale_verdict = ensure_verdict(self.paths.root)
+        df_after = correct_run_frame(self.paths.root, df_after)
+        if df_before is not None and not df_before.empty:
+            df_before = correct_run_frame(self.paths.root, df_before)
         df_after_clean = unscale_to_physical_metrics(df_after)
         df_before_clean = (
             unscale_to_physical_metrics(df_before)
@@ -4502,10 +4562,12 @@ class ResultAnalyzer:
 
         # Figure 3: 03_training_trajectories.png
         run_config: dict[str, Any] = {}
+        run_manifest: dict[str, Any] = {}
         manifest_path = self.paths.root / "manifest.json"
         if manifest_path.is_file():
             try:
-                run_config = json.loads(manifest_path.read_text()).get("config", {}) or {}
+                run_manifest = json.loads(manifest_path.read_text()) or {}
+                run_config = run_manifest.get("config", {}) or {}
             except (OSError, json.JSONDecodeError):
                 run_config = {}
         fit_tsv = Path(f"{monitor_prefix}_fit.tsv") if monitor_prefix else None
@@ -4517,6 +4579,7 @@ class ResultAnalyzer:
                 smiles_file=smiles_tsv,
                 run_config=run_config,
                 reference_sdf=self.paths.raw_data_dir / "query_molecule_3d.sdf",
+                rocs_scale=1.0 if scale_verdict.is_raw else scale_verdict.factor,
             )
 
         # Figure 5: 05_lead_structures_gallery.png
@@ -4579,9 +4642,16 @@ class ResultAnalyzer:
                 pd.read_csv(active_smiles_file, sep="\t"),
                 ref_smiles,
                 run_config,
+                rocs_scale=1.0 if scale_verdict.is_raw else scale_verdict.factor,
             )
 
         if not molecule_table.empty:
+            candidates = write_training_candidates(molecule_table, self.paths.root)
+            if candidates is not None:
+                LOGGER.info(
+                    "[Stage 4] Training-time candidates (not statistics): %s", candidates
+                )
+
             # Figure 12: weight-free multi-objective progress.
             render_multiobjective_hypervolume(
                 smiles_tsv_path=active_smiles_file,
@@ -4646,6 +4716,16 @@ class ResultAnalyzer:
             "",
             f"- **Target Molecule**: `{ref_smiles[:45]}...`",
             f"- **Total Candidates Evaluated**: `{len(df_after_clean)}`",
+            f"- **Evaluation arm**: one final sample of `{len(df_after_clean)}` molecules from the "
+            f"{run_manifest.get('evaluation_source', 'recorded').replace('_', ' ')}"
+            + (
+                f" (epoch {run_manifest['best_epoch']})"
+                if run_manifest.get("best_epoch")
+                else ""
+            ),
+            "- **Analysis scope**: the distributions, scorecard and lead tables below use this "
+            "final arm only. Per-epoch samples feed the longitudinal figures (03, 11-16) and "
+            "`training_candidates.tsv`, and are never pooled into these statistics.",
             "",
             "## Diagnostic Scorecard: Baseline Prior vs. Reinforced Agent",
             "",
@@ -4688,6 +4768,7 @@ class ResultAnalyzer:
                 "- [Aligned 3D Superposition Structures (SDF)](figures/top_leads_aligned_to_seed.sdf)",
                 "- [Top Prioritized Leads (TSV)](top_prioritized_leads.tsv)",
                 "- [Comparison Scorecard (CSV)](comparison_scorecard.csv)",
+                "- [Training-Time Candidates (TSV, not statistics)](training_candidates.tsv)",
                 "",
                 "## Top Prioritized Chemical Leads",
                 "",
