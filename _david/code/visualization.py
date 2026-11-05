@@ -4183,9 +4183,19 @@ def build_diagnostic_scorecard(
     df_after: pd.DataFrame,
     ref_mol: Chem.Mol | str | None = None,
 ) -> pd.DataFrame:
-    """Construct publication-grade Diagnostic Scorecard Mega-Table with automated alert flags."""
-    b_clean = unscale_to_physical_metrics(df_before)
-    a_clean = unscale_to_physical_metrics(df_after)
+    """Construct publication-grade Diagnostic Scorecard Mega-Table with automated alert flags.
+
+    Property rows describe the molecules the model produced, so they are medians
+    over the rows whose SMILES parsed. A failed generation is scored ``ROCS = 0``,
+    ``QED = 0`` and ``SA = 0``; leaving it in the distribution reports the
+    collapsed fraction of a run as a property value (a 62 %-valid run showed a
+    median ROCS of exactly 0.0) and hides the real shift. Validity is its own row,
+    measured on the whole arm.
+    """
+    b_all = unscale_to_physical_metrics(df_before)
+    a_all = unscale_to_physical_metrics(df_after)
+    b_clean = _valid_subset(b_all)
+    a_clean = _valid_subset(a_all)
 
     ref_m = Chem.MolFromSmiles(ref_mol) if isinstance(ref_mol, str) else ref_mol
     ref_hac = int(ref_m.GetNumHeavyAtoms()) if ref_m else 33
@@ -4197,13 +4207,13 @@ def build_diagnostic_scorecard(
     ref_rot = int(Lipinski.NumRotatableBonds(ref_m)) if ref_m else 3
 
     b_val = (
-        float(b_clean[std.VALID].mean() * 100.0)
-        if std.VALID in b_clean.columns
+        float(b_all[std.VALID].mean() * 100.0)
+        if std.VALID in b_all.columns
         else 95.0
     )
     a_val = (
-        float(a_clean[std.VALID].mean() * 100.0)
-        if std.VALID in a_clean.columns
+        float(a_all[std.VALID].mean() * 100.0)
+        if std.VALID in a_all.columns
         else 95.0
     )
 
@@ -4520,6 +4530,12 @@ class ResultAnalyzer:
         if df_before is not None and not df_before.empty:
             df_before = correct_run_frame(self.paths.root, df_before)
         df_after_clean = unscale_to_physical_metrics(df_after)
+        # Validity is a property of the whole arm, not of the parsable subset.
+        n_valid_arm = (
+            int(pd.to_numeric(df_after_clean[std.VALID], errors="coerce").fillna(0.0).gt(0.5).sum())
+            if std.VALID in df_after_clean.columns
+            else len(df_after_clean)
+        )
         df_before_clean = (
             unscale_to_physical_metrics(df_before)
             if df_before is not None and not df_before.empty
@@ -4730,7 +4746,8 @@ class ResultAnalyzer:
             f"# DrugEx Run Summary: {self.paths.root.name}",
             "",
             f"- **Target Molecule**: `{ref_smiles[:45]}...`",
-            f"- **Total Candidates Evaluated**: `{len(df_after_clean)}`",
+            f"- **Total Candidates Evaluated**: `{len(df_after_clean)}` "
+            f"(`{n_valid_arm}` valid, `{100.0 * n_valid_arm / max(len(df_after_clean), 1):.1f} %`)",
             f"- **Evaluation arm**: one final sample of `{len(df_after_clean)}` molecules {eval_source_text(run_manifest)}",
             "- **Analysis scope**: the distributions, scorecard and lead tables below use this "
             "final arm only. Per-epoch samples feed the longitudinal figures (03, 11-16) and "

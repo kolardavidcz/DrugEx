@@ -566,3 +566,29 @@ discarded: the remote working tree was saved as
 `main` fast-forwarded from `aab6ae1` to `d24726f`. `main...dichtator/main`
 is now level; two older stashes (`auto-stash before sync`, `user_note_edits_merged_in_1ac9950`)
 remain untouched on the remote.
+
+### A second mixing bug: failed parses inside the property statistics
+
+The final arm still contains the rows whose SMILES did not parse. They are scored
+`ROCS = 0`, `QED = 0`, `SA = 0`, so the diagnostic scorecard's medians were a
+mixture of real molecules and the collapsed fraction:
+
+| Run | Valid | ROCS median before | ROCS median after |
+| :--- | ---: | ---: | ---: |
+| `20261030_1700_rl_option_one` | 37.6 % | **0.000** | 0.420 |
+| `20261027_2035_run18_epsilon_zero_50ep` | 84.5 % | 0.582 | 0.604 |
+| `20261102_0928_sprint_h4_with_qed_harrington` | 64.0 % | 0.577 | 0.646 |
+
+`build_diagnostic_scorecard` now computes every property row on the rows whose
+SMILES parsed (`_valid_subset`, which already guarded the figures), while
+`Validity Rate (%)` is measured on the whole arm. Uniqueness uses the valid
+subset as its denominator. This is the same "contrast shift" defect as pooling
+the training trace: a statistic must not average a molecule with a failed parse.
+
+The earlier table in this document quoted the all-rows median (0.582); on the
+valid-molecule basis the corrected run18 median is 0.604, which equals the
+audited `0.3354 × 1.8` (stored median over valid rows) and the 5000-molecule
+standard arm's 0.644 within sampling noise.
+
+`summary.md` now reports the arm size together with its valid count, e.g.
+`` `1000` (`845` valid, `84.5 %`) ``, so nobody has to infer the denominator.
