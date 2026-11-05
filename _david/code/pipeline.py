@@ -50,6 +50,44 @@ CRITERIA_ALIASES: dict[str, str] = {
 }
 
 
+def restore_best_checkpoint(
+    agent: Any,
+    models_dir: Path,
+    best_epoch: Any,
+) -> dict[str, Any]:
+    """Load the best-validation package into ``agent`` for the evaluation arm.
+
+    ``Explorer.fit`` writes the best weights to ``SequenceRNN_reinforced.pkg`` but
+    only copies them back into the live agent on a ``reload_interval`` boundary; the
+    pipeline disables that reset, so the in-memory policy is the last epoch. The arm
+    must describe the model the run is named after, hence this explicit restore.
+    """
+    best_pkg = Path(models_dir) / "SequenceRNN_reinforced.pkg"
+    has_checkpoint = best_pkg.is_file()
+    if has_checkpoint and isinstance(best_epoch, int) and best_epoch >= 1:
+        agent.loadStatesFromFile(str(best_pkg))
+        agent.eval()
+        logger.info(
+            f"Restored the best checkpoint (epoch {best_epoch}) for the evaluation arm."
+        )
+        return {
+            "evaluation_source": "best_epoch",
+            "best_epoch": best_epoch,
+            "best_checkpoint_sha256": hashlib.sha256(best_pkg.read_bytes()).hexdigest(),
+        }
+    logger.warning(
+        "No best-epoch checkpoint was recorded; the evaluation arm samples the "
+        "last epoch instead."
+    )
+    return {
+        "evaluation_source": "last_epoch",
+        "best_epoch": None,
+        "best_checkpoint_sha256": (
+            hashlib.sha256(best_pkg.read_bytes()).hexdigest() if has_checkpoint else None
+        ),
+    }
+
+
 class MoleculePipeline:
     """Production Ligand-Based De Novo Design (LBDD) SequenceRNN pipeline in DrugEx."""
 
@@ -355,30 +393,11 @@ class MoleculePipeline:
         # reset so the live policy cannot silently rewind mid-run. The checkpoint on disk
         # is therefore the best epoch while the in-memory agent is the last one, and the
         # evaluation arm must describe the model the run is named after.
-        best_pkg = self.paths.models_dir / "SequenceRNN_reinforced.pkg"
-        best_epoch = getattr(explorer, "last_save", None)
-        evaluation_source = "last_epoch"
-        if best_pkg.is_file() and isinstance(best_epoch, int) and best_epoch >= 1:
-            agent.loadStatesFromFile(str(best_pkg))
-            agent.eval()
-            evaluation_source = "best_epoch"
-            logger.info(
-                f"Restored the best checkpoint (epoch {best_epoch}) for the evaluation arm."
-            )
-        else:
-            logger.warning(
-                "No best-epoch checkpoint was recorded; the evaluation arm samples the "
-                "last epoch instead."
-            )
-        self.evaluation_provenance = {
-            "evaluation_source": evaluation_source,
-            "best_epoch": best_epoch if evaluation_source == "best_epoch" else None,
-            "best_checkpoint_sha256": (
-                hashlib.sha256(best_pkg.read_bytes()).hexdigest()
-                if best_pkg.is_file()
-                else None
-            ),
-        }
+        self.evaluation_provenance = restore_best_checkpoint(
+            agent,
+            self.paths.models_dir,
+            getattr(explorer, "last_save", None),
+        )
 
         # Stage 3: Reinforced Agent Evaluation Arm
         logger.info(

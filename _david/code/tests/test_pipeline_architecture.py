@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -194,6 +195,65 @@ class TestRewardWeightOverrides(unittest.TestCase):
         self.assertGreater(
             rocs_only[1] / rocs_only[0], balanced[1] / balanced[0]
         )
+
+
+class TestBestEpochRestore(unittest.TestCase):
+    """The evaluation arm must sample the checkpoint the run saved as best."""
+
+    class _Agent:
+        def __init__(self) -> None:
+            self.loaded: str | None = None
+            self.evaluated = False
+
+        def loadStatesFromFile(self, path: str) -> None:  # noqa: N802 - core API name
+            self.loaded = path
+
+        def eval(self) -> None:  # noqa: A003 - core API name
+            self.evaluated = True
+
+    def test_the_saved_best_package_is_loaded_and_hashed(self) -> None:
+        from _david.code.pipeline import restore_best_checkpoint
+
+        with tempfile.TemporaryDirectory() as tmp:
+            models = Path(tmp)
+            (models / "SequenceRNN_reinforced.pkg").write_bytes(b"weights")
+            agent = self._Agent()
+            provenance = restore_best_checkpoint(agent, models, 21)
+
+        self.assertEqual(agent.loaded, str(models / "SequenceRNN_reinforced.pkg"))
+        self.assertTrue(agent.evaluated)
+        self.assertEqual(provenance["evaluation_source"], "best_epoch")
+        self.assertEqual(provenance["best_epoch"], 21)
+        self.assertEqual(
+            provenance["best_checkpoint_sha256"],
+            hashlib.sha256(b"weights").hexdigest(),
+        )
+
+    def test_no_package_means_the_last_epoch_is_evaluated(self) -> None:
+        from _david.code.pipeline import restore_best_checkpoint
+
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = self._Agent()
+            provenance = restore_best_checkpoint(agent, Path(tmp), 21)
+
+        self.assertIsNone(agent.loaded)
+        self.assertEqual(provenance["evaluation_source"], "last_epoch")
+        self.assertIsNone(provenance["best_epoch"])
+        self.assertIsNone(provenance["best_checkpoint_sha256"])
+
+    def test_a_package_without_a_recorded_epoch_is_not_claimed_as_best(self) -> None:
+        from _david.code.pipeline import restore_best_checkpoint
+
+        with tempfile.TemporaryDirectory() as tmp:
+            models = Path(tmp)
+            (models / "SequenceRNN_reinforced.pkg").write_bytes(b"weights")
+            agent = self._Agent()
+            for epoch in (None, 0, -1):
+                provenance = restore_best_checkpoint(agent, models, epoch)
+
+        self.assertIsNone(agent.loaded)
+        self.assertEqual(provenance["evaluation_source"], "last_epoch")
+        self.assertIsNone(provenance["best_epoch"])
 
 
 class TestRocsColourTyping(unittest.TestCase):
