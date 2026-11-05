@@ -68,11 +68,15 @@ class TestPlan(unittest.TestCase):
         root.mkdir()
         (root / "archive").mkdir()
         # A group folder holding one already-stamped arm and a loose README.
-        group = root / "20261027_reinforcement_learning"
+        group = root / "20261027_0130_rl_suite"
         group.mkdir()
         _make_run(group / "20261030_1700_rl_option_one")
         suite = group / "20261031_0100_rl_suite"
         _make_run(suite / "rl01_arm")
+        aborted = group / "rl01_arm.incomplete_20261030_032504"
+        aborted.mkdir()
+        (aborted / "logs").mkdir()
+        (aborted / "logs" / "run.log").write_text("stopped")
         (group / "README.md").write_text("group notes")
         # An unstamped arm at the root.
         _make_run(root / "sprint_h1_pareto")
@@ -93,11 +97,23 @@ class TestPlan(unittest.TestCase):
             kinds = {action.kind for action in result.actions}
             self.assertEqual(
                 kinds,
-                {"flatten", "group_file", "category", "duplicate", "rename", "empty"},
+                {
+                    "flatten",
+                    "group_file",
+                    "category",
+                    "duplicate",
+                    "rename",
+                    "empty",
+                    "variant",
+                },
             )
-            renames = [a for a in result.actions if a.kind == "rename"]
-            self.assertEqual(len(renames), 1)
-            self.assertEqual(renames[0].target.name, "20261101_1441_sprint_h1_pareto")
+            # Every arm that reaches the root without a stamp is stamped, including
+            # an arm that was flattened out of a nested suite (the layout contract is
+            # one stamped arm per directory, not one stamped container of arms).
+            renames = {a.target.name for a in result.actions if a.kind == "rename"}
+            self.assertIn("20261101_1441_sprint_h1_pareto", renames)
+            self.assertIn("20261101_1441_rl01_arm", renames)
+            self.assertTrue(all(org.has_stamp(name) for name in renames))
             duplicates = [a for a in result.actions if a.kind == "duplicate"]
             self.assertEqual([a.source.name for a in duplicates], ["sprint_h2_copy"])
             self.assertEqual(
@@ -119,9 +135,17 @@ class TestPlan(unittest.TestCase):
             self.assertTrue(executed)
             self.assertTrue((root / "20261101_1441_sprint_h1_pareto").is_dir())
             self.assertTrue((root / "20261030_1700_rl_option_one").is_dir())
-            self.assertTrue((root / "20261031_0100_rl_suite" / "rl01_arm").is_dir())
+            self.assertTrue(list(root.glob("*_rl01_arm")), "nested arm must be flattened")
             self.assertFalse(group.exists(), "dissolved group folder must not linger")
             self.assertTrue((root / "conformer" / "self_similarity").is_dir())
+            self.assertTrue(
+                (
+                    root
+                    / "archive"
+                    / "rl_suite_variants"
+                    / "rl01_arm.incomplete_20261030_032504"
+                ).is_dir()
+            )
             self.assertTrue(
                 (root / "archive" / "duplicate_runs" / "sprint_h2_copy").is_dir()
             )

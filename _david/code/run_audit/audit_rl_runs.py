@@ -39,6 +39,7 @@ import hashlib
 import json
 import shutil
 import tempfile
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -349,16 +350,17 @@ def _deduplicate(runs: list[RunAudit]) -> list[RunAudit]:
 
     primaries: list[RunAudit] = []
     for _key, members in groups.items():
-        # Preference: more current figures > not archived > has a manifest >
-        # deeper path > descriptive (longer) basename. "Deeper" keeps a run
-        # nested in its dated suite (``.../20261030_0200_rl_suite/rl01_...``)
-        # over a flat copy at the category root; the basename rule then keeps
+        # Preference: live over archived > more current figures > has a manifest >
+        # deeper path > descriptive (longer) basename. A live stamped run must never
+        # be represented by its archived duplicate, even when the archive copy was
+        # rendered more times; "deeper" keeps a run nested in its dated suite over a
+        # flat copy at the category root, and the basename rule keeps
         # ``20261102_0630_sprint_h2_...`` over the bare ``sprint_h2_...`` copy.
         winner = max(
             members,
             key=lambda r: (
-                r.current_figure_count(),
                 not r.archived,
+                r.current_figure_count(),
                 r.manifest is not None,
                 len(r.path.parts),
                 len(r.path.name),
@@ -593,6 +595,26 @@ def regenerate(run: RunAudit) -> list[str]:
         ref_heavy_atoms=ref_heavy,
     )
     messages.append(f"04 (legacy diagnostic, ref heavy atoms {ref_heavy})")
+
+    arm_rows = len(after)
+    (figures / "RENDER_PROVENANCE.json").write_text(
+        json.dumps(
+            {
+                "rendered_at": datetime.now().isoformat(timespec="seconds"),
+                "run": run.rel,
+                "source_revision": run.source_revision or None,
+                "figures": list(CURRENT_FIGURES),
+                "eval_n_actual": int(arm_rows),
+                "eval_n_configured": run.config.get("n_eval_samples"),
+                "note": (
+                    "Rendered from the stored arms with the current ResultAnalyzer. "
+                    "Molecules are not resampled; a historical arm keeps its own n."
+                ),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
     return messages
 
@@ -885,6 +907,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="rebuild missing figures and scorecards before reporting",
     )
     parser.add_argument(
+        "--force-render",
+        action="store_true",
+        help=(
+            "rebuild the current figure suite for every renderable run, even when "
+            "the file already exists (standard re-render of older runs)"
+        ),
+    )
+    parser.add_argument(
         "--write",
         type=Path,
         default=DEFAULT_REPORT,
@@ -925,7 +955,7 @@ def main(argv: list[str] | None = None) -> int:
                 or run.legacy_figure_count() < len(LEGACY_FIGURES)
                 or not all(run.support_presence().values())
             )
-            if not missing:
+            if not missing and not args.force_render:
                 continue
             try:
                 regeneration[run.rel] = regenerate(run)

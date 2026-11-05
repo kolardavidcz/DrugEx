@@ -67,6 +67,10 @@ class PipelineConfig:
     # training.
     n_eval_samples: int = 5000  # Statistical evaluation sample pool size # ^ [1000, 5000]
     batch_size: int = 64  # Mini-batch size per Adam policy-gradient step # ^ [64, 128]
+    #: Reuse a frozen pre-training arm from ``_david/output/datasets`` instead of
+    #: re-sampling it. Name or path; the manifest records the dataset hash, and a
+    #: reference mismatch is an error. ``None`` keeps the historical behaviour.
+    prior_dataset: str | None = None
 
     # Gold standard (2026-11-03): checkpoint selection uses the geometric mean
     # of the per-objective desirability ratios, which penalizes an arm that

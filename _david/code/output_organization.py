@@ -49,6 +49,7 @@ CATEGORY_MOVES: dict[str, str] = {
 }
 
 GROUP_ARCHIVE_DIR = "archive/group_files"
+VARIANT_ARCHIVE_DIR = "archive/rl_suite_variants"
 DUPLICATE_ARCHIVE_DIR = "archive/duplicate_runs"
 EMPTY_ARCHIVE_DIR = "archive/empty_runs"
 
@@ -169,40 +170,65 @@ def plan(root: Path | str) -> Plan:
     # : logical final path -> directory that currently holds that content.
     real: dict[Path, Path] = {}
 
-    # 1. Dissolve non-conforming group folders that only contain RL arms.
-    for entry in entry_dirs:
-        if has_stamp(entry.name) or is_rl_run(entry):
-            continue
-        children = [child for child in sorted(entry.iterdir()) if child.is_dir()]
-        # A stamped child is a suite that already follows the contract; flatten it too so
-        # the container can dissolve instead of keeping one folder nested two levels deep.
-        run_children = [
-            child for child in children if is_rl_run(child) or has_stamp(child.name)
-        ]
-        if not run_children:
-            continue
-        for child in run_children:
-            target = root / child.name
-            result.actions.append(
-                Action(
-                    kind="flatten",
-                    source=child,
-                    target=target,
-                    reason="RL arm inside a non-conforming group folder",
-                )
-            )
-            real[target] = child
-        for loose in sorted(entry.iterdir()):
-            if loose.is_dir():
+    # 1. Dissolve container folders (stamped or not) that hold RL arms, at any depth.
+    def _contains_arm(directory: Path) -> bool:
+        for child in directory.iterdir():
+            if not child.is_dir():
                 continue
-            result.actions.append(
-                Action(
-                    kind="group_file",
-                    source=loose,
-                    target=root / GROUP_ARCHIVE_DIR / loose.name,
-                    reason=f"loose file of the dissolved group `{entry.name}`",
+            if is_rl_run(child) or _contains_arm(child):
+                return True
+        return False
+
+    def _dissolve(container: Path) -> None:
+        for child in sorted(container.iterdir()):
+            if child.is_dir():
+                if is_rl_run(child):
+                    logical = root / child.name
+                    result.actions.append(
+                        Action(
+                            kind="flatten",
+                            source=child,
+                            target=logical,
+                            reason=f"RL arm inside the container `{container.name}`",
+                        )
+                    )
+                    real[logical] = child
+                elif _contains_arm(child):
+                    _dissolve(child)
+                elif has_stamp(child.name) and not _contains_arm(child):
+                    # A stamped study with no arms is not part of this tree's contract.
+                    result.actions.append(
+                        Action(
+                            kind="variant",
+                            source=child,
+                            target=root / VARIANT_ARCHIVE_DIR / child.name,
+                            reason=f"non-run stamped subtree of `{container.name}`",
+                        )
+                    )
+                else:
+                    result.actions.append(
+                        Action(
+                            kind="variant",
+                            source=child,
+                            target=root / VARIANT_ARCHIVE_DIR / child.name,
+                            reason=f"non-run variant of `{container.name}`",
+                        )
+                    )
+            else:
+                result.actions.append(
+                    Action(
+                        kind="group_file",
+                        source=child,
+                        target=root / GROUP_ARCHIVE_DIR / container.name / child.name,
+                        reason=f"loose file of the dissolved group `{container.name}`",
+                    )
                 )
-            )
+
+    for entry in entry_dirs:
+        if is_rl_run(entry) or entry.name in CATEGORY_MOVES:
+            continue
+        if _contains_arm(entry):
+            _dissolve(entry)
 
     # 2. Curated category moves for non-RL study trees.
     for entry in entry_dirs:
@@ -294,8 +320,19 @@ def plan(root: Path | str) -> Plan:
             )
         )
 
+    # A duplicate and its flatten share one source; the archive move is the action
+    # that must run, so drop the redundant flatten entry.
+    duplicate_sources = {
+        action.source for action in result.actions if action.kind == "duplicate"
+    }
+    result.actions = [
+        action
+        for action in result.actions
+        if not (action.kind == "flatten" and action.source in duplicate_sources)
+    ]
+
     # 5. Stamp every remaining RL arm that lacks a timestamp.
-    handled = {action.source for action in result.actions}
+    handled = duplicate_sources
     for logical in rl_logical:
         source = real.get(logical, logical)
         if source in handled or has_stamp(logical.name):
@@ -308,6 +345,17 @@ def plan(root: Path | str) -> Plan:
                 reason="RL arm without a YYYYmmdd_HHMM_ stamp",
             )
         )
+
+    # A flattened arm that also needs a stamp is one move, not two: keep the rename,
+    # which already targets the root under its final name.
+    renamed_sources = {
+        action.source for action in result.actions if action.kind == "rename"
+    }
+    result.actions = [
+        action
+        for action in result.actions
+        if not (action.kind == "flatten" and action.source in renamed_sources)
+    ]
 
     # 6. Empty leftovers go to the archive instead of cluttering the root.
     for entry in entry_dirs:

@@ -139,6 +139,49 @@ class MoleculePipeline:
             return path.stem
         return None
 
+    def _load_prior_baseline(self, reference_sdf: Path) -> pd.DataFrame:
+        """Load the frozen pre-training arm and prove it belongs to this target.
+
+        A dataset sampled for a different molecule would silently poison every
+        threshold and every comparison, so the canonical SMILES must match. The
+        run also records the dataset identity next to the arm it replaced.
+        """
+        from _david.code.prior_dataset import load_arm, resolve_dataset, sha256_file
+
+        name = str(self.config.prior_dataset)
+        frame, dataset_manifest = load_arm(
+            name, self.config, n=self.config.n_eval_samples
+        )
+        expected = None
+        for mol in Chem.SDMolSupplier(str(reference_sdf), removeHs=False):
+            if mol is not None:
+                expected = Chem.MolToSmiles(Chem.RemoveHs(mol))
+                break
+        recorded = dataset_manifest.get("query_canonical_smiles")
+        if expected and recorded and expected != recorded:
+            raise ValueError(
+                f"prior dataset {name!r} was built for {recorded!r}, "
+                f"but this run targets {expected!r}"
+            )
+        target = resolve_dataset(name)
+        provenance = {
+            "name": target.name,
+            "path": str(target),
+            "manifest_sha256": sha256_file(target / "manifest.json"),
+            "csv_sha256": sha256_file(target / "prior_molecules.csv.gz"),
+            "seed": dataset_manifest.get("seed"),
+            "n_used": int(len(frame)),
+            "query_canonical_smiles": recorded,
+        }
+        (self.paths.raw_data_dir / "baseline_prior_dataset.json").write_text(
+            json.dumps(provenance, indent=2) + "\n"
+        )
+        logger.info(
+            f"Loaded {len(frame)} baseline molecules from frozen prior dataset "
+            f"{target.name} (sha256 {provenance['manifest_sha256'][:12]}…)"
+        )
+        return frame
+
     def run(self, molecule: str | Path = DEFAULT_MOLECULE) -> Path:
         """Record the actual configuration and execution outcome beside run data."""
         if self.paths is None:
@@ -214,16 +257,23 @@ class MoleculePipeline:
         agent, prior, voc = optimizer.load_models()
         env = create_environment(ref_sdf, config=self.config)
 
-        logger.info(
-            f"Sampling {self.config.n_eval_samples} baseline molecules from untrained prior..."
-        )
-        df_before = self.sample_and_score(
-            agent=agent,
-            env=env,
-            n_samples=self.config.n_eval_samples,
-            label="baseline",
-            batch_size=self.config.batch_size,
-        )
+        if self.config.prior_dataset:
+            logger.info(
+                f"Reusing frozen prior dataset {self.config.prior_dataset!r} "
+                f"instead of sampling the baseline..."
+            )
+            df_before = self._load_prior_baseline(ref_sdf)
+        else:
+            logger.info(
+                f"Sampling {self.config.n_eval_samples} baseline molecules from untrained prior..."
+            )
+            df_before = self.sample_and_score(
+                agent=agent,
+                env=env,
+                n_samples=self.config.n_eval_samples,
+                label="baseline",
+                batch_size=self.config.batch_size,
+            )
         df_before.to_csv(
             self.paths.raw_data_dir / "baseline_raw.csv.gz",
             index=False,
@@ -314,6 +364,16 @@ class MoleculePipeline:
         logger.info(
             f"\n[Pipeline Complete] Authoritative deliverables generated at: {self.paths.root}"
         )
+
+        # A run is the moment when the overview is most out of date. Refresh it,
+        # but never let a reporting failure mark a finished experiment as failed.
+        try:
+            from _david.code.dashboard import generate as generate_dashboard
+
+            dashboard = generate_dashboard(self.paths.root.parent)
+            logger.info(f"[Dashboard] Refreshed run overview: {dashboard}")
+        except Exception as exc:  # noqa: BLE001 - reporting is best effort
+            logger.warning(f"[Dashboard] Refresh skipped: {type(exc).__name__}: {exc}")
         return self.paths.root
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -604,6 +664,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_MOLECULE,
         help="Target reference SMILES / SDF path",
     )
+    parser.add_argument(
+        "--prior-dataset",
+        type=str,
+        default=defaults.prior_dataset,
+        help=(
+            "Reuse a frozen pre-training arm from _david/output/datasets instead of "
+            "re-sampling (name or path; default: sample per run)"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -628,6 +697,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         n_samples=args.samples,
         batch_size=args.batch_size,
         n_eval_samples=args.eval_samples,
+        prior_dataset=args.prior_dataset,
         epsilon=args.epsilon,
         epsilon_end=args.epsilon_end,
         use_epsilon_decay=args.use_decay,

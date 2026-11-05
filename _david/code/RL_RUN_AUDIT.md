@@ -17,7 +17,7 @@ Historical runs are **not** retroactively re-sampled: their figures are rebuilt 
 | Run | Host / job | Epochs | Criterion | Similarity | Eval n | QED | Reward | ε | K / C / min | Figures | Copies | Verdict |
 | :--- | :--- | ---: | :--- | :--- | ---: | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
 | `20261027_2035_run18_epsilon_zero_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
-| `20261030_0200_rl_suite_egcg_6arm/rl01_opt1_mild_color_heavy` | dichtator | 250 | `avg_amean` | `tversky_mild_color_heavy` | 1000 | - | `harrington` | 0.15 -> 0.02 | 4 / 20 / yes | 7/13 (+04) | 1 | UNVERIFIABLE |
+| `20261030_1700_rl_option_one` | dichtator | 250 | `avg_amean` | `tversky_mild_color_heavy` | 1000 | - | `harrington` | 0.15 -> 0.02 | 4 / 20 / yes | 5/13 (+04) | 1 | UNVERIFIABLE |
 | `20261101_1500_sprint_h1_without_qed_pareto` | adan40.grid.cesnet.cz / 25184273.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
 | `20261102_0630_sprint_h2_without_qed_harrington` | elmu1-22.hw.elixir-czech.cz / 25193151.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `harrington` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
 | `20261102_0849_sprint_h3_with_qed_pareto` | elmu1-24.hw.elixir-czech.cz / 25193152.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `pareto_crowding` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
@@ -42,7 +42,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 - Headline gold conformance: **0/3** (criterion, similarity, evaluation size)
 - Configuration unavailable: pre-manifest run. Only the stored artifacts can be audited; hyperparameters cannot be reconstructed from the repository.
 
-### `20261030_0200_rl_suite_egcg_6arm/rl01_opt1_mild_color_heavy`
+### `20261030_1700_rl_option_one`
 
 - Headline gold conformance: **0/3** (criterion, similarity, evaluation size)
 - Wall clock: 21.4 h
@@ -199,8 +199,8 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Run | State | Host / job | Last epoch | Raw arms |
 | :--- | :--- | :--- | ---: | :---: |
-| `20261030_0200_rl_suite_egcg_6arm/rl01_opt1_mild_color_heavy.negative_control_mode_collapse_20261030_040259` | running | dichtator | 99 | no |
-| `20261030_0200_rl_suite_egcg_6arm/rl02_opt2_scaffold_hop` | running | dichtator | - | no |
+| `20261030_0325_rl01_opt1_mild_color_heavy.negative_control_mode_collapse_20261030_040259` | running | dichtator | 99 | no |
+| `20261031_0130_rl02_opt2_scaffold_hop` | running | dichtator | - | no |
 | `20261103_2102_egcg_k4_c20_candidates_minimized_gold_gmean` | failed | elmu1-5.hw.elixir-czech.cz / 25249720.pbs-m1.metacentrum.cz | - | no |
 | `20261103_2113_egcg_k4_c20_raw_tanimoto_gmean_5k` | running | elmu1-5.hw.elixir-czech.cz / 25249783.pbs-m1.metacentrum.cz | - | no |
 | `20261104_0447_egcg_eps01_cos30` | failed | elmu1-20.hw.elixir-czech.cz / 25256883.pbs-m1.metacentrum.cz | - | no |
@@ -222,8 +222,8 @@ These share the RL manifest shape but train for `epochs <= 5`; they are engineer
 
 Byte-identical `baseline_raw.csv.gz` + `reinforced_raw.csv.gz`. The primary is the copy with the most complete figure suite; the rest can be removed without losing evidence.
 
-- `20261030_0200_rl_suite_egcg_6arm/rl01_opt1_mild_color_heavy`
-  - copy: `20261030_1700_rl_option_one`
+- `20261030_1700_rl_option_one`
+  - copy: `archive/duplicate_runs/rl01_opt1_mild_color_heavy`
 - `20261101_1500_sprint_h1_without_qed_pareto`
   - copy: `archive/duplicate_runs/sprint_h1_without_qed_pareto`
 - `20261102_0630_sprint_h2_without_qed_harrington`
