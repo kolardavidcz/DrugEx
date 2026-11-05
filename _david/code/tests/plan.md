@@ -188,32 +188,29 @@ similarity to the seed and the analyzer's `SelectionScore`, and maps SA through 
 `sa_score_lower`/`sa_score_upper` clip. Figures 12–16 consume that single frame instead of
 re-scoring the monitor five times.
 
-- [x] **12 `12_multiobjective_hypervolume.png`** — exact dominated hypervolume over
-      (ROCS TanimotoCombo / 2, QED, clipped SA desirability) with the reference point at the
-      origin, computed by a z-sweep + 2D skyline (hand-checked against a union-of-boxes
-      calculation and verified monotone cumulative). (A) per-epoch and cumulative hypervolume
-      against the seed's single-point volume, (B) best-so-far per objective with last-improvement
-      dots, (C) Pareto front at the monitor's `best_epoch` (not the last epoch, which is often
-      degraded) coloured by QED. The composite reward assumes weights; the hypervolume does not,
-      so this is the weight-free answer to "is the population actually better?".
-- [x] **13 `13_exploration_exploitation.png`** — per-epoch centroid path through
-      (seed similarity, ROCS/2), (raw SA, ROCS/2) and (internal diversity, ROCS/2), with the
-      baseline cloud behind, the seed marked and the best checkpoint starred. Diversity uses a
-      vectorised mean pairwise ECFP4 Tanimoto. Panel C's narrow x-range is annotated as a zoom
-      so noise is not mistaken for signal.
-- [x] **14 `14_sampling_budget.png`** — stack of desired & new / desired duplicate / valid
-      undesired / unparsable per epoch, plus cumulative useful output. Explains why
-      `desired_ratio` plateaus and how much sampling is spent re-discovering known molecules.
-- [x] **15 `15_lead_set_stability.png`** — consecutive top-k Jaccard overlap, age of the best
-      molecule and chemical drift (mean max ECFP4 similarity to the previous top-k), for both
-      the selection-score and ROCS rankings. Low overlap means the "best epoch" is sampling
-      noise rather than a locked-in mode.
-- [x] **16 `16_rocs_enrichment.png`** — ROCS ECDF per stage, enrichment factors against the
-      baseline's own top 1/5/10 % thresholds, and when the global top-k leads first appeared.
-      **Honest result for the eps0 run: the delivered 3000-molecule arm does not enrich the
-      ROCS tail** (median 0.321 vs 0.340, p99 0.424 vs 0.430, max 0.498 vs 0.553, delivered-arm
-      EF 0.70× / 0.49× / 0.55× at 1/5/10 %). The earlier "tail improvement" reading came from
-      comparing single 50-molecule epochs; the figure now shows the full arm instead of hiding it.
+- [x] **12 `12_training_diagnostics.png`** — one six-panel figure replacing the former
+      12-16 series, which all read the same per-epoch monitor frame and repeatedly restated
+      each other. Kept panels, each of which answers a question the others cannot:
+      (A) exact dominated hypervolume over (ROCS TanimotoCombo / 2, QED, clipped SA
+      desirability) with the reference point at the origin, per epoch and cumulative, against
+      the seed's single-point volume — the weight-free answer to "is the population actually
+      better?"; (B) the Pareto front at the monitor's `best_epoch` (not the last epoch, which
+      is often degraded) coloured by QED, over the baseline cloud; (C) the per-epoch centroid
+      path through seed similarity vs shape fit, showing whether shape gain was bought by
+      collapsing onto the seed; (D) the sampling budget composition (desired & new / desired
+      duplicate / valid undesired / unparsable) that explains why `desired_ratio` plateaus;
+      (E) the age of the incumbent best molecule, so a flat tail is read as patience rather
+      than progress; (F) when the global top-k leads first appeared, which tells us whether
+      the delivered arm came from the best checkpoint or from a later, noisier one.
+      Dropped: figure 13's SA and diversity panels (the SA axis duplicated figure 03 C and the
+      diversity axis was a near-constant zoom), figure 14's absolute counts and cumulative
+      output (algebraic restatements of panel D), figure 15's Jaccard/drift pair (panel E
+      carries the same information with one axis) and figure 16's ECDF/enrichment pair (the
+      arm-level ROCS distribution is figure 01's job, on the standard arm).
+      **Honest result for eps0, retained from the old 16:** the delivered arm did not enrich
+      the ROCS tail (median 0.321 vs 0.340, delivered-arm EF 0.70× / 0.49× / 0.55× at
+      1/5/10 %); the earlier "tail improvement" reading came from comparing single 50-molecule
+      epochs.
 
 ### Fixes found while building the above
 

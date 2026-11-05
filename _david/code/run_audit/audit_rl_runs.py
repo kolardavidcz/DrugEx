@@ -54,7 +54,7 @@ OUTPUT_ROOT: Path = PROJECT_ROOT / "_david" / "output"
 DEFAULT_REPORT: Path = PROJECT_ROOT / "_david" / "code" / "RL_RUN_AUDIT.md"
 DEFAULT_CSV: Path = OUTPUT_ROOT / "RL_RUN_AUDIT.csv"
 
-# The current pipeline renders these thirteen files. Figure 04 is a historical
+# The current pipeline renders these nine files. Figure 04 is a historical
 # diagnostic that the current ResultAnalyzer no longer calls, so it is audited
 # separately and never decides the verdict. Rows retired on 2026-11-04
 # (``06_relative_property_shifts_tornado``, ``08_rocs_shape_vs_color_decomposition``,
@@ -68,11 +68,7 @@ CURRENT_FIGURES: tuple[str, ...] = (
     "07_bemis_murcko_scaffold_diversity.png",
     "10_lead_to_seed_3d_superposition.png",
     "11_epoch_property_trajectories.png",
-    "12_multiobjective_hypervolume.png",
-    "13_exploration_exploitation.png",
-    "14_sampling_budget.png",
-    "15_lead_set_stability.png",
-    "16_rocs_enrichment.png",
+    "12_training_diagnostics.png",
 )
 LEGACY_FIGURES: tuple[str, ...] = ("04_diagnostic_unfavorable_features.png",)
 SUPPORT_FILES: tuple[str, ...] = (
@@ -694,7 +690,7 @@ def regenerate(run: RunAudit) -> list[str]:
                 "training_trace_figures": [
                     name
                     for name in CURRENT_FIGURES
-                    if name.startswith(("03_", "11_", "12_", "13_", "14_", "15_", "16_"))
+                    if name.startswith(("03_", "11_", "12_"))
                 ],
                 "note": (
                     "Figures 01/02/05/06/07/10 and the scorecard are rendered from "
