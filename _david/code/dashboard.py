@@ -465,7 +465,9 @@ def collect(
         if frame is not None:
             summary.metrics = summarize_arm(frame, config, rocs_factor)
         if standard is not None:
-            summary.standard_metrics = summarize_arm(standard, config)
+            # The standard arm is scored with the frozen environment, which has no
+            # ROCS modifier, so its ROCS is physical and must never be rescaled.
+            summary.standard_metrics = summarize_arm(standard, config, rocs_factor=1.0)
             summary.standard_source = standard_model(run_dir)
         # A comparable standard arm outranks the historical one for cross-run
         # statements and best-of tables; the historical metrics stay visible.
