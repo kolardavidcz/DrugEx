@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): **Ad-hoc** host for occasional single CPU-heavy jobs; not a mirror of the local tree and not the default production queue. Managed via `python -m _david.code.metacentrum.submit`; the agent-facing template is [`code/metacentrum/RUNBOOK.md`](code/metacentrum/RUNBOOK.md).
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 143/143 passing; 6 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 158/158 passing; 6 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Test only behaviour and contracts. Never pin a chosen hyperparameter value, a figure filename or a label format: those change during the research and would turn a legitimate edit into a red suite (see `code/tests/plan.md`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
@@ -108,7 +108,7 @@ _david/
 │       ├── help/                      # 01-submit … 06-storage + monitor_live_epochs.py
 │       ├── scripts/runed/             # Frozen historical PBS runners (provenance only)
 │       └── archive/                   # compare_output_trees.py + its usage contract
-├── code/tests/                         # 143 behaviour/contract tests (100% passing)
+├── code/tests/                         # 158 behaviour/contract tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 

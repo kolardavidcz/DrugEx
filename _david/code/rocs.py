@@ -85,6 +85,52 @@ def score_pair(candidate: Chem.Mol, reference: Chem.Mol) -> tuple[float, float, 
     return best
 
 
+def align_to_reference(
+    candidate: Chem.Mol, reference: Chem.Mol
+) -> tuple[Chem.Mol, float, float, float]:
+    """Move ``candidate`` into the ``reference`` frame and return its best pose.
+
+    ``score_pair`` only reports numbers; the winning coordinates end up on a scratch
+    copy that it discards. This helper keeps the winning pose so an SDF or a 3D
+    superposition can show exactly the alignment that produced the score.
+
+    Returns ``(aligned_candidate, combo, shape, color)``. The candidate copy is
+    canonicalised and axis-flipped identically to :func:`score_pair`, so the shape /
+    colour values agree with the scorer to numerical precision. As in ``score_pair``,
+    the reference is first put into its canonical inertial frame; the returned
+    coordinates live in that frame, so canonicalise the reference before drawing or
+    re-scoring the pose to keep the two consistent.
+    """
+    ref_copy = Chem.Mol(reference)
+    cand_copy = Chem.Mol(candidate)
+    _canonicalize_conformer_inplace(ref_copy, -1)
+    _canonicalize_conformer_inplace(cand_copy, -1)
+    best: tuple[float, float, float] | None = None
+    best_mol: Chem.Mol | None = None
+    for signs in _AXIS_SIGN_FLIPS:
+        probe = _flip_conformer(cand_copy, -1, signs)
+        try:
+            # AlignMol(ref, probe) moves the probe; the returned pose is therefore the
+            # candidate in the reference frame.
+            shape, color = rdShapeAlign.AlignMol(
+                ref_copy,
+                probe,
+                refConfId=-1,
+                probeConfId=-1,
+                useColors=True,
+                opt_param=0.5,
+            )
+        except (RuntimeError, ValueError):
+            continue
+        combo = float(shape) + float(color)
+        if best is None or combo > best[0]:
+            best = (combo, float(shape), float(color))
+            best_mol = probe
+    if best is None or best_mol is None:
+        return Chem.Mol(candidate), 0.0, 0.0, 0.0
+    return best_mol, *best
+
+
 class CanonicalROCSScorer(RDKitROCSScorer):
     """Authoritative ROCS scorer returning canonical std.ROCS key without monkey-patching."""
 

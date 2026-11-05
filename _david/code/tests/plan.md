@@ -174,3 +174,85 @@ Status 2026-11-05: executed. 03 renders in ≈1m45s per run (7 axes, ε on axis 
 axis 5, shape/color on axis 6; shape 0.42–0.53, colour 0.05–0.09). 05 renders 12 axes
 (seed, LEAD #1–#5, caption, ROCS #1–#5). Both runs re-rendered in place, `ruff check _david`
 clean, 143/143 tests pass.
+
+## Round 3 (2026-11-05, five new diagnostics + alignment fixes)
+
+User asked for extra figures ("feel free to add some extra images as i might better decide
+later"), better 2D alignment in figure 05, and a way to align the exported SDF molecules.
+Figure set grows from 8 to 13 PNGs (plus the aligned SDF).
+
+### New figures (feed from one shared per-molecule table)
+
+`epoch_molecule_table` parses `_smiles.tsv` once, recomputes QED, physical SA, ECFP4
+similarity to the seed and the analyzer's `SelectionScore`, and maps SA through the run's own
+`sa_score_lower`/`sa_score_upper` clip. Figures 12–16 consume that single frame instead of
+re-scoring the monitor five times.
+
+- [x] **12 `12_multiobjective_hypervolume.png`** — exact dominated hypervolume over
+      (ROCS TanimotoCombo / 2, QED, clipped SA desirability) with the reference point at the
+      origin, computed by a z-sweep + 2D skyline (hand-checked against a union-of-boxes
+      calculation and verified monotone cumulative). (A) per-epoch and cumulative hypervolume
+      against the seed's single-point volume, (B) best-so-far per objective with last-improvement
+      dots, (C) Pareto front at the monitor's `best_epoch` (not the last epoch, which is often
+      degraded) coloured by QED. The composite reward assumes weights; the hypervolume does not,
+      so this is the weight-free answer to "is the population actually better?".
+- [x] **13 `13_exploration_exploitation.png`** — per-epoch centroid path through
+      (seed similarity, ROCS/2), (raw SA, ROCS/2) and (internal diversity, ROCS/2), with the
+      baseline cloud behind, the seed marked and the best checkpoint starred. Diversity uses a
+      vectorised mean pairwise ECFP4 Tanimoto. Panel C's narrow x-range is annotated as a zoom
+      so noise is not mistaken for signal.
+- [x] **14 `14_sampling_budget.png`** — stack of desired & new / desired duplicate / valid
+      undesired / unparsable per epoch, plus cumulative useful output. Explains why
+      `desired_ratio` plateaus and how much sampling is spent re-discovering known molecules.
+- [x] **15 `15_lead_set_stability.png`** — consecutive top-k Jaccard overlap, age of the best
+      molecule and chemical drift (mean max ECFP4 similarity to the previous top-k), for both
+      the selection-score and ROCS rankings. Low overlap means the "best epoch" is sampling
+      noise rather than a locked-in mode.
+- [x] **16 `16_rocs_enrichment.png`** — ROCS ECDF per stage, enrichment factors against the
+      baseline's own top 1/5/10 % thresholds, and when the global top-k leads first appeared.
+      **Honest result for the eps0 run: the delivered 3000-molecule arm does not enrich the
+      ROCS tail** (median 0.321 vs 0.340, p99 0.424 vs 0.430, max 0.498 vs 0.553, delivered-arm
+      EF 0.70× / 0.49× / 0.55× at 1/5/10 %). The earlier "tail improvement" reading came from
+      comparing single 50-molecule epochs; the figure now shows the full arm instead of hiding it.
+
+### Fixes found while building the above
+
+- [x] **Unparsable rows polluted every arm-level ROCS statistic.** `unscale_to_physical_metrics`
+      keeps failed generations with `ROCS = 0.0`, so an unfiltered arm mixed 2000/5000 zeros
+      into quantiles (baseline p99 read 0.430 instead of 0.861). Added `_valid_subset`, used by
+      `_arm_objectives` (figure 12/13 baselines) and by figure 16's baseline and delivered arms.
+- [x] **03 C / 03 D axes** — `_smiles.tsv` stores the raw TanimotoCombo (0–2), not a
+      desirability. Both axes are relabelled and their upper limits now come from the data
+      (capped at 2.05); the old 0–1.02 axis clipped the gold run's combo up to 1.09.
+- [x] **05 alignment** — the old fallback called `GenerateDepictionMatching2DStructure(mol, ref)`
+      with no `refPatt`, which does not align at all, and the seed Murcko core was tested
+      before the card set existed. The template is now chosen from exactly the molecules that
+      will be drawn: the seed Murcko core when every card contains it, otherwise the MCS of the
+      displayed set. Cards are built first, then one template is prepared and every card is
+      aligned onto it, so the shared core sits at identical coordinates on all of them
+      (verified: min matched-atom RMSD 0.0000 for every card). Cards also render at the axes'
+      native resolution (760×540 instead of 340×240, previously upscaled ~2.6×).
+- [x] **10 / SDF alignment** — `rdShapeAlign.AlignMol(ref_heavy, lead_heavy)` passed the seed as
+      the probe, so the seed moved and the leads never did; the exported SDF was therefore not
+      aligned at all. New `rocs.align_to_reference(candidate, reference)` keeps the winning pose
+      (best of the four canonical axis flips) and returns it in the reference's canonical
+      inertial frame; the seed is canonicalised first, so plot, SDF and score share one frame.
+      Verified end-to-end: re-scoring each stored SDF pose with `rdShapeAlign.ScoreMol` against
+      the stored seed reproduces its recorded `TanimotoCombo` to 1e-5. Panel B now labels the
+      drawn pose's combo separately from the pipeline's best-conformer ROCS, and all three 3D
+      panels share one bounding box and box aspect so sizes are comparable. SDF records carry
+      `Alignment`, `ROCS`, `TanimotoCombo`, `ShapeScore`, `ColorScore` and the card metrics.
+- [x] **13 layout** — a figure-level colorbar beside a 1×3 grid cannot be negotiated by
+      `tight_layout`; the grid and colorbar are now placed explicitly.
+
+### Tests (behaviour only, no rendering or filename pins)
+
+- [x] `tests/test_diagnostics_analysis.py` (15 tests): `align_to_reference` reproduces
+      `score_pair` and its returned pose re-scores to its own reported combo without mutating
+      the input; hypervolume matches hand-computed volumes and ignores NaN/below-reference
+      points; `_sa_desirability` respects run bounds and degenerate bounds; `_valid_subset`
+      drops unparsable rows; `AlignedDepicter` picks a template shared by every displayed
+      molecule and puts matched atoms on the template coordinates.
+
+Status 2026-11-05: executed. Both runs re-rendered in place (13 PNGs each, ≈2 min per run),
+`ruff check _david` clean, full suite green.

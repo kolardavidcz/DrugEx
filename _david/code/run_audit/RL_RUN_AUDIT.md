@@ -16,22 +16,22 @@ Historical runs are **not** retroactively re-sampled: their figures are rebuilt 
 
 | Run | Host / job | Epochs | Criterion | Similarity | Eval n | QED | Reward | ε | K / C / min | Figures | Copies | Verdict |
 | :--- | :--- | ---: | :--- | :--- | ---: | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| `20261027_2035_run18_epsilon_zero_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 10/10 (+04) | 0 | OK |
-| `20261030_0200_rl_suite_egcg_6arm/rl01_opt1_mild_color_heavy` | dichtator | 250 | `avg_amean` | `tversky_mild_color_heavy` | 1000 | - | `harrington` | 0.15 -> 0.02 | 4 / 20 / yes | 10/10 (+04) | 1 | OK |
-| `20261101_1500_sprint_h1_without_qed_pareto` | adan40.grid.cesnet.cz / 25184273.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.05 | 1 / 30 / no | 10/10 (+04) | 1 | OK |
-| `20261102_0630_sprint_h2_without_qed_harrington` | elmu1-22.hw.elixir-czech.cz / 25193151.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `harrington` | 0.05 | 1 / 30 / no | 10/10 (+04) | 1 | OK |
-| `20261102_0849_sprint_h3_with_qed_pareto` | elmu1-24.hw.elixir-czech.cz / 25193152.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `pareto_crowding` | 0.05 | 1 / 30 / no | 10/10 (+04) | 1 | OK |
-| `20261102_0928_sprint_h4_with_qed_harrington` | elmu1-25.hw.elixir-czech.cz / 25193153.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `harrington` | 0.05 | 1 / 30 / no | 10/10 (+04) | 1 | OK |
-| `20261102_2205_supervisor_reproduction_eps0.1` | - | 50 | `-` | `-` | - | - | `-` | 0.1 | - / - / - | 10/10 (+04) | 0 | OK |
-| `20261104_0445_egcg_gold_oe` | eluo1-4.hw.elixir-czech.cz / 25256877.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 10/10 | 0 | OK* |
-| `20261104_0447_egcg_eps0` | elmu1-15.hw.elixir-czech.cz / 25256882.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0 | 4 / 20 / yes | 10/10 | 0 | OK* |
-| `archive/historical_rl_graph_runs/run16_sequencer_weighted_sum` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 10/10 (+04) | 0 | OK |
-| `archive/historical_rl_graph_runs/run17_baseline_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 10/10 (+04) | 0 | OK |
-| `egcg_k4_c20_candidates_minimized_gold` | elmo3-6.hw.elixir-czech.cz / 25223670.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / yes | 10/10 (+04) | 0 | OK |
-| `egcg_k4_c20_candidates_unminimized` | elmo3-5.hw.elixir-czech.cz / 25223669.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / no | 10/10 (+04) | 0 | OK |
-| `sprint_h7_tversky_scaffold_hop` | elmu1-17.hw.elixir-czech.cz / 25218573.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tversky_scaffold_hop` | 1000 | no | `harrington` | 0.05 | 4 / 20 / yes | 10/10 (+04) | 0 | OK |
+| `20261027_2035_run18_epsilon_zero_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
+| `20261030_0200_rl_suite_egcg_6arm/rl01_opt1_mild_color_heavy` | dichtator | 250 | `avg_amean` | `tversky_mild_color_heavy` | 1000 | - | `harrington` | 0.15 -> 0.02 | 4 / 20 / yes | 7/13 (+04) | 1 | UNVERIFIABLE |
+| `20261101_1500_sprint_h1_without_qed_pareto` | adan40.grid.cesnet.cz / 25184273.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
+| `20261102_0630_sprint_h2_without_qed_harrington` | elmu1-22.hw.elixir-czech.cz / 25193151.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `harrington` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
+| `20261102_0849_sprint_h3_with_qed_pareto` | elmu1-24.hw.elixir-czech.cz / 25193152.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `pareto_crowding` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
+| `20261102_0928_sprint_h4_with_qed_harrington` | elmu1-25.hw.elixir-czech.cz / 25193153.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `harrington` | 0.05 | 1 / 30 / no | 7/13 (+04) | 1 | UNVERIFIABLE |
+| `20261102_2205_supervisor_reproduction_eps0.1` | - | 50 | `-` | `-` | - | - | `-` | 0.1 | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
+| `20261104_0445_egcg_gold_oe` | eluo1-4.hw.elixir-czech.cz / 25256877.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 13/13 | 0 | OK* |
+| `20261104_0447_egcg_eps0` | elmu1-15.hw.elixir-czech.cz / 25256882.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0 | 4 / 20 / yes | 13/13 | 0 | OK* |
+| `archive/historical_rl_graph_runs/run16_sequencer_weighted_sum` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
+| `archive/historical_rl_graph_runs/run17_baseline_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
+| `egcg_k4_c20_candidates_minimized_gold` | elmo3-6.hw.elixir-czech.cz / 25223670.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / yes | 7/13 (+04) | 0 | UNVERIFIABLE |
+| `egcg_k4_c20_candidates_unminimized` | elmo3-5.hw.elixir-czech.cz / 25223669.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / no | 7/13 (+04) | 0 | UNVERIFIABLE |
+| `sprint_h7_tversky_scaffold_hop` | elmu1-17.hw.elixir-czech.cz / 25218573.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tversky_scaffold_hop` | 1000 | no | `harrington` | 0.05 | 4 / 20 / yes | 7/13 (+04) | 0 | UNVERIFIABLE |
 
-`OK*` = all ten current figures plus the scorecard and summary are present; only the retired `04` diagnostic is missing. `04` is not part of the current `ResultAnalyzer` contract.
+`OK*` = all 13 current figures plus the scorecard and summary are present; only the retired `04` diagnostic is missing. `04` is not part of the current `ResultAnalyzer` contract.
 
 ## What differs from the gold standard
 
@@ -209,9 +209,6 @@ Only fields that actually differ are listed. `-` means the field was absent from
 | `egcg_k4_c20_raw_tanimoto_gmean_5k` | running | elmu1-5.hw.elixir-czech.cz / 25249783.pbs-m1.metacentrum.cz | - | no |
 | `partial_4cpu_sprint_h1_without_qed_pareto` | running | galdor17.metacentrum.cz / 25170006.pbs-m1.metacentrum.cz | 35 | no |
 | `partial_4cpu_sprint_h2_without_qed_harrington` | running | galdor5.metacentrum.cz / 25170007.pbs-m1.metacentrum.cz | 11 | no |
-| `partial_4cpu_sprint_h3_with_qed_pareto` | running | galdor9.metacentrum.cz / 25170008.pbs-m1.metacentrum.cz | 6 | no |
-| `sprint_h8_beta_baseline_penalization` | running | elmu1-19.hw.elixir-czech.cz / 25218574.pbs-m1.metacentrum.cz | 19 | no |
-| `sprint_h9_dynamic_epsilon_decay` | running | elmu1-23.hw.elixir-czech.cz / 25223081.pbs-m1.metacentrum.cz | 13 | no |
 
 ## Excluded smoke/calibration runs
 
@@ -220,7 +217,6 @@ These share the RL manifest shape but train for `epochs <= 5`; they are engineer
 | Run | Epochs | Samples | Purpose |
 | :--- | ---: | ---: | :--- |
 | `20261028_conformer_self_similarity/20261029_1155_reward_calibration_126_mols/raw_data/rl_smoke` | 1 | 16 | Engineering smoke test |
-| `20261104_0344_drugex_smoke_78ec60a` | 1 | 10 | - |
 
 ## Duplicate locations
 
