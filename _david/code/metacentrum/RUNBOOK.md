@@ -82,8 +82,8 @@ $PY -m _david.code.metacentrum.submit submit --name egcg_default
 ```
 
 Reads as: "run the pipeline with `PipelineConfig` defaults, 200 epochs max, early stop
-after 50 epochs without improvement, raw ROCS TanimotoCombo + SA, Pareto reward,
-`avg_gmean` checkpoint, 5000-molecule evaluation arm". Nothing is passed because
+after 30 epochs without improvement (never before epoch 50), raw ROCS TanimotoCombo + SA,
+Harrington reward, `avg_gmean` checkpoint, 5000-molecule evaluation arm". Nothing is passed because
 `config.py` already says that.
 
 **Queue selection.** MetaCentrum frontends cannot submit to an execution queue directly:

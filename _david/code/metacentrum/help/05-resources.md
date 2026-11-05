@@ -135,7 +135,7 @@ Practical guidance:
   kill early and resubmit with the right budget — a killed job still consumes its walltime.
 - The 24 h request is deliberate: it is the default lane (`q_1d`) and the budget the
   historical 200-epoch unminimised arms needed. Do not trim it to chase a shallower queue.
-- `--epochs 200` is a **cap**: early stopping (`min_epochs=50`, `patience=50`) usually ends a
+- `--epochs 200` is a **cap**: early stopping (`min_epochs=50`, `patience=30`) usually ends a
   converged run before 200.
 - Walltime above the routed queue's maximum is rejected at submission; the router would have
   to pick a deeper queue anyway.

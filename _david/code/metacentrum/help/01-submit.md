@@ -108,7 +108,7 @@ Anything after `--` (or inside `--args "…"`) is handed to
 | :--- | :--- | :--- |
 | `--epochs` | 200 | Maximum RL epochs. |
 | `--min-epochs` | 50 | Epochs before early stopping can fire. |
-| `--patience` | 50 | Epochs without checkpoint improvement before stopping. |
+| `--patience` | 30 | Epochs without checkpoint improvement before stopping (floor: `min_epochs`). |
 | `--criteria` | `avg_gmean` | Checkpoint criterion (`gmean` is the CLI alias). |
 | `--include-qed` / `--no-include-qed` | off | Adds QED as a third objective. |
 | `--reward-scheme` | `harrington` | `pareto_crowding`, `harrington`, `weighted_sum`. |
