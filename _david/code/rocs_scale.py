@@ -217,13 +217,25 @@ def classify(frame: pd.DataFrame, config: dict[str, Any] | None, started: dateti
     if "Raw_ROCS" in frame.columns:
         ratio_median, ratio_max = _ratio(frame)
         if ratio_median is None:
+            # A collapsed arm can be all zeros, so no ratio exists. If the two
+            # columns still agree row by row, the arm is raw rather than unknown.
+            raw_values = pd.to_numeric(frame["Raw_ROCS"], errors="coerce")
+            same = raw_values.fillna(-1.0).round(6).equals(
+                stored.fillna(-1.0).round(6)
+            )
             return ScaleVerdict(
                 run="",
-                verdict=UNKNOWN,
+                verdict=RAW if same else UNKNOWN,
                 clip=None,
                 factor=1.0,
                 n_rows=n_rows,
-                evidence="Raw_ROCS present but carries no positive value",
+                evidence=(
+                    "Raw_ROCS equals ROCS (all values zero), so the arm stores raw "
+                    "TanimotoCombo"
+                    if same
+                    else "Raw_ROCS present but carries no positive value and "
+                    "disagrees with ROCS"
+                ),
                 config_modifier=modifier,
                 config_clip=clip,
             )

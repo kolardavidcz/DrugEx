@@ -79,6 +79,10 @@ class TestClassification(unittest.TestCase):
         verdict = rs.classify(_frame([0.2, 0.46]), {}, datetime(2026, 11, 2, tzinfo=timezone.utc))
         self.assertEqual(verdict.verdict, rs.UNKNOWN)
 
+    def test_an_all_zero_arm_with_matching_raw_rocs_is_raw_not_unknown(self) -> None:
+        verdict = rs.classify(_frame([0.0, 0.0], [0.0, 0.0]), {"rocs_use_modifier": False})
+        self.assertEqual(verdict.verdict, rs.RAW)
+
     def test_values_above_one_prove_the_arm_is_raw(self) -> None:
         verdict = rs.classify(_frame([0.2, 1.4]), {}, datetime(2026, 11, 2, tzinfo=timezone.utc))
         self.assertEqual(verdict.verdict, rs.RAW)

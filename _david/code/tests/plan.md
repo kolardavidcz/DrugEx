@@ -532,3 +532,26 @@ sorted best-first.
 Dashboard re-rendered from 18 discovered runs: 12 arms, 15 standard arms, 3
 configuration clusters, 12 global best molecules; the JS renders in a stubbed DOM
 with a `best@N`/`last` "Arm model" column and no `NaN`/`undefined`.
+
+### Batch B: first two runs (2026-11-05)
+
+`bs128` and `beta35` finished with `Exit_status=0` (7 h 27 min and 2 h 13 min),
+both pulled and byte-compared against MetaCentrum (28 and 26 files, identical).
+
+| Run | Evaluated arm | Valid | ROCS median | Fit: best epoch / last epoch |
+| :--- | :--- | ---: | ---: | :--- |
+| `20261105_1013_egcg_p30_bs128` | 5000 (last epoch, pre-fix release) | 4256 (85.1 %) | 0.674 | best 21 (valid 0.90) / last 52 (0.86) |
+| `20261105_1013_egcg_p30_beta35` | 5000 (last epoch, pre-fix release) | **0** | — | best 3 (valid 0.92) / last 50 (**0.00**) |
+
+`beta35` is the clean demonstration of the Round 6.1 defect: by epoch 50 the
+policy has collapsed to invalid SMILES, and the historical arm inherited exactly
+that collapse, while the saved checkpoint is epoch 3 with 92 % validity. The
+standard re-evaluation (`standard_eval submit`, job 25298144, release
+`aa64766`) resamples both runs from the best checkpoint on the frozen prior
+dataset, so the comparable arm will show the model that the run actually saved
+rather than its degenerate last epoch. Nothing is rewritten: `standard_eval/`
+sits beside `raw_data/`.
+
+Both arms are raw (`Raw_ROCS == ROCS`, modifier off). The all-zero `beta35` arm
+is classified `raw`, not `unknown`: a collapsed arm has no positive ratio, but
+the two columns still agree row by row (behaviour test added).
