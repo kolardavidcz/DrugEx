@@ -389,3 +389,23 @@ lane only while the checkpointed set stays small; otherwise split by `--runs`.
 `test_dashboard` (stamped runs discovered, archive excluded, identical configs clustered,
 legacy keys reported, HTML escapes a hostile run tag), `test_standard_eval` (artifact →
 action classification, no-overwrite contract, rescore path keeps the stored count).
+
+### Execution status (2026-11-05)
+
+- Tree normalized and idempotent (`output_organization plan` → "Nothing to do"); the
+  stamped 6-arm suite is dissolved, its aborted variant archived under
+  `archive/rl_suite_variants/`, and `ORGANIZATION_LOG.md` records every move.
+- `egcg_to60` (job 25256880) hit the 24 h walltime during its 5000-molecule final arm.
+  Training completed and `models/SequenceRNN_reinforced.pkg` was copied back, so
+  `standard_eval` can still produce its comparable arm; the run itself stays INCOMPLETE.
+- Commands:
+  - `python -m _david.code.prior_dataset build|list|verify|sync`
+  - `python -m _david.code.dashboard`
+  - `python -m _david.code.standard_eval plan|run|verify|push|submit|pull`
+  - `python -m _david.code.run_audit.audit_rl_runs [--regenerate] [--force-render]`
+- `standard_eval push --all` copies only `manifest.json`, the checkpoint and the stored
+  arm to `<storage>/_david/output/<run>/`, so runs produced on dichtator or the
+  workstation can be evaluated on MetaCentrum; `pull` brings back only `standard_eval/`.
+- Standard reward is fixed (`harrington`, weights 0.50/0.25/0.25 over ROCS/SA/QED,
+  thresholds 0.35/0.50/0.50, raw TanimotoCombo) and recorded in each standard manifest,
+  so it cannot drift with whichever dataset happens to be loaded.

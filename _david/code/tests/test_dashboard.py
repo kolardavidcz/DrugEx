@@ -134,6 +134,31 @@ class TestDesignGrid(unittest.TestCase):
         self.assertNotIn("avg_amean", grid["cols"])
 
 
+class TestStandardArm(unittest.TestCase):
+    def test_a_standard_arm_is_preferred_for_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = _make_run(root / "20261101_1200_first")
+            standard = run / "standard_eval"
+            standard.mkdir()
+            pd.DataFrame(
+                {
+                    std.SMILES: ["CCO", "c1ccccc1"],
+                    std.VALID: [1, 1],
+                    std.ROCS: [1.5, 1.7],
+                    "Raw_ROCS": [1.5, 1.7],
+                    std.SA: [0.9, 0.95],
+                    std.QED: [0.6, 0.7],
+                }
+            ).to_csv(standard / "reinforced_standard.csv.gz", index=False)
+            payload = dashboard.collect(root, include_molecules=True)
+            summary = payload["runs"][0]
+            self.assertTrue(summary["artifacts"]["standard_arm"])
+            self.assertAlmostEqual(summary["standard_metrics"]["rocs_median"], 1.6)
+            self.assertEqual(payload["best_molecules"]["global"][0]["arm"], "standard")
+            self.assertEqual(payload["totals"]["with_standard_arm"], 1)
+
+
 class TestRendering(unittest.TestCase):
     def test_payload_cannot_close_the_script_tag(self) -> None:
         payload = {

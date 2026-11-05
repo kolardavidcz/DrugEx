@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import platform
 import random
@@ -63,6 +64,8 @@ from _david.code.config import (
     PipelineConfig,
 )
 from _david.code.schema import std
+
+LOGGER = logging.getLogger(__name__)
 
 SCHEMA_VERSION: int = 1
 DATASET_ROOT: Path = OUTPUT_ROOT / "datasets"
@@ -388,6 +391,7 @@ def _sample_prior(
             progress=False,
         )
     smiles = generated["SMILES"].tolist()
+    LOGGER.info("generated %d sequences; scoring them against %s", len(smiles), reference_sdf.name)
     scores = env.getScores(smiles)
     frame = pd.DataFrame({std.SMILES: smiles})
     for column in scores.columns:
@@ -424,8 +428,10 @@ def build(
     reference = preparer.generate_reference_conformers(
         molecule, output_path=target / REFERENCE_NAME
     )
+    LOGGER.info("reference ensemble written to %s", reference)
 
     raw = _sample_prior(cfg, reference, n, cfg.batch_size)
+    LOGGER.info("sampled and scored %d molecules; adding descriptors", len(raw))
     # Raw physical measurements are the contract; scaled columns are derived.
     physical = add_descriptors(raw)
     physical[RAW_ROCS] = pd.to_numeric(raw[std.ROCS], errors="coerce") * (
@@ -660,6 +666,9 @@ def sync(
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("build", "list", "verify", "sync"))
     parser.add_argument("--name", default=None, help="dataset name or directory")

@@ -202,6 +202,7 @@ class RunSummary:
     source_revision: str
     config: dict[str, Any]
     metrics: dict[str, Any] = field(default_factory=dict)
+    standard_metrics: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, bool] = field(default_factory=dict)
     error: str | None = None
 
@@ -216,6 +217,7 @@ class RunSummary:
             "source_revision": self.source_revision,
             "config": self.config,
             "metrics": self.metrics,
+            "standard_metrics": self.standard_metrics,
             "artifacts": self.artifacts,
             "error": self.error,
         }
@@ -241,6 +243,18 @@ def _arm_columns(run: Path) -> tuple[Path | None, pd.DataFrame | None]:
     except (OSError, ValueError) as exc:
         LOGGER.warning("unreadable arm %s: %s", arm, exc)
         return arm, None
+
+
+def _standard_arm(run: Path) -> pd.DataFrame | None:
+    """The comparable re-evaluated arm written by ``standard_eval``, if present."""
+    arm = run / "standard_eval" / "reinforced_standard.csv.gz"
+    if not arm.is_file():
+        return None
+    try:
+        return pd.read_csv(arm)
+    except (OSError, ValueError) as exc:
+        LOGGER.warning("unreadable standard arm %s: %s", arm, exc)
+        return None
 
 
 def _raw_rocs(frame: pd.DataFrame) -> pd.Series:
@@ -294,7 +308,11 @@ def summarize_arm(frame: pd.DataFrame, run_config: dict[str, Any]) -> dict[str, 
 
 
 def _candidate_table(
-    run_name: str, frame: pd.DataFrame, pool: int = CANDIDATE_POOL
+    run_name: str,
+    frame: pd.DataFrame,
+    pool: int = CANDIDATE_POOL,
+    *,
+    arm: str = "historical",
 ) -> pd.DataFrame:
     """Cheap pre-ranking, then exact desirability on the survivors.
 
@@ -303,10 +321,14 @@ def _candidate_table(
     (ROCS + QED − 0.1·SA).
     """
     if frame.empty or std.SMILES not in frame.columns:
-        return pd.DataFrame(columns=["run", "SMILES", "ROCS", "QED", "SA", "score"])
+        return pd.DataFrame(
+            columns=["run", "arm", "SMILES", "ROCS", "QED", "SA", "score"]
+        )
     valid = frame[frame[std.VALID] == 1] if std.VALID in frame.columns else frame
     if valid.empty:
-        return pd.DataFrame(columns=["run", "SMILES", "ROCS", "QED", "SA", "score"])
+        return pd.DataFrame(
+            columns=["run", "arm", "SMILES", "ROCS", "QED", "SA", "score"]
+        )
     work = pd.DataFrame(
         {
             "SMILES": valid[std.SMILES].astype(str),
@@ -325,7 +347,8 @@ def _candidate_table(
     ]
     unique["score"] = unique["ROCS"] + unique["QED"] - 0.1 * unique["SA"].fillna(10.0)
     unique["run"] = run_name
-    return unique[["run", "SMILES", "ROCS", "QED", "SA", "score"]]
+    unique["arm"] = arm
+    return unique[["run", "arm", "SMILES", "ROCS", "QED", "SA", "score"]]
 
 
 def _svg(smiles: str, width: int = 220, height: int = 160) -> str:
@@ -367,17 +390,30 @@ def collect(
             error=manifest.get("error"),
         )
         arm, frame = _arm_columns(run_dir)
+        standard = _standard_arm(run_dir)
         summary.artifacts = {
             "manifest": bool(manifest),
             "reinforced_arm": arm is not None and frame is not None,
             "model": any((run_dir / "models").glob("SequenceRNN_reinforced*.pkg")),
             "figures": (run_dir / "figures").is_dir(),
             "standard_eval": (run_dir / "standard_eval").is_dir(),
+            "standard_arm": standard is not None,
         }
         if frame is not None:
             summary.metrics = summarize_arm(frame, config)
-            if include_molecules:
-                candidates.append(_candidate_table(summary.name, frame))
+        if standard is not None:
+            summary.standard_metrics = summarize_arm(standard, config)
+        # A comparable standard arm outranks the historical one for cross-run
+        # statements and best-of tables; the historical metrics stay visible.
+        chosen = standard if standard is not None else frame
+        if chosen is not None and include_molecules:
+            candidates.append(
+                _candidate_table(
+                    summary.name,
+                    chosen,
+                    arm="standard" if standard is not None else "historical",
+                )
+            )
         runs.append(summary)
 
     best = _best_molecules(candidates)
@@ -398,6 +434,9 @@ def collect(
             "with_arm": sum(1 for run in runs if run.artifacts["reinforced_arm"]),
             "with_standard_eval": sum(
                 1 for run in runs if run.artifacts["standard_eval"]
+            ),
+            "with_standard_arm": sum(
+                1 for run in runs if run.artifacts.get("standard_arm")
             ),
         },
     }
@@ -424,6 +463,7 @@ def _molecule_row(row: pd.Series) -> dict[str, Any]:
     return {
         "run": str(row["run"]),
         "smiles": smiles,
+        "arm": str(row.get("arm", "historical")),
         "canonical": _canonical(smiles),
         "rocs": round(float(row["ROCS"]), 4),
         "qed": round(float(row["QED"]), 4),
@@ -589,6 +629,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .mol .score { font-weight: 650; color: #0f172a; }
 .note { background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; padding: 9px 12px;
         border-radius: 8px; font-size: 12.5px; margin: 10px 0; }
+.chart { background: #fff; border: 1px solid #e2e8f0; border-radius: 9px; padding: 6px; }
+.chart svg { width: 100%; height: auto; display: block; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; }
 """
@@ -640,10 +682,11 @@ function sortable(table) {
 
 function renderRuns() {
   const cols = ['Run', 'Started', 'State', 'ROCS med', 'ROCS p90', 'QED med', 'SA med', 'Valid',
-                'Eval n', 'Arm n', 'Hours', 'Host / job', 'Standard eval'];
+                'Eval n', 'Arm n', 'Std ROCS', 'Std QED', 'Std SA', 'Hours', 'Host / job', 'Standard eval'];
   const head = cols.map(c => `<th>${esc(c)}</th>`).join('');
   const rows = P.runs.map(r => {
     const m = r.metrics || {};
+    const sm = r.standard_metrics || {};
     return `<tr>
       <td data-sort="${esc(r.name)}"><b>${esc(r.name)}</b><br><span class="muted">${esc(r.source_revision.slice(0,7) || 'no revision')}</span></td>
       <td data-sort="${esc(r.started)}">${esc(r.started.replace('T',' '))}</td>
@@ -655,9 +698,12 @@ function renderRuns() {
       <td class="num" data-sort="${m.valid_ratio ?? ''}">${m.valid_ratio === undefined ? '—' : (100*m.valid_ratio).toFixed(0)+' %'}</td>
       <td class="num" data-sort="${cfg(r,'n_eval_samples')}">${cfg(r,'n_eval_samples')}</td>
       <td class="num" data-sort="${m.n_rows ?? ''}">${m.n_rows ?? '—'}</td>
+      <td class="num" data-sort="${sm.rocs_median ?? ''}">${fmt(sm.rocs_median)}</td>
+      <td class="num" data-sort="${sm.qed_median ?? ''}">${fmt(sm.qed_median)}</td>
+      <td class="num" data-sort="${sm.sa_median ?? ''}">${fmt(sm.sa_median)}</td>
       <td class="num" data-sort="${r.elapsed_hours ?? ''}">${fmt(r.elapsed_hours, 1)}</td>
       <td>${esc(r.host || '—')}<br><span class="muted">${esc(r.pbs_job_id || '')}</span></td>
-      <td>${r.artifacts.standard_eval ? '✓' : '—'}</td>
+      <td>${r.artifacts.standard_arm ? '✓ comparable' : (r.artifacts.standard_eval ? 'dir only' : '—')}</td>
     </tr>`;
   }).join('');
   const table = document.getElementById('runs-table');
@@ -715,7 +761,7 @@ function renderMolecules() {
       <div class="meta">
         <div class="score">${fmt(m.score)} <span class="muted">= ROCS + QED − 0.1·SA</span></div>
         <div>ROCS ${fmt(m.rocs)} · QED ${fmt(m.qed)} · SA ${fmt(m.sa, 2)}</div>
-        ${showRun ? `<div><b>${esc(m.run)}</b></div>` : ''}
+        ${showRun ? `<div><b>${esc(m.run)}</b> <span class="chip">${esc(m.arm)}</span></div>` : ''}
         <div class="muted">${esc(m.smiles)}</div>
       </div></div>`;
   host.innerHTML = `
@@ -729,14 +775,65 @@ function renderMolecules() {
       <div class="mols">${mols.map(m => card(m, false)).join('')}</div>`).join('')}`;
 }
 
+
+function renderComparison() {
+  const W = 780, H = 430, L = 58, R = 22, T = 18, B = 46;
+  const xmin = 0, xmax = 2, ymin = 0, ymax = 1;
+  const px = (v) => L + (v - xmin) / (xmax - xmin) * (W - L - R);
+  const py = (v) => T + (ymax - v) / (ymax - ymin) * (H - T - B);
+  const hist = [], std = [];
+  P.runs.forEach(r => {
+    const m = r.metrics || {}, sm = r.standard_metrics || {};
+    if (m.rocs_median != null && m.qed_median != null)
+      hist.push({name: r.name, x: m.rocs_median, y: m.qed_median, valid: m.valid_ratio, n: m.n_valid});
+    if (sm.rocs_median != null && sm.qed_median != null)
+      std.push({name: r.name, x: sm.rocs_median, y: sm.qed_median, valid: sm.valid_ratio, n: sm.n_valid});
+  });
+  const grid = [];
+  for (let i = 0; i <= 4; i++) {
+    const vx = xmin + (xmax - xmin) * i / 4;
+    const vy = ymin + (ymax - ymin) * i / 4;
+    grid.push(`<line x1="${px(vx)}" y1="${py(ymin)}" x2="${px(vx)}" y2="${py(ymax)}" stroke="#eef2f7"/>`);
+    grid.push(`<text x="${px(vx)}" y="${H - B + 16}" font-size="11" text-anchor="middle" fill="#64748b">${vx.toFixed(2)}</text>`);
+    grid.push(`<line x1="${L}" y1="${py(vy)}" x2="${W - R}" y2="${py(vy)}" stroke="#eef2f7"/>`);
+    grid.push(`<text x="${L - 8}" y="${py(vy) + 4}" font-size="11" text-anchor="end" fill="#64748b">${vy.toFixed(2)}</text>`);
+  }
+  const byName = Object.fromEntries(hist.map(p => [p.name, p]));
+  const links = std.filter(p => byName[p.name]).map(p => {
+    const q = byName[p.name];
+    return `<line x1="${px(q.x)}" y1="${py(q.y)}" x2="${px(p.x)}" y2="${py(p.y)}" stroke="#cbd5e1" stroke-dasharray="3 3"/>`;
+  }).join('');
+  const dot = (p, color) => `<circle cx="${px(p.x)}" cy="${py(p.y)}" r="${4 + 2 * Math.min(1, (p.valid ?? 0))}"
+      fill="${color}" fill-opacity="0.82" stroke="#fff" stroke-width="1">
+      <title>${esc(p.name)}\nROCS ${fmt(p.x)} · QED ${fmt(p.y)} · valid ${p.valid == null ? '—' : (100*p.valid).toFixed(0)+' %'}\nn=${p.n ?? '—'}</title></circle>`;
+  const dots = hist.map(p => dot(p, '#94a3b8')).join('') + std.map(p => dot(p, '#2563eb')).join('');
+  const empty = (!hist.length && !std.length) ? '<div class="note">No arm has both ROCS and QED medians yet.</div>' : '';
+  document.getElementById('comparison').innerHTML = `${empty}
+    <h2>ROCS vs QED across runs</h2>
+    <p class="muted">Each point is one run's median over valid molecules. Grey = the historical arm,
+      blue = the standard re-evaluated arm; a dashed line joins the two arms of the same run.
+      Point size grows with validity. Axes are fixed (raw TanimotoCombo 0–2, QED 0–1), so position
+      is comparable across pages.</p>
+    <div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ROCS versus QED scatter">
+      ${grid.join('')}
+      <line x1="${L}" y1="${py(ymin)}" x2="${W - R}" y2="${py(ymin)}" stroke="#94a3b8"/>
+      <line x1="${L}" y1="${py(ymin)}" x2="${L}" y2="${py(ymax)}" stroke="#94a3b8"/>
+      <text x="${(L + W - R) / 2}" y="${H - 8}" font-size="12" text-anchor="middle" fill="#334155">median raw ROCS (TanimotoCombo)</text>
+      <text transform="translate(14 ${(T + H - B) / 2}) rotate(-90)" font-size="12" text-anchor="middle" fill="#334155">median QED</text>
+      ${links}${dots}
+    </svg></div>
+    <p class="muted">Historical points: ${hist.length} · standard points: ${std.length}</p>`;
+}
+
 function render() {
   document.getElementById('generated').textContent = P.generated;
   document.getElementById('totals').innerHTML = [
     ['Runs', P.totals.runs], ['Complete', P.totals.complete], ['Failed', P.totals.failed],
     ['Running', P.totals.running], ['With arm', P.totals.with_arm],
     ['Standard eval', P.totals.with_standard_eval],
+    ['Standard arm', P.totals.with_standard_arm],
   ].map(([label, value]) => `<div class="card"><b>${value}</b><span>${label}</span></div>`).join('');
-  renderRuns(); renderGrids(); renderClusters(); renderMolecules(); tabs();
+  renderRuns(); renderGrids(); renderClusters(); renderMolecules(); renderComparison(); tabs();
 }
 render();
 """
@@ -760,6 +857,7 @@ _TEMPLATE = """<!DOCTYPE html>
   <button data-tab="runs">Runs</button>
   <button data-tab="grids">Design grid</button>
   <button data-tab="clusters">Clusters</button>
+  <button data-tab="comparison">Comparison</button>
   <button data-tab="molecules">Best molecules</button>
 </nav>
 <main>
@@ -770,6 +868,7 @@ _TEMPLATE = """<!DOCTYPE html>
   <section id="clusters"><h2>Design tree</h2>
     <p class="muted">Splits on the setting that separates the runs most, objective fields first.
       A leaf collapses runs whose canonical settings are identical.</p><div id="clusters"></div></section>
+  <section id="comparison"><div id="comparison"></div></section>
   <section id="molecules"><div id="molecules"></div></section>
 </main>
 <script id="payload" type="application/json">{payload}</script>

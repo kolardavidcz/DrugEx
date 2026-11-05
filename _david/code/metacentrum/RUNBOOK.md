@@ -246,3 +246,35 @@ Queue lengths, memory sizing and walltime arithmetic: [`help/05-resources.md`](h
 - [ ] `status` shows the job (`Q` is fine; `H` means held — see `help/04-failures.md`).
 - [ ] You have told the user the `run id`, the queue (`q_1d` by default) and the expected
       wall-clock cost.
+
+---
+
+## 8. Standard re-evaluation of finished runs (task 2.4)
+
+The RL runs were evaluated at different sizes and with different scorer windows, so they
+cannot be compared directly. `standard_eval` adds one comparable arm beside the historical
+one, never overwriting `raw_data/reinforced_raw.csv.gz`:
+
+```bash
+PY=.venv/bin/python
+$PY -m _david.code.standard_eval plan                        # what each arm allows
+$PY -m _david.code.prior_dataset sync --name <dataset>       # dataset → <storage>/datasets/
+$PY -m _david.code.standard_eval push --all                  # manifests + checkpoints → storage
+$PY -m _david.code.standard_eval submit --dataset <dataset> --max-runs 20
+$PY -m _david.code.standard_eval pull                        # only <run>/standard_eval/ back
+$PY -m _david.code.standard_eval verify
+```
+
+Classification is by artifact, not by history:
+
+| On disk | Action |
+| :--- | :--- |
+| `models/SequenceRNN_reinforced*.pkg` | reload, sample 5 000 with a fixed seed (`resampled: true`) |
+| only `raw_data/reinforced_raw.csv.gz` | re-score the stored molecules (`resampled: false`, keeps n) |
+| neither | `skip` with the reason |
+
+The job is idempotent: a run whose `standard_eval/reinforced_standard.csv.gz` already exists
+is `done`, so a walltime-killed job is resumed by submitting it again. The dataset must be on
+storage first; the job refuses a missing dataset rather than falling back to a local arm.
+Every standard manifest records the dataset hash, the seed, the checkpoint hash and the
+fixed reward definition (`harrington`, weights 0.50/0.25/0.25, raw TanimotoCombo).

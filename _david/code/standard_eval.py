@@ -62,6 +62,13 @@ STATISTICS_NAME: str = "statistics.json"
 DEFAULT_SEED: int = 42
 RESAMPLE_ACTIONS: tuple[str, ...] = ("resample", "rescore", "skip", "done")
 
+#: One reward definition for every standard arm. The dataset's own build config may
+#: have excluded QED or used different weights; inheriting it would make the
+#: "comparable" arm depend on which dataset happened to be loaded.
+STANDARD_REWARD_SCHEME: str = "harrington"
+STANDARD_REWARD_WEIGHTS: tuple[float, ...] = (0.50, 0.25, 0.25)
+STANDARD_REWARD_THRESHOLDS: tuple[float, ...] = (0.35, 0.50, 0.50)
+
 
 def _seed_everything(seed: int) -> None:
     random.seed(seed)
@@ -266,7 +273,7 @@ def evaluate_run(
     statistics = compute_statistics(
         frame,
         config,
-        thresholds=dataset_manifest.get("scoring", {}).get("thresholds"),
+        thresholds=STANDARD_REWARD_THRESHOLDS,
     )
     statistics_path = target / STATISTICS_NAME
     statistics_path.write_text(json.dumps(statistics, indent=2) + "\n")
@@ -297,6 +304,12 @@ def evaluate_run(
             "sa_score_lower": config.sa_score_lower,
             "sa_score_upper": config.sa_score_upper,
         },
+        "reward": {
+            "scheme": STANDARD_REWARD_SCHEME,
+            "weights": list(STANDARD_REWARD_WEIGHTS),
+            "thresholds": list(STANDARD_REWARD_THRESHOLDS),
+            "column": "StandardReward",
+        },
         "files": {
             CSV_NAME: sha256_file(csv_path),
             STATISTICS_NAME: sha256_file(statistics_path),
@@ -321,18 +334,19 @@ def _add_standard_reward(
     """Score with one fixed reward definition so arms are comparable columns."""
     from _david.code.environment import resolve_reward_scheme
 
-    scoring = dataset_manifest.get("scoring", {})
-    thresholds = scoring.get("thresholds") or [0.35, 0.50, 0.50]
-    weights = scoring.get("weights") or [0.50, 0.25, 0.25]
     scheme = resolve_reward_scheme(
-        scoring.get("reward_scheme") or std.REWARD_HARRINGTON,
-        weights=tuple(weights),
+        STANDARD_REWARD_SCHEME,
+        weights=STANDARD_REWARD_WEIGHTS,
         rocs_raw=True,
     )
     columns = [std.ROCS, std.SA, std.QED]
     matrix = frame[columns].to_numpy(dtype=float)
     rewards = np.asarray(
-        scheme(frame[std.SMILES].astype(str).tolist(), matrix, thresholds)
+        scheme(
+            frame[std.SMILES].astype(str).tolist(),
+            matrix,
+            STANDARD_REWARD_THRESHOLDS,
+        )
     ).reshape(-1)
     frame["StandardReward"] = rewards
     return frame
@@ -415,6 +429,57 @@ def submit_job(
     return f"revision {revision}: {result.stdout.strip()}"
 
 
+def _artifact_files(run: Path) -> list[Path]:
+    """The smallest set that lets a remote host re-run one standard evaluation."""
+    files: list[Path] = []
+    for relative in ("manifest.json", "raw_data/reinforced_raw.csv.gz", "raw_data/query_molecule_3d.sdf"):
+        candidate = run / relative
+        if candidate.is_file():
+            files.append(candidate)
+    selected = run / "models" / "SequenceRNN_reinforced.pkg"
+    if selected.is_file():
+        files.append(selected)
+    else:
+        files.extend(sorted((run / "models").glob("SequenceRNN_reinforced*.pkg")))
+    return files
+
+
+def push_runs(
+    names: list[str] | None = None,
+    *,
+    root: Path | str = OUTPUT_ROOT,
+    host: str = "meta",
+    dry_run: bool = False,
+) -> list[str]:
+    """Copy run artifacts to storage so MetaCentrum can evaluate runs made elsewhere.
+
+    Only the manifest, the checkpoint and the stored arm travel: figures and logs
+    are local evidence, not inputs to a re-evaluation. Relative paths are kept so
+    the remote tree mirrors the local one.
+    """
+    import subprocess
+
+    from _david.code.metacentrum.submit import storage_root
+
+    root = Path(root)
+    selected = [root / name for name in names] if names else discover_runs(root)
+    remote_output = f"{storage_root()}/_david/output"
+    pushed: list[str] = []
+    for run in selected:
+        files = _artifact_files(run)
+        if not files:
+            LOGGER.warning("%s: no artifacts to push", run.name)
+            continue
+        relative = [path.relative_to(root).as_posix() for path in files]
+        command = ["rsync", "-aR", *relative, f"{host}:{remote_output}/"]
+        if dry_run:
+            pushed.append(" ".join(command))
+            continue
+        subprocess.run(command, check=True, cwd=root)
+        pushed.append(run.name)
+    return pushed
+
+
 def pull_standard_arms(
     root: Path | str = OUTPUT_ROOT, *, host: str = "meta"
 ) -> list[str]:
@@ -462,8 +527,11 @@ def verify(root: Path | str = OUTPUT_ROOT) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("plan", "run", "verify", "submit", "pull"))
+    parser.add_argument("action", choices=("plan", "run", "verify", "submit", "pull", "push"))
     parser.add_argument("--root", type=Path, default=OUTPUT_ROOT)
     parser.add_argument("--dataset-root", type=Path, default=DATASET_ROOT)
     parser.add_argument("--dataset", default=None)
@@ -507,6 +575,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"pulled {target}")
         return 0
 
+    if args.action == "push":
+        for name in push_runs(
+            args.runs, root=args.root, host=args.host, dry_run=args.dry_run
+        ):
+            print(f"pushed {name}")
+        return 0
+
     if args.action == "verify":
         problems = verify(args.root)
         for problem in problems:
@@ -522,9 +597,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     if not selected:
         parser.error("choose --run <name> (repeatable) or --all")
-    if args.max_runs is not None:
-        selected = selected[: args.max_runs]
+    attempted = 0
     for run in selected:
+        if args.max_runs is not None and attempted >= args.max_runs:
+            break
+        plan = plan_run(run)
+        if plan.action in {"skip", "done"} and not args.force:
+            LOGGER.info("%s: %s", run.name, plan.reason)
+            continue
         evaluate_run(
             run,
             args.dataset,
@@ -533,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
             dataset_root=args.dataset_root,
             force=args.force,
         )
+        attempted += 1
     return 0
 
 

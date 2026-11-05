@@ -16,8 +16,10 @@ Classification is data-driven, not name-guessing:
   ``raw_data/reinforced_raw.csv.gz`` arm, or ``models/SequenceRNN_reinforced_*``, so
   pre-manifest runs from the grid era are still recognized.
 * **Group** - a non-conforming directory whose children are RL arms (the historical
-  ``20261027_reinforcement_learning/`` container). Its children are flattened into the
-  output root, its loose files move to ``archive/group_files/``.
+  ``20261027_reinforcement_learning/`` container), including a stamped suite that holds
+  arms. Containers are dissolved recursively: every arm is flattened to the output root
+  under its own stamp, non-run variants go to ``archive/rl_suite_variants/`` and loose
+  files to ``archive/group_files/``.
 * **Category** - an explicit, curated mapping (:data:`CATEGORY_MOVES`) for study trees
   that are not RL arms.
 * **Duplicate** - same ``manifest.json`` and same reinforced arm by SHA-256. The copy

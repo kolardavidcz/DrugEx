@@ -66,8 +66,8 @@ class TestPlanning(unittest.TestCase):
 
 
 class TestStandardReward(unittest.TestCase):
-    def test_higher_rocs_yields_a_higher_standard_reward(self) -> None:
-        frame = pd.DataFrame(
+    def _frame(self) -> pd.DataFrame:
+        return pd.DataFrame(
             {
                 std.SMILES: ["CCO", "c1ccccc1"],
                 std.ROCS: [0.2, 1.8],
@@ -75,6 +75,8 @@ class TestStandardReward(unittest.TestCase):
                 std.QED: [0.7, 0.7],
             }
         )
+
+    def test_higher_rocs_yields_a_higher_standard_reward(self) -> None:
         manifest = {
             "scoring": {
                 "reward_scheme": "harrington",
@@ -82,8 +84,37 @@ class TestStandardReward(unittest.TestCase):
                 "thresholds": [0.35, 0.5, 0.5],
             }
         }
-        scored = seval._add_standard_reward(frame, manifest, PipelineConfig())
+        scored = seval._add_standard_reward(self._frame(), manifest, PipelineConfig())
         self.assertGreater(scored["StandardReward"].iloc[1], scored["StandardReward"].iloc[0])
+
+    def test_the_reward_does_not_depend_on_the_dataset_build_config(self) -> None:
+        two_objective = {"scoring": {"weights": [0.75, 0.25], "thresholds": [0.35, 0.5]}}
+        three_objective = {
+            "scoring": {"weights": [0.5, 0.25, 0.25], "thresholds": [0.35, 0.5, 0.5]}
+        }
+        first = seval._add_standard_reward(self._frame(), two_objective, PipelineConfig())
+        second = seval._add_standard_reward(self._frame(), three_objective, PipelineConfig())
+        np.testing.assert_allclose(
+            first["StandardReward"], second["StandardReward"]
+        )
+
+
+class TestPush(unittest.TestCase):
+    def test_dry_run_copies_inputs_but_not_figures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = _run(root / "20261101_1200_a", checkpoint=True, arm=True)
+            (run / "figures").mkdir()
+            (run / "figures" / "01.png").write_text("png")
+            commands = seval.push_runs(
+                ["20261101_1200_a"], root=root, dry_run=True
+            )
+            self.assertEqual(len(commands), 1)
+            command = commands[0]
+            self.assertIn("20261101_1200_a/models/SequenceRNN_reinforced.pkg", command)
+            self.assertIn("20261101_1200_a/manifest.json", command)
+            self.assertNotIn("figures", command)
+            self.assertTrue(command.startswith("rsync -aR"))
 
 
 class TestVerify(unittest.TestCase):
