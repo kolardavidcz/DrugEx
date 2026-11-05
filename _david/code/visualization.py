@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -2302,49 +2303,48 @@ def render_epoch_property_trajectories(
     smiles_tsv_path: Path | str,
     output_png: Path | str,
     ref_smiles: str = "",
+    molecule_table: pd.DataFrame | None = None,
 ) -> Path:
     """Render the longitudinal 3×3 property panel (median + IQR + p95 + seed).
 
     Tracks every property the pipeline scores or reports: the two RL objectives
     (ROCS desirability, raw SA), the optional QED arm, and the medicinal-chemistry
-    drift guards (MW, HAC, LogP, TPSA, Fsp³, rotatable bonds). Raw SA is recomputed
-    from SMILES because ``_smiles.tsv`` stores only its desirability.
+    drift guards (MW, HAC, LogP, TPSA, Fsp³, rotatable bonds).
+
+    ``molecule_table`` is the run's pre-computed per-molecule dataset. When it is
+    supplied nothing is rescored: the panel is a pure summary of that table. Without
+    it the table is derived from the monitor TSV, which keeps the function usable
+    on an ad-hoc file but is not the production path.
     """
     target_png = Path(output_png)
     target_png.parent.mkdir(parents=True, exist_ok=True)
 
-    tsv_p = Path(smiles_tsv_path)
-    if not tsv_p.is_file():
-        return target_png
+    if molecule_table is not None and not molecule_table.empty:
+        df = molecule_table.copy()
+        # The cached table is on the physical TanimotoCombo scale; the panel is
+        # labelled in desirability units, and the reward treats the [0, 2] range as
+        # ROCS/2. Dividing here keeps the plotted series on the rewarded scale.
+        df["ROCS_Desirability"] = pd.to_numeric(
+            df.get(std.ROCS), errors="coerce"
+        ) / 2.0
+    else:
+        tsv_p = Path(smiles_tsv_path)
+        if not tsv_p.is_file():
+            return target_png
+        df = epoch_molecule_table(pd.read_csv(tsv_p, sep="\t"), ref_smiles)
+        df["ROCS_Desirability"] = pd.to_numeric(df.get(std.ROCS), errors="coerce")
 
-    df = pd.read_csv(tsv_p, sep="\t")
     if "Epoch" not in df.columns or "SMILES" not in df.columns:
         return target_png
-
-    mols = [
-        Chem.MolFromSmiles(str(s)) if pd.notna(s) and str(s).strip() != "" else None
-        for s in df["SMILES"]
-    ]
-    df["ValidMol"] = [1 if m else 0 for m in mols]
-    valid_df = df[df["ValidMol"] == 1].copy()
-    valid_mols = [m for m in mols if m is not None]
-
-    valid_df["MW"] = [Descriptors.MolWt(m) for m in valid_mols]
-    valid_df["HAC"] = [m.GetNumHeavyAtoms() for m in valid_mols]
-    valid_df["RotB"] = [Lipinski.NumRotatableBonds(m) for m in valid_mols]
-    valid_df["Fsp3"] = [rdMolDescriptors.CalcFractionCSP3(m) for m in valid_mols]
-    valid_df["LogP"] = [Descriptors.MolLogP(m) for m in valid_mols]
-    valid_df["TPSA"] = [rdMolDescriptors.CalcTPSA(m) for m in valid_mols]
-    # QED is cheap and molecule-derived, so it is always shown even when the run
-    # did not include it as an RL objective (the monitor then omits the column).
-    if std.QED not in valid_df.columns or valid_df[std.QED].isna().all():
-        valid_df[std.QED] = [QED.qed(m) for m in valid_mols]
-
-    sa_table = epoch_raw_sa_table(valid_df)
+    if "ValidMol" not in df.columns:
+        df["ValidMol"] = [
+            1 if Chem.MolFromSmiles(str(s)) is not None else 0 for s in df["SMILES"]
+        ]
+    valid_df = df[df["ValidMol"].astype(int) == 1].copy()
 
     ref_m = Chem.MolFromSmiles(ref_smiles) if ref_smiles else None
     ref_vals = {
-        "ROCS": 1.0,
+        "ROCS_Desirability": 1.0,
         "QED": float(QED.qed(ref_m)) if ref_m else 0.21,
         "RawSA": float(calculate_sa_score(ref_m)) if ref_m else 3.74,
         "MW": float(Descriptors.MolWt(ref_m)) if ref_m else 458.4,
@@ -2352,7 +2352,7 @@ def render_epoch_property_trajectories(
         "LogP": float(Descriptors.MolLogP(ref_m)) if ref_m else 2.0,
         "TPSA": float(rdMolDescriptors.CalcTPSA(ref_m)) if ref_m else 200.0,
         "Fsp3": float(rdMolDescriptors.CalcFractionCSP3(ref_m)) if ref_m else 0.36,
-        "RotB": float(Lipinski.NumRotatableBonds(ref_m)) if ref_m else 3.0,
+        "RotBonds": float(Lipinski.NumRotatableBonds(ref_m)) if ref_m else 3.0,
     }
 
     fig, axes = plt.subplots(3, 3, figsize=(18, 13.5), dpi=250)
@@ -2364,7 +2364,11 @@ def render_epoch_property_trajectories(
     )
 
     panels_config = [
-        ("ROCS", "ROCS Desirability (3D Shape+Color)", "Desirability (0–1)"),
+        (
+            "ROCS_Desirability",
+            "ROCS Desirability (3D Shape+Color)",
+            "Desirability (0–1)",
+        ),
         ("QED", "QED Drug-Likeness", "QED (0–1)"),
         ("RawSA", "Synthetic Accessibility (raw RDKit SA)", "SA (lower = easier)"),
         ("MW", "Molecular Weight Drift", "MW (Da)"),
@@ -2372,23 +2376,16 @@ def render_epoch_property_trajectories(
         ("LogP", "Lipophilicity", "cLogP"),
         ("TPSA", "Polar Surface Area", "TPSA (Å²)"),
         ("Fsp3", "Carbon sp³ Fraction", "Fraction"),
-        ("RotB", "Rotatable Bonds", "Bonds"),
+        ("RotBonds", "Rotatable Bonds", "Bonds"),
     ]
 
     for idx, (col, title, y_lbl) in enumerate(panels_config):
         ax = axes[idx // 3, idx % 3]
-        if col == "RawSA":
-            if sa_table.empty:
-                ax.axis("off")
-                continue
-            source = sa_table
-            value_col = "RawSA"
-        else:
-            if col not in valid_df.columns:
-                ax.axis("off")
-                continue
-            source = valid_df
-            value_col = col
+        if col not in valid_df.columns:
+            ax.axis("off")
+            continue
+        source = valid_df
+        value_col = col
 
         grp = source.groupby("Epoch")[value_col]
         med = grp.median()
@@ -2427,7 +2424,9 @@ def render_epoch_property_trajectories(
         ref_v = ref_vals.get(col)
         if ref_v is not None:
             ref_label = (
-                "Seed ceiling (desirability 1.0)" if col == "ROCS" else f"Seed ({ref_v:.2f})"
+                "Seed ceiling (desirability 1.0)"
+                if col == "ROCS_Desirability"
+                else f"Seed ({ref_v:.2f})"
             )
             ax.axhline(
                 ref_v,
@@ -2535,6 +2534,10 @@ def epoch_molecule_table(
     (``SA``) and the validity/desirability flags, but no QED, no physical SA and no
     similarity to the seed. Those are needed by the multi-objective, exploration and
     enrichment figures, so they are recomputed once here and memoised per structure.
+
+    The table also carries the physicochemical drift guards (MW, HAC, LogP, TPSA, Fsp³,
+    rotatable bonds) so that the longitudinal panel and the training diagnostics read
+    one pre-computed dataset instead of each re-deriving their own.
     """
     columns = [
         "Epoch",
@@ -2548,6 +2551,12 @@ def epoch_molecule_table(
         "SA_Desirability",
         "SimToSeed",
         "SelectionScore",
+        "MW",
+        "HAC",
+        "LogP",
+        "TPSA",
+        "Fsp3",
+        "RotBonds",
     ]
     if df.empty or std.SMILES not in df.columns or "Epoch" not in df.columns:
         return pd.DataFrame(columns=columns)
@@ -2563,17 +2572,23 @@ def epoch_molecule_table(
         else None
     )
 
-    cache: dict[str, tuple[str, int, float, float, float]] = {}
+    cache: dict[str, tuple] = {}
     canonical: list[str] = []
     valid: list[int] = []
     qed_values: list[float] = []
     sa_values: list[float] = []
     sim_values: list[float] = []
+    mw_values: list[float] = []
+    hac_values: list[float] = []
+    logp_values: list[float] = []
+    tpsa_values: list[float] = []
+    fsp3_values: list[float] = []
+    rotb_values: list[float] = []
     for smiles in smiles_values:
         if smiles not in cache:
             mol = Chem.MolFromSmiles(smiles) if smiles else None
             if mol is None:
-                cache[smiles] = ("", 0, np.nan, np.nan, np.nan)
+                cache[smiles] = ("", 0) + (np.nan,) * 9
             else:
                 fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
                     mol, 2, nBits=2048
@@ -2586,19 +2601,49 @@ def epoch_molecule_table(
                     float(DataStructs.TanimotoSimilarity(ref_fp, fp))
                     if ref_fp is not None
                     else np.nan,
+                    float(Descriptors.MolWt(mol)),
+                    float(mol.GetNumHeavyAtoms()),
+                    float(Descriptors.MolLogP(mol)),
+                    float(rdMolDescriptors.CalcTPSA(mol)),
+                    float(rdMolDescriptors.CalcFractionCSP3(mol)),
+                    float(Lipinski.NumRotatableBonds(mol)),
                 )
-        canon, ok, qed_v, sa_v, sim_v = cache[smiles]
+        (
+            canon,
+            ok,
+            qed_v,
+            sa_v,
+            sim_v,
+            mw_v,
+            hac_v,
+            logp_v,
+            tpsa_v,
+            fsp3_v,
+            rotb_v,
+        ) = cache[smiles]
         canonical.append(canon)
         valid.append(ok)
         qed_values.append(qed_v)
         sa_values.append(sa_v)
         sim_values.append(sim_v)
+        mw_values.append(mw_v)
+        hac_values.append(hac_v)
+        logp_values.append(logp_v)
+        tpsa_values.append(tpsa_v)
+        fsp3_values.append(fsp3_v)
+        rotb_values.append(rotb_v)
 
     out["Canonical"] = canonical
     out["ValidMol"] = valid
     out["QED"] = qed_values
     out["RawSA"] = sa_values
     out["SimToSeed"] = sim_values
+    out["MW"] = mw_values
+    out["HAC"] = hac_values
+    out["LogP"] = logp_values
+    out["TPSA"] = tpsa_values
+    out["Fsp3"] = fsp3_values
+    out["RotBonds"] = rotb_values
     out["SA_Desirability"] = _sa_desirability(
         out["RawSA"].to_numpy(float), run_config
     )
@@ -2618,6 +2663,116 @@ def epoch_molecule_table(
     # Same ranking index the result analyzer uses for the prioritized leads.
     out["SelectionScore"] = out["ROCS"] + out["QED"] - 0.10 * out["RawSA"]
     return out
+
+
+#: Filename of the run's persisted per-molecule training dataset.
+MOLECULE_TABLE_NAME = "training_molecules.csv.gz"
+#: Sidecar that records which monitor data and scoring settings produced the table.
+MOLECULE_TABLE_META_NAME = "training_molecules.json"
+MOLECULE_TABLE_SCHEMA_VERSION = 1
+
+
+def molecule_table_path(root: Path | str) -> Path:
+    """Location of the pre-computed per-molecule dataset inside a run."""
+    return Path(root) / "molecules" / MOLECULE_TABLE_NAME
+
+
+def molecule_table_signature(
+    monitor: pd.DataFrame,
+    ref_smiles: str,
+    run_config: dict | None,
+    rocs_scale: float,
+) -> dict[str, Any]:
+    """Fingerprint the inputs that make a molecule table reproducible.
+
+    Only the columns ``epoch_molecule_table`` actually consumes are hashed, so the
+    table stays valid when ``audit.regenerate`` rewrites the monitor TSV with a
+    physical-SA column: the molecules, their epoch and their reward channels are
+    unchanged. A changed ROCS verdict, seed or SA modifier does invalidate it.
+    """
+    key_columns = [
+        column
+        for column in ("Epoch", std.SMILES, std.ROCS, std.DESIRED)
+        if column in monitor.columns
+    ]
+    payload = monitor[key_columns].to_csv(index=False)
+    cfg = run_config or {}
+    return {
+        "schema_version": MOLECULE_TABLE_SCHEMA_VERSION,
+        "molecules_sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        "rows": int(len(monitor)),
+        "ref_smiles": ref_smiles,
+        "rocs_scale": round(float(rocs_scale), 12),
+        "sa_score_lower": cfg.get("sa_score_lower"),
+        "sa_score_upper": cfg.get("sa_score_upper"),
+    }
+
+
+def cached_molecule_table(
+    root: Path | str,
+    monitor: pd.DataFrame,
+    ref_smiles: str = "",
+    run_config: dict | None = None,
+    rocs_scale: float = 1.0,
+    *,
+    refresh: bool = False,
+) -> pd.DataFrame:
+    """Return the run's per-molecule dataset, computing and caching it once.
+
+    Every figure that needs per-molecule chemistry reads this table instead of
+    rescoring the monitor TSV, so a re-render is pure plotting. The cache is keyed
+    on the molecule-defining monitor fields, the reference SMILES, the ROCS scale
+    and the SA modifier bounds; any change rebuilds it, as does ``refresh``.
+    """
+    if monitor is None or monitor.empty:
+        return pd.DataFrame()
+
+    table_path = molecule_table_path(root)
+    meta_path = table_path.with_name(MOLECULE_TABLE_META_NAME)
+    signature = molecule_table_signature(monitor, ref_smiles, run_config, rocs_scale)
+
+    if not refresh and table_path.is_file() and meta_path.is_file():
+        try:
+            stored = json.loads(meta_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            stored = None
+        if isinstance(stored, dict) and all(
+            stored.get(key) == value for key, value in signature.items()
+        ):
+            try:
+                cached = pd.read_csv(table_path)
+            except (OSError, pd.errors.ParserError, pd.errors.EmptyDataError):
+                cached = None
+            if cached is not None and len(cached) == signature["rows"]:
+                # CSV has no distinction between an empty field and a missing
+                # value; restore the in-memory representation for the molecule
+                # text columns so a cache hit equals a fresh build.
+                for column in ("SMILES", "Canonical"):
+                    if column in cached.columns:
+                        cached[column] = cached[column].fillna("")
+                return cached
+
+    table = epoch_molecule_table(
+        monitor, ref_smiles, run_config, rocs_scale=rocs_scale
+    )
+    if table.empty:
+        return table
+
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(table_path, index=False)
+    meta_path.write_text(
+        json.dumps(
+            {
+                **signature,
+                "generated_at": pd.Timestamp.now().isoformat(timespec="seconds"),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    LOGGER.info("[molecules] cached %d rows -> %s", len(table), table_path)
+    return table
+
 
 
 def _pareto_mask_3d(points: np.ndarray, reference: np.ndarray) -> np.ndarray:
@@ -4008,20 +4163,23 @@ class ResultAnalyzer:
         active_smiles_file = smiles_tsv if (smiles_tsv and smiles_tsv.is_file()) else (self.paths.models_dir / "SequenceRNN_reinforced_smiles.tsv")
         molecule_table = pd.DataFrame()
         if active_smiles_file.is_file():
+            # One per-molecule dataset per run. Parsing, QED, SA and the drift
+            # guards are computed once here and persisted, so every figure below
+            # and any later ``audit.regenerate`` reads the same table instead of
+            # rescoring the monitor TSV.
+            molecule_table = cached_molecule_table(
+                self.paths.root,
+                pd.read_csv(active_smiles_file, sep="\t"),
+                ref_smiles,
+                run_config,
+                rocs_scale=1.0 if scale_verdict.is_raw else scale_verdict.factor,
+            )
             render_epoch_property_trajectories(
                 smiles_tsv_path=active_smiles_file,
                 output_png=self.paths.figures_dir
                 / "11_epoch_property_trajectories.png",
                 ref_smiles=ref_smiles,
-            )
-            # One shared per-molecule table feeds figures 12-16 (QED, physical SA,
-            # seed similarity and the reward channels), so the monitor TSV is parsed
-            # and rescored once instead of five times.
-            molecule_table = epoch_molecule_table(
-                pd.read_csv(active_smiles_file, sep="\t"),
-                ref_smiles,
-                run_config,
-                rocs_scale=1.0 if scale_verdict.is_raw else scale_verdict.factor,
+                molecule_table=molecule_table,
             )
 
         if not molecule_table.empty:

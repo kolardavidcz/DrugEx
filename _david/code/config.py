@@ -260,6 +260,11 @@ class RunPaths:
         """Directory target for all publication figures and visual diagnostics."""
         return self.root / "figures"
 
+    @property
+    def molecules_dir(self) -> Path:
+        """Directory holding the run's pre-computed per-molecule dataset."""
+        return self.root / "molecules"
+
     def create_directories(self) -> None:
         """Ensure all required target directories exist on disk."""
         self.root.mkdir(parents=True, exist_ok=True)
@@ -267,6 +272,7 @@ class RunPaths:
         self.raw_data_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.figures_dir.mkdir(parents=True, exist_ok=True)
+        self.molecules_dir.mkdir(parents=True, exist_ok=True)
 
     def __post_init__(self) -> None:
         self.create_directories()
