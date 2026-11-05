@@ -592,3 +592,26 @@ standard arm's 0.644 within sampling noise.
 
 `summary.md` now reports the arm size together with its valid count, e.g.
 `` `1000` (`845` valid, `84.5 %`) ``, so nobody has to infer the denominator.
+
+### Standard re-evaluation of the first two batch B runs (job 25298351)
+
+The second submission (release `719aa8a`, `q_1d` → `p2e_1d`) finished
+`Exit_status=0` in 1 h 16 min and produced both arms. The first attempt
+(25298144) died in `load_models` because `DRUGEX_PRETRAINED_DIR` was exported
+only inside the optional dataset-build block; the PBS script now exports it for
+every job, and a behaviour test pins that.
+
+`models/SequenceRNN_reinforced.pkg` is the best-validation package that the
+Explorer keeps during training (the end-of-run package is the separate
+`SequenceRNN_reinforced_final_epoch.pkg`), so resampling that file evaluates the
+best model. For `beta35` the file is dated 11:35 (epoch 3) while the run ended at
+12:23, which is why the resample recovers a working model:
+
+| Run | Historical arm (last epoch) | Standard arm (best checkpoint, 5000) |
+| :--- | :--- | :--- |
+| `bs128` | 4256 valid (85.1 %), ROCS med 0.674 | 4429 valid (88.6 %), ROCS med 0.661, QED 0.640 |
+| `beta35` | **0 valid (0 %)** | 4224 valid (84.5 %), ROCS med 0.647, QED 0.656 |
+
+Both standard medians sit exactly where the 15 earlier standard arms sit
+(0.60–0.69), and `beta35`'s collapsed final epoch is now a footnote instead of
+its only measurement. `standard_eval verify` reports OK.
