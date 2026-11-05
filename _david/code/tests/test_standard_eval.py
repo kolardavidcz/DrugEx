@@ -143,5 +143,24 @@ class TestVerify(unittest.TestCase):
             self.assertTrue(seval.verify(root))
 
 
+class TestPbsScript(unittest.TestCase):
+    def test_the_pretrained_checkpoint_is_exported_without_a_dataset_build(self) -> None:
+        script = seval.pbs_script(
+            "/storage/x", "/storage/x/current", dataset="prior"
+        )
+        self.assertIn('export DRUGEX_PRETRAINED_DIR="$STORAGE_DIR/models"', script)
+        self.assertIn("standard_eval run", script)
+
+    def test_a_dataset_build_keeps_the_same_pretrained_location(self) -> None:
+        script = seval.pbs_script(
+            "/storage/x",
+            "/storage/x/current",
+            dataset="prior",
+            build_dataset=True,
+        )
+        self.assertEqual(script.count("DRUGEX_PRETRAINED_DIR"), 1)
+        self.assertIn("prior_dataset build", script)
+
+
 if __name__ == "__main__":
     unittest.main()

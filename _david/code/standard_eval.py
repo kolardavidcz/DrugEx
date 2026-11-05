@@ -403,7 +403,6 @@ def pbs_script(
     if build_dataset:
         build = f"""DATASET_DIR={dataset_dir!r}
 if [ ! -f "$DATASET_DIR/manifest.json" ]; then
-    export DRUGEX_PRETRAINED_DIR="$STORAGE_DIR/models"
     "$STORAGE_DIR/.venv/bin/python" -u -m _david.code.prior_dataset build \\
         --molecule {molecule!r} --name {dataset!r} \\
         --n {int(n)} --seed {int(dataset_seed or seed)} \\
@@ -425,6 +424,9 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export DRUGEX_SCORE_NJOBS=16
 export DRUGEX_SOURCE_REVISION="${{DRUGEX_SOURCE_REVISION:-unknown}}"
+# The resample path loads the pretrained Papyrus SMILES-RNN to build the agent,
+# so the checkpoint location must be set for every job, not only for a build.
+export DRUGEX_PRETRAINED_DIR="$STORAGE_DIR/models"
 {build}exec "$STORAGE_DIR/.venv/bin/python" -u -m _david.code.standard_eval run \\
     --all --root "$STORAGE_DIR/_david/output" \\
     --dataset {dataset_dir!r} --dataset-root {storage + "/datasets"!r} \\
