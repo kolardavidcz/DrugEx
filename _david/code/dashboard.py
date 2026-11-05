@@ -244,9 +244,15 @@ def standard_model(run: Path) -> str:
     """Name the model behind ``standard_eval``: the best checkpoint or a rescore.
 
     ``evaluate_run`` reloads ``models/SequenceRNN_reinforced.pkg`` and samples;
-    when no checkpoint exists it only rescores the delivered molecules. The
-    checkpoint is the best epoch kept by the training monitor, so its epoch is
-    reported next to the label.
+    when no checkpoint exists it only rescores the delivered molecules.
+
+    Which epoch that package holds depends on the release that produced the run:
+    the current pipeline keeps the best-validation model in
+    ``SequenceRNN_reinforced.pkg`` and writes the end-of-training model to
+    ``SequenceRNN_reinforced_final_epoch.pkg``, while older runs have only the
+    single package and it is whatever the Explorer saved last. The label says
+    ``best@N`` only when that separation proves the semantics; otherwise it says
+    ``saved`` rather than claiming an epoch the file may not hold.
     """
     manifest_path = run / "standard_eval" / "manifest.json"
     if not manifest_path.is_file():
@@ -258,7 +264,12 @@ def standard_model(run: Path) -> str:
     if not payload.get("resampled"):
         return "rescore"
     best = _best_epoch(run)
-    return f"best@{best}" if best else "best"
+    split = (run / "models" / "SequenceRNN_reinforced_final_epoch.pkg").is_file()
+    manifest = _read_manifest(run)
+    recorded_best = str(manifest.get("evaluation_source") or "") == "best_epoch"
+    if best is not None and (split or recorded_best):
+        return f"best@{best}"
+    return "saved" if best is None else "saved (single package)"
 
 
 def _best_epoch(run: Path) -> int | None:

@@ -170,6 +170,10 @@ class TestStandardArm(unittest.TestCase):
             pd.DataFrame({"Epoch": [1, 2, 3], "best_epoch": [1, 2, 2]}).to_csv(
                 run / "models" / "SequenceRNN_reinforced_fit.tsv", sep="\t", index=False
             )
+            # Only a run that separated the end-of-training package proves that
+            # SequenceRNN_reinforced.pkg holds the best model.
+            self.assertEqual(dashboard.standard_model(run), "saved (single package)")
+            (run / "models" / "SequenceRNN_reinforced_final_epoch.pkg").write_bytes(b"x")
             self.assertEqual(dashboard.standard_model(run), "best@2")
 
             (standard / "manifest.json").write_text(json.dumps({"resampled": False}))
