@@ -56,11 +56,14 @@ class PipelineConfig:
     # checkpoint before stopping, i.e. the 50-epoch window was the binding constraint, not
     # convergence. 30 stops flat runs ~20 epochs sooner without touching a run that is
     # still improving; min_epochs=50 still holds the floor.
-    # epochs=150 (was 200, 2026-11-06): a minimised 500-sample epoch costs a measured
-    # ~10.4 min at 16 cores, so a 200-epoch cap cannot fit the 24 h ``q_1d`` lane and the
-    # two 2026-11-04/05 runs were killed at epoch 132/137 — the cap was never reachable.
-    # 150 keeps a full-horizon run inside one day without shortening the walltime request.
-    epochs: int = 150  # ^ [250, 200, 150, 100]
+    # epochs=120 (was 150, then 200, 2026-11-06): a minimised 500-sample epoch costs a
+    # measured ~10.4 min at 16 cores, so 150 epochs is ~26 h and gets killed around epoch
+    # 138 of a 24 h ``q_1d`` slot (that is what happened to the 2026-11-04/05 arms, which
+    # asked for 200). The 2026-11-06 loss-criterion arm ran the full 120-epoch cap on the
+    # workstation and stopped at the ``min_epochs=50`` floor because its held-out NLL never
+    # improved on epoch 1; the cap therefore costs nothing on a run that is learning and
+    # bounds the one that is not. 120 also keeps a full-horizon run inside one day.
+    epochs: int = 120  # ^ [250, 200, 150, 120, 100]
     patience: int = 30  # Early-stopping patience (no improvement, after min_epochs=50)
     min_epochs: int = 50
 

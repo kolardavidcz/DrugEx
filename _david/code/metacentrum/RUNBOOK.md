@@ -81,15 +81,15 @@ generation is CPU-bound; the RNN is tiny).
 $PY -m _david.code.metacentrum.submit submit --name egcg_default
 ```
 
-Reads as: "run the pipeline with `PipelineConfig` defaults, 150 epochs max, early stop
+Reads as: "run the pipeline with `PipelineConfig` defaults, 120 epochs max, early stop
 after 30 epochs without improvement (never before epoch 50), raw ROCS TanimotoCombo + SA,
 Harrington reward, `avg_gmean` checkpoint, 5000-molecule evaluation arm". Nothing is passed because
 `config.py` already says that.
 
 **A full-horizon run needs more than 16 cores.** A minimised 500-sample epoch costs a
-measured ~10.4 min at 16 cores, so 150 epochs is ~26 h and gets killed around epoch 138 of
-a 24 h slot (that is what happened to the 2026-11-04/05 arms, which asked for 200). Buy the
-time instead of a deeper queue:
+measured ~10.4 min at 16 cores, so 120 epochs is ~21 h and fits a 24 h slot; a 150-epoch cap
+was ~26 h and got killed around epoch 138 (the 2026-11-04/05 arms asked for 200 and never
+reached it). Buy the time instead of a deeper queue:
 
 ```bash
 $PY -m _david.code.metacentrum.submit submit --name egcg_default \

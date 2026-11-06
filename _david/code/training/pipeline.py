@@ -605,6 +605,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--thresholds",
+        type=float,
+        nargs="+",
+        default=defaults.thresholds,
+        help=(
+            "Success thresholds (ROCS SA [QED]) used by desired_ratio and the "
+            "checkpoint means. Pass explicit values calibrated on the prior arm; "
+            f"default auto-calibrates to {defaults.thresholds}"
+        ),
+    )
+    parser.add_argument(
+        "--threshold-percentile",
+        type=float,
+        default=defaults.threshold_percentile,
+        help=(
+            "Recalibrate every threshold from the Stage 1 prior arm at this "
+            "percentile (e.g. 85). Overrides --thresholds when set "
+            f"(default: {defaults.threshold_percentile})"
+        ),
+    )
+    parser.add_argument(
         "--reward-scheme",
         type=str,
         default=defaults.reward_scheme,
@@ -850,6 +871,8 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         val_min_unique_ratio=args.val_min_unique_ratio,
         reward_scheme=args.reward_scheme,
         weights=tuple(args.weights) if args.weights is not None else None,
+        thresholds=tuple(args.thresholds) if args.thresholds is not None else None,
+        threshold_percentile=args.threshold_percentile,
         score_variant=args.score_variant,
         color_ff=args.color_ff,
         rocs_clip_upper=args.rocs_clip_upper,

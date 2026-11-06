@@ -144,7 +144,7 @@ Practical guidance:
   16-core arms reached their 32 GB ceiling, so 32 cores starts at 64 GB.
 - Start from the default 24 h. If `monitor_live_epochs.py` shows an ETA beyond the limit,
   kill early and resubmit with the right budget — a killed job still consumes its walltime.
-- `--epochs 150` is a **cap**: early stopping (`min_epochs=50`, `patience=30`) usually ends a
+- `--epochs 120` is a **cap**: early stopping (`min_epochs=50`, `patience=30`) usually ends a
   converged run long before it.
 - Walltime above the routed queue's maximum is rejected at submission; the router would have
   to pick a deeper queue anyway.

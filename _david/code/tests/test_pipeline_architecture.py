@@ -175,6 +175,21 @@ class TestPipelineArchitecture(unittest.TestCase):
         self.assertEqual(len(with_qed.thresholds), len(with_qed.scorers))
 
 
+class TestThresholdOverrides(unittest.TestCase):
+    """Calibrated thresholds must be reachable from the CLI, not only from code."""
+
+    def test_cli_thresholds_override_the_fixed_default(self) -> None:
+        cfg = config_from_args(parse_args(["--thresholds", "0.759", "0.25"]))
+        self.assertEqual(cfg.thresholds, (0.759, 0.25))
+
+    def test_the_percentile_reaches_the_config(self) -> None:
+        cfg = config_from_args(parse_args(["--threshold-percentile", "85"]))
+        self.assertEqual(cfg.threshold_percentile, 85.0)
+
+    def test_absent_thresholds_keep_the_calibrated_defaults(self) -> None:
+        cfg = config_from_args(parse_args([]))
+        self.assertEqual(cfg.thresholds, PipelineConfig().thresholds)
+
 class TestRewardWeightOverrides(unittest.TestCase):
     """``--weights`` must reach ``PipelineConfig`` and dominate the reward it names."""
 
