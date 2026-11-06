@@ -13,6 +13,8 @@ from drugex.training.explorers import SequenceExplorer
 from drugex.training.generators import SequenceRNN
 
 from _david.code.config import PipelineConfig
+from _david.code.loss_criterion import HoldoutSample, build_holdout
+from _david.code.schema import std
 from _david.code.utils import HardwareManager
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
@@ -119,6 +121,102 @@ class DecayingSequenceExplorer(SequenceExplorer):
         super().logPerformanceAndCompounds(epoch, metrics, scores)
 
 
+class LossSelectedSequenceExplorer(DecayingSequenceExplorer):
+    """Explorer whose checkpoint is chosen by held-out reward-weighted NLL.
+
+    The core loop keeps the epoch maximizing ``metrics[criteria]``. ``J`` from
+    :mod:`_david.code.loss_criterion` is lower-is-better, so this class records its
+    negation as ``val_loss_neg`` and selects on that column. ``best_value`` starts
+    at ``-inf`` because every negated ``J`` is negative and the base class starts
+    at ``0``, which no epoch could ever beat.
+
+    Selection is gated: an epoch whose validation arm falls below
+    ``min_valid_ratio`` or ``min_unique_ratio`` still records ``val_loss`` (so the
+    run shows what the criterion wanted) but exposes ``NaN`` as
+    ``val_loss_neg``. ``NaN > best_value`` is always false in the core comparison,
+    so a collapsed epoch can neither win nor be logged as a misleading ``-inf``.
+    """
+
+    def __init__(
+        self,
+        holdout: HoldoutSample,
+        min_valid_ratio: float,
+        min_unique_ratio: float,
+        agent: SequenceRNN,
+        env: DrugExEnvironment,
+        mutate: SequenceRNN | None = None,
+        config: PipelineConfig | None = None,
+        crover: Any = None,
+        no_multifrag_smiles: bool = True,
+        optim: Any = None,
+        device: Any = DEFAULT_DEVICE,
+        use_gpus: Any = DEFAULT_GPUS,
+    ) -> None:
+        super().__init__(
+            agent=agent,
+            env=env,
+            mutate=mutate,
+            config=config,
+            crover=crover,
+            no_multifrag_smiles=no_multifrag_smiles,
+            optim=optim,
+            device=device,
+            use_gpus=use_gpus,
+        )
+        self.holdout = holdout
+        self.min_valid_ratio = float(min_valid_ratio)
+        self.min_unique_ratio = float(min_unique_ratio)
+        self.best_value = float("-inf")
+
+    def fit(self, *args: Any, criteria: str | None = None, **kwargs: Any) -> None:
+        """Run the core training loop, forcing selection on ``val_loss_neg``.
+
+        Args:
+            criteria: Accepted only to reject a mismatched request; the criterion
+                is a property of this explorer, not of the caller.
+
+        Raises:
+            ValueError: When a criterion other than the loss criterion is asked for.
+        """
+        if criteria not in (None, std.VAL_LOSS, std.VAL_LOSS_NEG, "loss"):
+            raise ValueError(
+                f"LossSelectedSequenceExplorer always selects on {std.VAL_LOSS_NEG!r}; "
+                f"passing criteria={criteria!r} would silently restore a different "
+                "checkpoint rule."
+            )
+        super().fit(*args, criteria=std.VAL_LOSS_NEG, **kwargs)
+
+    def getNovelMoleculeMetrics(self, scores: pd.DataFrame) -> dict[str, Any]:
+        """Add the held-out loss and its eligibility gate to the standard metrics.
+
+        The epoch's own validation arm is scored first (validity, uniqueness,
+        desirability), because a collapsed arm makes the loss meaningless even when
+        the policy still assigns mass to the holdout: the reward the run reports
+        would be unreachable.
+
+        Args:
+            scores: Scored validation molecules of the current epoch.
+
+        Returns:
+            The base metrics plus ``val_loss``, ``val_loss_neg`` and
+            ``val_loss_eligible`` (1.0/0.0).
+        """
+        metrics = super().getNovelMoleculeMetrics(scores)
+        eligible = (
+            metrics[std.VALID_RATIO] >= self.min_valid_ratio
+            and metrics[std.UNIQUE_RATIO] >= self.min_unique_ratio
+        )
+        # ``val_loss`` is always recorded, even when the gate rejects the epoch:
+        # the diagnostic "J fell while the generator collapsed" is the whole point
+        # of the floor, and it is only visible if the value survives. Only the
+        # selection column is blanked, so a rejected epoch can never be the best.
+        value = self.holdout.evaluate(self.agent)
+        metrics[std.VAL_LOSS] = value
+        metrics[std.VAL_LOSS_ELIGIBLE] = float(eligible)
+        metrics[std.VAL_LOSS_NEG] = -value if eligible else float("nan")
+        return metrics
+
+
 class SequenceRNNOptimizer:
     """Pretrained SMILES SequenceRNN agent lifecycle, frozen mutate prior builder, and explorer factory."""
 
@@ -203,6 +301,18 @@ class SequenceRNNOptimizer:
             device=self.device,
             use_gpus=self.use_gpus,
         )
+        if cfg.criteria == std.VAL_LOSS:
+            # The loss criterion is a property of the explorer, not only of the
+            # config: it needs the frozen holdout built from the run's own reward
+            # scheme and vocabulary, and it must select on the negated column.
+            holdout = build_holdout(cfg, agent.voc, env.rewardScheme)
+            return LossSelectedSequenceExplorer(
+                holdout=holdout,
+                min_valid_ratio=cfg.val_min_valid_ratio,
+                min_unique_ratio=cfg.val_min_unique_ratio,
+                config=cfg,
+                **common,
+            )
         if cfg.use_epsilon_decay:
             return DecayingSequenceExplorer(config=cfg, **common)
         return SequenceExplorer(

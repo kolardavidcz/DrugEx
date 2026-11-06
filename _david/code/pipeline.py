@@ -34,6 +34,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from _david.code.chemistry import DEFAULT_REFERENCE_SEED
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.environment import PrepareMolecule, create_environment
+from _david.code.loss_criterion import write_holdout_record
 from _david.code.models import SequenceRNNOptimizer
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
@@ -52,6 +53,8 @@ CRITERIA_ALIASES: dict[str, str] = {
     "desired_ratio": std.DESIRED_RATIO,
     "valid_ratio": std.VALID_RATIO,
     "unique_ratio": std.UNIQUE_RATIO,
+    "loss": std.VAL_LOSS,
+    "val_loss": std.VAL_LOSS,
 }
 
 
@@ -378,6 +381,17 @@ class MoleculePipeline:
             mutate=prior,
             config=self.config,
         )
+        holdout = getattr(explorer, "holdout", None)
+        if holdout is not None:
+            # The checkpoint criterion is only reproducible if the exact scored
+            # sample and its weights are part of the run, not only in the code.
+            csv_path, json_path = write_holdout_record(
+                self.paths.models_dir, holdout
+            )
+            logger.info(
+                f"Loss criterion sample: {len(holdout)} molecules -> {csv_path.name}, "
+                f"provenance -> {json_path.name}"
+            )
 
         output_base = self.paths.models_dir / "SequenceRNN_reinforced"
         monitor = FileMonitor(str(output_base), save_smiles=True, reset_directory=True)
@@ -535,6 +549,45 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=defaults.criteria,
         choices=sorted(CRITERIA_ALIASES),
         help=f"RL selection criteria for best checkpoint (default: {defaults.criteria})",
+    )
+    parser.add_argument(
+        "--val-holdout-dataset",
+        type=str,
+        default=defaults.val_holdout_dataset,
+        help=(
+            "Prior dataset the val_loss holdout is drawn from (default: the run's "
+            "--prior-dataset)"
+        ),
+    )
+    parser.add_argument(
+        "--val-holdout-size",
+        type=int,
+        default=defaults.val_holdout_size,
+        help=f"Molecules in the frozen val_loss sample (default: {defaults.val_holdout_size})",
+    )
+    parser.add_argument(
+        "--val-holdout-seed",
+        type=int,
+        default=defaults.val_holdout_seed,
+        help=f"RNG seed of the val_loss draw (default: {defaults.val_holdout_seed})",
+    )
+    parser.add_argument(
+        "--val-min-valid-ratio",
+        type=float,
+        default=defaults.val_min_valid_ratio,
+        help=(
+            "Eligibility floor on the validation arm's validity before an epoch may "
+            f"set the checkpoint (default: {defaults.val_min_valid_ratio})"
+        ),
+    )
+    parser.add_argument(
+        "--val-min-unique-ratio",
+        type=float,
+        default=defaults.val_min_unique_ratio,
+        help=(
+            "Eligibility floor on the validation arm's uniqueness before an epoch may "
+            f"set the checkpoint (default: {defaults.val_min_unique_ratio})"
+        ),
     )
     parser.add_argument(
         "--weights",
@@ -786,6 +839,11 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         decay_type=args.decay_type,
         beta=args.beta,
         criteria=CRITERIA_ALIASES[args.criteria],
+        val_holdout_dataset=args.val_holdout_dataset,
+        val_holdout_size=args.val_holdout_size,
+        val_holdout_seed=args.val_holdout_seed,
+        val_min_valid_ratio=args.val_min_valid_ratio,
+        val_min_unique_ratio=args.val_min_unique_ratio,
         reward_scheme=args.reward_scheme,
         weights=tuple(args.weights) if args.weights is not None else None,
         score_variant=args.score_variant,

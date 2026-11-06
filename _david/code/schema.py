@@ -30,6 +30,12 @@ class std:
 
     # Training Telemetry Columns
     LOSS_TRAIN: str = "loss_train"
+    #: Held-out reward-weighted NLL of the fixed loss-criterion sample, lower is
+    #: better. ``VAL_LOSS_NEG`` is its sign-flipped form so the core explorer,
+    #: which keeps the epoch maximizing ``metrics[criteria]``, can select on it.
+    VAL_LOSS: str = "val_loss"
+    VAL_LOSS_NEG: str = "val_loss_neg"
+    VAL_LOSS_ELIGIBLE: str = "val_loss_eligible"
     VALID_RATIO: str = "valid_ratio"
     ACCURATE_RATIO: str = "accurate_ratio"
     UNIQUE_RATIO: str = "unique_ratio"

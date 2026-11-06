@@ -28,6 +28,7 @@ VALID_CRITERIA: tuple[str, ...] = (
     std.DESIRED_RATIO,
     std.VALID_RATIO,
     std.UNIQUE_RATIO,
+    std.VAL_LOSS,
 )
 
 # Canonical default target query molecule (Epigallocatechin gallate - EGCG)
@@ -78,6 +79,19 @@ class PipelineConfig:
     # with one dead objective outrank a balanced one.
     criteria: str = std.AVG_GMEAN
     beta: float = 0.0  # Baseline policy penalization
+
+    # Loss-selected checkpoint criterion (``criteria = "val_loss"``). The number is
+    # the held-out reward-weighted negative log-likelihood of a frozen sample drawn
+    # from the prior dataset, so it never sees the policy's own samples and it is
+    # lower-is-better. The two floors gate which epochs may become the checkpoint;
+    # they are not part of the loss (see ``_david/code/loss_criterion.py``).
+    val_holdout_size: int = 512  # Molecules in the frozen held-out sample
+    val_holdout_seed: int = 20261106  # RNG seed of the held-out draw (never reused as a training seed)
+    val_holdout_dataset: str | None = (
+        None  # Name/path of the prior dataset to draw from; None reuses ``prior_dataset``
+    )
+    val_min_valid_ratio: float = 0.85  # Eligibility floor on the epoch's validation arm
+    val_min_unique_ratio: float = 0.50  # Eligibility floor on the epoch's validation arm
 
     # Exploration Noise (Epsilon)
     epsilon: float = 0.05  # Prior-mutation exploration rate
@@ -180,6 +194,22 @@ class PipelineConfig:
             raise ValueError(
                 f"n_eval_samples must be at least 1, got {self.n_eval_samples!r}"
             )
+        if self.val_holdout_size < 1:
+            raise ValueError(
+                f"val_holdout_size must be at least 1, got {self.val_holdout_size!r}"
+            )
+        for name in ("val_min_valid_ratio", "val_min_unique_ratio"):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must lie in [0, 1], got {value!r}")
+        if self.criteria == std.VAL_LOSS and not (
+            self.val_holdout_dataset or self.prior_dataset
+        ):
+            raise ValueError(
+                "criteria='val_loss' scores a frozen sample of prior molecules, so it "
+                "needs a dataset: pass --prior-dataset or --val-holdout-dataset."
+            )
+
         if self.score_variant != std.VARIANT_TANIMOTO_COMBO:
             raise ValueError(
                 f"Invalid score_variant '{self.score_variant}'. Production training scores with "
