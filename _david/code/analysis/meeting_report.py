@@ -147,6 +147,39 @@ def load_standard_arms() -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("median", ascending=False).reset_index(drop=True)
 
 
+def load_within_run_gains() -> pd.DataFrame:
+    """Before→after ROCS gain inside every arm that owns both raw evaluation arms.
+
+    Both sides come from the run's own scorer, so a row is ruler-free: it answers
+    "did this arm move its own objective", not "how does it compare on a common
+    scale". The pooled 5000-molecule arms are large enough that the median is not
+    sampling noise.
+    """
+    rows: list[dict[str, object]] = []
+    for run_dir in sorted(OUTPUT_ROOT.iterdir()):
+        if not run_dir.is_dir() or run_dir.name.startswith((".", "_")):
+            continue
+        baseline = run_dir / "raw_data" / "baseline_raw.csv.gz"
+        reinforced = run_dir / "raw_data" / "reinforced_raw.csv.gz"
+        if not (baseline.is_file() and reinforced.is_file()):
+            continue
+        before = _valid_rocs(_read(baseline))
+        after = _valid_rocs(_read(reinforced))
+        if before.empty or after.empty:
+            continue
+        rows.append(
+            {
+                "run": run_dir.name,
+                "n_before": int(before.size),
+                "n_after": int(after.size),
+                "before": round(float(before.median()), 3),
+                "after": round(float(after.median()), 3),
+                "delta": round(float(after.median() - before.median()), 3),
+            }
+        )
+    return pd.DataFrame(rows).sort_values("delta", ascending=False).reset_index(drop=True)
+
+
 def load_cross_scores() -> pd.DataFrame:
     """One row per (arm, protocol) from the dichtator rescore."""
     rows: list[dict[str, object]] = []
@@ -731,6 +764,7 @@ def build_html(
     loss_fit: pd.DataFrame,
     ceiling: dict[str, float],
     figures: dict[str, Path],
+    within_run: pd.DataFrame,
 ) -> str:
     sup_before_ours = float(
         cross.query("arm == 'supervisor_before' and protocol == 'ours'")["median"].iloc[0]
@@ -742,6 +776,20 @@ def build_html(
     our_best = float(arms["median"].max())
     our_best_run = str(arms.loc[arms["median"].idxmax(), "run"])
     gap = sup_after_ours - our_median
+
+    sup_before_theirs = float(
+        cross.query("arm == 'supervisor_before' and protocol == 'supervisor'")["median"].iloc[0]
+    )
+    sup_gain_ours = sup_after_ours - sup_before_ours
+    sup_gain_theirs = SUP_AFTER_THEIRS - sup_before_theirs
+    best_delta = float(within_run["delta"].max()) if not within_run.empty else 0.0
+    mid_delta = float(within_run["delta"].median()) if not within_run.empty else 0.0
+    worst_delta = float(within_run["delta"].min()) if not within_run.empty else 0.0
+    within_table = _table(
+        within_run.head(8),
+        ["run", "n_before", "n_after", "before", "after", "delta"],
+        ["run", "n before", "n after", "before", "after", "median gain"],
+    )
 
     before_scores = _valid_rocs(before, "RDKit_Supermol_TanimotoCombo")
     after_scores = _valid_rocs(after, "RDKit_Supermol_TanimotoCombo")
@@ -837,6 +885,26 @@ under their own ({SUP_AFTER_THEIRS:.3f}). The gap is therefore if anything
 our control scores {float(cross.query("arm == 'ours_ctrl' and protocol == 'ours'")['median'].iloc[0]):.3f}
 on our ruler and {float(cross.query("arm == 'ours_ctrl' and protocol == 'supervisor'")['median'].iloc[0]):.3f}
 on theirs.</p>
+<div class="callout">
+<strong>Isolation, not correlation.</strong> Holding the molecule set fixed and moving
+one axis at a time (dichtator, <code>xdata/isolation.log</code>): switching the
+reference from our K=4 bank to their single MMFF minimum moves our control arm from
+0.681 to 0.641 and their after-arm from 0.797 to 0.776 — the level shifts by
+−0.02…−0.04 for both. Turning candidate minimisation off moves them by +0.003 and
++0.011. Neither axis produces the 0.14 gain, and neither is specific to one arm.
+</div>
+
+<h3>Our arms, before and after</h3>
+<p>The cross-ruler test compares two different policies. The cleaner question is
+inside our own runs: DrugEx stores a <em>baseline</em> arm sampled before RL and a
+<em>reinforced</em> arm after it, both scored with the run's own scorer. Across
+{len(within_run)} arms that store both, the largest median gain is
+<strong>{best_delta:+.3f}</strong>, the median gain {mid_delta:+.3f} and the worst
+{worst_delta:+.3f}. The supervisor's arm gains
+{sup_gain_ours:+.3f} on our ruler ({sup_gain_theirs:+.3f} on theirs). No ruler,
+reference or conformer choice enters that comparison: our policy did not move the
+objective it was pointed at.</p>
+{within_table}
 
 <h2>3 · The objective never asked for the tail</h2>
 <p>DrugEx's monitor computes <code>desired_ratio</code> from the success
@@ -959,6 +1027,7 @@ def main(argv: list[str] | None = None) -> int:
 
     arms = load_standard_arms()
     cross = load_cross_scores()
+    within_run = load_within_run_gains()
     before, after = load_supervisor_export()
     supervisor_fit = load_supervisor_trajectory()
     loss_fit = load_trajectory("20261106_0326_egcg_loss120_ws")
@@ -997,6 +1066,7 @@ def main(argv: list[str] | None = None) -> int:
         loss_fit=loss_fit,
         ceiling=ceiling,
         figures=figures,
+        within_run=within_run,
     )
     (out / "index.html").write_text(html, encoding="utf-8")
 
