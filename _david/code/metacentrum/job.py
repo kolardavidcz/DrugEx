@@ -44,6 +44,11 @@ THREAD_ENV = {
 REQUIRED_ENV = ("PBS_JOBID", "SCRATCHDIR", "STORAGE_DIR", "RUN_SPEC")
 SPEC_KEYS = ("name", "args", "source", "revision")
 
+#: File that proves a staged release is complete. It moved to ``training/`` in the
+#: 2026-11-06 cleanup; the stale path only surfaced on the first job submitted
+#: afterwards, which died 37 s in with "Release is incomplete or gone".
+PIPELINE_ENTRY = Path("_david") / "code" / "training" / "pipeline.py"
+
 
 class JobError(RuntimeError):
     """Fatal condition in the job body; printed as a single actionable line."""
@@ -281,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
             raise JobError(
                 f"Spec points at {spec['source']} but the launcher came from {release_arg}"
             )
-        if not (release / "_david" / "code" / "pipeline.py").is_file():
+        if not (release / PIPELINE_ENTRY).is_file():
             raise JobError(f"Release is incomplete or gone: {release}")
     except JobError as exc:
         print(str(exc), file=sys.stderr)

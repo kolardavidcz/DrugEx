@@ -358,6 +358,16 @@ class TestJobBody(unittest.TestCase):
         for marker in ("from _david", "import _david", "import torch", "import rdkit"):
             self.assertNotIn(marker, source)
 
+    def test_release_completeness_check_points_at_a_module_that_exists(self) -> None:
+        """The check is a literal path, so a module move must move it too.
+
+        The 2026-11-06 cleanup moved the pipeline into ``training/``; the stale path
+        only surfaced on the next submitted job, which died after 37 s.
+        """
+        from _david.code.config import PROJECT_ROOT
+
+        self.assertTrue((PROJECT_ROOT / job.PIPELINE_ENTRY).is_file(), job.PIPELINE_ENTRY)
+
     def test_spec_round_trips_from_submit_to_job(self) -> None:
         spec = JobSpec(name="egcg", args=("--criteria", "gmean"))
         payload = spec_payload(spec, STORAGE, REVISION)
@@ -486,8 +496,8 @@ class TestJobBody(unittest.TestCase):
             (storage / "_david" / "output").mkdir(parents=True)
             (storage / ".venv" / "bin").mkdir(parents=True)
             (storage / ".venv" / "bin" / "python").symlink_to(sys.executable)
-            (release / "_david" / "code").mkdir(parents=True)
-            (release / "_david" / "code" / "pipeline.py").write_text("# code\n")
+            (release / job.PIPELINE_ENTRY).parent.mkdir(parents=True)
+            (release / job.PIPELINE_ENTRY).write_text("# code\n")
             spec = root / "spec.json"
             spec.write_text(
                 json.dumps({"name": "egcg", "args": [], "source": str(release), "revision": "abc"})
