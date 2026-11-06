@@ -797,7 +797,7 @@ arms that test the remaining explanations.</p>
 difference. The prime suspect is the success threshold: our fixed
 <code>(0.35, 0.50)</code> pair is met by ~86 % of the prior before an epoch runs,
 so <code>desired_ratio</code> and the checkpoint means cannot see the shape tail.
-Five arms with a prior-calibrated threshold are queued on MetaCentrum.
+Five arms with a prior-calibrated threshold are now running on MetaCentrum.
 </div>
 
 <div class="kpis">{kpis}</div>
