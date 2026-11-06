@@ -56,6 +56,11 @@ download.log
 /tutorial/advanced/rocs/*.png
 /tutorial/advanced/rocs/*.csv
 /tutorial/advanced/rocs/*.txt
+# Generated run outputs & artifacts
+outputs/
+output/
+_david/output/
+_david/outputs/
 
 # --- Temporary Files & Test Scratch ---
 /_test_*
@@ -74,6 +79,8 @@ test_cell*.py
 # credentials verbatim. Both stay on disk and out of the repository.
 /_david/.agent/einfra_proxy/
 /_david/.agent/thesis_tracking/
+
+# Intermediate test & CLI artifacts
 /testing/clitest/data/*.txt
 /testing/clitest/data/*.vocab
 /testing/clitest/data/backup*
