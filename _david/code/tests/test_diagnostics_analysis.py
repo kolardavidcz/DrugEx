@@ -15,6 +15,7 @@ from _david.code.analysis.visualization import (
     _sa_desirability,
     _valid_subset,
     hypervolume_3d,
+    selection_cutoffs,
 )
 
 SEED_SMILES = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
@@ -199,6 +200,34 @@ class TestDepictionAlignment(unittest.TestCase):
         depicter.align_molecule(molecule)
 
         self.assertEqual(Chem.MolToSmiles(molecule), Chem.MolToSmiles(before))
+
+
+class TestSelectionCutoffs(unittest.TestCase):
+    """The selected-tail figure must use one prior-derived cutoff for both arms."""
+
+    def test_cutoff_reproduces_the_requested_prior_fraction(self) -> None:
+        prior = pd.DataFrame({"ROCS": np.linspace(0.0, 1.0, 101)})
+
+        cutoff, sa_cutoff = selection_cutoffs(prior, 85.0)
+
+        self.assertAlmostEqual(cutoff, float(np.percentile(prior["ROCS"], 85.0)), places=6)
+        retained = float((prior["ROCS"] >= cutoff).mean())
+        self.assertLessEqual(abs(retained - 0.15), 0.02)
+        self.assertIsNone(sa_cutoff)
+
+    def test_saturated_sa_desirability_yields_no_vacuous_cutoff(self) -> None:
+        saturated = pd.DataFrame({"ROCS": [0.1, 0.2, 0.3, 0.4], "SA": [1.0, 1.0, 1.0, 0.5]})
+        _, sa_cutoff = selection_cutoffs(saturated, 50.0)
+        self.assertIsNone(sa_cutoff)
+
+        spread = pd.DataFrame({"ROCS": [0.1, 0.2, 0.3, 0.4], "SA": [0.2, 0.4, 0.6, 0.8]})
+        _, sa_cutoff = selection_cutoffs(spread, 50.0)
+        self.assertAlmostEqual(sa_cutoff, 0.5, places=6)
+
+    def test_empty_prior_arm_does_not_raise(self) -> None:
+        cutoff, sa_cutoff = selection_cutoffs(pd.DataFrame({"ROCS": []}), 85.0)
+        self.assertTrue(np.isnan(cutoff))
+        self.assertIsNone(sa_cutoff)
 
 
 if __name__ == "__main__":

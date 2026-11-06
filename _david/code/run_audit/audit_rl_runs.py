@@ -61,6 +61,7 @@ DEFAULT_CSV: Path = OUTPUT_ROOT / "RL_RUN_AUDIT.csv"
 # ``reference_3d_superposition``) are no longer required or regenerated.
 CURRENT_FIGURES: tuple[str, ...] = (
     "01_before_after_distributions.png",
+    "01b_selected_distributions.png",
     "02_multiobjective_tradeoffs.png",
     "03_training_trajectories.png",
     "05_lead_structures_gallery.png",

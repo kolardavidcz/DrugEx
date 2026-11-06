@@ -325,18 +325,116 @@ def enrich_medicinal_chemistry_descriptors(df: pd.DataFrame) -> pd.DataFrame:
     return df_out
 
 
+def _valid_physical(frame: pd.DataFrame) -> pd.DataFrame:
+    """One evaluation arm restricted to valid molecules and put on the physical scale."""
+    if std.VALID in frame.columns:
+        frame = frame[pd.to_numeric(frame[std.VALID], errors="coerce").fillna(0) == 1]
+    return unscale_to_physical_metrics(frame)
+
+
 def render_before_after_distributions(
     df_before: pd.DataFrame,
     df_after: pd.DataFrame,
     output_png: Path | str,
     ref_smiles: str = "",
 ) -> Path:
-    """Render unified 3x3 hierarchical diagnostic dashboard of continuous KDE property shifts."""
-    target_png = Path(output_png)
-    target_png.parent.mkdir(parents=True, exist_ok=True)
+    """Render unified 3x3 hierarchical diagnostic dashboard of continuous KDE property shifts.
 
-    b_df = enrich_medicinal_chemistry_descriptors(unscale_to_physical_metrics(df_before[df_before[std.VALID] == 1]))
-    a_df = enrich_medicinal_chemistry_descriptors(unscale_to_physical_metrics(df_after[df_after[std.VALID] == 1]))
+    Covers **every valid molecule** of each arm; invalid structures are excluded
+    because their descriptors are undefined. See :func:`render_selected_distributions`
+    for the same dashboard restricted to the prior's selected tail.
+    """
+    return _render_property_grid(
+        enrich_medicinal_chemistry_descriptors(_valid_physical(df_before)),
+        enrich_medicinal_chemistry_descriptors(_valid_physical(df_after)),
+        Path(output_png),
+        ref_smiles,
+        "Hierarchical De Novo Property Diagnostic Dashboard: Baseline Prior vs. Reinforced Policy",
+    )
+
+
+def selection_cutoffs(
+    prior_frame: pd.DataFrame, percentile: float = 85.0
+) -> tuple[float, float | None]:
+    """Return ``(rocs_cutoff, sa_cutoff)`` defining the prior's selected tail.
+
+    Both cutoffs come from the **prior arm only**, so the same molecules-scale is
+    applied to the reinforced arm. ``sa_cutoff`` is ``None`` when the prior's SA
+    desirability column is saturated at its p{percentile} value: a cut there would
+    select all molecules and add nothing. ``rocs_cutoff`` is NaN when the arm has no
+    parsable ROCS values.
+    """
+    rocs = pd.to_numeric(prior_frame.get(std.ROCS), errors="coerce")
+    rocs = rocs.dropna() if rocs is not None else pd.Series(dtype=float)
+    rocs_cut = float(np.percentile(rocs, percentile)) if not rocs.empty else float("nan")
+
+    sa_cut: float | None = None
+    if std.SA in prior_frame.columns:
+        sa = pd.to_numeric(prior_frame[std.SA], errors="coerce").dropna()
+        if not sa.empty:
+            candidate = float(np.percentile(sa, percentile))
+            if candidate < float(sa.max()):
+                sa_cut = candidate
+    return rocs_cut, sa_cut
+
+
+def render_selected_distributions(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
+    output_png: Path | str,
+    ref_smiles: str = "",
+    percentile: float = 85.0,
+) -> Path:
+    """Same 3x3 dashboard restricted to the molecules that pass the prior's p{percentile} target.
+
+    The cutoffs are computed **once on the prior arm** and then applied unchanged to
+    both arms, so the figure answers "what do the selected molecules look like, and
+    how far did the reinforced arm move inside that selection" rather than
+    "what are each arm's own best molecules" (the latter would re-rank each arm and
+    hide the enrichment).
+
+    An SA cutoff is only applied when the prior's SA desirability column is not
+    saturated; see :func:`selection_cutoffs`.
+    """
+    b_frame = _valid_physical(df_before)
+    a_frame = _valid_physical(df_after)
+    rocs_cut, sa_cut = selection_cutoffs(b_frame, percentile)
+
+    def select(frame: pd.DataFrame) -> pd.DataFrame:
+        mask = pd.to_numeric(frame[std.ROCS], errors="coerce") >= rocs_cut
+        if sa_cut is not None:
+            mask &= pd.to_numeric(frame[std.SA], errors="coerce") >= sa_cut
+        return frame[mask]
+
+    b_selected = select(b_frame)
+    a_selected = select(a_frame)
+    note = f"selection: ROCS ≥ {rocs_cut:.3f} (prior p{percentile:.0f})"
+    if sa_cut is not None:
+        note += f", SA ≥ {sa_cut:.3f}"
+    note += (
+        f" — retained {len(b_selected)}/{len(b_frame)} prior, "
+        f"{len(a_selected)}/{len(a_frame)} reinforced"
+    )
+    return _render_property_grid(
+        enrich_medicinal_chemistry_descriptors(b_selected),
+        enrich_medicinal_chemistry_descriptors(a_selected),
+        Path(output_png),
+        ref_smiles,
+        f"Selected Tail (prior p{percentile:.0f} target): Baseline Prior vs. Reinforced Policy",
+        note,
+    )
+
+
+def _render_property_grid(
+    b_df: pd.DataFrame,
+    a_df: pd.DataFrame,
+    target_png: Path,
+    ref_smiles: str,
+    title: str,
+    note: str = "",
+) -> Path:
+    """Draw the 3x3 KDE dashboard for two already-filtered, already-enriched arms."""
+    target_png.parent.mkdir(parents=True, exist_ok=True)
 
     ref_m = Chem.MolFromSmiles(ref_smiles) if ref_smiles else None
     ref_vals = {
@@ -353,10 +451,10 @@ def render_before_after_distributions(
 
     fig, axes = plt.subplots(3, 3, figsize=(18, 14.5), dpi=250)
     fig.suptitle(
-        "Hierarchical De Novo Property Diagnostic Dashboard: Baseline Prior vs. Reinforced Policy",
-        fontsize=15,
+        title if not note else f"{title}\n{note}",
+        fontsize=15.0 if not note else 12.5,
         fontweight="bold",
-        y=0.985,
+        y=0.985 if not note else 0.995,
     )
 
     # 3x3 layout: Row 1 = Primary RL Objectives, Row 2 = Size & Complexity Drift, Row 3 = Physicochemical Integrity
@@ -442,7 +540,9 @@ def render_before_after_distributions(
             bbox=dict(boxstyle="square,pad=0.2", facecolor="#f1f5f9", edgecolor="#cbd5e1", linewidth=0.8),
         )
 
-    plt.subplots_adjust(top=0.92, bottom=0.05, hspace=0.36, wspace=0.22)
+    plt.subplots_adjust(
+        top=0.92 if not note else 0.895, bottom=0.05, hspace=0.36, wspace=0.22
+    )
     plt.savefig(target_png, dpi=250, bbox_inches="tight")
     plt.close(fig)
     return target_png
@@ -4085,6 +4185,13 @@ class ResultAnalyzer:
                 output_png=self.paths.figures_dir / "01_before_after_distributions.png",
                 ref_smiles=ref_smiles,
             )
+            # Figure 1b: the same dashboard on the selected tail (prior p85 target).
+            render_selected_distributions(
+                df_before=df_before_clean,
+                df_after=df_after_clean,
+                output_png=self.paths.figures_dir / "01b_selected_distributions.png",
+                ref_smiles=ref_smiles,
+            )
 
         # Figure 2: 02_multiobjective_tradeoffs.png
         render_multiobjective_tradeoffs(
@@ -4242,6 +4349,7 @@ class ResultAnalyzer:
                 "",
                 "## Publication Figures & Diagnostics",
                 "- [01 Hierarchical Property Diagnostic Dashboard (3x3 Distributions + 95% CI)](figures/01_before_after_distributions.png)",
+                "- [01b Selected-Tail Property Dashboard (molecules passing the prior p85 target)](figures/01b_selected_distributions.png)",
                 "- [02 Multi-Objective Trade-Offs (Empirical Skylines & 3D Pareto)](figures/02_multiobjective_tradeoffs.png)",
                 "- [03 Training Trajectories (RL Dynamics & Convergence Diagnostics)](figures/03_training_trajectories.png)",
                 "- [05 Prioritized Leads vs. Best-ROCS Hits (Two-Row Aligned 2D Cards)](figures/05_lead_structures_gallery.png)",
