@@ -15,7 +15,7 @@ This document is the authoritative single source of truth for AI agents and huma
    - **MetaCentrum HPC Cluster (`meta`)** (`kolardavidcz@tarkil.metacentrum.cz`): **Ad-hoc** host for occasional single CPU-heavy jobs; not a mirror of the local tree and not the default production queue. Managed via `python -m _david.code.metacentrum.submit`; the agent-facing template is [`code/metacentrum/RUNBOOK.md`](code/metacentrum/RUNBOOK.md).
 3. **Zero Broken Tests & Lints**:
    - Maintain zero tolerance for test failures or lint regressions.
-   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 158/158 passing; 6 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
+   - Run tests: `/home/kolar/DrugEx/.venv/bin/python -m unittest discover -s _david/code/tests -p "test_*.py"` (Currently 272/272 passing; 6 canonical-data tests skip on a host without `_david/data/conformers/canonical/`).
    - Test only behaviour and contracts. Never pin a chosen hyperparameter value, a figure filename or a label format: those change during the research and would turn a legitimate edit into a red suite (see `code/tests/plan.md`).
    - Run linter: `ruff check _david` (Must have 0 errors, 0 warnings).
 
@@ -79,6 +79,7 @@ In `tutorial/advanced/rocs/egcg/final_out/eps0.1/executed_eps0.1.ipynb`, supervi
 _david/
 ├── AGENTS.md                          # Authoritative project instructions & architectural decisions
 ├── code/                              # Shared chemistry/scoring layer (root package)
+│   ├── config.py                      # PipelineConfig single source of truth for hyperparameters
 │   ├── chemistry.py                   # Conformer generation, standardization, parallel embedding
 │   ├── rocs.py                        # CanonicalROCSScorer (raw TanimotoCombo) and Gaussian volume alignment
 │   ├── reference.py                   # Reference-conformer selection and ordering
@@ -86,7 +87,6 @@ _david/
 │   ├── schema.py, utils.py            # Standard column names and hardware job allocation
 │   ├── __init__.py                    # Public re-export surface for every layer below
 │   ├── training/                      # RL training pipeline
-│   │   ├── config.py                  # PipelineConfig single source of truth for hyperparameters
 │   │   ├── environment.py             # Multi-objective environment, scorers, modifiers, rewards
 │   │   ├── models.py                  # DecayingSequenceExplorer and model wrapper factories
 │   │   ├── pipeline.py                # 5-stage LBDD execution pipeline and CLI entry point
@@ -118,17 +118,18 @@ _david/
 │       ├── help/                      # 01-submit … 06-storage + monitor_live_epochs.py
 │       ├── scripts/runed/             # Frozen historical PBS runners (provenance only)
 │       └── archive/                   # compare_output_trees.py + its usage contract
-├── code/tests/                         # 158 behaviour/contract tests (100% passing)
+├── code/tests/                         # 272 behaviour/contract tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
 ```
 
-**Import contract.** The root package carries the shared chemistry/scoring layer
-(`chemistry`, `rocs`, `reference`, `prior_dataset`, `schema`, `utils`); `training/` and
-`analysis/` build on it. One edge points back: shared constants such as `PipelineConfig`
-live in `training/config.py`, so root modules import them from there (at function scope
-where a module-level import would cycle). `_david/code/__init__.py` re-exports the public
-names, so `from _david.code import PipelineConfig` keeps working, while direct module
-imports use the dotted path:
+**Import contract.** The root package carries the shared contract and chemistry layer
+(`config`, `chemistry`, `rocs`, `reference`, `prior_dataset`, `schema`, `utils`);
+`training/` and `analysis/` build on it and nothing in the root package imports from a
+subpackage at module scope. `PipelineConfig` lives in `config.py` at the package root
+because chemistry, ROCS, reference preparation and every analysis entry point read it;
+putting it under `training/` would make the shared layer depend on a subpackage.
+`_david/code/__init__.py` re-exports the public names, so `from _david.code import
+PipelineConfig` keeps working, while direct module imports use the dotted path:
 `_david.code.training.pipeline`, `_david.code.analysis.visualization`, … The CLI entry
 points are therefore:
 
@@ -171,7 +172,7 @@ monitoring, transfer and failure triage.
 .venv/bin/python -m _david.code.metacentrum.submit status
 .venv/bin/python -m _david.code.metacentrum.submit logs egcg_default -f
 .venv/bin/python -m _david.code.metacentrum.submit pull
-.venv/bin/python -m _david.code.audit_rl_runs
+.venv/bin/python -m _david.code.run_audit.audit_rl_runs
 
 # Live epochs (reads worker scratch; stdlib-only, runs on the login node)
 ssh meta 'python3 /storage/brno2/brno2/kolardavidcz/DrugEx/current/_david/code/metacentrum/help/monitor_live_epochs.py'
@@ -230,5 +231,5 @@ _david/output/YYYYmmdd_HHMM[_tag]/
 - Historical runs (`sprint_h1_*`, `egcg_k4_*`, …) keep their original names; `RL_RUN_AUDIT.md` and `manifests` are the authoritative record of what each one is.
 
 No production batch is queued as of 2026-11-04. The gold-standard defaults are
-`avg_gmean` / `n_eval_samples=5000`; run `python -m _david.code.audit_rl_runs`
+`avg_gmean` / `n_eval_samples=5000`; run `python -m _david.code.run_audit.audit_rl_runs`
 after a pull to check which completed runs match them.

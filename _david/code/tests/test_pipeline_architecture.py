@@ -9,13 +9,15 @@ from rdkit import Chem
 
 from _david.code.config import (
     DEFAULT_MOLECULE,
+    OUTPUT_ROOT,
+    PROJECT_ROOT,
     PipelineConfig,
     RunPaths,
     free_run_directory,
     run_directory_name,
 )
 from _david.code.training.environment import HarringtonDesirabilityReward, create_environment
-from _david.code.training.pipeline import config_from_args, parse_args
+from _david.code.training.pipeline import CODE_ROOT, config_from_args, parse_args
 from _david.code.reference import PrepareMolecule
 from _david.code.rocs import create_rocs_scorer, has_color, score_pair
 from _david.code.schema import std
@@ -271,6 +273,26 @@ class TestRocsColourTyping(unittest.TestCase):
             ref_sdf, cfg=PipelineConfig(max_conformers=2), color_ff="default"
         )
         self.assertEqual(scorer.color_ff, "default")
+
+
+class TestProjectRoots(unittest.TestCase):
+    """Package roots must follow the module's depth, not a hard-coded guess.
+
+    ``config.py`` moved into ``training/`` and back to the package root during
+    the package split. Each move changed the number of parents between the file
+    and the repository, so a stale depth silently redirects every run's output
+    to the wrong tree. These assertions derive the expected root independently
+    from this test file's own location.
+    """
+
+    def test_project_root_is_the_repository_root(self) -> None:
+        repo_root = Path(__file__).resolve().parents[3]
+        self.assertEqual(PROJECT_ROOT, repo_root)
+        self.assertTrue((PROJECT_ROOT / "_david" / "code" / "config.py").is_file())
+
+    def test_output_and_code_roots_follow_the_project_root(self) -> None:
+        self.assertEqual(OUTPUT_ROOT, PROJECT_ROOT / "_david" / "output")
+        self.assertEqual(CODE_ROOT, PROJECT_ROOT / "_david" / "code")
 
 
 if __name__ == "__main__":

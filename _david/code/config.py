@@ -10,7 +10,7 @@ from typing import Literal
 from _david.code.chemistry import Optimization
 from _david.code.schema import std
 
-PROJECT_ROOT: Path = Path(__file__).resolve().parents[3]
+PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 
 #: Root that receives one directory per pipeline run.
 OUTPUT_ROOT: Path = PROJECT_ROOT / "_david" / "output"
