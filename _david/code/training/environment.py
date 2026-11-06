@@ -165,6 +165,7 @@ def create_environment(
         rocs_scorer.setModifier(
             ClippedScore(
                 lower_x=0.0, upper_x=cfg.rocs_clip_upper, low_score=0.0, high_score=1.0
+                # lower_x=0.3, upper_x=cfg.rocs_clip_upper, low_score=0.0, high_score=1.0
             )
         )
     else:
