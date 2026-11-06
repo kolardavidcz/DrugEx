@@ -102,6 +102,14 @@ reinforce it.
    standard, or run a paired arm with `pareto_crowding`.
 2. Log ROCS directly in `_fit.tsv` (see P1-1) so the criterion can be audited.
 
+**First evidence (2026-11-06, arms still running).** With
+`--thresholds 0.759 0.25`, the primary MetaCentrum arm (`egcg_p85_har`, job
+25313048) logs `desired_ratio` = **0.06 at epoch 1** and 0.08 at epoch 2, against
+0.86 for the fixed-threshold arms and 0.14 for the supervisor. The calibration
+does what it is supposed to do: the success signal now starts near the tail
+instead of saturating. Whether that turns into a ROCS gain is the open question;
+the arm needs ~14 h at the measured 17.9 min/epoch.
+
 ### 2.3 Root cause candidate 2 — scoring geometry
 
 Measured with the current code on EGCG itself:
@@ -117,17 +125,24 @@ reference scores 1.26 even for EGCG, because candidate ETKDG poses do not reprod
 that exact conformer. The two numbers are therefore **not on the same scale**, and
 the supervisor's +0.14 cannot be compared directly with our +0.00.
 
-What is still unexplained is why our *relative* improvement is smaller even after
-rescoring both arms with one protocol. The cross-scoring experiment (1000 unique
-valid molecules per arm, both protocols) is running on `dichtator`; it answers:
+The cross-scoring experiment (1000 unique valid molecules per arm, both
+protocols) has now finished on `dichtator`. It scored the *same* molecules twice,
+once with our stack and once with the supervisor's, so the ruler is held constant
+inside each column:
 
-- if our protocol scores the supervisor's after-arm near 0.78, the policies differ;
-- if it scores it near 0.68, our scorer compresses the tail and the comparison is
-  an artefact;
-- if the supervisor's protocol scores our arm near 0.78, our arm is fine and only
-  the measurement differs.
+| molecule set | n | our ruler median | their ruler median | p90 (ours / theirs) |
+|---|---|---|---|---|
+| supervisor prior | 946 | 0.6852 | 0.6386 | 0.7760 / 0.7447 |
+| supervisor after | 931 | **0.7970** | **0.7763** | 0.8886 / 0.8686 |
+| our ctrl_seed42 | 1000 | 0.6812 | 0.6414 | 0.7799 / 0.7470 |
 
-Until that finishes, treat the +0.14 as **not yet attributable**.
+Verdict: the gap is **policy, not measurement**. Under our ruler the supervisor's
+after-arm is 0.797 against a prior of 0.685 (+0.112); under their ruler it is
+0.776 against 0.639 (+0.138). Our arm stays at 0.681 / 0.641. The ruler shifts
+every arm by roughly the same ~0.04, so it changes the *level*, never the
+*ordering* or the *gain*. The +0.11–0.14 is therefore attributable to what the
+policy was asked to do, and the prime suspect is the success threshold
+(§2.2), not the scorer.
 
 ### 2.4 Root cause candidate 3 — the reference ensemble itself
 
@@ -142,6 +157,29 @@ the diverse poses may reward generic shapes.
 This is a scientific choice, not a bug. It needs an explicit ablation:
 reference K ∈ {1, 4} × minimization ∈ {on, off} × colour ∈ {default, oe_mills_dean},
 scored on one fixed arm.
+
+**Important distinction.** The cross-score shows the supervisor's *policy* wins
+under both rulers; it does **not** show that their *reference* is better. A
+reference can only be judged by the discrimination it produces: score the same
+prior and after-arm under one geometry and compare `median(after) − median(prior)`
+and the tail enrichment. A geometry that raises both arms equally has not helped;
+it has only moved the ceiling. This is the experiment that must run before any
+new training arm changes the reference.
+
+Two specific traps for the proposed "4 unminimized reference conformers, 4
+isomers, 30 conformers, ε=0.1" arm:
+
+1. **It is not the supervisor's geometry.** Their reference is a *single
+   MMFF-minimized* conformer of the natural stereoisomer; only the *candidates*
+   are raw ETKDG. "Unminimized reference + unminimized candidates" is a third
+   geometry, and because reference and candidates then share the same embedding
+   procedure it raises the same-generator self-score bias that produced our 1.99
+   ceiling.
+2. **Four isomers widen the query.** EGCG has two stereocentres, so four
+   diastereomers exist. Matching "any of four" rewards whichever diastereomer is
+   easiest to hit and makes the reference chemically ambiguous. The natural
+   (−)-EGCG is one stereoisomer; if the target is stereochemistry-agnostic that
+   is a deliberate choice, but it must be labelled as one.
 
 ### 2.5 Root cause candidate 4 — reward scheme
 
