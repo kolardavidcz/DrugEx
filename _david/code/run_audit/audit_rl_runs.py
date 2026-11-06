@@ -951,10 +951,14 @@ def _provenance_record(run: RunAudit) -> dict[str, Any]:
     """Evaluation provenance of a run, read from the manifests without loading arms."""
     from _david.code.analysis.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
 
+    # A telemetry-only directory (an engineering smoke test, a calibration study)
+    # has per-epoch TSV but never sampled an evaluation arm. Report that honestly
+    # instead of hashing a file that was never written.
+    arm = run.path / "raw_data" / "reinforced_raw.csv.gz"
     record: dict[str, Any] = {
-        "eval_source": "historical_arm",
-        "eval_n": run.config.get("n_eval_samples"),
-        "eval_arm_sha256": _sha256(run.path / "raw_data" / "reinforced_raw.csv.gz"),
+        "eval_source": "historical_arm" if arm.is_file() else "missing_arm",
+        "eval_n": run.config.get("n_eval_samples") if arm.is_file() else None,
+        "eval_arm_sha256": _sha256(arm) if arm.is_file() else None,
         "eval_protocol_sha256": None,
         "eval_checkpoint_sha256": None,
     }

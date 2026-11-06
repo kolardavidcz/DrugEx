@@ -16,22 +16,28 @@ Historical runs are **not** retroactively re-sampled: their figures are rebuilt 
 
 | Run | Host / job | Epochs | Criterion | Similarity | Eval n | QED | Reward | ε | K / C / min | Figures | Copies | Verdict |
 | :--- | :--- | ---: | :--- | :--- | ---: | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| `20261027_2035_run18_epsilon_zero_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 13/13 (+04) | 0 | OK |
-| `20261030_1700_rl_option_one` | dichtator | 250 | `avg_amean` | `tversky_mild_color_heavy` | 1000 | - | `harrington` | 0.15 -> 0.02 | 4 / 20 / yes | 13/13 (+04) | 1 | OK |
-| `20261101_1500_sprint_h1_without_qed_pareto` | adan40.grid.cesnet.cz / 25184273.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.05 | 1 / 30 / no | 13/13 (+04) | 1 | OK |
-| `20261102_0630_sprint_h2_without_qed_harrington` | elmu1-22.hw.elixir-czech.cz / 25193151.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `harrington` | 0.05 | 1 / 30 / no | 13/13 (+04) | 1 | OK |
-| `20261102_0849_sprint_h3_with_qed_pareto` | elmu1-24.hw.elixir-czech.cz / 25193152.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `pareto_crowding` | 0.05 | 1 / 30 / no | 13/13 (+04) | 1 | OK |
-| `20261102_0928_sprint_h4_with_qed_harrington` | elmu1-25.hw.elixir-czech.cz / 25193153.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `harrington` | 0.05 | 1 / 30 / no | 13/13 (+04) | 1 | OK |
-| `20261102_2151_sprint_h7_tversky_scaffold_hop` | elmu1-17.hw.elixir-czech.cz / 25218573.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tversky_scaffold_hop` | 1000 | no | `harrington` | 0.05 | 4 / 20 / yes | 13/13 (+04) | 0 | OK |
-| `20261102_2205_supervisor_reproduction_eps0.1` | - | 50 | `-` | `-` | - | - | `-` | 0.1 | - / - / - | 13/13 (+04) | 0 | OK |
-| `20261103_0054_egcg_k4_c20_candidates_minimized_gold` | elmo3-6.hw.elixir-czech.cz / 25223670.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / yes | 13/13 (+04) | 0 | OK |
-| `20261103_0054_egcg_k4_c20_candidates_unminimized` | elmo3-5.hw.elixir-czech.cz / 25223669.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / no | 13/13 (+04) | 0 | OK |
-| `20261104_0445_egcg_gold_oe` | eluo1-4.hw.elixir-czech.cz / 25256877.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 13/13 (+04) | 0 | OK |
-| `20261104_0447_egcg_eps0` | elmu1-15.hw.elixir-czech.cz / 25256882.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0 | 4 / 20 / yes | 13/13 (+04) | 0 | OK |
-| `20261105_1013_egcg_p30_beta35` | adan19.grid.cesnet.cz / 25284658.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 11/13 (+04) | 0 | UNVERIFIABLE |
-| `20261105_1013_egcg_p30_bs128` | tyra22.metacentrum.cz / 25284654.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 13/13 (+04) | 0 | OK |
-| `archive/historical_rl_graph_runs/run16_sequencer_weighted_sum` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
-| `archive/historical_rl_graph_runs/run17_baseline_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 7/13 (+04) | 0 | UNVERIFIABLE |
+| `20261027_2035_run18_epsilon_zero_50ep` | - | - | `-` | `-` | - | - | `-` | - | - / - / - | 9/9 (+04) | 0 | OK |
+| `20261030_1700_250_epochs` | dichtator | 250 | `avg_amean` | `tversky_mild_color_heavy` | 1000 | - | `harrington` | 0.15 -> 0.02 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261101_1500_sprint_h1_without_qed_pareto` | adan40.grid.cesnet.cz / 25184273.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.05 | 1 / 30 / no | 9/9 (+04) | 0 | OK |
+| `20261102_0630_sprint_h2_without_qed_harrington` | elmu1-22.hw.elixir-czech.cz / 25193151.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | no | `harrington` | 0.05 | 1 / 30 / no | 9/9 (+04) | 0 | OK |
+| `20261102_0849_sprint_h3_with_qed_pareto` | elmu1-24.hw.elixir-czech.cz / 25193152.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `pareto_crowding` | 0.05 | 1 / 30 / no | 9/9 (+04) | 0 | OK |
+| `20261102_0928_sprint_h4_with_qed_harrington` | elmu1-25.hw.elixir-czech.cz / 25193153.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tanimoto_combo` | 1000 | yes | `harrington` | 0.05 | 1 / 30 / no | 9/9 (+04) | 0 | OK |
+| `20261102_2151_sprint_h7_tversky_scaffold_hop` | elmu1-17.hw.elixir-czech.cz / 25218573.pbs-m1.metacentrum.cz | 200 | `avg_amean` | `tversky_scaffold_hop` | 1000 | no | `harrington` | 0.05 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261102_2205_supervisor_reproduction_eps0.1` | - | 50 | `-` | `-` | - | - | `-` | 0.1 | - / - / - | 9/9 (+04) | 0 | OK |
+| `20261103_0054_egcg_k4_c20_candidates_minimized_gold` | elmo3-6.hw.elixir-czech.cz / 25223670.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261103_0054_egcg_k4_c20_candidates_unminimized` | elmo3-5.hw.elixir-czech.cz / 25223669.pbs-m1.metacentrum.cz | 50 | `avg_amean` | `tanimoto_combo` | 1000 | no | `pareto_crowding` | 0.1 | 4 / 20 / no | 9/9 (+04) | 0 | OK |
+| `20261104_0445_egcg_gold_oe` | eluo1-4.hw.elixir-czech.cz / 25256877.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261104_0447_egcg_eps0` | elmu1-15.hw.elixir-czech.cz / 25256882.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261105_1013_egcg_p30_beta35` | adan19.grid.cesnet.cz / 25284658.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261105_1013_egcg_p30_bs128` | tyra22.metacentrum.cz / 25284654.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261105_1013_egcg_p30_ctrl_seed42` | adan42.grid.cesnet.cz / 25284673.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261105_1013_egcg_p30_epsdecay` | tyra4.metacentrum.cz / 25284653.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.15 -> 0 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261105_1013_egcg_p30_pareto` | alfrid5.meta.zcu.cz / 25284657.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `pareto_crowding` | 0.05 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261105_1013_egcg_p30_rocs95` | adan25.grid.cesnet.cz / 25284659.pbs-m1.metacentrum.cz | 200 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261105_1013_egcg_p30_s1k` | tyra19.metacentrum.cz / 25284655.pbs-m1.metacentrum.cz | 100 | `avg_gmean` | `tanimoto_combo` | 5000 | no | `harrington` | 0.05 | 4 / 20 / yes | 9/9 (+04) | 0 | OK |
+| `20261106_0326_egcg_loss120_ws` | dichtator | 120 | `val_loss` | `tanimoto_combo` | 5000 | yes | `harrington` | 0 | 4 / 20 / yes | 9/9 | 0 | OK* |
+
+`OK*` = all 9 current figures plus the scorecard and summary are present; only the retired `04` diagnostic is missing. `04` is not part of the current `ResultAnalyzer` contract.
 
 ## What differs from the gold standard
 
@@ -42,14 +48,14 @@ Only fields that actually differ are listed. `-` means the field was absent from
 - Headline gold conformance: **0/3** (criterion, similarity, evaluation size)
 - Configuration unavailable: pre-manifest run. Only the stored artifacts can be audited; hyperparameters cannot be reconstructed from the repository.
 
-### `20261030_1700_rl_option_one`
+### `20261030_1700_250_epochs`
 
 - Headline gold conformance: **0/3** (criterion, similarity, evaluation size)
 - Wall clock: 21.4 h
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
-| training horizon (`epochs`) | `250` | `200` |
+| training horizon (`epochs`) | `250` | `120` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | similarity variant (`score_variant`) | `tversky_mild_color_heavy` | `tanimoto_combo` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
@@ -66,6 +72,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
 | reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
@@ -81,6 +88,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
 | candidate budget C (`max_conformers`) | `30` | `20` |
@@ -95,6 +103,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
 | reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
@@ -112,6 +121,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
 | QED objective (`include_qed`) | `yes` | `no` |
@@ -127,6 +137,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | similarity variant (`score_variant`) | `tversky_scaffold_hop` | `tanimoto_combo` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
@@ -138,7 +149,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
-| training horizon (`epochs`) | `50` | `200` |
+| training horizon (`epochs`) | `50` | `120` |
 | exploration (`epsilon`) | `0.1` | `0.05` |
 
 ### `20261103_0054_egcg_k4_c20_candidates_minimized_gold`
@@ -148,7 +159,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
-| training horizon (`epochs`) | `50` | `200` |
+| training horizon (`epochs`) | `50` | `120` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
 | reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
@@ -161,7 +172,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
-| training horizon (`epochs`) | `50` | `200` |
+| training horizon (`epochs`) | `50` | `120` |
 | checkpoint criterion (`criteria`) | `avg_amean` | `avg_gmean` |
 | final evaluation size (`n_eval_samples`) | `1000` | `5000` |
 | reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
@@ -173,7 +184,10 @@ Only fields that actually differ are listed. `-` means the field was absent from
 - Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
 - Source revision: `b3812e60440f47637117b0f96f9073ea9661a35a`
 - Wall clock: 10.3 h
-- No deviations from the gold standard.
+
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 
 ### `20261104_0447_egcg_eps0`
 
@@ -183,6 +197,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 | exploration (`epsilon`) | `0` | `0.05` |
 
 ### `20261105_1013_egcg_p30_beta35`
@@ -193,6 +208,7 @@ Only fields that actually differ are listed. `-` means the field was absent from
 
 | Knob | Run used | Gold |
 | :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 | baseline penalty (`beta`) | `0.35` | `0` |
 
 ### `20261105_1013_egcg_p30_bs128`
@@ -200,33 +216,83 @@ Only fields that actually differ are listed. `-` means the field was absent from
 - Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
 - Source revision: `5f1c0c86b3d1b5263f114e23229fdcfb31fb4fe5`
 - Wall clock: 7.4 h
-- No deviations from the gold standard.
 
-### `archive/historical_rl_graph_runs/run16_sequencer_weighted_sum`
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
 
-- Headline gold conformance: **0/3** (criterion, similarity, evaluation size)
-- Configuration unavailable: pre-manifest run. Only the stored artifacts can be audited; hyperparameters cannot be reconstructed from the repository.
+### `20261105_1013_egcg_p30_ctrl_seed42`
 
-### `archive/historical_rl_graph_runs/run17_baseline_50ep`
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `edf9e8d6be087d6ee9304697c91667c0c9c87024`
+- Wall clock: 15.8 h
 
-- Headline gold conformance: **0/3** (criterion, similarity, evaluation size)
-- Configuration unavailable: pre-manifest run. Only the stored artifacts can be audited; hyperparameters cannot be reconstructed from the repository.
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
+
+### `20261105_1013_egcg_p30_epsdecay`
+
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `5f1c0c86b3d1b5263f114e23229fdcfb31fb4fe5`
+- Wall clock: 10.6 h
+
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
+| exploration (`epsilon`) | `0.15` | `0.05` |
+| epsilon schedule (`use_epsilon_decay`) | `yes` | `no` |
+
+### `20261105_1013_egcg_p30_pareto`
+
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `5f1c0c86b3d1b5263f114e23229fdcfb31fb4fe5`
+- Wall clock: 12.2 h
+
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
+| reward scheme (`reward_scheme`) | `pareto_crowding` | `harrington` |
+
+### `20261105_1013_egcg_p30_rocs95`
+
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `5f1c0c86b3d1b5263f114e23229fdcfb31fb4fe5`
+- Wall clock: 17.1 h
+
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| training horizon (`epochs`) | `200` | `120` |
+
+### `20261105_1013_egcg_p30_s1k`
+
+- Headline gold conformance: **3/3** (criterion, similarity, evaluation size)
+- Source revision: `5f1c0c86b3d1b5263f114e23229fdcfb31fb4fe5`
+- Wall clock: 13.8 h
+
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| training horizon (`epochs`) | `100` | `120` |
+
+### `20261106_0326_egcg_loss120_ws`
+
+- Headline gold conformance: **2/3** (criterion, similarity, evaluation size)
+- Wall clock: 4.4 h
+
+| Knob | Run used | Gold |
+| :--- | :--- | :--- |
+| checkpoint criterion (`criteria`) | `val_loss` | `avg_gmean` |
+| QED objective (`include_qed`) | `yes` | `no` |
+| exploration (`epsilon`) | `0` | `0.05` |
+| desirability gates (`thresholds`) | `(0.35, 0.5, 0.5)` | `(0.35, 0.5)` |
 
 ## Incomplete runs (not verifiable, kept for provenance)
 
 | Run | State | Host / job | Last epoch | Raw arms |
 | :--- | :--- | :--- | ---: | :---: |
-| `20261030_0325_rl01_opt1_mild_color_heavy.negative_control_mode_collapse_20261030_040259` | running | dichtator | 99 | no |
-| `20261031_0130_rl02_opt2_scaffold_hop` | running | dichtator | - | no |
-| `20261103_2102_egcg_k4_c20_candidates_minimized_gold_gmean` | failed | elmu1-5.hw.elixir-czech.cz / 25249720.pbs-m1.metacentrum.cz | - | no |
-| `20261103_2113_egcg_k4_c20_raw_tanimoto_gmean_5k` | running | elmu1-5.hw.elixir-czech.cz / 25249783.pbs-m1.metacentrum.cz | - | no |
-| `20261104_0446_egcg_to60` | running | elmu1-8.hw.elixir-czech.cz / 25256880.pbs-m1.metacentrum.cz | 132 | no |
-| `20261104_0447_egcg_eps01_cos30` | failed | elmu1-20.hw.elixir-czech.cz / 25256883.pbs-m1.metacentrum.cz | - | no |
-| `archive/duplicate_runs/partial_4cpu_sprint_h1_without_qed_pareto` | running | galdor17.metacentrum.cz / 25170006.pbs-m1.metacentrum.cz | 35 | no |
-| `archive/duplicate_runs/partial_4cpu_sprint_h2_without_qed_harrington` | running | galdor5.metacentrum.cz / 25170007.pbs-m1.metacentrum.cz | 11 | no |
-| `archive/partial_cluster_runs/partial_4cpu_sprint_h1_without_qed_pareto` | running | galdor17.metacentrum.cz / 25170006.pbs-m1.metacentrum.cz | 35 | no |
-| `archive/partial_cluster_runs/partial_4cpu_sprint_h2_without_qed_harrington` | running | galdor5.metacentrum.cz / 25170007.pbs-m1.metacentrum.cz | 11 | no |
-| `archive/partial_cluster_runs/partial_4cpu_sprint_h3_with_qed_pareto` | running | galdor9.metacentrum.cz / 25170008.pbs-m1.metacentrum.cz | 6 | no |
+| `archive/un_standardize/20261031_0130_rl02_opt2_scaffold_hop` | running | dichtator | - | no |
+| `archive/un_standardize/20261104_0446_egcg_to60` | running | elmu1-8.hw.elixir-czech.cz / 25256880.pbs-m1.metacentrum.cz | 132 | no |
+| `archive/un_standardize/20261104_0447_egcg_eps01_cos30` | failed | elmu1-20.hw.elixir-czech.cz / 25256883.pbs-m1.metacentrum.cz | - | no |
 
 ## Excluded smoke/calibration runs
 
@@ -235,21 +301,6 @@ These share the RL manifest shape but train for `epochs <= 5`; they are engineer
 | Run | Epochs | Samples | Purpose |
 | :--- | ---: | ---: | :--- |
 | `conformer/self_similarity/20261029_1155_reward_calibration_126_mols/raw_data/rl_smoke` | 1 | 16 | Engineering smoke test |
-
-## Duplicate locations
-
-Byte-identical `baseline_raw.csv.gz` + `reinforced_raw.csv.gz`. The primary is the copy with the most complete figure suite; the rest can be removed without losing evidence.
-
-- `20261030_1700_rl_option_one`
-  - copy: `archive/duplicate_runs/rl01_opt1_mild_color_heavy`
-- `20261101_1500_sprint_h1_without_qed_pareto`
-  - copy: `archive/duplicate_runs/sprint_h1_without_qed_pareto`
-- `20261102_0630_sprint_h2_without_qed_harrington`
-  - copy: `archive/duplicate_runs/sprint_h2_without_qed_harrington`
-- `20261102_0849_sprint_h3_with_qed_pareto`
-  - copy: `archive/duplicate_runs/sprint_h3_with_qed_pareto`
-- `20261102_0928_sprint_h4_with_qed_harrington`
-  - copy: `archive/duplicate_runs/sprint_h4_with_qed_harrington`
 
 ## How to reproduce this audit
 

@@ -252,6 +252,26 @@ class TestProtocol(unittest.TestCase):
             seval.scoring_protocol(self.cfg, other)["sha256"],
         )
 
+    def test_an_arm_without_a_recorded_block_recomputes_from_its_own_dataset(self) -> None:
+        """The audit recomputes legacy arms; a phantom drift must not appear.
+
+        Passing the dataset *manifest* where the identity hashes are expected
+        produced three ``None`` values, so every arm written before the protocol
+        block looked like it had been scored under a different protocol than the
+        arms that recorded theirs.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _dataset(root)
+            run = _arm(root, "20261101_1200_a")
+            manifest = json.loads((run / seval.STANDARD_DIR / seval.MANIFEST_NAME).read_text())
+            dataset_manifest = json.loads((root / DATASET_NAME / seval.MANIFEST_NAME).read_text())
+            recomputed = seval.protocol_from_manifest(manifest, dataset_manifest)
+            self.assertEqual(
+                recomputed["sha256"],
+                seval.scoring_protocol(self.cfg, DATASET_RECORD)["sha256"],
+            )
+
     def test_arms_on_one_protocol_verify_clean(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -88,5 +88,34 @@ class TestDiscovery(unittest.TestCase):
             self.assertEqual(run.rel, "20261101_1200_run")
 
 
+class TestProvenanceRecord(unittest.TestCase):
+    def test_a_run_without_an_evaluation_arm_is_reported_not_hashed(self) -> None:
+        # An engineering smoke test or a calibration study keeps the run layout
+        # (manifest + telemetry) but never samples an evaluation arm. The CSV
+        # export used to crash on it while simply hashing the missing file.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "20261029_1155_smoke"
+            (path / "models").mkdir(parents=True)
+            run = audit.RunAudit(
+                path=path,
+                rel=path.name,
+                manifest={"state": "complete", "config": {}},
+                provenance=None,
+                state="complete",
+                host="",
+                pbs_job_id="",
+                source_revision="",
+                elapsed_seconds=None,
+                query="",
+                config={"n_eval_samples": 1000},
+                fingerprint="solo",
+                archived=False,
+            )
+            record = audit._provenance_record(run)
+            self.assertEqual(record["eval_source"], "missing_arm")
+            self.assertIsNone(record["eval_arm_sha256"])
+            self.assertIsNone(record["eval_n"])
+
+
 if __name__ == "__main__":
     unittest.main()

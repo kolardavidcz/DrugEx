@@ -159,12 +159,16 @@ def protocol_from_manifest(manifest: dict[str, Any], dataset: dict[str, Any]) ->
     the rest of the environment is rebuilt from ``_standard_config``. Because the
     modules that define those defaults are byte-identical between the producing
     releases, the recomputed hash is what the old run would have recorded.
+
+    ``dataset`` is the *dataset manifest* (it carries the ``scoring`` block), while
+    the three identity hashes live in the arm's own ``dataset`` record. Hashing the
+    dataset manifest instead yields three ``None`` hashes and a phantom protocol
+    drift between arms written before and after the block existed.
     """
     recorded = manifest.get("protocol")
     if isinstance(recorded, dict) and recorded.get("sha256"):
         return recorded
-    config = _standard_config(dataset)
-    return scoring_protocol(config, dataset)
+    return scoring_protocol(_standard_config(dataset), manifest.get("dataset") or {})
 
 
 def _seed_everything(seed: int) -> None:
