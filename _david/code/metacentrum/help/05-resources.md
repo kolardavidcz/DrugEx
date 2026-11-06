@@ -124,19 +124,28 @@ Measure the epoch rate, then multiply:
 epochs_that_fit = floor(walltime_hours * 60 / minutes_per_epoch)
 ```
 
-From the historical runs: 200 epochs × 500 samples with `--no-minimize-candidates`,
-C=30, 16 cores finished inside 24 h. Minimisation costs roughly **4×** more (conformer
-embedding with MMFF94s, dielectric 78.4), so a minimised 200-epoch run does not fit in 24 h;
-use `--walltime 48:00:00` (routes to `q_2d`) or reduce `--epochs`.
+Measured rates for a minimised 500-sample epoch (MMFF94s, dielectric 78.4, C=20):
+**~10.4 min at 16 cores** and ~5.1 min on a 48-thread workstation. So the 150-epoch default
+needs ~26 h at 16 cores and does not fit a 24 h slot; the 2026-11-04/05 arms that asked for
+200 were killed at epoch 132/137, i.e. the cap was never reachable. Three honest fixes, in
+order of preference:
+
+1. **More cores, same science** (`--ncpus 32 --mem 64`): the scoring step is the parallel
+   part, and the wall clock halves while the molecule scores stay identical.
+2. **A deeper queue** (`--walltime 48:00:00` → `q_2d`): wait longer, spend less allocation.
+3. **Fewer epochs**: only if the horizon is a decided design choice, never just to reach a
+   shallower queue.
 
 Practical guidance:
 
+- `q_1d` drains roughly twice as fast as `q_2d` (1435 vs 764 running jobs on 2026-11-06) and
+  a submitted job waited ~6 h for a slot there, so buying cores usually beats buying days.
+- `--mem` scales with `--ncpus` at ~2 GB per core; `JobSpec` rejects a starved pairing. The
+  16-core arms reached their 32 GB ceiling, so 32 cores starts at 64 GB.
 - Start from the default 24 h. If `monitor_live_epochs.py` shows an ETA beyond the limit,
   kill early and resubmit with the right budget — a killed job still consumes its walltime.
-- The 24 h request is deliberate: it is the default lane (`q_1d`) and the budget the
-  historical 200-epoch unminimised arms needed. Do not trim it to chase a shallower queue.
-- `--epochs 200` is a **cap**: early stopping (`min_epochs=50`, `patience=30`) usually ends a
-  converged run before 200.
+- `--epochs 150` is a **cap**: early stopping (`min_epochs=50`, `patience=30`) usually ends a
+  converged run long before it.
 - Walltime above the routed queue's maximum is rejected at submission; the router would have
   to pick a deeper queue anyway.
 

@@ -50,12 +50,17 @@ class PipelineConfig:
 
     # Reinforcement Learning Exploration
     # DrugEx v1 (Liu et al., 2019, J. Cheminform. 11:35) converges around ~200 epochs
-    # with 8 Adam gradient steps/epoch (lr=1e-3). Defaulting to 200 epochs with min_epochs=50 and patience=30.
+    # with 8 Adam gradient steps/epoch (lr=1e-3); min_epochs=50 and patience=30 are the
+    # real stopping rules, so the cap only bounds a run that never stops improving.
     # patience=30 (was 50): both 2026-11-04 runs improved for ~51 epochs after their best
     # checkpoint before stopping, i.e. the 50-epoch window was the binding constraint, not
     # convergence. 30 stops flat runs ~20 epochs sooner without touching a run that is
     # still improving; min_epochs=50 still holds the floor.
-    epochs: int = 200  # ^ [250, 200, 100]
+    # epochs=150 (was 200, 2026-11-06): a minimised 500-sample epoch costs a measured
+    # ~10.4 min at 16 cores, so a 200-epoch cap cannot fit the 24 h ``q_1d`` lane and the
+    # two 2026-11-04/05 runs were killed at epoch 132/137 — the cap was never reachable.
+    # 150 keeps a full-horizon run inside one day without shortening the walltime request.
+    epochs: int = 150  # ^ [250, 200, 150, 100]
     patience: int = 30  # Early-stopping patience (no improvement, after min_epochs=50)
     min_epochs: int = 50
 

@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from _david.code.metacentrum import job, submit
 from _david.code.metacentrum.submit import (
+    MEM_GB_PER_CORE,
     MODEL_STEM,
     RESERVED_FLAGS,
     JobSpec,
@@ -105,6 +106,18 @@ class TestJobSpec(unittest.TestCase):
             JobSpec(name="bad", ncpus=0)
         with self.assertRaises(ValueError):
             JobSpec(name="bad", ngpus=-1)
+
+    def test_cores_cannot_be_raised_without_memory(self) -> None:
+        """A 32-core job on 32 GB is an OOM kill after the queue wait, not a speed-up.
+
+        The scoring pool keeps ~2 GB per worker and the 16-core arms already reached
+        their 32 GB ceiling, so ``--ncpus`` and ``--mem`` move together.
+        """
+        with self.assertRaises(ValueError):
+            JobSpec(name="starved", ncpus=32, mem_gb=32)
+        spec = JobSpec(name="wide", ncpus=32, mem_gb=MEM_GB_PER_CORE * 32)
+        self.assertIn("mem=64gb", spec.resources)
+        self.assertIn(f"ncpus={JobSpec.ncpus}", JobSpec(name="egcg_default").resources)
 
     def test_template_owned_flags_are_rejected_in_every_spelling(self) -> None:
         for flag in RESERVED_FLAGS:

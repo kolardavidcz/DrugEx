@@ -54,6 +54,12 @@ QUEUE_ROUTING: tuple[tuple[int, str], ...] = (
 #: shorter slot to land in a shallower queue.
 DEFAULT_WALLTIME = "24:00:00"
 
+#: Memory a minimised ROCS run needs per scoring worker. Measured 2026-11-06: the
+#: 16-core arms reported ``resources_used.mem`` at their 32 GB ceiling, and the 16-core
+#: standard-evaluation job used 31.2 GB of 32, so ``ncpus`` cannot be raised alone —
+#: doubling the pool without doubling ``--mem`` is an OOM kill after the queue wait.
+MEM_GB_PER_CORE = 2
+
 _WALLTIME_RE = re.compile(r"^(\d{1,3}):([0-5]\d):([0-5]\d)$")
 _NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
 _KERBEROS_MARKERS = (
@@ -144,6 +150,13 @@ class JobSpec:
             )
         if min(self.ncpus, self.mem_gb, self.scratch_gb) < 1 or self.ngpus < 0:
             raise ValueError("PBS resources must be positive (ngpus may be 0)")
+        needed = MEM_GB_PER_CORE * self.ncpus
+        if self.mem_gb < needed:
+            raise ValueError(
+                f"{self.ncpus} cores need --mem {needed}: the scoring pool keeps "
+                f"~{MEM_GB_PER_CORE} GB per worker alive and a 16-core minimised run "
+                "already sat at its 32 GB ceiling, so cores cannot be raised alone."
+            )
         walltime_seconds(self.walltime)
         for flag in RESERVED_FLAGS:
             if any(arg == flag or arg.startswith(f"{flag}=") for arg in self.args):
