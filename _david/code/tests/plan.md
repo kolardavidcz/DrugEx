@@ -612,3 +612,101 @@ best model. For `beta35` the file is dated 11:35 (epoch 3) while the run ended a
 Both standard medians sit exactly where the 15 earlier standard arms sit
 (0.60–0.69), and `beta35`'s collapsed final epoch is now a footnote instead of
 its only measurement. `standard_eval verify` reports OK.
+
+## Round 7 — 2026-11-06, a run whose evaluation condition is the loss
+
+The owner asked for one run whose checkpoint condition is the **loss** instead of
+a desirability statistic, with `epsilon = 0.0`, QED tracked as the third
+objective, and an explicit answer to the EGCG-collapse risk that does not rely on
+a hard cap at TanimotoCombo 1.8.
+
+### 7.1 The training loss cannot be the criterion as-is
+
+`SequenceExplorer.policy_gradient` minimises
+
+    L_train = -mean( log pi(x) * (R(x) - beta) )
+
+With `beta = 0` this is `-mean(log pi * R)`, which is bounded below only by the
+policy's sharpness: as `pi` collapses onto a single sequence, `log pi -> 0` and
+`L_train -> 0` regardless of how bad the reward is. With `beta > 0` it is worse:
+`beta35` ran `loss_train` negative from epoch 6 onward while `valid_ratio` was
+`0.00` for the next 44 epochs. Selecting `argmin L_train` is therefore selecting
+the most degenerate epoch by construction, and a run built that way would
+"prove" nothing about the reward. `avg_gmean` is used today precisely because it
+is a reward statistic, not a likelihood.
+
+The distinction that matters is *on-policy training loss* versus *held-out loss*.
+The first estimates how confident the policy is on its own output; the second
+estimates how well it generalises. Only the second is a legitimate lower-is-better
+selection criterion, so that is what this run uses.
+
+### 7.2 Criterion: held-out reward-weighted NLL
+
+The checkpoint condition is
+
+    J(theta) = - sum_i w_i * log pi_theta(x_i) / sum_i w_i        (lower is better)
+
+evaluated on a **fixed, never-trained-on** sample of 512 molecules drawn with a
+frozen seed from the standard prior dataset
+(`_david/output/datasets/egcg_prior_5000_s20261105/`, 4 788 valid rows), with
+`w_i = D(x_i)` the composite Harrington desirability of the standard three-objective
+scheme. `J` is the off-policy evaluation of the same objective the policy gradient
+approximates: it falls when the policy puts mass on high-desirability prior
+molecules and it rises when the policy loses mass elsewhere — including when it
+collapses, because `-log pi(x_i)` explodes for every `x_i` the collapsed policy no
+longer generates. The weights come from the stored `Raw_ROCS`, `Raw_SA` and `QED`
+of the frozen dataset, so no ROCS call is added to training and the numbers are
+reproducible from the dataset alone.
+
+This is deliberately *not* `L_train`: the run reports both (`loss_train` from the
+core loop, `val_loss` from the fixed set), and the figures can show the gap. The
+manifest records `evaluation_source = best_epoch`, so the standard arm resamples
+the checkpoint this criterion chose and the run stays comparable.
+
+### 7.3 Feasibility gate (the collapse control)
+
+A finite held-out set still admits a degenerate optimum: assigning all mass to the
+one or two heaviest-weighted prior molecules lowers `J` while destroying the
+generator. Two floors therefore gate eligibility, not the reward:
+
+- `valid_ratio >= 0.85` and `unique_ratio >= 0.50` on the epoch's 100-molecule
+  validation arm;
+- an epoch that fails either floor is logged (`val_loss` kept, `val_loss_neg = NaN`)
+  and can never become the best state. The criterion is unchanged; only its domain
+  is restricted, which is stated in the run note rather than hidden in the reward.
+
+`epsilon = 0.0` with no decay, as prescribed: the policy is the only source of
+variation, so the gate and the criterion are what keep the run from degenerating
+into a one-molecule generator. That is the honest test of the request, and the
+supervisor's `v2` collapse (uniqueness 0.226 by epoch 60 at `epsilon = 0`) is the
+pre-registered failure mode to watch in figure 03.
+
+### 7.4 Why no cap at 1.8
+
+The base proposal is to clip the ROCS term at 1.8 so that 1.8 scores the same as
+2.0. The standard reward already has that property smoothly: the Gompertz
+desirability fitted to the standard anchors `(0.40 -> 0.05, 1.20 -> 0.80)` gives
+
+| raw TanimotoCombo | 1.20 | 1.50 | 1.80 | 2.00 |
+| --- | ---: | ---: | ---: | ---: |
+| ROCS desirability | 0.800 | 0.919 | 0.969 | 0.984 |
+| composite (SA = QED = 1) | 0.885 | 0.948 | 0.974 | 0.981 |
+
+The last 0.2 of the metric is worth 1.5 percentage points of one objective and
+0.7 points of the composite: it reorders no molecule and the marginal gradient
+there is ~1e-4. A hard clip would only make the gradient *exactly* zero above
+1.8 and add a discontinuity, so it is not used. The remaining collapse pressure
+at `epsilon = 0` is policy-side (sharpening), which is what 7.2 and 7.3 address.
+This is the "better than a cap" answer, and it is measurable: figure 01 prints
+the desirability curve.
+
+### 7.5 Pre-registered expectations
+
+- `J` should fall for the first epochs and then rise as the policy overfits its own
+  samples; the selected epoch is the minimum, expected well before epoch 50.
+- If `J` falls monotonically to the last epoch and the gate rejects every late
+  epoch, the run reports *no admissible improvement* rather than a checkpoint. That
+  outcome is a result, not a failure: it would say the loss criterion and the
+  collapse floor are incompatible at `epsilon = 0`.
+- The standard arm is the comparable measurement; the historical arm is the last
+  epoch and is expected to be the worst one if collapse occurs.
