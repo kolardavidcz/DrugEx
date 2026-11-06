@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms, rdShapeAlign
+from drugex.training.scorers.rocs_rdkit import _annotate_color_features
 
 from _david.code.rocs import align_to_reference, score_pair
 from _david.code.schema import std
@@ -36,9 +37,14 @@ class TestRocsPoseAlignment(unittest.TestCase):
         pose, combo, shape, color = align_to_reference(candidate, reference)
 
         # align_to_reference works in the reference's canonical inertial frame, which is
-        # also where rdShapeAlign scores a stored pose without moving it.
+        # also where rdShapeAlign scores a stored pose without moving it. The colour
+        # channel reads PUBCHEM_PHARMACOPHORE_FEATURES, so the reference must carry the
+        # same oe_mills_dean annotation the pose was scored with; otherwise ScoreMol
+        # compares two different pharmacophore schemes.
         reference_frame = Chem.Mol(reference)
         rdMolTransforms.CanonicalizeConformer(reference_frame.GetConformer())
+        _annotate_color_features(reference_frame, "oe_mills_dean")
+        self.assertTrue(pose.HasProp("PUBCHEM_PHARMACOPHORE_FEATURES"))
         options = rdShapeAlign.ShapeInputOptions()
         options.useColors = True
         pose_shape, pose_color = rdShapeAlign.ScoreMol(

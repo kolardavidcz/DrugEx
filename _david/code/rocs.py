@@ -22,6 +22,7 @@ from drugex.training.scorers.parallel import pool_context
 from drugex.training.scorers.rocs_rdkit import (
     RDKitROCSScorer,
     _AXIS_SIGN_FLIPS,
+    _annotate_color_features,
     _canonicalize_conformer_inplace,
     _flip_conformer,
 )
@@ -60,14 +61,28 @@ def has_color(mol: Chem.Mol) -> bool:
     return float(rdShapeAlign.PrepareConformer(probe, -1, options).sof) > 0.0
 
 
-def score_pair(candidate: Chem.Mol, reference: Chem.Mol) -> tuple[float, float, float]:
+def score_pair(
+    candidate: Chem.Mol,
+    reference: Chem.Mol,
+    color_ff: str = "oe_mills_dean",
+) -> tuple[float, float, float]:
     """Return winning pose (tanimoto_combo, shape_tanimoto, color_tanimoto) on [0, 2] scale.
 
     Evaluates canonical RDKit Shape + Color TanimotoCombo alignment with 4 canonical axis flips.
     Used by greedy diversity selection and pairwise conformer analyses.
+
+    ``color_ff`` must match the training scorer: without the ``PUBCHEM_PHARMACOPHORE_FEATURES``
+    annotation that :func:`drugex.training.scorers.rocs_rdkit._annotate_color_features` writes,
+    ``rdShapeAlign`` silently falls back to RDKit's 5-pattern fdef typing, which has no
+    hydrophobe type and disagrees with the OpenEye ImplicitMillsDean scheme used in production
+    by roughly 0.01 combo (up to 0.03 for drug-like molecules). Pass ``"default"`` only to
+    reproduce that legacy fallback deliberately.
     """
     ref_copy = Chem.Mol(reference)
     cand_copy = Chem.Mol(candidate)
+    if color_ff != "default":
+        _annotate_color_features(ref_copy, color_ff=color_ff)
+        _annotate_color_features(cand_copy, color_ff=color_ff)
     _canonicalize_conformer_inplace(ref_copy, -1)
     _canonicalize_conformer_inplace(cand_copy, -1)
     best = (0.0, 0.0, 0.0)
@@ -86,7 +101,9 @@ def score_pair(candidate: Chem.Mol, reference: Chem.Mol) -> tuple[float, float, 
 
 
 def align_to_reference(
-    candidate: Chem.Mol, reference: Chem.Mol
+    candidate: Chem.Mol,
+    reference: Chem.Mol,
+    color_ff: str = "oe_mills_dean",
 ) -> tuple[Chem.Mol, float, float, float]:
     """Move ``candidate`` into the ``reference`` frame and return its best pose.
 
@@ -100,9 +117,16 @@ def align_to_reference(
     the reference is first put into its canonical inertial frame; the returned
     coordinates live in that frame, so canonicalise the reference before drawing or
     re-scoring the pose to keep the two consistent.
+
+    ``color_ff`` is forwarded to :func:`score_pair` and defaults to the production
+    ``"oe_mills_dean"`` pharmacophore typing; the returned pose therefore carries the
+    same ``PUBCHEM_PHARMACOPHORE_FEATURES`` annotation the score was computed with.
     """
     ref_copy = Chem.Mol(reference)
     cand_copy = Chem.Mol(candidate)
+    if color_ff != "default":
+        _annotate_color_features(ref_copy, color_ff=color_ff)
+        _annotate_color_features(cand_copy, color_ff=color_ff)
     _canonicalize_conformer_inplace(ref_copy, -1)
     _canonicalize_conformer_inplace(cand_copy, -1)
     best: tuple[float, float, float] | None = None

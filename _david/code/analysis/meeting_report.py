@@ -607,10 +607,12 @@ def figure_scoring_geometry(cross: pd.DataFrame, ceiling: dict[str, float]) -> P
     ]
     x = np.arange(len(pairs))
     ours_vals, sup_vals = [], []
-    for arm, _ in pairs:
-        frame = cross.query("arm == @arm")
-        ours_vals.append(float(frame.query("protocol == 'ours'")["median"].iloc[0]))
-        sup_vals.append(float(frame.query("protocol == 'supervisor'")["median"].iloc[0]))
+    for arm_name, _ in pairs:
+        frame = cross[cross["arm"] == arm_name]
+        ours_vals.append(float(frame[frame["protocol"] == "ours"]["median"].iloc[0]))
+        sup_vals.append(
+            float(frame[frame["protocol"] == "supervisor"]["median"].iloc[0])
+        )
     width = 0.36
     ax.bar(x - width / 2, ours_vals, width, color=C_OURS, label="our ruler")
     ax.bar(x + width / 2, sup_vals, width, color=C_SUP, label="their ruler")

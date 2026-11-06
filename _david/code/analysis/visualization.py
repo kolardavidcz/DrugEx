@@ -18,6 +18,7 @@ from rdkit.Chem import AllChem, Descriptors, Draw, Lipinski, QED, rdDepictor, rd
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from scipy.stats import gaussian_kde
 
+from _david.code.analysis.ranking import lead_rank_score
 from _david.code.config import RunPaths
 from _david.code.rocs import align_to_reference
 from _david.code.schema import std
@@ -2661,7 +2662,7 @@ def epoch_molecule_table(
     ).fillna(0)
 
     # Same ranking index the result analyzer uses for the prioritized leads.
-    out["SelectionScore"] = out["ROCS"] + out["QED"] - 0.10 * out["RawSA"]
+    out["SelectionScore"] = lead_rank_score(out, run_config)
     return out
 
 
@@ -4025,6 +4026,14 @@ class ResultAnalyzer:
         from _david.code.analysis.rocs_scale import correct_run_frame, ensure_verdict
 
         scale_verdict = ensure_verdict(self.paths.root)
+        run_manifest: dict[str, Any] = {}
+        manifest_path = self.paths.root / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                run_manifest = json.loads(manifest_path.read_text()) or {}
+            except (OSError, json.JSONDecodeError):
+                run_manifest = {}
+        run_config: dict[str, Any] = run_manifest.get("config", {}) or {}
         df_after = correct_run_frame(self.paths.root, df_after)
         if df_before is not None and not df_before.empty:
             df_before = correct_run_frame(self.paths.root, df_before)
@@ -4041,20 +4050,10 @@ class ResultAnalyzer:
             else None
         )
 
-        # Desirability scoring: ROCS + QED - 0.1 * SA
-        rocs_vals = df_after_clean.get(
-            std.ROCS, pd.Series(0.0, index=df_after_clean.index)
-        ).values
-        sa_vals = df_after_clean.get(
-            "Raw_SA",
-            df_after_clean.get(std.SA, pd.Series(10.0, index=df_after_clean.index)),
-        ).values
-        qed_vals = df_after_clean.get(
-            std.QED, pd.Series(0.0, index=df_after_clean.index)
-        ).values
-
-        desirability = rocs_vals + qed_vals - 0.10 * sa_vals
-        df_after_clean["Desirability_Rank_Score"] = desirability
+        # Objective-aligned lead ranking (ROCS - 0.1*SA; QED only when it was trained on).
+        df_after_clean["Desirability_Rank_Score"] = lead_rank_score(
+            df_after_clean, run_config
+        )
         df_sorted = df_after_clean.sort_values(
             by="Desirability_Rank_Score", ascending=False
         ).reset_index(drop=True)
@@ -4065,7 +4064,7 @@ class ResultAnalyzer:
         if df_leads.empty:
             df_leads = df_sorted
         top_leads_tsv = self.paths.root / "top_prioritized_leads.tsv"
-        df_sorted.to_csv(top_leads_tsv, sep="\t", index=False)
+        df_leads.to_csv(top_leads_tsv, sep="\t", index=False)
 
         # Build Diagnostic Mega-Table
         scorecard_df = build_diagnostic_scorecard(
@@ -4095,15 +4094,6 @@ class ResultAnalyzer:
         )
 
         # Figure 3: 03_training_trajectories.png
-        run_config: dict[str, Any] = {}
-        run_manifest: dict[str, Any] = {}
-        manifest_path = self.paths.root / "manifest.json"
-        if manifest_path.is_file():
-            try:
-                run_manifest = json.loads(manifest_path.read_text()) or {}
-                run_config = run_manifest.get("config", {}) or {}
-            except (OSError, json.JSONDecodeError):
-                run_config = {}
         fit_tsv = Path(f"{monitor_prefix}_fit.tsv") if monitor_prefix else None
         smiles_tsv = Path(f"{monitor_prefix}_smiles.tsv") if monitor_prefix else None
         if fit_tsv is not None and fit_tsv.is_file():

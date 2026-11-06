@@ -34,6 +34,7 @@ from rdkit import Chem
 from rdkit.Chem import Draw, QED, rdMolDescriptors
 from drugex.training.scorers.sascorer import calculateScore as calculate_sa_score
 
+from _david.code.analysis.ranking import lead_rank_score, lead_ranking_weights
 from _david.code.config import OUTPUT_ROOT, PipelineConfig
 from _david.code.schema import std
 
@@ -369,12 +370,14 @@ def _candidate_table(
     *,
     arm: str = "historical",
     rocs_factor: float = 2.0,
+    run_config: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Cheap pre-ranking, then exact desirability on the survivors.
 
-    Raw SA scoring dominates the runtime, so only the ``pool`` best molecules by
-    ROCS+QED are scored for SA and then ranked with the figure-05 desirability
-    (ROCS + QED − 0.1·SA).
+    Raw SA scoring dominates the runtime, so only the ``pool`` best molecules by the
+    run's own objective (``ROCS + QED`` when QED was trained on, ``ROCS`` otherwise)
+    are scored for SA and then ranked with the shared objective-aligned index
+    (``ROCS + QED − 0.1·SA``, or ``ROCS − 0.1·SA`` when ``include_qed`` is off).
     """
     if frame.empty or std.SMILES not in frame.columns:
         return pd.DataFrame(
@@ -392,7 +395,8 @@ def _candidate_table(
             "QED": _qed_series(valid).fillna(0.0),
         }
     )
-    work["pre"] = work["ROCS"] + work["QED"]
+    w_rocs, w_qed, _ = lead_ranking_weights(run_config)
+    work["pre"] = w_rocs * work["ROCS"] + w_qed * work["QED"]
     work = work.nlargest(min(pool, len(work)), "pre")
     unique = work.drop_duplicates("SMILES").copy()
     unique["SA"] = [
@@ -401,7 +405,7 @@ def _candidate_table(
         else np.nan
         for smi in unique["SMILES"]
     ]
-    unique["score"] = unique["ROCS"] + unique["QED"] - 0.1 * unique["SA"].fillna(10.0)
+    unique["score"] = lead_rank_score(unique, run_config)
     unique["run"] = run_name
     unique["arm"] = arm
     return unique[["run", "arm", "SMILES", "ROCS", "QED", "SA", "score"]]
@@ -479,6 +483,7 @@ def collect(
                     chosen,
                     arm="standard" if standard is not None else "historical",
                     rocs_factor=rocs_factor,
+                    run_config=config,
                 )
             )
         runs.append(summary)
