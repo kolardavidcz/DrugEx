@@ -31,7 +31,7 @@ from _david.code.chemistry import (
     standardize_smiles,
 )
 from _david.code.config import DEFAULT_MOLECULE
-from _david.code.environment import create_rocs_scorer
+from _david.code.training.environment import create_rocs_scorer
 from _david.code.reference import PrepareMolecule
 from _david.code.utils import HardwareManager
 

@@ -9,7 +9,7 @@ from rdkit.Chem import AllChem, rdMolTransforms, rdShapeAlign
 
 from _david.code.rocs import align_to_reference, score_pair
 from _david.code.schema import std
-from _david.code.visualization import (
+from _david.code.analysis.visualization import (
     AlignedDepicter,
     _sa_desirability,
     _valid_subset,

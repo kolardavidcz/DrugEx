@@ -55,7 +55,7 @@ from _david.code.conformer.analysis.visualization import (
     render_reward_pareto,
     render_rl_timing,
 )
-from _david.code.environment import create_rocs_scorer
+from _david.code.training.environment import create_rocs_scorer
 from _david.code.rocs import score_pair
 
 CANDIDATES: tuple[int, ...] = (5, 10, 15, 20, 35, 50)

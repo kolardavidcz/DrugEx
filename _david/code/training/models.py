@@ -13,11 +13,11 @@ from drugex.training.explorers import SequenceExplorer
 from drugex.training.generators import SequenceRNN
 
 from _david.code.config import PipelineConfig
-from _david.code.loss_criterion import HoldoutSample, build_holdout
+from _david.code.training.loss_criterion import HoldoutSample, build_holdout
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
 
-PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT: Path = Path(__file__).resolve().parents[3]
 
 
 def decayed_epsilon(
@@ -125,7 +125,7 @@ class LossSelectedSequenceExplorer(DecayingSequenceExplorer):
     """Explorer whose checkpoint is chosen by held-out reward-weighted NLL.
 
     The core loop keeps the epoch maximizing ``metrics[criteria]``. ``J`` from
-    :mod:`_david.code.loss_criterion` is lower-is-better, so this class records its
+    :mod:`_david.code.training.loss_criterion` is lower-is-better, so this class records its
     negation as ``val_loss_neg`` and selects on that column. ``best_value`` starts
     at ``-inf`` because every negated ``J`` is negative and the base class starts
     at ``0``, which no epoch could ever beat.

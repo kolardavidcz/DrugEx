@@ -17,10 +17,10 @@ history that produced the thesis figures.
 
 CLI::
 
-    python -m _david.code.standard_eval plan
-    python -m _david.code.standard_eval run --run <name> [--n 5000] [--force]
-    python -m _david.code.standard_eval run --all [--n 5000]
-    python -m _david.code.standard_eval verify
+    python -m _david.code.analysis.standard_eval plan
+    python -m _david.code.analysis.standard_eval run --run <name> [--n 5000] [--force]
+    python -m _david.code.analysis.standard_eval run --all [--n 5000]
+    python -m _david.code.analysis.standard_eval verify
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ import pandas as pd
 import torch
 
 from _david.code.config import DEFAULT_MOLECULE, OUTPUT_ROOT, PipelineConfig
-from _david.code.dashboard import discover_runs
+from _david.code.analysis.dashboard import discover_runs
 from _david.code.prior_dataset import (
     DATASET_ROOT,
     RAW_ROCS,
@@ -267,7 +267,7 @@ def _standard_config(manifest: dict) -> PipelineConfig:
 
 
 def _score(frame: pd.DataFrame, reference: Path, config: PipelineConfig) -> pd.DataFrame:
-    from _david.code.environment import create_environment
+    from _david.code.training.environment import create_environment
 
     env = create_environment(reference, config=config)
     scores = env.getScores(frame[std.SMILES].astype(str).tolist())
@@ -280,7 +280,7 @@ def _score(frame: pd.DataFrame, reference: Path, config: PipelineConfig) -> pd.D
 
 
 def _resample(policy: Path, n: int, config: PipelineConfig, seed: int) -> pd.DataFrame:
-    from _david.code.models import SequenceRNNOptimizer
+    from _david.code.training.models import SequenceRNNOptimizer
 
     _seed_everything(seed)
     optimizer = SequenceRNNOptimizer(models_dir=policy.parent, config=config)
@@ -448,7 +448,7 @@ def _add_standard_reward(
     frame: pd.DataFrame, dataset_manifest: dict, config: PipelineConfig
 ) -> pd.DataFrame:
     """Score with one fixed reward definition so arms are comparable columns."""
-    from _david.code.environment import resolve_reward_scheme
+    from _david.code.training.environment import resolve_reward_scheme
 
     scheme = resolve_reward_scheme(
         STANDARD_REWARD_SCHEME,
@@ -524,7 +524,7 @@ export DRUGEX_SOURCE_REVISION="${{DRUGEX_SOURCE_REVISION:-unknown}}"
 # The resample path loads the pretrained Papyrus SMILES-RNN to build the agent,
 # so the checkpoint location must be set for every job, not only for a build.
 export DRUGEX_PRETRAINED_DIR="$STORAGE_DIR/models"
-{build}exec "$STORAGE_DIR/.venv/bin/python" -u -m _david.code.standard_eval run \\
+{build}exec "$STORAGE_DIR/.venv/bin/python" -u -m _david.code.analysis.standard_eval run \\
     --all --root "$STORAGE_DIR/_david/output" \\
     --dataset {dataset_dir!r} --dataset-root {storage + "/datasets"!r} \\
     --n {int(n)} --seed {int(seed)} --max-runs {int(max_runs)}

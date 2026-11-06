@@ -15,7 +15,7 @@ combination is bad or impossible.
 
 CLI::
 
-    python -m _david.code.dashboard [--root _david/output] [--out path.html]
+    python -m _david.code.analysis.dashboard [--root _david/output] [--out path.html]
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ def is_run_dir(path: Path) -> bool:
 
 
 def _is_arm(path: Path) -> bool:
-    from _david.code.output_organization import is_rl_run
+    from _david.code.analysis.output_organization import is_rl_run
 
     return is_rl_run(path)
 
@@ -447,7 +447,7 @@ def collect(
             best_epoch=manifest.get("best_epoch"),
             error=manifest.get("error"),
         )
-        from _david.code.rocs_scale import ensure_verdict
+        from _david.code.analysis.rocs_scale import ensure_verdict
 
         scale = ensure_verdict(run_dir)
         rocs_factor = 1.0 if scale.is_raw else scale.factor

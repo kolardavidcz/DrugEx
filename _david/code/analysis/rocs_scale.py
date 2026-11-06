@@ -183,7 +183,7 @@ def _started_at(run: Path) -> datetime | None:
     The directory mtime is useless here: runs are copied between hosts and
     renamed by the layout normalizer, so it records the move, not the experiment.
     """
-    from _david.code.dashboard import started_at
+    from _david.code.analysis.dashboard import started_at
 
     stamped = started_at(run.name)
     if stamped is not None:
@@ -451,7 +451,7 @@ def sample_rows(frame: pd.DataFrame, sample: int = 10) -> pd.DataFrame:
 def raw_scores(smiles: list[str], reference: Path, config: dict[str, Any] | None) -> np.ndarray:
     """Score ``smiles`` with the raw TanimotoCombo scorer, never a modifier."""
     from _david.code.config import PipelineConfig
-    from _david.code.environment import create_environment
+    from _david.code.training.environment import create_environment
 
     # PipelineConfig is frozen, so a value is applied through object.__setattr__;
     # the geometry knobs only steer the conformer search, which does change the
@@ -541,7 +541,7 @@ def audit(
     settle_unknown: bool = False,
 ) -> list[ScaleVerdict]:
     """Classify every RL arm under ``root`` (archive included, for the record)."""
-    from _david.code.dashboard import discover_runs
+    from _david.code.analysis.dashboard import discover_runs
 
     root = Path(root)
     runs = discover_runs(root)

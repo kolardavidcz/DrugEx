@@ -508,7 +508,7 @@ def _init_whole_call_worker(
 ) -> None:
     """Initialize a persistent single-threaded ROCS scorer inside a worker process."""
     global _WORKER_SCORER
-    from _david.code.environment import create_rocs_scorer
+    from _david.code.training.environment import create_rocs_scorer
 
     enable_double_precision_mol_pickling()
     method_key = str(setting.get("method", "etkdg"))

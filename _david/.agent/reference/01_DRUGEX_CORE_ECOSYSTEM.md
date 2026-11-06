@@ -125,7 +125,7 @@ The vocabulary (`VocSmiles`) consists of exactly 85 tokens representing atom typ
 The agent optimizes expected reward $J(\theta) = \mathbb{E}_{x \sim P_\theta} [R(x)]$ via policy gradient REINFORCE with baseline subtraction:
 $$\nabla_\theta J(\theta) = \sum_{t=1}^T \nabla_\theta \log P_\theta(x_t \mid x_{<t}) \cdot \left( R(x) - R_{\mathrm{baseline}} \right)$$
 
-### `DecayingSequenceExplorer` ([`_david/code/models.py`](file:///home/kolar/DrugEx/_david/code/models.py))
+### `DecayingSequenceExplorer` ([`_david/code/training/models.py`](file:///home/kolar/DrugEx/_david/code/training/models.py))
 Standard DrugEx uses a constant exploration rate $\epsilon$ (e.g., $\epsilon=0.20$), where tokens are occasionally sampled from a uniform prior rather than the agent policy. This prevents policy collapse but degrades late-stage convergence.
 
 `DecayingSequenceExplorer` schedules exploration decay:
@@ -159,7 +159,7 @@ Tanimoto_Shape = ─────────────────────
   Normalized: $S_{\mathrm{ROCS}} = T_{\mathrm{combo}} / 2.0 \in [0.0, 1.0]$.
 
 ### Multi-Objective Aggregation: `HarringtonDesirabilityReward`
-Rather than relying on unweighted sums or rigid Pareto ranking (which suffers in high dimensions), [`_david/code/environment.py`](file:///home/kolar/DrugEx/_david/code/environment.py) uses a continuous composite Harrington desirability formulation:
+Rather than relying on unweighted sums or rigid Pareto ranking (which suffers in high dimensions), [`_david/code/training/environment.py`](file:///home/kolar/DrugEx/_david/code/training/environment.py) uses a continuous composite Harrington desirability formulation:
 
 1. **Gompertz Desirability Transformation**:
    Each raw score $s_j$ (ROCS, SA, QED) is mapped to an internal satisfaction score $d_j(s_j) \in [0, 1]$:

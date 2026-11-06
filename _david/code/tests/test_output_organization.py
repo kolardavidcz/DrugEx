@@ -9,7 +9,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from _david.code import output_organization as org
+from _david.code.analysis import output_organization as org
 
 
 def _make_run(path: Path, *, state: str = "complete", arm: str = "") -> Path:

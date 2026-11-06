@@ -22,7 +22,11 @@ from drugex.training.generators import SequenceRNN
 from drugex.training.monitors import FileMonitor
 from rdkit import Chem, rdBase
 
-PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT: Path = Path(__file__).resolve().parents[3]
+
+#: Root of the ``_david.code`` package. The run manifest hashes every module below
+#: it, so this must stay the package root and not the ``training`` subpackage.
+CODE_ROOT: Path = Path(__file__).resolve().parents[1]
 
 #: Bump when a PipelineConfig field is added, renamed or changes meaning. A manifest
 #: without this version was written by a release whose config lacks the newer keys,
@@ -33,12 +37,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from _david.code.chemistry import DEFAULT_REFERENCE_SEED
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
-from _david.code.environment import PrepareMolecule, create_environment
-from _david.code.loss_criterion import write_holdout_record
-from _david.code.models import SequenceRNNOptimizer
+from _david.code.training.environment import PrepareMolecule, create_environment
+from _david.code.training.loss_criterion import write_holdout_record
+from _david.code.training.models import SequenceRNNOptimizer
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
-from _david.code.visualization import ResultAnalyzer
+from _david.code.analysis.visualization import ResultAnalyzer
 
 # Human-friendly spellings accepted by ``--criteria``. The canonical values in
 # ``std`` are what the checkpoint monitor receives; the short forms exist so
@@ -247,8 +251,8 @@ class MoleculePipeline:
         excluded = {"tests", "archive", "__pycache__", "run_audit"}
         sources = sorted(
             path
-            for path in Path(__file__).parent.rglob("*.py")
-            if not excluded.intersection(path.relative_to(Path(__file__).parent).parts)
+            for path in CODE_ROOT.rglob("*.py")
+            if not excluded.intersection(path.relative_to(CODE_ROOT).parts)
         )
         manifest = dict(
             state="running",
@@ -462,7 +466,7 @@ class MoleculePipeline:
         # A run is the moment when the overview is most out of date. Refresh it,
         # but never let a reporting failure mark a finished experiment as failed.
         try:
-            from _david.code.dashboard import generate as generate_dashboard
+            from _david.code.analysis.dashboard import generate as generate_dashboard
 
             dashboard = generate_dashboard(self.paths.root.parent)
             logger.info(f"[Dashboard] Refreshed run overview: {dashboard}")

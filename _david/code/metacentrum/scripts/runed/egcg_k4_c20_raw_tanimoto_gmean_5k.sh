@@ -100,7 +100,7 @@ echo "Eval Samples: 5000"
 echo "ROCS Modifier: Raw [0, 2]"
 echo "Reference SDF: $REF_SDF"
 
-"$PYTHON" -u -m _david.code.pipeline \
+"$PYTHON" -u -m _david.code.training.pipeline \
     --output-dir "$OUT_DIR" \
     --molecule "$REF_SDF" \
     --reference-conformers 4 \

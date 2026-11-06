@@ -69,7 +69,7 @@ AGENT_PKG="$STORAGE_DIR/models/Papyrus05.5_smiles_rnn_PT.pkg"
 VOCAB_FILE="$STORAGE_DIR/models/Papyrus05.5_smiles_rnn_PT.vocab"
 
 echo "=== Launching Sprint H9: Dynamic Epsilon Decay (0.10 -> 0.01 starting epoch 20) ==="
-"$PYTHON" -u -m _david.code.pipeline \
+"$PYTHON" -u -m _david.code.training.pipeline \
     --output-dir "$OUT_DIR" \
     --score-variant tanimoto_combo \
     --reward-scheme harrington \

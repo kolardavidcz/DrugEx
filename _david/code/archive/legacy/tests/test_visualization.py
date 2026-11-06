@@ -6,7 +6,7 @@ import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from _david.code.visualization import (
+from _david.code.analysis.visualization import (
     compute_2d_skyline,
     compute_3d_pareto_mask,
     AlignedDepicter,

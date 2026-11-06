@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from _david.code import standard_eval as seval
+from _david.code.analysis import standard_eval as seval
 from _david.code.config import PipelineConfig
 from _david.code.schema import std
 

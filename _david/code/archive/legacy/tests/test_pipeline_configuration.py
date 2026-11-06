@@ -9,8 +9,8 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 from _david.code.config import PROJECT_ROOT, PipelineConfig
-from _david.code.environment import PrepareMolecule, create_environment
-from _david.code.pipeline import MoleculePipeline, config_from_args, parse_args
+from _david.code.training.environment import PrepareMolecule, create_environment
+from _david.code.training.pipeline import MoleculePipeline, config_from_args, parse_args
 from _david.code.reference import PrepareMolecule as ReferencePreparer
 from _david.code.metacentrum.grid import (
     GridJobSpec,
@@ -69,7 +69,7 @@ class TestPipelineConfiguration(unittest.TestCase):
             self.assertEqual(pipeline.preparer.random_seed, 43)
             self.assertEqual(pipeline.preparer.rmsd_cutoff, 0.5)
             self.assertEqual(pipeline.preparer.num_conformers, 50)
-        with patch("_david.code.environment.create_rocs_scorer") as factory:
+        with patch("_david.code.training.environment.create_rocs_scorer") as factory:
             create_environment("unused.sdf", config=cfg)
         self.assertEqual(factory.call_args.kwargs["optimization"], cfg.optimization)
         self.assertTrue(factory.call_args.kwargs["minimize_candidates"])
@@ -411,7 +411,7 @@ class TestPipelineConfiguration(unittest.TestCase):
 
     def test_harrington_desirability_reward_properties(self):
         import numpy as np
-        from _david.code.environment import HarringtonDesirabilityReward
+        from _david.code.training.environment import HarringtonDesirabilityReward
 
         # 2-objective evaluation
         h2 = HarringtonDesirabilityReward(weights=(0.75, 0.25), rocs_raw=True)

@@ -412,7 +412,7 @@ def apply(root: Path | str, plan_obj: Plan | None = None) -> list[Action]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: ``python -m _david.code.output_organization [plan|apply] [--root DIR]``."""
+    """CLI: ``python -m _david.code.analysis.output_organization [plan|apply] [--root DIR]``."""
     import argparse
 
     from _david.code.config import OUTPUT_ROOT

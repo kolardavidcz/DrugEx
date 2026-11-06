@@ -135,7 +135,7 @@ walltime, and there is no cheaper probe than reading the first epoch's telemetry
 For any traceback, reproduce locally first when it is cheap — the same commit runs on WSL:
 
 ```bash
-.venv/bin/python -m _david.code.pipeline --epochs 1 --samples 10 --batch-size 10 \
+.venv/bin/python -m _david.code.training.pipeline --epochs 1 --samples 10 --batch-size 10 \
     --eval-samples 10 --output-dir /tmp/opencode/repro
 ```
 

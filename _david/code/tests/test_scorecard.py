@@ -6,7 +6,7 @@ import unittest
 
 import pandas as pd
 
-from _david.code import visualization as viz
+from _david.code.analysis import visualization as viz
 
 
 def _arm(rows: list[dict]) -> pd.DataFrame:
@@ -116,7 +116,7 @@ class TestFigureEvaluationScope(unittest.TestCase):
         import json
 
         from _david.code.run_audit.audit_rl_runs import evaluation_frames
-        from _david.code.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
+        from _david.code.analysis.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
 
         with tempfile.TemporaryDirectory() as tmp:
             run, root = self._run(tmp)

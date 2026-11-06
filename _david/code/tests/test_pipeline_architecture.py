@@ -14,8 +14,8 @@ from _david.code.config import (
     free_run_directory,
     run_directory_name,
 )
-from _david.code.environment import HarringtonDesirabilityReward, create_environment
-from _david.code.pipeline import config_from_args, parse_args
+from _david.code.training.environment import HarringtonDesirabilityReward, create_environment
+from _david.code.training.pipeline import config_from_args, parse_args
 from _david.code.reference import PrepareMolecule
 from _david.code.rocs import create_rocs_scorer, has_color, score_pair
 from _david.code.schema import std
@@ -83,7 +83,7 @@ class TestPipelineArchitecture(unittest.TestCase):
         import torch
         from drugex.training.explorers import SequenceExplorer
 
-        from _david.code.models import DecayingSequenceExplorer, SequenceRNNOptimizer
+        from _david.code.training.models import DecayingSequenceExplorer, SequenceRNNOptimizer
 
         def dummy_torch_model() -> torch.nn.Linear:
             return torch.nn.Linear(4, 4)
@@ -212,7 +212,7 @@ class TestBestEpochRestore(unittest.TestCase):
             self.evaluated = True
 
     def test_the_saved_best_package_is_loaded_and_hashed(self) -> None:
-        from _david.code.pipeline import restore_best_checkpoint
+        from _david.code.training.pipeline import restore_best_checkpoint
 
         with tempfile.TemporaryDirectory() as tmp:
             models = Path(tmp)
@@ -230,7 +230,7 @@ class TestBestEpochRestore(unittest.TestCase):
         )
 
     def test_no_package_means_the_last_epoch_is_evaluated(self) -> None:
-        from _david.code.pipeline import restore_best_checkpoint
+        from _david.code.training.pipeline import restore_best_checkpoint
 
         with tempfile.TemporaryDirectory() as tmp:
             agent = self._Agent()
@@ -242,7 +242,7 @@ class TestBestEpochRestore(unittest.TestCase):
         self.assertIsNone(provenance["best_checkpoint_sha256"])
 
     def test_a_package_without_a_recorded_epoch_is_not_claimed_as_best(self) -> None:
-        from _david.code.pipeline import restore_best_checkpoint
+        from _david.code.training.pipeline import restore_best_checkpoint
 
         with tempfile.TemporaryDirectory() as tmp:
             models = Path(tmp)

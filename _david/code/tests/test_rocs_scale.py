@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from _david.code import rocs_scale as rs
+from _david.code.analysis import rocs_scale as rs
 from _david.code.schema import std
 
 
@@ -142,7 +142,7 @@ class TestConsumers(unittest.TestCase):
     """The scale is applied once, where the value is consumed."""
 
     def test_the_monitor_table_recovers_raw_rocs_with_the_audited_factor(self) -> None:
-        from _david.code.visualization import epoch_molecule_table
+        from _david.code.analysis.visualization import epoch_molecule_table
 
         monitor = pd.DataFrame(
             {
@@ -159,7 +159,7 @@ class TestConsumers(unittest.TestCase):
         self.assertAlmostEqual(float(raw["ROCS"].iloc[1]), 1.8)
 
     def test_the_summary_names_the_model_that_produced_the_arm(self) -> None:
-        from _david.code.visualization import eval_source_text
+        from _david.code.analysis.visualization import eval_source_text
 
         self.assertEqual(
             eval_source_text({"evaluation_source": "best_epoch", "best_epoch": 21}),
@@ -172,7 +172,7 @@ class TestConsumers(unittest.TestCase):
         )
 
     def test_training_candidates_are_written_best_first_and_invalid_dropped(self) -> None:
-        from _david.code.visualization import write_training_candidates
+        from _david.code.analysis.visualization import write_training_candidates
 
         table = pd.DataFrame(
             {

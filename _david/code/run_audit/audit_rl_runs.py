@@ -568,8 +568,8 @@ def evaluation_frames(
     historical arm is only used when no standard arm exists yet, and the
     provenance block says which one was rendered.
     """
-    from _david.code.rocs_scale import correct_run_frame
-    from _david.code.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
+    from _david.code.analysis.rocs_scale import correct_run_frame
+    from _david.code.analysis.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
 
     raw = run.path / "raw_data"
     target = run.path / STANDARD_DIR
@@ -585,7 +585,7 @@ def evaluation_frames(
         if protocol is None and dataset_dir is not None:
             dataset_manifest = dataset_dir / "manifest.json"
             if dataset_manifest.is_file():
-                from _david.code.standard_eval import protocol_from_manifest
+                from _david.code.analysis.standard_eval import protocol_from_manifest
 
                 protocol = protocol_from_manifest(
                     manifest, json.loads(dataset_manifest.read_text())
@@ -638,7 +638,7 @@ def regenerate(run: RunAudit) -> list[str]:
     """Rebuild every missing deliverable from the stored arms. Returns messages."""
     from rdkit import Chem
 
-    from _david.code.visualization import (
+    from _david.code.analysis.visualization import (
         ResultAnalyzer,
         render_unfavorable_features_diagnostics,
     )
@@ -949,7 +949,7 @@ def _last_epoch(run: RunAudit) -> str:
 
 def _provenance_record(run: RunAudit) -> dict[str, Any]:
     """Evaluation provenance of a run, read from the manifests without loading arms."""
-    from _david.code.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
+    from _david.code.analysis.standard_eval import CSV_NAME, MANIFEST_NAME, STANDARD_DIR
 
     record: dict[str, Any] = {
         "eval_source": "historical_arm",
@@ -966,7 +966,7 @@ def _provenance_record(run: RunAudit) -> dict[str, Any]:
         dataset = (manifest.get("dataset") or {}).get("name")
         dataset_manifest = Path(DATASET_ROOT) / str(dataset) / "manifest.json"
         if protocol is None and dataset_manifest.is_file():
-            from _david.code.standard_eval import protocol_from_manifest
+            from _david.code.analysis.standard_eval import protocol_from_manifest
 
             protocol = protocol_from_manifest(
                 manifest, json.loads(dataset_manifest.read_text())

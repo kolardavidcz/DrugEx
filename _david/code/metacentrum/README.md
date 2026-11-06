@@ -19,4 +19,4 @@ entry point, commit before submitting).
 | [`archive/file_folder_tree_comparasion/`](archive/file_folder_tree_comparasion/) | `compare_output_trees.py` + its usage contract, used to verify WSL ↔ storage parity before deleting remote results. |
 
 Pipeline behaviour (hyperparameters, stages, figures) is **not** documented here — see
-`_david/code/config.py`, `_david/AGENTS.md` and `_david/code/RL_RUN_AUDIT.md`.
+`_david/code/training/config.py`, `_david/AGENTS.md` and `_david/code/RL_RUN_AUDIT.md`.

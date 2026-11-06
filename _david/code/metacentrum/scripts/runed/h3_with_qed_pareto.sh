@@ -93,7 +93,7 @@ if [[ ! -f "$AGENT_PKG" ]]; then
     fi
 fi
 
-"$PYTHON" -u -m _david.code.pipeline \
+"$PYTHON" -u -m _david.code.training.pipeline \
     --output-dir "$OUT_DIR" \
     --epochs 200 \
     --min-epochs 50 \

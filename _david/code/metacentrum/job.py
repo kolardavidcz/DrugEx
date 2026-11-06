@@ -142,12 +142,12 @@ def header_rows(
 
 
 def pipeline_command(python: Path, out_dir: Path, spec: dict) -> list[str]:
-    """``python -u -m _david.code.pipeline --output-dir <run> <pipeline flags…>``."""
+    """``python -u -m _david.code.training.pipeline --output-dir <run> <pipeline flags…>``."""
     return [
         str(python),
         "-u",
         "-m",
-        "_david.code.pipeline",
+        "_david.code.training.pipeline",
         "--output-dir",
         str(out_dir),
         *spec["args"],

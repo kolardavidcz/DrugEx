@@ -78,16 +78,26 @@ In `tutorial/advanced/rocs/egcg/final_out/eps0.1/executed_eps0.1.ipynb`, supervi
 ```
 _david/
 ├── AGENTS.md                          # Authoritative project instructions & architectural decisions
-├── code/
-│   ├── config.py                      # PipelineConfig single source of truth for hyperparameters
+├── code/                              # Shared chemistry/scoring layer (root package)
 │   ├── chemistry.py                   # Conformer generation, standardization, parallel embedding
-│   ├── environment.py                 # Multi-objective environment, scorers, modifiers, rewards
-│   ├── models.py                      # DecayingSequenceExplorer and model wrapper factories
-│   ├── pipeline.py                    # 5-stage LBDD execution pipeline and CLI entry point
 │   ├── rocs.py                        # CanonicalROCSScorer (raw TanimotoCombo) and Gaussian volume alignment
+│   ├── reference.py                   # Reference-conformer selection and ordering
+│   ├── prior_dataset.py               # Frozen prior-dataset loading and provenance
 │   ├── schema.py, utils.py            # Standard column names and hardware job allocation
-│   ├── visualization.py               # 8 publication-grade diagnostics & trajectory figures
-│   ├── audit_rl_runs.py               # Gold-standard conformance + figure-completeness audit
+│   ├── __init__.py                    # Public re-export surface for every layer below
+│   ├── training/                      # RL training pipeline
+│   │   ├── config.py                  # PipelineConfig single source of truth for hyperparameters
+│   │   ├── environment.py             # Multi-objective environment, scorers, modifiers, rewards
+│   │   ├── models.py                  # DecayingSequenceExplorer and model wrapper factories
+│   │   ├── pipeline.py                # 5-stage LBDD execution pipeline and CLI entry point
+│   │   └── loss_criterion.py          # Held-out reward-weighted NLL checkpoint criterion
+│   ├── analysis/                      # Post-hoc analysis and reporting
+│   │   ├── dashboard.py               # Per-run HTML dashboard
+│   │   ├── visualization.py           # 8 publication-grade diagnostics & trajectory figures
+│   │   ├── standard_eval.py           # Standardised multi-arm re-evaluation
+│   │   ├── rocs_scale.py              # RAW_ROCS → TanimotoCombo rescaling verdicts
+│   │   └── output_organization.py     # Run-directory taxonomy and archiving
+│   ├── run_audit/audit_rl_runs.py     # Gold-standard conformance + figure-completeness audit
 │   ├── RL_RUN_AUDIT.md                # Generated run table (config vs gold, artifact verdict)
 │   ├── conformer/                     # Conformer suite: four components + results.md
 │   │   ├── core/                      # Frozen contracts, content-addressed cache, storage,
@@ -110,6 +120,23 @@ _david/
 │       └── archive/                   # compare_output_trees.py + its usage contract
 ├── code/tests/                         # 158 behaviour/contract tests (100% passing)
 └── output/                            # Experiment deliverables, figures, and models
+```
+
+**Import contract.** The root package carries the shared chemistry/scoring layer
+(`chemistry`, `rocs`, `reference`, `prior_dataset`, `schema`, `utils`); `training/` and
+`analysis/` build on it. One edge points back: shared constants such as `PipelineConfig`
+live in `training/config.py`, so root modules import them from there (at function scope
+where a module-level import would cycle). `_david/code/__init__.py` re-exports the public
+names, so `from _david.code import PipelineConfig` keeps working, while direct module
+imports use the dotted path:
+`_david.code.training.pipeline`, `_david.code.analysis.visualization`, … The CLI entry
+points are therefore:
+
+```bash
+python -m _david.code.training.pipeline --output-dir _david/output/<run_id> ...
+python -m _david.code.analysis.dashboard
+python -m _david.code.analysis.standard_eval plan|run|verify|push|submit|pull
+python -m _david.code.analysis.output_organization [plan|apply]
 ```
 
 ---

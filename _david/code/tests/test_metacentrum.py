@@ -394,7 +394,7 @@ class TestJobBody(unittest.TestCase):
     def test_pipeline_command_owns_the_output_directory(self) -> None:
         spec = {"name": "x", "args": ["--criteria", "gmean"], "source": "/r", "revision": "abc"}
         command = job.pipeline_command(Path("/py"), Path("/out"), spec)
-        self.assertEqual(command[:5], ["/py", "-u", "-m", "_david.code.pipeline", "--output-dir"])
+        self.assertEqual(command[:5], ["/py", "-u", "-m", "_david.code.training.pipeline", "--output-dir"])
         self.assertEqual(command[5], "/out")
         self.assertEqual(command[6:], ["--criteria", "gmean"])
 

@@ -14,7 +14,7 @@
 - **Verification**: 98/98 tests (10 skip on a host without migrated canonical data), `ruff check _david` clean, `cli figures --canonical-only` still regenerates the same artifact set.
 
 **2026-11-04 (scoring defaults; user decision — no measurement re-run):**
-- **Colour typing**: production `RDKitROCSScorer` now receives `color_ff="oe_mills_dean"` (the OpenEye ImplicitMillsDean SMARTS port in `drugex/training/scorers/oe_color_smarts.py`) instead of RDKit's `BaseFeatures.fdef` fallback. `PipelineConfig.color_ff` is validated, `create_rocs_scorer` forwards it, and `python -m _david.code.pipeline --color-ff` exposes it. The score stays canonical TanimotoCombo on `[0, 2]`; only the pharmacophore typing of the colour channel changes, so historical numbers are not directly comparable and this is recorded as a new pin.
+- **Colour typing**: production `RDKitROCSScorer` now receives `color_ff="oe_mills_dean"` (the OpenEye ImplicitMillsDean SMARTS port in `drugex/training/scorers/oe_color_smarts.py`) instead of RDKit's `BaseFeatures.fdef` fallback. `PipelineConfig.color_ff` is validated, `create_rocs_scorer` forwards it, and `python -m _david.code.training.pipeline --color-ff` exposes it. The score stays canonical TanimotoCombo on `[0, 2]`; only the pharmacophore typing of the colour channel changes, so historical numbers are not directly comparable and this is recorded as a new pin.
 - **Clip bound**: `rocs_clip_upper` 1.8 → **2.0**, the physical TanimotoCombo ceiling. It is inert while `rocs_use_modifier=False` (raw combo enters the reward), but a future ClippedScore must not truncate the top of the scale.
 - **Harrington**: `reward_scheme` stays `std.REWARD_HARRINGTON` as the default; the stale test that expected `pareto_crowding` was corrected.
 

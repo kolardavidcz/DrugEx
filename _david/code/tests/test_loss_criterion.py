@@ -19,9 +19,9 @@ import pandas as pd
 import torch
 from drugex.training.explorers import SequenceExplorer
 
-from _david.code import loss_criterion as lc
+from _david.code.training import loss_criterion as lc
 from _david.code.config import PipelineConfig
-from _david.code.models import DecayingSequenceExplorer, LossSelectedSequenceExplorer
+from _david.code.training.models import DecayingSequenceExplorer, LossSelectedSequenceExplorer
 from _david.code.prior_dataset import CSV_NAME, MANIFEST_NAME, sha256_file
 from _david.code.schema import std
 

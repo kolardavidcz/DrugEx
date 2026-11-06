@@ -89,7 +89,7 @@ def main():
 ### Questions for you to answer:
 1. What does the comparison between H1 (Pareto) and H2 (Harrington) teach us about reward shaping in 3D molecular RL?
 2. What are the 2-3 most impactful next training runs we should schedule on MetaCentrum right now?
-   - Formulate exact CLI commands using `python -m _david.code.pipeline --output-dir ... [FLAGS]`.
+   - Formulate exact CLI commands using `python -m _david.code.training.pipeline --output-dir ... [FLAGS]`.
    - Explain the precise scientific hypothesis behind each proposed run (e.g., Tversky asymmetric shape vs scaffold-hop color-heavy, dynamic epsilon decay, baseline penalization beta=0.1).
 3. How will these runs answer the core scientific questions of David Kolar's thesis?"""
 

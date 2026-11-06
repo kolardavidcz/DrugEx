@@ -31,7 +31,7 @@ from _david.code.chemistry import (
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
 from _david.code.conformer.core.utils import atomic_json, digest
 from _david.code.conformer.analysis.visualization import render_reference_counts
-from _david.code.environment import create_rocs_scorer
+from _david.code.training.environment import create_rocs_scorer
 from _david.code.reference import PrepareMolecule
 
 

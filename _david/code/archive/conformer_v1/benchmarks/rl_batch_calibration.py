@@ -87,8 +87,8 @@ from _david.code.chemistry import standardize_smiles
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT, PipelineConfig
 from _david.code.conformer.reference.reference_bank import METHODS, prepare_banks, save_records
 from _david.code.conformer.core.utils import atomic_json, digest, source_hashes
-from _david.code.environment import create_environment
-from _david.code.models import SequenceRNNOptimizer
+from _david.code.training.environment import create_environment
+from _david.code.training.models import SequenceRNNOptimizer
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
 

@@ -6,7 +6,7 @@ import unittest
 from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
 
 from _david.code.config import VALID_CRITERIA, PipelineConfig
-from _david.code.environment import HarringtonDesirabilityReward, resolve_reward_scheme
+from _david.code.training.environment import HarringtonDesirabilityReward, resolve_reward_scheme
 from _david.code.schema import std
 
 
@@ -84,7 +84,7 @@ class TestSchemaStandards(unittest.TestCase):
 
     def test_criteria_aliases_cover_every_canonical_value(self) -> None:
         """Keep the CLI alias table and PipelineConfig validation in sync."""
-        from _david.code.pipeline import CRITERIA_ALIASES
+        from _david.code.training.pipeline import CRITERIA_ALIASES
 
         self.assertEqual(set(CRITERIA_ALIASES.values()), set(VALID_CRITERIA))
 
@@ -96,7 +96,7 @@ class TestSchemaStandards(unittest.TestCase):
         must keep replaying verbatim, but every other value has to fail loudly
         instead of being recorded in the manifest and then ignored by the scorer.
         """
-        from _david.code.pipeline import parse_args
+        from _david.code.training.pipeline import parse_args
         from _david.code.rocs import create_rocs_scorer
 
         # Historical specs stay replayable.

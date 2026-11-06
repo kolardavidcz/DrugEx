@@ -13,7 +13,7 @@ side is a six-line launcher plus `job.py`, and neither changes per run.
 
 ## 0. Three rules
 
-1. **Defaults live in code.** `_david/code/config.py::PipelineConfig` is the single source of
+1. **Defaults live in code.** `_david/code/training/config.py::PipelineConfig` is the single source of
    truth. A submission carries **only the deltas** the user asked for. "Defaults, but
    geometric-mean checkpointing" means `--args "--criteria gmean"` and nothing else.
    If a knob is not a field of `PipelineConfig` / a `pipeline.py` flag, it is a PBS
@@ -212,7 +212,7 @@ storage layout: [`help/03-collect.md`](help/03-collect.md) and
    `$STORAGE/.venv/bin/python $RELEASE_DIR/_david/code/metacentrum/job.py --release $RELEASE_DIR`.
 4. `job.py` validates `spec.json`, claims a new run id, copies the release into
    `$SCRATCHDIR/DrugEx`, and runs
-   `python -u -m _david.code.pipeline --output-dir $SCRATCHDIR/output/<run-id> <args>`,
+   `python -u -m _david.code.training.pipeline --output-dir $SCRATCHDIR/output/<run-id> <args>`,
    mirroring stdout+stderr into `<run>/execution.log`.
 5. A `finally` block copies the run directory back to `$STORAGE/_david/output/<run-id>` on
    success, failure, `SIGTERM` (walltime) and `SIGINT`, then cleans scratch. A failed
@@ -257,13 +257,13 @@ one, never overwriting `raw_data/reinforced_raw.csv.gz`:
 
 ```bash
 PY=.venv/bin/python
-$PY -m _david.code.standard_eval plan                        # what each arm allows
+$PY -m _david.code.analysis.standard_eval plan                        # what each arm allows
 $PY -m _david.code.prior_dataset sync --name <dataset>       # dataset → <storage>/datasets/
-$PY -m _david.code.standard_eval push --all                  # manifests + checkpoints → storage
-$PY -m _david.code.standard_eval submit --dataset <dataset> --max-runs 20 \
+$PY -m _david.code.analysis.standard_eval push --all                  # manifests + checkpoints → storage
+$PY -m _david.code.analysis.standard_eval submit --dataset <dataset> --max-runs 20 \
     [--build-dataset --dataset-seed 20261105]   # optional: freeze it on storage first
-$PY -m _david.code.standard_eval pull                        # only <run>/standard_eval/ back
-$PY -m _david.code.standard_eval verify
+$PY -m _david.code.analysis.standard_eval pull                        # only <run>/standard_eval/ back
+$PY -m _david.code.analysis.standard_eval verify
 ```
 
 Classification is by artifact, not by history:

@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from _david.code.config import PROJECT_ROOT
-from _david.code.visualization import render_conformer_analysis
+from _david.code.analysis.visualization import render_conformer_analysis
 
 
 STRATA = ("1", "2", "3-4", "5-8", ">=9")

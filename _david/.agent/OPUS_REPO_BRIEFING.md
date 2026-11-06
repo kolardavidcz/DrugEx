@@ -54,7 +54,7 @@ All thesis code lives in **`_david/`**. The DrugEx core (`drugex/`, repo root) i
 5. `SequenceRNN.evolve` mixes agent + frozen prior logits **per token**: `proba[is_mutate,:] = prior_logits` where `rand < epsilon` — ε applies at *every SMILES character* (see §7, failure 9).
 6. `DrugExEnvironment` (`training/environment.py`): assembles scorers+thresholds+reward scheme; invalid SMILES → zero reward; `Desired = 1` only if **all** objectives ≥ thresholds.
 7. Scorers return DataFrame columns keyed by `Scorer.getKey()`. Score modifiers: `ClippedScore`, `SmoothHump` (raw→[0,1] desirability).
-8. Reward schemes: `WeightedSum`, `ParetoCrowdingDistance` (PRCD), `ParetoTanimotoDistance` (PRTD). Thesis adds its own **Harrington** scheme in `_david/code/environment.py`.
+8. Reward schemes: `WeightedSum`, `ParetoCrowdingDistance` (PRCD), `ParetoTanimotoDistance` (PRTD). Thesis adds its own **Harrington** scheme in `_david/code/training/environment.py`.
 9. Monitoring artifacts (v3 has **no** `DiskLogger`/`CsvSink` — those are v4 names): `FileMonitor` writes `{path}_fit.log`, `{path}_fit.tsv` (epoch metrics), `{path}_smiles.tsv`, `{path}.pkg` torch checkpoints (`best|all|improvement`); fork adds `PeakRecoveryMonitor` (`{path}_peak.pkg`).
 10. **Columns are UPPERCASE**: `SMILES`, `Frags`, `Valid`, `Desired`, `Accurate`. Input molecule column default `'SMILES'`.
 11. `DataSet` = on-disk artifact (data file + `.vocab` pair managed together, `rewrite=True` resets). Vocab files sit next to data: `{prefix}.{txt|tsv}.vocab`.
@@ -82,7 +82,7 @@ All thesis code lives in **`_david/`**. The DrugEx core (`drugex/`, repo root) i
 | `rocs.py` | `ConfigurableRDKitROCSScorer`, `WholeCallScorer`, `score_pair`, `ROCS_SIMILARITY_PRESETS`, `NAMED_OPTIMIZATION_METHODS` | Arbitrary Tversky (α,β) + shape/color weights; delegates to native path for standard weights; raw [0,2] scale with 4-sign pose guard. `WholeCallScorer` = persistent spawn `ProcessPoolExecutor`, each worker runs conformers→minimization→ROCS end-to-end. Named FFs: `etkdg`, `uff`, `mmff_pocket` (ε 6.5), `mmff_high_dielectric` (ε 78.4). |
 | `models.py` | `SequenceRNNOptimizer`, `DecayingSequenceExplorer` | Loads agent + **independent frozen prior** (`assert prior is not agent`); cosine/linear ε decay support. |
 | `environment.py` | `create_rocs_scorer`, `HarringtonDesirabilityReward`, `resolve_reward_scheme`, `create_environment` | ROCS raw [0,2] with `setModifier(None)` default; SA **`ClippedScore(5.0, 3.0)`**; optional QED `ClippedScore(0,1)`. Thresholds (0.35, 0.50[, 0.50]); weights 2-obj (0.75, 0.25), 3-obj (0.50, 0.25, 0.25). Harrington raw-scale ROCS anchors (0.40, 0.05, 1.20, 0.80), Gompertz per objective + weighted geometric mean, degenerate-SMILES penalty. |
-| `pipeline.py` | `MoleculePipeline`, CLI `python -m _david.code.pipeline` | 5 stages; explicit `Raw_ROCS` column recorded; full argparse mirror of PipelineConfig. |
+| `pipeline.py` | `MoleculePipeline`, CLI `python -m _david.code.training.pipeline` | 5 stages; explicit `Raw_ROCS` column recorded; full argparse mirror of PipelineConfig. |
 | `visualization.py` | `ResultAnalyzer`, `AlignedDepicter`, `unscale_to_physical_metrics`, `bootstrap_ci` | 8 publication figures (see §7 numbering in rl01 report) + `comparison_scorecard.csv`, `summary.md`, `top_prioritized_leads.tsv`. |
 | `launch_rl_suite.sh` | 6-arm dichtator tmux suite | Legacy vs sprint: uses ε=0.0, K=4, C=20, MMFF ε78.4 (predates ε calibration; superseded by MetaCentrum sprint). `--status/--attach/--restart/--run/--pull/--stop`; time gate 12:00–20:00; completion = manifest `state=complete` + `reinforced_raw.csv.gz` + final `.pkg`. |
 
@@ -184,7 +184,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=15 dichtator "echo OK"
 ssh dichtator ... launch_rl_suite.sh --status               # tmux: drugex_rl_suite
 
 # Full pipeline (local or remote)
-.venv/bin/python -m _david.code.pipeline --output-dir _david/output/<run_id> ...
+.venv/bin/python -m _david.code.training.pipeline --output-dir _david/output/<run_id> ...
 
 # Sync to lab server (after commit; check git status both sides first)
 git push dichtator main

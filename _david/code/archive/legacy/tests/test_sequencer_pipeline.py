@@ -22,9 +22,9 @@ from _david.code.chemistry import (
     standardize_smiles,
 )
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig
-from _david.code.environment import PrepareMolecule, create_environment
-from _david.code.environment import create_rocs_scorer
-from _david.code.models import SequenceRNNOptimizer
+from _david.code.training.environment import PrepareMolecule, create_environment
+from _david.code.training.environment import create_rocs_scorer
+from _david.code.training.models import SequenceRNNOptimizer
 
 
 class TestPreparation(unittest.TestCase):

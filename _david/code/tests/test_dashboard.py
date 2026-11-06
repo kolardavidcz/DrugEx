@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from _david.code import dashboard
+from _david.code.analysis import dashboard
 from _david.code.schema import std
 
 

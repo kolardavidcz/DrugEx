@@ -157,7 +157,7 @@ def _epsilon_schedule(epochs: np.ndarray, run_config: dict | None) -> np.ndarray
     """Return the per-epoch exploration epsilon recorded in the run config, if any."""
     if not run_config or "epsilon" not in run_config:
         return None
-    from _david.code.models import decayed_epsilon
+    from _david.code.training.models import decayed_epsilon
 
     eps_start = float(run_config.get("epsilon", 0.0))
     return np.array(
@@ -4022,7 +4022,7 @@ class ResultAnalyzer:
         ``min(raw, clip) / clip``, and reading that as a [0, 1] normalization of
         the full range inflated ROCS by ``2.0 / clip``.
         """
-        from _david.code.rocs_scale import correct_run_frame, ensure_verdict
+        from _david.code.analysis.rocs_scale import correct_run_frame, ensure_verdict
 
         scale_verdict = ensure_verdict(self.paths.root)
         df_after = correct_run_frame(self.paths.root, df_after)

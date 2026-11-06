@@ -31,7 +31,7 @@ from _david.code.conformer.reward_calibration import (
 )
 from _david.code.rocs import WholeCallScorer
 from _david.code.schema import std
-from _david.code.visualization import unscale_to_physical_metrics
+from _david.code.analysis.visualization import unscale_to_physical_metrics
 import pandas as pd
 
 
@@ -88,7 +88,7 @@ class TestJointCalibration(unittest.TestCase):
         self.assertEqual(selected.candidate_attempts.tolist(), [10])
 
     def test_whole_call_dispatch_matches_singletons_and_restores_duplicate_rows(self):
-        from _david.code.environment import create_rocs_scorer
+        from _david.code.training.environment import create_rocs_scorer
 
         reference = self.geometry("CCO")
         inputs = [

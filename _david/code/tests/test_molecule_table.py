@@ -10,7 +10,7 @@ from unittest import mock
 
 import pandas as pd
 
-from _david.code import visualization as viz
+from _david.code.analysis import visualization as viz
 from _david.code.schema import std
 
 

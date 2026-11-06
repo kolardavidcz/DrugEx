@@ -10,7 +10,7 @@ from typing import Literal
 from _david.code.chemistry import Optimization
 from _david.code.schema import std
 
-PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT: Path = Path(__file__).resolve().parents[3]
 
 #: Root that receives one directory per pipeline run.
 OUTPUT_ROOT: Path = PROJECT_ROOT / "_david" / "output"
@@ -84,7 +84,7 @@ class PipelineConfig:
     # the held-out reward-weighted negative log-likelihood of a frozen sample drawn
     # from the prior dataset, so it never sees the policy's own samples and it is
     # lower-is-better. The two floors gate which epochs may become the checkpoint;
-    # they are not part of the loss (see ``_david/code/loss_criterion.py``).
+    # they are not part of the loss (see ``_david/code/training/loss_criterion.py``).
     val_holdout_size: int = 512  # Molecules in the frozen held-out sample
     val_holdout_seed: int = 20261106  # RNG seed of the held-out draw (never reused as a training seed)
     val_holdout_dataset: str | None = (

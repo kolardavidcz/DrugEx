@@ -7,7 +7,7 @@ Understanding them makes every error message obvious.
 local git HEAD ──git archive──▶ $STORAGE/releases/<sha>/ ──rsync──▶ $SCRATCHDIR/DrugEx/
                                       ▲                                   │
                                       │                                   ▼
-$STORAGE/jobs/<name>/spec.json ───────┘            python -m _david.code.pipeline
+$STORAGE/jobs/<name>/spec.json ───────┘            python -m _david.code.training.pipeline
 ```
 
 ## 1. The release
@@ -101,8 +101,8 @@ resources always arrive on the `qsub` command line.
 ## 4. Flags that reach the pipeline
 
 Anything after `--` (or inside `--args "…"`) is handed to
-`_david.code.pipeline` verbatim. All defaults come from `PipelineConfig`; see
-`python -m _david.code.pipeline --help`. The ones used in practice:
+`_david.code.training.pipeline` verbatim. All defaults come from `PipelineConfig`; see
+`python -m _david.code.training.pipeline --help`. The ones used in practice:
 
 | Flag | Default | Effect |
 | :--- | :--- | :--- |

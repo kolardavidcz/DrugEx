@@ -292,7 +292,7 @@ def compute_statistics(
     thresholds: Sequence[float] | None = None,
 ) -> dict[str, Any]:
     """Describe the population: validity, chemistry, diversity and reward spread."""
-    from _david.code.environment import resolve_reward_scheme
+    from _david.code.training.environment import resolve_reward_scheme
 
     stats: dict[str, Any] = {
         "n": int(len(df)),
@@ -376,8 +376,8 @@ def _sample_prior(
     batch_size: int,
 ) -> pd.DataFrame:
     """Sample ``n`` raw SMILES from the untrained prior (the Stage 1 arm)."""
-    from _david.code.environment import create_environment
-    from _david.code.models import SequenceRNNOptimizer
+    from _david.code.training.environment import create_environment
+    from _david.code.training.models import SequenceRNNOptimizer
 
     with tempfile.TemporaryDirectory(prefix="prior-models-") as scratch:
         optimizer = SequenceRNNOptimizer(models_dir=Path(scratch), config=config)

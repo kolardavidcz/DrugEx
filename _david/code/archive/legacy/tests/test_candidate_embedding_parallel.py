@@ -24,7 +24,7 @@ from _david.code.conformer.batch_probe import (
     prepare_stage0_reference,
     run_batch_probe,
 )
-from _david.code.environment import create_rocs_scorer
+from _david.code.training.environment import create_rocs_scorer
 from _david.code.rocs import ConfigurableRDKitROCSScorer
 
 

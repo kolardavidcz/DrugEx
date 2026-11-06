@@ -38,8 +38,8 @@ from _david.code.chemistry import (
     prepare_candidate_molecule,
 )
 from _david.code.config import DEFAULT_MOLECULE, PROJECT_ROOT
-from _david.code.environment import PrepareMolecule, create_rocs_scorer
-from _david.code.visualization import render_mega_study
+from _david.code.training.environment import PrepareMolecule, create_rocs_scorer
+from _david.code.analysis.visualization import render_mega_study
 
 
 METHODS = (

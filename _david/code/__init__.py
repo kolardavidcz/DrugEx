@@ -1,3 +1,21 @@
+"""Public re-export surface for the thesis code.
+
+Layout
+------
+``_david.code`` (this package)
+    Shared chemistry and scoring layer: :mod:`chemistry`, :mod:`rocs`,
+    :mod:`reference`, :mod:`prior_dataset`, :mod:`schema`, :mod:`utils`.
+``_david.code.training``
+    RL training pipeline: :mod:`config`, :mod:`environment`, :mod:`models`,
+    :mod:`pipeline`, :mod:`loss_criterion`.
+``_david.code.analysis``
+    Post-hoc analysis and reporting: :mod:`dashboard`, :mod:`visualization`,
+    :mod:`standard_eval`, :mod:`rocs_scale`, :mod:`output_organization`.
+
+Every name below stays importable from ``_david.code`` even though it is defined
+in a subpackage, so existing call sites keep working unchanged.
+"""
+
 from __future__ import annotations
 
 from _david.code.chemistry import (
@@ -6,16 +24,6 @@ from _david.code.chemistry import (
     enable_double_precision_mol_pickling,
     verify_disjoint_conformer_seeds,
 )
-from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
-from _david.code.environment import (
-    HarringtonDesirabilityReward,
-    PrepareMolecule,
-    create_environment,
-    create_rocs_scorer,
-    resolve_reward_scheme,
-)
-from _david.code.models import DecayingSequenceExplorer, SequenceRNNOptimizer
-from _david.code.pipeline import MoleculePipeline
 from _david.code.reference import (
     balanced_reference_order,
     diverse_order,
@@ -27,7 +35,17 @@ from _david.code.utils import (
     HardwareManager,
     get_gpu_telemetry,
 )
-from _david.code.visualization import (
+from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
+from _david.code.training.environment import (
+    HarringtonDesirabilityReward,
+    PrepareMolecule,
+    create_environment,
+    create_rocs_scorer,
+    resolve_reward_scheme,
+)
+from _david.code.training.models import DecayingSequenceExplorer, SequenceRNNOptimizer
+from _david.code.training.pipeline import MoleculePipeline
+from _david.code.analysis.visualization import (
     AlignedDepicter,
     ResultAnalyzer,
     bootstrap_ci,

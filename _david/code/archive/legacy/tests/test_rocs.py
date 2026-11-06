@@ -11,7 +11,7 @@ from rdkit.Chem import AllChem
 from drugex.training.scorers.rocs_rdkit import _score_single_reference
 from _david.code.chemistry import CandidateConformerGenerator
 from _david.code.conformer.self_recovery import reference_group, reference_job
-from _david.code.environment import create_rocs_scorer
+from _david.code.training.environment import create_rocs_scorer
 from _david.code.rocs import has_color, score_pair
 
 

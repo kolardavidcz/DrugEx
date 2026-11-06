@@ -71,7 +71,7 @@ The first lines are the `job.py` header — job id, node, queue, cpus, scratch p
 release, revision, run id and the final results directory. After that, the pipeline's own
 log. Two harmless lines that look alarming:
 
-- `RuntimeWarning: '_david.code.pipeline' found in sys.modules after import of package
+- `RuntimeWarning: '_david.code.training.pipeline' found in sys.modules after import of package
   '_david.code'` — an artefact of `python -m` plus the package `__init__`; ignore it.
 - Matplotlib backend messages — the job body forces `Agg`, so figures are written, not shown.
 

@@ -20,8 +20,8 @@ from rdkit.Chem import AllChem
 
 from _david.code.config import DEFAULT_MOLECULE, PipelineConfig, RunPaths
 from _david.code.curriculum_runner import CurriculumOrchestrator
-from _david.code.models import DecayingFragGraphExplorer
-from _david.code.environment import (
+from _david.code.training.models import DecayingFragGraphExplorer
+from _david.code.training.environment import (
     BatchUniqueEnvironment,
     PrepareMolecule,
     SafeSAModifier,
@@ -29,10 +29,10 @@ from _david.code.environment import (
     load_query_molecule,
     resolve_reward_scheme,
 )
-from _david.code.pipeline import MoleculePipeline
+from _david.code.training.pipeline import MoleculePipeline
 from _david.code.schema import std
 from _david.code.utils import HardwareManager
-from _david.code.visualization import (
+from _david.code.analysis.visualization import (
     AlignedDepicter,
     ResultAnalyzer,
     render_lead_structures_2d,
@@ -280,7 +280,7 @@ class TestLBDDPipeline(unittest.TestCase):
 
     def test_decoupled_validation_loader(self) -> None:
         """Verify that prepare_seed_fragments returns decoupled train and bounded validation dataloaders."""
-        from _david.code.models import GraphTransformerOptimizer
+        from _david.code.training.models import GraphTransformerOptimizer
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             models_dir = Path(tmp_dir) / "models"

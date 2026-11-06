@@ -26,7 +26,7 @@ from _david.code.chemistry import (
     standardize_smiles,
 )
 from _david.code.config import DEFAULT_MOLECULE
-from _david.code.environment import PrepareMolecule, create_rocs_scorer
+from _david.code.training.environment import PrepareMolecule, create_rocs_scorer
 from _david.code.utils import HardwareManager
 
 SAMPLE_CANDIDATE_SMILES: tuple[str, ...] = (

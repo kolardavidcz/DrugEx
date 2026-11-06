@@ -81,7 +81,7 @@ David actively inspects and edits code across both local WSL and remote `dichtat
    - **Never push to GitHub `origin` on thesis branches without authorization.**
 2. **Inspect Dirty State Before Action**:
    - Always check `git status` on both hosts before initiating a pull or push.
-   - Preserve David's scratchpad comments in [`_david/code/config.py`](file:///home/kolar/DrugEx/_david/code/config.py).
+   - Preserve David's scratchpad comments in [`_david/code/training/config.py`](file:///home/kolar/DrugEx/_david/code/training/config.py).
 3. **Bulky Data Exclusion**:
    - Checkpoints (`.pt`, `.pkg`), raw dataset archives, and large multi-gigabyte `.sdf` files must never be committed to Git. They are tracked locally in `_david/output/`.
 
