@@ -97,6 +97,15 @@ EXECUTION_ONLY_FIELDS: frozenset[str] = frozenset({
     "decay_epochs",
     "decay_type",
     "use_epsilon_decay",
+    # Validation-holdout knobs only feed the ``val_loss`` criterion during training;
+    # they are not read when a finished policy is re-sampled and re-scored, so leaving
+    # them in the hash would invalidate every arm the moment a training-only default
+    # changed (it did: the loss-criterion work added them).
+    "val_holdout_dataset",
+    "val_holdout_size",
+    "val_holdout_seed",
+    "val_min_valid_ratio",
+    "val_min_unique_ratio",
     "training_seed",
     "gpu",
     "cpu_ratio",
@@ -643,6 +652,12 @@ def pull_standard_arms(
     for remote_dir in (line.strip() for line in listing if line.strip()):
         relative = Path(remote_dir).relative_to(f"{storage}/_david/output")
         local = root / relative
+        # A run that is not in the local tree has been archived, deleted or never
+        # pulled; materialising its arm alone would leave a directory that looks like
+        # a run without a manifest (the archived copies already hold their arms).
+        if not local.parent.is_dir():
+            LOGGER.info("%s: no local run directory, skipping its standard arm", relative.parent)
+            continue
         local.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             ["rsync", "-a", f"{host}:{remote_dir}/", f"{local}/"], check=True

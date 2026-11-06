@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -126,6 +127,39 @@ class TestPush(unittest.TestCase):
             self.assertTrue(command.startswith("rsync -aR"))
 
 
+class TestPull(unittest.TestCase):
+    def test_an_archived_run_is_not_resurrected_as_a_stub(self) -> None:
+        """Pulling every remote arm recreated archived runs as bare ``standard_eval`` dirs.
+
+        Only arms of runs that exist locally may land locally; the archived copies
+        already hold their own arm, and a manifest-less directory is not a run.
+        """
+        storage = "/storage/test/DrugEx"
+        listing = (
+            f"{storage}/_david/output/20261101_1200_present/standard_eval\n"
+            f"{storage}/_david/output/20261101_1200_gone/standard_eval\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "20261101_1200_present").mkdir()
+            completed = mock.Mock(stdout=listing)
+            with (
+                mock.patch(
+                    "_david.code.metacentrum.submit.remote", return_value=completed
+                ),
+                mock.patch(
+                    "_david.code.metacentrum.submit.storage_root", return_value=storage
+                ),
+                mock.patch("subprocess.run") as run,
+            ):
+                copied = seval.pull_standard_arms(root)
+            self.assertEqual(
+                copied, [(root / "20261101_1200_present" / "standard_eval").as_posix()]
+            )
+            self.assertFalse((root / "20261101_1200_gone").exists())
+            self.assertEqual(run.call_count, 1)
+
+
 DATASET_NAME = "prior_test"
 DATASET_RECORD = {
     "name": DATASET_NAME,
@@ -180,6 +214,29 @@ class TestProtocol(unittest.TestCase):
         first = seval.scoring_protocol(self.cfg, DATASET_RECORD)
         second = seval.scoring_protocol(other, DATASET_RECORD)
         self.assertEqual(first["sha256"], second["sha256"])
+
+    def test_validation_holdout_knobs_do_not_change_the_hash(self) -> None:
+        """Training-only knobs must never invalidate a finished arm's comparability.
+
+        The ``val_loss`` criterion added five ``PipelineConfig`` fields that a
+        re-evaluation never reads; when they entered the hash, every arm scored
+        before that commit mismatched the arms scored after it.
+        """
+        fields = {
+            "val_holdout_dataset": "some_other_dataset",
+            "val_holdout_size": 64,
+            "val_holdout_seed": 7,
+            "val_min_valid_ratio": 0.1,
+            "val_min_unique_ratio": 0.9,
+        }
+        for field, value in fields.items():
+            with self.subTest(field=field):
+                other = PipelineConfig(**{**seval.asdict(self.cfg), field: value})
+                self.assertNotEqual(getattr(other, field), getattr(self.cfg, field))
+                self.assertEqual(
+                    seval.scoring_protocol(self.cfg, DATASET_RECORD)["sha256"],
+                    seval.scoring_protocol(other, DATASET_RECORD)["sha256"],
+                )
 
     def test_a_scoring_field_changes_the_hash(self) -> None:
         other = PipelineConfig(**{**seval.asdict(self.cfg), "max_conformers": 99})
