@@ -20,7 +20,7 @@ import argparse
 import itertools
 from dataclasses import dataclass, field
 
-from _david.metacentrum.submit import Job, submit, sync, validate_deltas
+from _david.metacentrum.submit import STORAGE, Job, remote, submit, sync, validate_deltas
 
 #: Pinned in every run of every batch. Each is an axis some *other* batch varies, so
 #: writing it out makes each spec state the whole experiment instead of inheriting half
@@ -148,10 +148,35 @@ def show(chosen: list[str]) -> list[tuple[str, dict]]:
     return planned
 
 
-def launch(planned: list[tuple[str, dict]], resources: dict, limit: int | None) -> None:
+def already_submitted() -> set[str]:
+    """Job names that already have a spec on storage, i.e. were submitted before.
+
+    One ``ls``, not ``qstat``: a spec outlives the queue entry, so this still recognises
+    a batch submitted yesterday, and it needs no parsing of a column ``qstat`` truncates.
+    """
+    listing = remote(f"ls {STORAGE}/jobs 2>/dev/null || true")
+    return {line.strip() for line in listing.splitlines() if line.strip()}
+
+
+def launch(
+    planned: list[tuple[str, dict]], resources: dict, limit: int | None, again: bool = False
+) -> None:
     """Validate every delta, stage HEAD once, then queue the runs."""
     for _, settings in planned:
         validate_deltas(deltas(settings))
+    # Re-running a batch to fill the gaps left by a few failures is the normal way to use
+    # this, and without the check it silently queues a second copy of every run that
+    # already succeeded -- 96 jobs, days of allocation, and two run directories per
+    # configuration to tell apart afterwards.
+    seen = set() if again else already_submitted()
+    if seen & {name for name, _ in planned}:
+        repeats = sorted(seen & {name for name, _ in planned})
+        print(f"\nskipping {len(repeats)} already submitted: {' '.join(repeats[:8])}")
+        print("    (pass --again to queue them a second time)")
+        planned = [(name, settings) for name, settings in planned if name not in seen]
+    if not planned:
+        print("\nevery run of this batch was submitted before; nothing to do")
+        return
     chosen = planned[:limit] if limit else planned
     print(f"\nvalidated {len(planned)} runs; submitting {len(chosen)}")
     revision = sync()
@@ -180,6 +205,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--submit", action="store_true", help="actually queue the runs")
     parser.add_argument("--limit", type=int, default=None, help="queue only the first N")
+    parser.add_argument(
+        "--again", action="store_true", help="queue runs that were submitted before"
+    )
     parser.add_argument("--ncpus", type=int, default=Job.ncpus)
     parser.add_argument("--mem", type=int, default=Job.mem, help="GB")
     parser.add_argument("--scratch", type=int, default=Job.scratch, help="GB")
@@ -210,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
             "queue": args.queue,
         },
         args.limit,
+        args.again,
     )
     return 0
 

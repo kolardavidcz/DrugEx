@@ -256,6 +256,10 @@ def main(argv: list[str] | None = None) -> int:
         gpus=list(DEFAULT_GPUS) if DEFAULT_GPUS else [],
         provenance=describe(PROJECT_ROOT),
         # Recorded, because it decides whether this run had 16 cores or one of them.
+        # Run here, before the first stage, for two reasons: a start method that cannot
+        # produce a worker is reported while the run is seconds old rather than silently
+        # halving its throughput for a day, and the forkserver bootstrap (measured: 5.2 s,
+        # once per process) is paid here instead of inside the first scoring call.
         mp_context=check_pool(),
         config=resolved,
     )
