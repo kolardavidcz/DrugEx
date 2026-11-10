@@ -14,6 +14,20 @@ from drugex.training.scorers.interfaces import Scorer
 from drugex.training.scorers.sascorer import calculateScore
 from drugex.training.scorers.modifiers import Gaussian
 
+#: Value a property keeps when it cannot be computed for a molecule.
+#:
+#: ``getScores`` swallows the exception and leaves whatever the array was initialised with,
+#: so that initial value *is* the failure semantics. Zero is correct for every property
+#: that improves upwards -- a failure then scores worst and can never outrank a molecule
+#: that was actually measured. ``SA`` is the exception: it is defined on [1, 10] with lower
+#: being better, so zero is off-scale *below* the best possible value, and a descending
+#: modifier such as ``ClippedScore(lower_x=5, upper_x=3)`` maps it to the maximum reward.
+#: A molecule RDKit cannot score would then beat every synthesizable one. Its failure value
+#: is therefore the worst synthetic accessibility on its own scale.
+#:
+#: Add an entry here for any future property where lower is better and the scale is bounded.
+FAILURE_VALUES = {'SA': 10.0}
+
 class Property(Scorer):
 
     def __init__(self, prop='MW', modifier=None):
@@ -43,7 +57,7 @@ class Property(Scorer):
                           'Bertz': BertzCT}
 
     def getScores(self, mols, frags=None):
-        scores = np.zeros(len(mols))
+        scores = np.full(len(mols), FAILURE_VALUES.get(self.prop, 0.0))
         for i, mol in enumerate(mols):
             try:
                 scores[i] = self.prop_dict[self.prop](mol)

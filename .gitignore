@@ -169,3 +169,8 @@ dmypy.json
 cython_debug/
 
 
+
+# --- Thesis workspace (_david) ---
+# Run outputs and conformer caches are large, regenerable artifacts.
+/_david/output/
+/_david/data/

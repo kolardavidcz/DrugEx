@@ -1,0 +1,8 @@
+line-length = 100
+
+[lint]
+select = ["E"]
+extend-ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+    "E402",  # module level import not at top of file
+]
