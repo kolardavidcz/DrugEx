@@ -117,6 +117,22 @@ BATCHES: dict[str, Batch] = {
             "include_qed": (False, True),
         },
     ),
+    "prtd": Batch(
+        prefix="t",
+        purpose=(
+            "DrugEx's Tanimoto-distance ranking instead of crowding distance. The parent "
+            "grid is PRCD throughout, so nothing in it prices the one native mechanism "
+            "that puts chemical diversity into the reward: PRTD ranks the molecules of a "
+            "Pareto front by ECFP6 distance, so one far from its neighbours outranks one "
+            "in a crowd. Run at the relaxed centre with a single reference, which is "
+            "where the parent grid's own runs collapsed onto a single chemical series"
+        ),
+        fixed={"scheme": "PRTD", "reference_conformers": 1},
+        axes={
+            "epsilon": (0.1, 0.05),
+            "include_qed": (False, True),
+        },
+    ),
     "color": Batch(
         prefix="c",
         purpose="colour typing and the alignment objective, at the parent batch's centre",

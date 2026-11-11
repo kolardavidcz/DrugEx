@@ -1034,8 +1034,8 @@ class Campaign(unittest.TestCase):
 
     def test_the_plan_is_the_sweep_that_was_asked_for(self):
         counts = {name: len(campaign.runs(batch)) for name, batch in campaign.BATCHES.items()}
-        self.assertEqual(counts, {"parent": 96, "ws": 4, "color": 48})
-        self.assertEqual(sum(counts.values()), 148)
+        self.assertEqual(counts, {"parent": 96, "ws": 4, "prtd": 4, "color": 48})
+        self.assertEqual(sum(counts.values()), 152)
 
     def test_every_delta_is_a_setting_the_pipeline_accepts(self):
         # config_from_args raises SystemExit on an unknown name and on a value that will
@@ -1052,9 +1052,15 @@ class Campaign(unittest.TestCase):
                     self.assertEqual(getattr(cfg, key), wanted, f"{name}: {key}")
                 scorers.reward_scheme(cfg.scheme)
 
-    def test_only_the_weighted_sum_batch_changes_the_reward(self):
+    def test_a_batch_changes_the_reward_scheme_only_by_being_about_it(self):
+        # PRCD is the grid's scheme. A run on another one is not a cell of the same
+        # experiment -- WS reads the thresholds, PRTD ranks a front by chemical distance
+        # -- so a scheme may only vary where the whole batch exists to vary it, and
+        # never as one axis among several.
+        schemes = {"ws": "WS", "prtd": "PRTD"}
         for name, batch in campaign.BATCHES.items():
-            wanted = "WS" if name == "ws" else "PRCD"
+            wanted = schemes.get(name, "PRCD")
+            self.assertNotIn("scheme", batch.axes, name)
             for job, settings in campaign.runs(batch):
                 self.assertEqual(settings["scheme"], wanted, job)
 
