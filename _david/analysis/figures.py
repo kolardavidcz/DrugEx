@@ -530,6 +530,15 @@ def multiobjective_tradeoffs(
     sa_hi = float((config or {}).get("sa_reward_one", 3.0))
     sa_raw_thr = sa_lo - sa_mod_thr * (sa_lo - sa_hi)
     qed_thr = float(thr_map.get("QED", reference_properties(config, reference).get("QED", 0.21)))
+    settings = config or {}
+    if "QED" not in objectives:
+        qed_thr_label = "QED of the reference"
+    elif settings.get("fixed_thresholds"):
+        qed_thr_label = "QED threshold (fixed)"
+    elif "QED" in (settings.get("threshold_from_reference") or ()):
+        qed_thr_label = "QED threshold (reference)"
+    else:
+        qed_thr_label = f"QED threshold (prior p{settings.get('threshold_percentile', 85):g})"
 
     prov = provenance_tag(config, reference)
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5.8), dpi=200)
@@ -642,7 +651,7 @@ def multiobjective_tradeoffs(
         linestyle="--",
         linewidth=1.2,
         alpha=0.75,
-        label=f"QED Ref ({qed_thr:.2f})",
+        label=f"{qed_thr_label} ({qed_thr:.2f})",
     )
     ax2.set_title(
         f"(B) 3D Shape (ROCS) vs. Drug-Likeness (QED{qed_role})", fontsize=11, fontweight="bold"
@@ -698,7 +707,7 @@ def multiobjective_tradeoffs(
         linestyle="--",
         linewidth=1.2,
         alpha=0.75,
-        label=f"QED Ref ({qed_thr:.2f})",
+        label=f"{qed_thr_label} ({qed_thr:.2f})",
     )
     ax3.set_title(
         f"(C) Synthesizability (Raw SA) vs. Drug-Likeness (QED{qed_role})",
@@ -870,7 +879,13 @@ def training_trajectories(
         "(B) Dual Checkpoint Criteria & Sample Quality (on n_eval)", fontsize=11, fontweight="bold"
     )
     ax2.set_xlabel("Epoch")
-    ax2.set_ylim(-0.05, 1.05)
+    drawn = [
+        pd.to_numeric(df[col], errors="coerce").max()
+        for col, *_ in series_specs
+        if col in df.columns and not df[col].dropna().empty
+    ]
+    ceiling = max([1.05, *(float(v) * 1.08 for v in drawn if pd.notna(v))])
+    ax2.set_ylim(-0.05, ceiling)
     ax2.grid(True, linestyle=":", alpha=0.4)
     ax2.legend(loc="best", fontsize=7.8, ncol=2)
 
