@@ -28,7 +28,7 @@ class Config:
     epochs: int = 120  # hard cap; patience normally ends the run first
     patience: int = 30  # epochs without improvement before a criterion is done
     min_epochs: int = 50  # neither criterion may freeze or stop below this epoch
-    n_samples: int = 500  # molecules generated and scored per epoch for the policy gradient
+    n_samples: int = 1000  # molecules generated and scored per epoch for the policy gradient
     n_eval: int = 50  # held-out molecules scored each epoch to measure the stop condition
     batch_size: int = 128  # ^[64, 128] molecules per policy-gradient step
     epsilon: float = 0.0  # per-token probability of sampling from the frozen prior instead
