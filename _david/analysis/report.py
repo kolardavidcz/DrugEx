@@ -461,7 +461,7 @@ def analyse(run_dir: Path) -> Path:
         "`n scored` is below `n` wherever a molecule was invalid, duplicated, or missing "
         "a score on one objective. Figure 02 draws these fronts.",
         "",
-        _table(figures_module.pareto_rows(arms, objectives), "arm"),
+        _table(figures_module.pareto_rows(arms, objectives, config), "arm"),
         "",
         "## scaffolds",
         "",

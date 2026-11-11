@@ -1637,6 +1637,10 @@ def _spread_scaffolds(counts: pd.Series, k: int) -> list[str]:
     fps = [rdMolDescriptors.GetMorganFingerprintAsBitVect(m, 2, nBits=2048) for _, m in pairs]
     chosen = [0]
     nearest = 1.0 - np.array(DataStructs.BulkTanimotoSimilarity(fps[0], fps))
+    # The seed's own distance to itself is 0, which argmax would return again if every
+    # remaining scaffold were also at distance 0 -- drawing the commonest core twice and
+    # losing a panel slot.
+    nearest[0] = -1.0
     for _ in range(k - 1):
         nxt = int(np.argmax(nearest))
         chosen.append(nxt)
@@ -1844,9 +1848,13 @@ def _leads_for_3d(
     # it does not get a pose drawn against the reference either.
     pool = _unique(frame)
     if "Desired" in pool.columns:
-        desired = pool[pd.to_numeric(pool["Desired"], errors="coerce").fillna(0).astype(int) == 1]
-        if not desired.empty:
-            pool = desired
+        # No fallback to the unfiltered pool. Falling back drew the five best undesired
+        # molecules of a collapsed arm while the 2D gallery of the same arm correctly
+        # drew nothing, so one figure contradicted the other and both contradicted the
+        # rule that nothing below the thresholds is depicted.
+        pool = pool[pd.to_numeric(pool["Desired"], errors="coerce").fillna(0).astype(int) == 1]
+    if pool.empty:
+        return None
     return name, pool.nlargest(TOP_3D, objectives[0])
 
 
@@ -2230,7 +2238,7 @@ def training_diagnostics(
     cum_front = np.empty((0, len(objectives)))
     for ep in ep_nums:
         grp = val_df[val_df["Epoch"] == ep]
-        pts = scored_points(grp, objectives)
+        pts = scored_points(grp, objectives, config)
         hv_epoch.append(dominated_volume(pts))
         if len(pts):
             cum_front = np.vstack([cum_front, pts])
@@ -2338,7 +2346,7 @@ def training_diagnostics(
         zorder=3,
     )
     if not prior_en.empty:
-        p_pts = scored_points(prior_en, objectives)
+        p_pts = scored_points(prior_en, objectives, config)
         if len(p_pts):
             p_hv = dominated_volume(p_pts)
             ax.axhline(

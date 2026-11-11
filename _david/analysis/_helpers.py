@@ -335,12 +335,22 @@ def enrich_descriptors(
 # --------------------------------------------------------------------------------------
 
 
-def scored_points(frame: pd.DataFrame, objectives: list[str]) -> np.ndarray:
-    """Unique valid molecules of one arm as a finite point cloud in all objectives."""
+def scored_points(
+    frame: pd.DataFrame, objectives: list[str], config: dict | None = None
+) -> np.ndarray:
+    """Unique valid molecules of one arm as a finite point cloud in all objectives.
+
+    ROCS is put on published [0, 2] first. Pareto *fronts* would not care -- halving an
+    axis is affine and changes no dominance relation -- but ``dominated_volume`` is a
+    volume, so without this a run from before the reward rescale reports twice the
+    hypervolume of an identical run from after it.
+    """
     u = unique(frame)
     if u.empty or any(o not in u.columns for o in objectives):
         return np.empty((0, len(objectives)), dtype=float)
     pts = u[objectives].to_numpy(dtype=float)
+    if objectives:
+        pts[:, 0] = pts[:, 0] * rocs_scale(config)
     return pts[np.all(np.isfinite(pts), axis=1)]
 
 
@@ -509,13 +519,15 @@ def scaffold_rows(arms: dict[str, pd.DataFrame]) -> dict[str, dict]:
     return rows
 
 
-def pareto_rows(arms: dict[str, pd.DataFrame], objectives: list[str]) -> dict[str, dict]:
+def pareto_rows(
+    arms: dict[str, pd.DataFrame], objectives: list[str], config: dict | None = None
+) -> dict[str, dict]:
     """Non-dominated front counts and dominated volume per arm for figure 02 and report.md."""
     rows: dict[str, dict] = {}
     for name in ARMS:
         if name not in arms:
             continue
-        pts = scored_points(arms[name], objectives)
+        pts = scored_points(arms[name], objectives, config)
         if not len(pts):
             continue
         front = int(pareto_mask(pts).sum())

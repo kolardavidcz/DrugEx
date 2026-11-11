@@ -13,6 +13,7 @@ import math
 import multiprocessing
 import os
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 
 from rdkit import Chem
@@ -267,7 +268,7 @@ def _read(path: Path) -> list[Chem.Mol]:
     return [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m is not None]
 
 
-def _write(path: Path, records: list[Chem.Mol]) -> int:
+def _write(path: Path, records: Iterable[Chem.Mol]) -> int:
     """Write conformers to an SDF. Returns how many could not be written at all.
 
     A generated molecule can carry an aromatic perception RDKit refuses to kekulize, and
@@ -317,7 +318,13 @@ def relax_sdf(path: Path, cfg: Config) -> list[Chem.Mol]:
     if not records:
         return []
 
+    # _relax_one minimises a copy, so once the results are back the originals are a
+    # second full copy of the batch -- 5 GB at a 5000-molecule arm -- held only for a
+    # count and a set of names. Take those two facts off them and let them go.
+    n_records = len(records)
+    names = {_molecule_of(mol) for mol in records}
     results = _map(_relax, [(mol, cfg) for mol in records], cfg)
+    del records
     kept = [mol for mol, _ in results if mol is not None]
     reasons: dict[str, int] = {}
     for _, reason in results:
@@ -331,12 +338,12 @@ def relax_sdf(path: Path, cfg: Config) -> list[Chem.Mol]:
         reasons["unwritable"] = reasons.get("unwritable", 0) + unwritable
         RELAXATION_TALLY["unwritable"] = RELAXATION_TALLY.get("unwritable", 0) + unwritable
 
-    if len(kept) != len(records):
-        orphaned = {_molecule_of(m) for m in records} - {_molecule_of(m) for m in kept}
+    if len(kept) != n_records:
+        orphaned = names - {_molecule_of(m) for m in kept}
         logger.warning(
             "relaxation dropped %d/%d conformers (%s); %d molecules left with none",
-            len(records) - len(kept),
-            len(records),
+            n_records - len(kept),
+            n_records,
             ", ".join(f"{k}={v}" for k, v in sorted(reasons.items())),
             len(orphaned),
         )
@@ -344,7 +351,7 @@ def relax_sdf(path: Path, cfg: Config) -> list[Chem.Mol]:
         logger.warning(
             "%d/%d conformers had no %s parameters and were left unrelaxed",
             reasons["unparameterized"],
-            len(records),
+            n_records,
             FORCE_FIELD,
         )
     return kept
@@ -460,9 +467,13 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
             logger.warning("parallel embedding failed (%s); falling back to serial", error)
             return Path(super().genConformers(smiles_list, out_dir))
 
+        # A generator, not a list. Native streams each conformer to one SDWriter as it
+        # is produced; collecting every shard first undid that, and a 5000-molecule
+        # batch is ~85,000 conformer records at ~65 kB resident apiece. `_write`
+        # consumes whatever it is given one molecule at a time, so this holds one
+        # shard instead of the whole batch and writes the identical SDF.
         combined = Path(out_dir) / "conformers.sdf"
-        records = [mol for path in produced if path for mol in _read(Path(path))]
-        _write(combined, records)
+        _write(combined, (mol for path in produced if path for mol in _read(Path(path))))
         return combined
 
     def genConformers(self, smiles_list, out_dir) -> str:
