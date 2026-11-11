@@ -13,25 +13,11 @@ import json
 import logging
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")  # headless: these also run on a cluster node with no display
-import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib.ticker import MaxNLocator
+
 from _david.analysis import figures as figures_module
-from rdkit import Chem
-from rdkit.Chem import Draw
 
 logger = logging.getLogger(__name__)
-
-#: One colour per arm, used by every figure so a reader learns them once.
-COLOURS = {
-    "prior": "#9e9e9e",
-    "desired_ratio": "#1f77b4",
-    "desired_ratio_at_stop": "#7fb3e0",
-    "gmean": "#d62728",
-}
 
 #: Arms in the order they are reported: the baseline first, then what training produced.
 ARM_FILES = (
@@ -100,6 +86,48 @@ def _pairs(mapping: dict, key_header: str, value_header: str = "value") -> str:
     return "\n".join(lines)
 
 
+#: Every table a run writes, and what it holds. Order is the order of the index.
+TABLES = (
+    ("prior.tsv", "the pretrained prior, scored -- the baseline every figure compares against"),
+    ("final_desired_ratio.tsv", "the `desired_ratio` checkpoint's final arm, scored"),
+    (
+        "final_desired_ratio_at_stop.tsv",
+        "the live policy at the freeze epoch, scored -- the same epochs, a different state",
+    ),
+    ("final_gmean.tsv", "the `avg_gmean` checkpoint's final arm, scored"),
+    ("rl_fit.tsv", "one row per epoch: the metrics the stop condition and the checkpoints read"),
+    ("rl_smiles.tsv", "the held-out evaluation sample of every epoch, scored"),
+    (
+        "training_samples.tsv",
+        "every molecule the policy gradient was computed on; a training population, "
+        "not a result, and never pooled into the arm statistics",
+    ),
+    ("reference.sdf", "the reference conformer bank, exactly as it was scored against"),
+    (
+        "figures/top_leads_aligned_to_seed.sdf",
+        "figure 10's leads as 3D poses -- an illustrative re-alignment, not the scored pose",
+    ),
+    ("config.json", "every setting this run resolved, with its training summary"),
+    ("manifest.json", "provenance: source digests, timings and the relaxation tallies"),
+    ("rl_fit.log", "DrugEx's own per-epoch log, unedited"),
+    ("run.log", "the run's log, from the first setting resolved to the last figure written"),
+)
+
+
+def _artifacts(run_dir: Path, written: list[Path]) -> str:
+    """Link every file this run produced, each labelled by what is in it.
+
+    Built from the figures that were actually written rather than from the list this
+    module hopes for, so a figure that failed is absent from the index instead of being
+    linked as a file that is not there.
+    """
+    lines = [f"- [{figures_module.caption(path)}](figures/{path.name})" for path in written]
+    lines += [
+        f"- [{name}]({name}) -- {what}" for name, what in TABLES if (run_dir / name).is_file()
+    ]
+    return "\n".join(lines) if lines else "_nothing was written_"
+
+
 def top_molecules(arm: pd.DataFrame, objectives: list[str]) -> pd.DataFrame:
     """The best unique molecules of one arm by its first objective, for the report table.
 
@@ -132,6 +160,11 @@ def _describe(arm: pd.DataFrame, objectives: list[str]) -> dict:
     for objective in objectives:
         row[f"{objective} median"] = round(float(unique[objective].median()), 4)
         row[f"{objective} p90"] = round(float(unique[objective].quantile(0.90)), 4)
+    if "SA_raw" in unique.columns and not unique.empty:
+        raw_sa = pd.to_numeric(unique["SA_raw"], errors="coerce")
+        raw_sa = raw_sa[(raw_sa > 0.5) & (raw_sa < 9.99)]
+        if len(raw_sa):
+            row["SA_raw median"] = round(float(raw_sa.median()), 4)
     return row
 
 
@@ -223,10 +256,6 @@ def _threshold_prose(
                     f"only by matching the best value, so this objective contributes no "
                     f"gradation to `Desired`."
                 )
-    # Scheme-aware, because the sentence is only true for the Pareto schemes. A run
-    # whose report claims its thresholds stayed out of the reward while `WeightedSum`
-    # was building weights from them is exactly the silent-weighting bug this project
-    # was restarted to remove. Old runs predate the key and were all PRCD.
     scheme = config.get("scheme", "PRCD")
     if scheme == "WS":
         tail = (
@@ -253,7 +282,10 @@ def _units(config: dict, objectives: list[str]) -> str:
     notes = [
         f"- `{objectives[0]}`: raw ROCS TanimotoCombo (shape + colour), the best overlay "
         f"over up to {config.get('max_isomers', '?')} stereoisomers x "
-        f"{config.get('max_conformers', '?')} conformers x the reference bank -- a "
+        f"{config.get('max_conformers', '?')} conformers x the reference bank "
+        f"({config.get('reference_conformers', '?')} conformers, "
+        f"`alignment_shape_weight={config.get('alignment_shape_weight', 0.5)}`, "
+        f"`minimize={config.get('minimize', True)}`) -- a "
         "generated SMILES usually leaves stereocentres unassigned, so this is a maximum "
         "over the isomers it could be, not the score of one molecule. No "
         "modifier. Shape + colour Tanimoto on [0, 2], colour typed with "
@@ -294,8 +326,6 @@ def analyse(run_dir: Path) -> Path:
     epochs_path = run_dir / "rl_smiles.tsv"
     epochs = pd.read_csv(epochs_path, sep="\t") if epochs_path.is_file() else None
 
-    # The 3D overlay needs a generator; building one costs a conformer run, so it is only
-    # made when the reference exists. A missing generator simply skips that one figure.
     generator = None
     reference = run_dir / "reference.sdf"
     if reference.is_file():
@@ -317,6 +347,7 @@ def analyse(run_dir: Path) -> Path:
         reference=reference,
         out=figures,
         generator=generator,
+        config=config,
     )
     logger.info("wrote %d figures", len(written))
 
@@ -397,36 +428,72 @@ def analyse(run_dir: Path) -> Path:
         "",
         _pairs(summary, "metric") if summary else "_no training summary recorded_",
         "",
+        "## the non-dominated front",
+        "",
+        "The reward is Pareto ranking, so no weighted score says what a run improved. "
+        "These two columns do, without weights: how many of an arm's molecules nothing "
+        "else in that arm beats on every objective at once, and how much objective space "
+        "the arm dominates, measured from the origin. Both grow with the sample, which is "
+        "why `n scored` is in the table -- rows whose n differs are not comparable, and "
+        "`n scored` is below `n` wherever a molecule was invalid, duplicated, or missing "
+        "a score on one objective. Figure 02 draws these fronts.",
+        "",
+        _table(figures_module.pareto_rows(arms, objectives), "arm"),
+        "",
+        "## scaffolds",
+        "",
+        "Bemis-Murcko scaffolds of the valid unique molecules, dropping the acyclic ones, "
+        "which have no scaffold. `unique_fraction` falling or `top_share` rising is a "
+        "library collapsing onto one core; `de_novo` is the share of an arm's scaffolds "
+        "the prior never produced, so a run that re-finds the prior's own chemistry "
+        "scores well on the first two columns and poorly on the last. It is `n/a` for the "
+        "prior, which is the baseline it is measured against. Figures 07 and 07b draw this table.",
+        "",
+        _table(figures_module.scaffold_rows(arms), "arm"),
+        "",
         "## settings that define this run",
         "",
         _pairs({k: config[k] for k in settings if k in config}, "setting"),
         "",
         f"## best molecules, by {objectives[0]}",
         "",
-        # Which checkpoint won is the question the run exists to answer, so the report
-        # answers it in one line instead of leaving a reader to compare three tables --
-        # and it is the same function figure 05b uses, so the two cannot disagree.
         (
-            f"Best model: **{best}** (highest desired ratio of the trained checkpoints). "
-            f"Figure `05b_top_leads_best_model_{best}.png` draws this arm's leads."
-            if (best := figures_module.best_arm(arms, objectives))
-            else "No trained arm was scored, so there is no best model to name."
+            f"Every figure describes the **{shown}** checkpoint unless its name says "
+            "otherwise; the `b` figures (`01b`, `05b`, `07b`) repeat the same drawing for "
+            "the `desired_ratio` checkpoint, which is frozen the first time its patience "
+            f"window expires. Figure `05_lead_structures_gallery.png` draws {shown}'s "
+            "leads and `05b_lead_structures_gallery_desired_ratio.png` the other's."
+            if (shown := figures_module.shown_arm(arms, objectives, figures_module.PRIMARY_ARM))
+            else "No trained arm was scored, so there is no checkpoint to draw."
         ),
         "",
     ]
     for name, best in tops.items():
+        extra_cols = [c for c in ("ShapeTanimoto", "ColorTanimoto", "SA_raw") if c in best.columns]
         report += [
             f"### {name}",
             "",
             _table(
                 {
-                    row["SMILES"]: {o: round(float(row[o]), 4) for o in objectives}
+                    row["SMILES"]: {
+                        o: round(float(row[o]), 4) for o in [*objectives, *extra_cols] if o in row
+                    }
                     for _, row in best.iterrows()
                 },
                 "SMILES",
             ),
             "",
         ]
+
+    report += [
+        "## files",
+        "",
+        "Every artifact this run wrote. The figures are regenerated from these tables "
+        "alone by `python -m _david.analysis <run_dir>`, which rescores nothing.",
+        "",
+        _artifacts(run_dir, written),
+        "",
+    ]
 
     report_path = run_dir / "report.md"
     report_path.write_text("\n".join(report) + "\n")

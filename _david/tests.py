@@ -961,13 +961,30 @@ class BestModelGallery(unittest.TestCase):
         }
         self.assertEqual(figures.best_arm(tied, ["ROCS"]), "gmean", "then the median")
 
-    def test_the_gallery_names_the_model_it_drew(self):
-        arms = {"prior": _arm([0.9, 0.9], [1, 1]), "gmean": _arm([0.5, 0.4], [1, 0])}
+    def test_the_gallery_draws_the_arm_it_was_asked_for(self):
+        arms = {
+            "prior": _arm([0.9, 0.9], [1, 1]),
+            "gmean": _arm([0.5, 0.4], [1, 0]),
+            "desired_ratio": _arm([0.6, 0.3], [1, 1]),
+        }
         with tempfile.TemporaryDirectory() as directory:
-            path = figures.best_model_leads(arms, ["ROCS"], Path(directory))
-            self.assertIsNotNone(path)
-            self.assertIn("gmean", path.name)
-            self.assertGreater(path.stat().st_size, 0)
+            out = Path(directory)
+            primary = figures.lead_structures_gallery(arms, ["ROCS"], out, name="05_gallery")
+            secondary = figures.lead_structures_gallery(
+                arms, ["ROCS"], out, arm=figures.SECONDARY_ARM, name="05b_gallery"
+            )
+            for path in (primary, secondary):
+                self.assertIsNotNone(path)
+                self.assertGreater(path.stat().st_size, 0)
+            self.assertEqual(primary.name, "05_gallery.png")
+            self.assertEqual(secondary.name, "05b_gallery.png")
+
+    def test_the_shown_arm_falls_back_when_the_wanted_one_is_empty(self):
+        arms = {"prior": _arm([0.9], [1]), "gmean": _arm([0.5, 0.4], [1, 0])}
+        self.assertEqual(figures.shown_arm(arms, ["ROCS"], "gmean"), "gmean")
+        # desired_ratio was never written, so the figure describes what the run has.
+        self.assertEqual(figures.shown_arm(arms, ["ROCS"], "desired_ratio"), "gmean")
+        self.assertIsNone(figures.shown_arm({"prior": _arm([0.9], [1])}, ["ROCS"], "gmean"))
 
     def test_no_trained_arm_means_no_figure(self):
         self.assertIsNone(figures.best_arm({"prior": _arm([0.9], [1])}, ["ROCS"]))

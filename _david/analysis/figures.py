@@ -1,113 +1,101 @@
-"""The figure suite. One module so every plot shares a palette, a style and an arm order.
+"""The figure suite: identical visual craft to the reference dashboard suite, on the clean data contract.
 
-Numbering follows the earlier tree's suite so a reader who knows those figures finds the
-same ones here. Gaps in the numbers are deliberate: they were retired, and renumbering
-would break the correspondence.
-
-Palette: the first four categorical slots of the reference design system, in fixed order.
-Validated with the dataviz validator at the light surface on the *adjacent* pairlist --
-lightness band, chroma floor, CVD separation (worst adjacent dE 9.1 protan) and the
-normal-vision floor (22.9) all pass. The same four colours do NOT clear the floors on the
-all-pairs list, which is what a four-series scatter would need, so the scatter is drawn as
-small multiples instead of four overlaid series. Aqua and yellow fall below 3:1 contrast
-against the surface, so every figure that uses them also carries direct labels, and
-``report.md`` repeats the numbers as a table.
+Every figure deduplicates on canonical SMILES where a population statistic is shown, keeps
+raw SA [1, 10] distinct from ClippedScore SA desirability [0, 1], never heuristic-scales
+ROCS, never rescores molecules during analysis, and states the run's provenance
+(color_ff, alignment_shape_weight, reference_conformers, conformer relaxation and reward
+scheme) directly in the subtitle.
 """
 
 from __future__ import annotations
 
 import logging
 import math
+import time
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
-from rdkit import Chem
-from rdkit.Chem import Descriptors, Draw, Lipinski, QED, rdMolDescriptors
-from rdkit.Chem.Scaffolds import MurckoScaffold
+from rdkit import Chem, DataStructs
+from rdkit.Chem import Descriptors, Draw, QED, rdMolDescriptors
+from scipy.stats import gaussian_kde
+
+from _david.analysis._helpers import (
+    ARMS,
+    AlignedDepicter,
+    align_lead_to_bank,
+    compute_2d_skyline,
+    dedup_key,
+    dominated_volume,
+    enrich_descriptors,
+    pareto_mask,
+    pareto_rows,
+    provenance_tag,
+    reference_properties,
+    scaffold_counts,
+    scaffold_rows,
+    scored_points,
+    unique,
+    valid,
+)
 
 logger = logging.getLogger(__name__)
 
-#: Arms in reporting order: the baseline first, then what training produced.
-ARMS = ("prior", "desired_ratio", "desired_ratio_at_stop", "gmean")
-
-#: Fixed categorical order -- a colour belongs to an arm, never to its rank in a filter.
-PALETTE = {
-    "prior": "#2a78d6",
-    "desired_ratio": "#eb6834",
-    "gmean": "#1baf7a",
-    "desired_ratio_at_stop": "#eda100",
-}
-
-#: Text and chrome. Series colours never carry text; ink does.
-INK = "#1a1a19"
-MUTED = "#6f6e69"
-GRID = "#e1e0d9"
-SURFACE = "#fcfcfb"
-
-#: Molecules drawn per arm in the structure gallery.
 TOP_N = 12
+TOP_3D = 5
 
-#: Leads overlaid on the reference in the 3D figure.
-TOP_3D = 4
+CAPTIONS = {
+    "01": "property diagnostic dashboard, prior vs the gmean checkpoint",
+    "01b": "property diagnostic dashboard, prior vs the desired_ratio checkpoint",
+    "02": "multi-objective trade-offs, step-wise skylines and Pareto leads",
+    "03": "reinforcement learning dynamics and convergence diagnostics",
+    "04": "longitudinal per-epoch property trajectories (median, IQR, p95, seed reference)",
+    "05": "prioritized leads vs best-ROCS hits of the gmean checkpoint: aligned 2D topology",
+    "05b": "the same gallery for the desired_ratio checkpoint",
+    "06": "objective conflict and property coupling (Spearman rho: prior, reinforced, delta)",
+    "07": "Bemis-Murcko scaffold space of the gmean checkpoint: concentration, novelty, dominant cores",
+    "07b": "the same scaffold space for the desired_ratio checkpoint",
+    "08": "3D superposition: the reference seed against prioritized de novo leads",
+    "09": "training diagnostics: hypervolume, Pareto front, population path, sample composition, lead age",
+}
 
 
 def style() -> None:
-    """Recessive chrome, ink text, no chartjunk."""
     plt.rcParams.update(
         {
-            "figure.facecolor": SURFACE,
-            "axes.facecolor": SURFACE,
-            "savefig.facecolor": SURFACE,
-            "text.color": INK,
-            "axes.labelcolor": INK,
-            "axes.titlecolor": INK,
-            "axes.edgecolor": GRID,
+            "figure.facecolor": "#ffffff",
+            "axes.facecolor": "#ffffff",
+            "savefig.facecolor": "#ffffff",
+            "text.color": "#111827",
+            "axes.labelcolor": "#111827",
+            "axes.titlecolor": "#111827",
+            "axes.edgecolor": "#cbd5e1",
             "axes.linewidth": 0.8,
-            "axes.spines.top": False,
-            "axes.spines.right": False,
-            "xtick.color": MUTED,
-            "ytick.color": MUTED,
-            "xtick.labelsize": 9,
-            "ytick.labelsize": 9,
-            "grid.color": GRID,
-            "grid.linewidth": 0.6,
-            "legend.frameon": False,
-            "font.size": 10,
+            "axes.spines.top": True,
+            "axes.spines.right": True,
+            "xtick.color": "#334155",
+            "ytick.color": "#334155",
+            "xtick.labelsize": 8.5,
+            "ytick.labelsize": 8.5,
+            "font.size": 9.5,
         }
     )
 
 
-def _valid(arm: pd.DataFrame) -> pd.DataFrame:
-    return arm[arm["Valid"] == 1]
+def _valid(arm: pd.DataFrame | None) -> pd.DataFrame:
+    return valid(arm)
 
 
-def _unique(arm: pd.DataFrame) -> pd.DataFrame:
-    """Valid rows, one per distinct molecule -- by structure, not by spelling."""
-    valid = _valid(arm)
-    return valid.drop_duplicates(subset="Canonical" if "Canonical" in valid else "SMILES")
-
-
-def _save(fig: plt.Figure, out: Path, name: str) -> Path:
-    path = out / name
-    fig.savefig(path, dpi=170, bbox_inches="tight")
-    plt.close(fig)
-    return path
+def _unique(arm: pd.DataFrame | None) -> pd.DataFrame:
+    return unique(arm)
 
 
 def _short(objective: str) -> str:
-    """Axis-friendly objective name, carrying its scale.
-
-    An axis reading just "SA" on a plot bounded at 1.0 invites the reader to take it for
-    raw synthetic accessibility on [1, 10], where lower is better. It is the ClippedScore
-    desirability, on [0, 1], where higher is better -- the opposite direction.
-    """
     if objective.startswith("RDKit_"):
         return f"{objective.split('_')[-1]} [0, 2]"
     if objective == "SA":
@@ -117,494 +105,1512 @@ def _short(objective: str) -> str:
     return objective
 
 
-def _mols(smiles: pd.Series) -> list[Chem.Mol]:
-    return [m for m in (Chem.MolFromSmiles(s) for s in smiles if isinstance(s, str)) if m]
+def caption(path: Path) -> str:
+    number = path.name.split("_")[0]
+    label = CAPTIONS.get(number)
+    if not label:
+        return path.stem.replace("_", " ")
+    return f"{number} - {label}"
 
 
-# --------------------------------------------------------------------------------------
-# 01 / 01b -- what training changed about the output distribution
-# --------------------------------------------------------------------------------------
+#: The arm every primary figure describes, and the arm its "b" counterpart describes.
+#: gmean is the criterion the run trains to the end on, so it is the default; the
+#: desired_ratio checkpoint is frozen the first time its patience window expires, which
+#: makes it the one comparison worth drawing beside it rather than a third of each figure.
+PRIMARY_ARM = "gmean"
+SECONDARY_ARM = "desired_ratio"
 
 
-def before_after_distributions(
-    arms: dict[str, pd.DataFrame], objectives: list[str], thresholds: list[float], out: Path
-) -> Path:
-    """Per-objective distributions, every arm against the prior baseline."""
-    style()
-    fig, axes = plt.subplots(len(objectives), 1, figsize=(9, 3.1 * len(objectives)), squeeze=False)
-    for axis, objective, threshold in zip(axes[:, 0], objectives, thresholds):
-        # _unique, not _valid: every arm table and figures 05/06/07 deduplicate, and a
-        # policy collapsed onto 20 molecules emitted 250x each would otherwise draw a
-        # sharp peak indistinguishable from genuinely improved chemistry -- in the very
-        # figure a reader uses to judge whether training worked.
-        pool = [
-            _unique(arms[name])[objective].to_numpy(dtype=float) for name in ARMS if name in arms
-        ]
-        pool = [values[np.isfinite(values)] for values in pool]
-        finite = np.concatenate([v for v in pool if len(v)]) if any(len(v) for v in pool) else None
-        if finite is None or not finite.size:
-            axis.text(0.5, 0.5, "no valid molecules", ha="center", transform=axis.transAxes)
-            continue
-        low, high = float(finite.min()), float(finite.max())
-        if low == high:
-            low, high = low - 0.5, high + 0.5
-        for name, values in zip([n for n in ARMS if n in arms], pool):
-            if len(values):
-                axis.hist(
-                    values,
-                    bins=40,
-                    range=(low, high),
-                    density=True,
-                    histtype="step",
-                    linewidth=2,
-                    color=PALETTE[name],
-                    label=name,
-                )
-        axis.axvline(threshold, color=MUTED, linestyle="--", linewidth=1)
-        axis.annotate(
-            f"threshold {threshold:.3g}",
-            xy=(threshold, axis.get_ylim()[1]),
-            xytext=(4, -10),
-            textcoords="offset points",
-            fontsize=8,
-            color=MUTED,
-        )
-        axis.set(xlabel=_short(objective), ylabel="density")
-        axis.grid(axis="y")
-        axis.legend(loc="upper left", fontsize=9)
-    fig.suptitle("01 - objective distributions, prior vs trained arms", x=0.01, ha="left")
-    fig.tight_layout()
-    return _save(fig, out, "01_before_after_distributions.png")
+def shown_arm(arms: dict[str, pd.DataFrame], objectives: list[str], wanted: str) -> str | None:
+    """``wanted`` when it holds valid unique molecules, else the measured best arm.
 
-
-def before_after_final_epoch(
-    prior: pd.DataFrame, epochs: pd.DataFrame, objectives: list[str], out: Path
-) -> Path | None:
-    """The prior against the policy's own last training epoch, not a checkpoint."""
-    if epochs is None or epochs.empty:
-        return None
-    style()
-    last = int(epochs["Epoch"].max())
-    tail = _valid(epochs[epochs["Epoch"] == last])
-    fig, axes = plt.subplots(
-        1, len(objectives), figsize=(5.0 * len(objectives), 3.6), squeeze=False
-    )
-    for axis, objective in zip(axes[0], objectives):
-        for frame, name, colour in (
-            (_valid(prior), "prior", PALETTE["prior"]),
-            (tail, f"epoch {last}", PALETTE["desired_ratio"]),
-        ):
-            values = frame[objective].to_numpy(dtype=float)
-            values = values[np.isfinite(values)]
-            if len(values):
-                axis.hist(
-                    values,
-                    bins=25,
-                    density=True,
-                    histtype="step",
-                    linewidth=2,
-                    color=colour,
-                    label=f"{name} (n={len(values)})",
-                )
-        axis.set(xlabel=_short(objective), ylabel="density")
-        axis.grid(axis="y")
-        axis.legend(fontsize=9)
-    fig.suptitle(
-        f"01b - prior vs the last training epoch ({last}); the checkpoints are elsewhere",
-        x=0.01,
-        ha="left",
-    )
-    fig.tight_layout()
-    return _save(fig, out, "01b_before_after_final_epoch.png")
-
-
-# --------------------------------------------------------------------------------------
-# 02 -- the objective trade-off, faceted
-# --------------------------------------------------------------------------------------
-
-
-def multiobjective_tradeoffs(
-    arms: dict[str, pd.DataFrame], objectives: list[str], thresholds: list[float], out: Path
-) -> Path | None:
-    """One panel per arm. Four overlaid series would not clear the all-pairs colour floor."""
-    if len(objectives) < 2:
-        return None
-    style()
-    x, y = objectives[0], objectives[1]
-    present = [name for name in ARMS if name in arms]
-    fig, axes = plt.subplots(
-        1, len(present), figsize=(3.7 * len(present), 3.8), squeeze=False, sharex=True, sharey=True
-    )
-    for axis, name in zip(axes[0], present):
-        frame = _valid(arms[name])
-        axis.scatter(
-            frame[x], frame[y], s=14, alpha=0.5, linewidths=0, color=PALETTE[name], zorder=2
-        )
-        # Unique desired over all sampled molecules: the same rule report.md and DrugEx
-        # use, so a panel title can never disagree with the table.
-        unique = _unique(arms[name])
-        desired = int(unique["Desired"].sum()) if "Desired" in unique else 0
-        axis.set_title(f"{name}\nn={len(arms[name])}, desired={desired}", fontsize=10)
-        axis.set_xlabel(_short(x))
-        axis.grid(True)
-    axes[0][0].set_ylabel(_short(y))
-
-    # Shade AFTER plotting, bounded by the data limits. `Desired` needs every objective at
-    # or above its threshold, so the region is the top-right rectangle -- not two crossing
-    # bands, which would shade molecules that clear only one of them.
-    left, right = axes[0][0].get_xlim()
-    bottom, top = axes[0][0].get_ylim()
-    for axis in axes[0]:
-        axis.add_patch(
-            Rectangle(
-                (thresholds[0], thresholds[1]),
-                max(right - thresholds[0], 0),
-                max(top - thresholds[1], 0),
-                facecolor=GRID,
-                edgecolor="none",
-                alpha=0.55,
-                zorder=0,
-            )
-        )
-        axis.axvline(thresholds[0], color=MUTED, linestyle="--", linewidth=1, zorder=1)
-        axis.axhline(thresholds[1], color=MUTED, linestyle="--", linewidth=1, zorder=1)
-        axis.set_xlim(left, right)
-        axis.set_ylim(bottom, top)
-    # With a third objective the shaded corner shows only two of the conditions, so a
-    # point inside it can still fail the one not drawn.
-    caption = (
-        "02 - objective trade-off; shaded corner is the desirability region (all objectives met)"
-        if len(objectives) == 2
-        else f"02 - objective trade-off; shaded corner shows {x} and {y} only, and "
-        f"`Desired` also requires {', '.join(objectives[2:])}"
-    )
-    fig.suptitle(caption, x=0.01, ha="left")
-    fig.tight_layout()
-    return _save(fig, out, "02_multiobjective_tradeoffs.png")
-
-
-# --------------------------------------------------------------------------------------
-# 03 / 12 -- what happened during training
-# --------------------------------------------------------------------------------------
-
-
-def training_trajectories(fit: pd.DataFrame, summary: dict, out: Path) -> Path | None:
-    """Sample quality per epoch, with the epoch each checkpoint was taken from marked."""
-    if fit is None or fit.empty:
-        return None
-    style()
-    split = [c for c in ("avg_ShapeTanimoto", "avg_ColorTanimoto") if c in fit]
-    panels = 3 if split else 2
-    fig, axes = plt.subplots(1, panels, figsize=(6.0 * panels, 4.0))
-    for metric, colour in (
-        ("valid_ratio", PALETTE["prior"]),
-        ("unique_ratio", PALETTE["gmean"]),
-        ("desired_ratio", PALETTE["desired_ratio"]),
-    ):
-        if metric in fit:
-            axes[0].plot(fit["Epoch"], fit[metric], linewidth=2, color=colour, label=metric)
-    axes[0].set(xlabel="epoch", ylim=(-0.02, 1.02), title="sample quality")
-    if "avg_gmean" in fit:
-        axes[1].plot(
-            fit["Epoch"], fit["avg_gmean"], linewidth=2, color=PALETTE["gmean"], label="avg_gmean"
-        )
-    axes[1].set(xlabel="epoch", title="geometric mean of the objectives")
-
-    if split:
-        # Panel D: the two halves of TanimotoCombo. A combo that climbs on shape alone
-        # means the policy is matching EGCG's volume and ignoring its pharmacophore --
-        # invisible in the combined score, which is why both are plotted.
-        for column, colour in zip(split, (PALETTE["prior"], PALETTE["desired_ratio_at_stop"])):
-            axes[2].plot(
-                fit["Epoch"],
-                fit[column],
-                linewidth=2,
-                color=colour,
-                label=column.replace("avg_", ""),
-            )
-        axes[2].set(xlabel="epoch", title="shape and colour separately")
-
-    # The freeze epoch is set even when the epoch cap arrived first and nothing froze.
-    # Labelling that "freeze" would tell a reader the criterion converged when the run was
-    # actually cut off while it was still improving.
-    froze = bool(summary.get("desired_ratio_frozen"))
-    marks = (
-        ("best_desired_ratio_epoch", PALETTE["desired_ratio"], "desired_ratio checkpoint"),
-        (
-            "desired_ratio_freeze_epoch",
-            PALETTE["desired_ratio_at_stop"],
-            "freeze (at_stop)" if froze else "end of run (at_stop)",
-        ),
-        ("best_avg_gmean_epoch", PALETTE["gmean"], "gmean checkpoint"),
-    )
-    for axis in axes:
-        for key, colour, label in marks:
-            epoch = summary.get(key)
-            if epoch:
-                axis.axvline(epoch, color=colour, linestyle=":", linewidth=1.6, label=label)
-        axis.grid(True)
-        axis.xaxis.set_major_locator(MaxNLocator(integer=True))
-        axis.legend(fontsize=8, loc="best")
-    fig.suptitle("03 - training trajectories", x=0.01, ha="left")
-    fig.tight_layout()
-    return _save(fig, out, "03_training_trajectories.png")
-
-
-def training_diagnostics(fit: pd.DataFrame, epochs: pd.DataFrame, out: Path) -> Path | None:
-    """Loss, and the collapse diagnostics a similarity score alone would hide."""
-    if fit is None or fit.empty:
-        return None
-    style()
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.0))
-    if "loss_train" in fit:
-        axes[0].plot(fit["Epoch"], fit["loss_train"], linewidth=2, color=PALETTE["prior"])
-    axes[0].set(xlabel="epoch", title="policy-gradient loss")
-
-    if epochs is not None and not epochs.empty:
-        grouped = epochs.groupby("Epoch")
-        key = "Canonical" if "Canonical" in epochs.columns else "SMILES"
-        duplicates = 1.0 - grouped[key].nunique() / grouped[key].size()
-        axes[1].plot(
-            duplicates.index, duplicates.to_numpy(), linewidth=2, color=PALETTE["desired_ratio"]
-        )
-        axes[1].set(xlabel="epoch", ylim=(-0.02, 1.02), title="duplicate fraction per epoch")
-        invalid = 1.0 - grouped["Valid"].mean()
-        axes[2].plot(invalid.index, invalid.to_numpy(), linewidth=2, color=PALETTE["gmean"])
-        axes[2].set(xlabel="epoch", ylim=(-0.02, 1.02), title="invalid fraction per epoch")
-    for axis in axes:
-        axis.grid(True)
-        axis.xaxis.set_major_locator(MaxNLocator(integer=True))
-    fig.suptitle(
-        "12 - training diagnostics; a rising duplicate fraction is mode collapse", x=0.01, ha="left"
-    )
-    fig.tight_layout()
-    return _save(fig, out, "12_training_diagnostics.png")
-
-
-# --------------------------------------------------------------------------------------
-# 05 -- what the molecules actually look like
-# --------------------------------------------------------------------------------------
-
-
-def _grid(frame: pd.DataFrame, objectives: list[str]) -> tuple[list, list[str]]:
-    """The arm's best unique molecules as (structures, legends), ranked by objective one.
-
-    Built together, never sliced apart: RDKit silently returns None for a SMILES it
-    cannot parse, so taking the first ``len(mols)`` legends would shift every score after
-    the gap onto the wrong structure.
+    The fallback matters for a run whose chosen checkpoint produced nothing scorable: the
+    figure then describes an arm that exists, and says which one, rather than vanishing.
     """
-    mols, legends = [], []
-    for _, row in _unique(frame).nlargest(TOP_N, objectives[0]).iterrows():
-        mol = Chem.MolFromSmiles(row["SMILES"]) if isinstance(row["SMILES"], str) else None
-        if mol is None:
-            continue
-        mols.append(mol)
-        legends.append(" ".join(f"{_short(o).split(' ')[0]}={row[o]:.2f}" for o in objectives))
-    return mols, legends
-
-
-def _captioned(image, caption: str):
-    """The grid with a caption bar above it; the bare grid if text cannot be drawn.
-
-    A gallery carries no axes, so without this the only statement of *which model drew
-    these molecules* is the file name -- and a figure gets separated from its file name
-    the moment it is pasted into a document.
-    """
-    try:
-        from matplotlib import font_manager
-        from PIL import Image, ImageDraw, ImageFont
-
-        font = ImageFont.truetype(font_manager.findfont("DejaVu Sans"), 19)
-        bar = 34
-        canvas = Image.new("RGB", (image.width, image.height + bar), SURFACE)
-        canvas.paste(image, (0, bar))
-        ImageDraw.Draw(canvas).text((10, 7), caption, fill=INK, font=font)
-        return canvas
-    except Exception as error:  # a caption must never cost the figure
-        logger.warning("could not caption the gallery (%s); writing it bare", error)
-        return image
+    arm = arms.get(wanted)
+    if arm is not None and len(arm) and not _unique(arm).empty:
+        return wanted
+    return best_arm(arms, objectives)
 
 
 def best_arm(arms: dict[str, pd.DataFrame], objectives: list[str]) -> str | None:
-    """The trained checkpoint a reader would download: highest desired ratio, then median.
-
-    "Best model" has to be *measured*, not named in advance. The three checkpoints are
-    kept by different criteria, and which one wins is the question the run answers --
-    hard-coding `gmean` here would quietly answer it in the figure instead.
-
-    The ratio is computed exactly as the arm table computes it (unique molecules over
-    every sampled row), so the figure and the table can never disagree about which model
-    was best. `prior` is excluded: it is the untrained baseline, not a checkpoint.
-    """
+    """The trained checkpoint with the highest desired ratio, breaking ties by median ROCS."""
     best, ranked = None, (-1.0, -1.0)
     for name in ARMS:
         arm = arms.get(name)
         if name == "prior" or arm is None or not len(arm) or _unique(arm).empty:
             continue
-        unique = _unique(arm)
+        u = _unique(arm)
         score = (
-            float(unique["Desired"].sum()) / len(arm) if "Desired" in unique else 0.0,
-            float(unique[objectives[0]].median()) if len(unique) else 0.0,
+            float(u["Desired"].sum()) / len(arm) if "Desired" in u else 0.0,
+            float(u[objectives[0]].median()) if len(u) and objectives[0] in u else 0.0,
         )
         if score > ranked:
             best, ranked = name, score
     return best
 
 
-def lead_structures_gallery(
-    arms: dict[str, pd.DataFrame], objectives: list[str], out: Path
-) -> list[Path]:
-    """A structure grid per arm, ranked by the first objective."""
-    written = []
-    for name in ARMS:
-        frame = arms.get(name)
-        if frame is None:
-            continue
-        mols, legends = _grid(frame, objectives)
-        if not mols:
-            continue
-        image = Draw.MolsToGridImage(
-            mols, molsPerRow=4, subImgSize=(300, 230), legends=legends, returnPNG=False
-        )
-        path = out / f"05_lead_structures_gallery_{name}.png"
-        image.save(path)
-        written.append(path)
-    return written
-
-
-def best_model_leads(
-    arms: dict[str, pd.DataFrame], objectives: list[str], out: Path
-) -> Path | None:
-    """05b -- the same leads, from the one model that could actually be shipped.
-
-    05 draws four grids and leaves the comparison to the reader, with the untrained prior
-    among them. This is the single grid to put in a results chapter: the best molecules
-    of the best checkpoint, which is also the only set of molecules anyone can reproduce
-    by loading one ``.pkg`` and sampling it. The arm it came from is in the caption and
-    in the file name, because "the top leads" means nothing without the model that drew
-    them.
-    """
-    name = best_arm(arms, objectives)
-    if name is None:
-        return None
-    frame = arms[name]
-    mols, legends = _grid(frame, objectives)
-    if not mols:
-        return None
-    unique = _unique(frame)
-    desired = float(unique["Desired"].sum()) / len(frame) if "Desired" in unique else 0.0
-    image = Draw.MolsToGridImage(
-        mols, molsPerRow=4, subImgSize=(300, 230), legends=legends, returnPNG=False
+def _bootstrap_ci(
+    a: np.ndarray, b: np.ndarray, n_boot: int = 1000, ci: float = 0.95
+) -> tuple[float, float, float]:
+    a_c = a[np.isfinite(a)]
+    b_c = b[np.isfinite(b)]
+    if len(a_c) == 0 or len(b_c) == 0:
+        return 0.0, 0.0, 0.0
+    delta_obs = float(np.median(b_c) - np.median(a_c))
+    rng = np.random.default_rng(seed=42)
+    boots = np.median(rng.choice(b_c, size=(n_boot, len(b_c)), replace=True), axis=1) - np.median(
+        rng.choice(a_c, size=(n_boot, len(a_c)), replace=True), axis=1
     )
-    path = out / f"05b_top_leads_best_model_{name}.png"
-    _captioned(
-        image,
-        f"05b - top {len(mols)} leads sampled from the best model: {name} "
-        f"(desired_ratio {desired:.3f}, n={len(frame)}), ranked by {_short(objectives[0])}",
-    ).save(path)
-    return path
+    alpha = (1.0 - ci) / 2.0
+    return (
+        delta_obs,
+        float(np.percentile(boots, 100.0 * alpha)),
+        float(np.percentile(boots, 100.0 * (1.0 - alpha))),
+    )
+
+
+def _plot_kde(
+    ax: plt.Axes,
+    data: np.ndarray,
+    color: str,
+    label: str,
+    x_grid: np.ndarray,
+    alpha: float = 0.35,
+) -> None:
+    clean = data[np.isfinite(data)]
+    if len(clean) == 0:
+        return
+    if len(clean) >= 2 and not np.allclose(clean, clean[0]):
+        try:
+            kde = gaussian_kde(clean)
+            density = kde(x_grid)
+            ax.plot(x_grid, density, color=color, linewidth=2.0, label=label)
+            ax.fill_between(x_grid, 0, density, color=color, alpha=alpha)
+            return
+        except Exception:
+            pass
+    ax.hist(
+        clean,
+        bins=25,
+        range=(float(x_grid[0]), float(x_grid[-1])),
+        density=True,
+        color=color,
+        alpha=alpha,
+        label=label,
+    )
 
 
 # --------------------------------------------------------------------------------------
-# 06 -- do the objectives fight each other
+# 01 / 01b -- Hierarchical 3x3 Property Diagnostic Dashboard
 # --------------------------------------------------------------------------------------
 
 
-def objective_conflict_correlations(
-    arms: dict[str, pd.DataFrame], objectives: list[str], out: Path
+def _render_property_grid(
+    b_df: pd.DataFrame,
+    a_df: pd.DataFrame,
+    target_png: Path,
+    ref_vals: dict[str, float],
+    title: str,
+    note: str,
+    a_label: str,
+    checkpoints: tuple[str, ...] = (),
+) -> Path:
+    style()
+    target_png.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(3, 3, figsize=(18, 14.5), dpi=200)
+    fig.suptitle(
+        title if not note else f"{title}\n{note}",
+        fontsize=14.0 if not note else 11.8,
+        fontweight="bold",
+        y=0.988,
+    )
+    # Grey and below the parameters: which checkpoint is drawn and how large each arm
+    # was is provenance, not the subject, so it reads under the settings line rather
+    # than competing with the title.
+    for index, line in enumerate(checkpoints):
+        fig.text(
+            0.5,
+            0.954 - index * 0.013,
+            line,
+            ha="center",
+            va="top",
+            fontsize=9.6,
+            color="#64748b",
+        )
+
+    metrics_config: list[tuple[str, str, tuple[float, float], str]] = [
+        ("ROCS", "3D ROCS Shape/Color Overlap", (0.0, 2.0), "TanimotoCombo Score [0, 2]"),
+        (
+            "Raw_SA",
+            "Synthetic Accessibility (raw SAscore)",
+            (1.0, 8.0),
+            "Raw SA [1, 10] (lower = easier)",
+        ),
+        ("QED", "Drug-Likeness (QED)", (0.0, 1.0), "QED Score [0, 1]"),
+        ("MW", "Molecular Weight (MW)", (100.0, 700.0), "Molecular Weight (Da)"),
+        ("HAC", "Heavy Atom Count (HAC)", (8.0, 48.0), "Heavy Atom Count"),
+        ("RotBonds", "Rotatable Bonds Count", (0.0, 15.0), "Rotatable Bonds"),
+        ("LogP", "Calculated Lipophilicity (SlogP)", (-2.0, 7.0), "SlogP"),
+        ("TPSA", "Polar Surface Area (TPSA)", (0.0, 220.0), "TPSA (Å²)"),
+        ("Fsp3", "Carbon sp³ Fraction (Fsp³ / 3D Complexity)", (0.0, 1.0), "Fsp³ Fraction"),
+    ]
+
+    ref_key_map = {
+        "ROCS": "ROCS",
+        "Raw_SA": "SA_raw",
+        "QED": "QED",
+        "MW": "MW",
+        "HAC": "HAC",
+        "RotBonds": "RotB",
+        "LogP": "cLogP",
+        "TPSA": "TPSA",
+        "Fsp3": "Fsp3",
+    }
+
+    for idx, (col, p_title, x_limits, x_lbl) in enumerate(metrics_config):
+        ax = axes[idx // 3, idx % 3]
+        b_vals = (
+            pd.to_numeric(b_df.get(col, pd.Series(dtype=float)), errors="coerce")
+            .dropna()
+            .to_numpy(dtype=float)
+        )
+        a_vals = (
+            pd.to_numeric(a_df.get(col, pd.Series(dtype=float)), errors="coerce")
+            .dropna()
+            .to_numpy(dtype=float)
+        )
+
+        x_grid = np.linspace(x_limits[0], x_limits[1], 300)
+        _plot_kde(ax, b_vals, "#64748B", f"Baseline Prior (n={len(b_vals)})", x_grid, alpha=0.30)
+        _plot_kde(ax, a_vals, "#4F46E5", f"{a_label} (n={len(a_vals)})", x_grid, alpha=0.45)
+
+        delta, low, high = _bootstrap_ci(b_vals, a_vals)
+        b_med = float(np.median(b_vals)) if len(b_vals) > 0 else float("nan")
+        a_med = float(np.median(a_vals)) if len(a_vals) > 0 else float("nan")
+
+        if math.isfinite(b_med):
+            ax.axvline(b_med, color="#475569", linestyle="--", linewidth=1.4)
+        if math.isfinite(a_med):
+            ax.axvline(a_med, color="#3730A3", linestyle="-", linewidth=1.6)
+
+        rk = ref_key_map.get(col, col)
+        if rk in ref_vals and math.isfinite(ref_vals[rk]):
+            rv = ref_vals[rk]
+            ax.axvline(rv, color="#0D9488", linestyle=":", linewidth=1.6, label=f"Seed ({rv:.2f})")
+
+        stat_text = (
+            f"Prior Med: {b_med:.2f}\n"
+            f"Reinf Med: {a_med:.2f}\n"
+            f"Δ = {delta:+.2f} [{low:+.2f}, {high:+.2f}]"
+        )
+        ax.text(
+            0.04,
+            0.93,
+            stat_text,
+            transform=ax.transAxes,
+            fontsize=8.2,
+            verticalalignment="top",
+            bbox=dict(
+                boxstyle="round,pad=0.30", facecolor="#ffffff", edgecolor="#cbd5e1", alpha=0.9
+            ),
+        )
+
+        ax.set_title(p_title, fontsize=10.5, fontweight="bold")
+        ax.set_xlabel(x_lbl, fontsize=9.0)
+        ax.set_ylabel("Density (valid unique)", fontsize=9.0)
+        ax.set_xlim(x_limits)
+        ax.grid(True, linestyle=":", alpha=0.4)
+        if idx == 0:
+            ax.legend(loc="upper right", fontsize=8.0)
+
+    row_titles = [
+        "PRIMARY RL OBJECTIVES (ROCS, RAW SA, QED)",
+        "MOLECULAR SIZE & COMPLEXITY DIAGNOSTICS (MW, HAC, ROTB)",
+        "PHYSICOCHEMICAL & 3D INTEGRITY (SLOGP, TPSA, FSP³)",
+    ]
+    for row_idx, r_text in enumerate(row_titles):
+        axes[row_idx, 1].annotate(
+            r_text,
+            xy=(0.5, 1.14),
+            xycoords="axes fraction",
+            ha="center",
+            fontsize=9.5,
+            fontweight="bold",
+            color="#334155",
+            bbox=dict(
+                boxstyle="square,pad=0.2", facecolor="#f1f5f9", edgecolor="#cbd5e1", linewidth=0.8
+            ),
+        )
+
+    plt.subplots_adjust(top=0.878, bottom=0.05, hspace=0.36, wspace=0.22)
+    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+def before_after_distributions(
+    arms: dict[str, pd.DataFrame],
+    objectives: list[str],
+    thresholds: list[float],
+    out: Path,
+    config: dict | None = None,
+    reference: Path | None = None,
+    arm: str = PRIMARY_ARM,
+    name: str = "01_before_after_distributions",
 ) -> Path | None:
-    """Spearman correlation between objectives, per arm. Negative means they conflict."""
+    """The 3x3 property dashboard, prior against one trained arm.
+
+    One function for 01 and 01b: they differ only in which checkpoint the prior is
+    compared with, and keeping two copies of the grid is how the two drifted apart.
+    """
+    win = shown_arm(arms, objectives, arm)
+    if win is None:
+        return None
+    b_u = _unique(arms.get("prior"))
+    a_u = _unique(arms.get(win))
+    ref_smi = (config or {}).get("reference_smiles")
+    b_en = enrich_descriptors(b_u, objectives[0], ref_smi, config)
+    a_en = enrich_descriptors(a_u, objectives[0], ref_smi, config)
+    ref_vals = reference_properties(config, reference)
+    prov = provenance_tag(config, reference)
+    counts = [
+        f"{n}: {len(_unique(arms[n]))} unique / {len(arms[n])} sampled "
+        f"(desired={float(_unique(arms[n])['Desired'].sum()) / max(len(arms[n]), 1):.3f})"
+        for n in ARMS
+        if n in arms and len(arms[n])
+    ]
+    # Two lines, split down the middle: four arms on one line ran off the canvas.
+    half = (len(counts) + 1) // 2
+    checkpoints = (
+        f"Drawn: prior vs {win}" + (f"  |  {', '.join(counts[:half])}" if counts else ""),
+        ", ".join(counts[half:]),
+    )
+    return _render_property_grid(
+        b_en,
+        a_en,
+        out / f"{name}.png",
+        ref_vals,
+        "Hierarchical De Novo Property Diagnostic Dashboard: Baseline Prior vs. Reinforced Policy",
+        prov,
+        a_label=f"Reinforced ({win})",
+        checkpoints=tuple(line for line in checkpoints if line),
+    )
+
+
+# --------------------------------------------------------------------------------------
+# 02 -- Multi-Objective Optimization Trade-Offs (1x3 scatter + skylines + Pareto stars + contours)
+# --------------------------------------------------------------------------------------
+
+
+def _overlay_prior_contours(ax: plt.Axes, bx: np.ndarray, by: np.ndarray) -> None:
+    ok = np.isfinite(bx) & np.isfinite(by)
+    bx_v, by_v = bx[ok], by[ok]
+    if len(bx_v) < 15 or np.allclose(bx_v, bx_v[0]) or np.allclose(by_v, by_v[0]):
+        return
+    try:
+        kde = gaussian_kde(np.vstack([bx_v, by_v]))
+        xi, yi = np.mgrid[bx_v.min() : bx_v.max() : 50j, by_v.min() : by_v.max() : 50j]
+        zi = kde(np.vstack([xi.flatten(), yi.flatten()])).reshape(xi.shape)
+        v_sorted = np.sort(zi.flatten())[::-1]
+        cum = np.cumsum(v_sorted)
+        cum /= cum[-1]
+        lvl_50 = v_sorted[np.searchsorted(cum, 0.50)]
+        lvl_90 = v_sorted[np.searchsorted(cum, 0.90)]
+        ax.contour(
+            xi,
+            yi,
+            zi,
+            levels=sorted([lvl_90, lvl_50]),
+            colors=["#64748b", "#334155"],
+            linestyles=["--", "-."],
+            linewidths=[1.1, 1.4],
+            alpha=0.75,
+            zorder=2,
+        )
+    except Exception:
+        pass
+
+
+def multiobjective_tradeoffs(
+    arms: dict[str, pd.DataFrame],
+    objectives: list[str],
+    thresholds: list[float],
+    out: Path,
+    config: dict | None = None,
+    reference: Path | None = None,
+) -> Path | None:
     if len(objectives) < 2:
         return None
     style()
-    pairs = [(a, b) for i, a in enumerate(objectives) for b in objectives[i + 1 :]]
-    present = [name for name in ARMS if name in arms]
-    width = np.arange(len(pairs))
-    span = 0.8 / max(len(present), 1)
-    fig, axis = plt.subplots(figsize=(1.6 + 2.6 * len(pairs), 4.0))
-    for index, name in enumerate(present):
-        frame = _unique(arms[name])
-        values, labels = [], []
-        for a, b in pairs:
-            # A saturated column has zero variance, so rho is undefined. Plotting 0.0
-            # would read as "these objectives do not conflict" instead of "this cannot
-            # be computed" -- which is exactly what a saturated SA column produces.
-            if len(frame) > 2 and frame[a].std() > 0 and frame[b].std() > 0:
-                rho = float(frame[a].corr(frame[b], method="spearman"))
-                values.append(rho)
-                labels.append(f"{rho:.2f}")
-            else:
-                values.append(0.0)
-                labels.append("undefined")
-        offset = width + index * span - 0.4 + span / 2
-        bars = axis.bar(offset, values, span * 0.9, color=PALETTE[name], label=name)
-        axis.bar_label(bars, labels=labels, fontsize=8, color=INK, padding=2)
-    axis.axhline(0, color=MUTED, linewidth=1)
-    axis.set_xticks(width, [f"{_short(a)}\nvs {_short(b)}" for a, b in pairs])
-    axis.set(ylabel="Spearman rho", ylim=(-1.05, 1.05))
-    axis.grid(axis="y")
-    axis.legend(fontsize=9)
-    fig.suptitle(
-        "06 - objective conflict; rho < 0 means improving one costs the other", x=0.01, ha="left"
+    win = shown_arm(arms, objectives, PRIMARY_ARM) or "prior"
+    a_u = _unique(arms.get(win))
+    if a_u.empty:
+        return None
+    b_u = _unique(arms.get("prior"))
+    ref_smi = (config or {}).get("reference_smiles")
+    df_clean = enrich_descriptors(a_u, objectives[0], ref_smi, config)
+    b_clean = enrich_descriptors(b_u, objectives[0], ref_smi, config) if not b_u.empty else None
+
+    rocs = pd.to_numeric(df_clean["ROCS"], errors="coerce").to_numpy(dtype=float)
+    sa = pd.to_numeric(df_clean["Raw_SA"], errors="coerce").to_numpy(dtype=float)
+    qed = pd.to_numeric(df_clean["QED"], errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(rocs) & np.isfinite(sa) & np.isfinite(qed)
+    if not finite.any():
+        return None
+    rocs, sa, qed = rocs[finite], sa[finite], qed[finite]
+
+    # True Pareto front computed on the run's actual objectives (where higher is always better)
+    obj_pts = df_clean.loc[finite, [o for o in objectives if o in df_clean.columns]].to_numpy(
+        dtype=float
     )
-    fig.tight_layout()
-    return _save(fig, out, "06_objective_conflict_correlations.png")
+    p_mask = (
+        pareto_mask(obj_pts) if obj_pts.size else pareto_mask(np.column_stack([rocs, -sa, qed]))
+    )
+    p3_rocs, p3_sa, p3_qed = rocs[p_mask], sa[p_mask], qed[p_mask]
+
+    b_rocs = (
+        pd.to_numeric(b_clean["ROCS"], errors="coerce").to_numpy(dtype=float)
+        if b_clean is not None
+        else np.array([])
+    )
+    b_sa = (
+        pd.to_numeric(b_clean["Raw_SA"], errors="coerce").to_numpy(dtype=float)
+        if b_clean is not None
+        else np.array([])
+    )
+    b_qed = (
+        pd.to_numeric(b_clean["QED"], errors="coerce").to_numpy(dtype=float)
+        if b_clean is not None
+        else np.array([])
+    )
+
+    thr_map = dict(zip(objectives, thresholds))
+    rocs_thr = float(thr_map.get(objectives[0], 0.70))
+    # Map SA desirability threshold on [0, 1] back to physical raw SA [1, 10]
+    sa_mod_thr = float(thr_map.get("SA", 0.63))
+    sa_lo = float((config or {}).get("sa_reward_zero", 5.0))
+    sa_hi = float((config or {}).get("sa_reward_one", 3.0))
+    sa_raw_thr = sa_lo - sa_mod_thr * (sa_lo - sa_hi)
+    qed_thr = float(thr_map.get("QED", reference_properties(config, reference).get("QED", 0.21)))
+
+    prov = provenance_tag(config, reference)
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5.8), dpi=200)
+    fig.suptitle(
+        f"Multi-Objective Optimization Trade-Offs, Step-Wise Skylines & Pareto Leads ({win}, n={len(rocs)} valid unique)\n{prov}",
+        fontsize=12.2,
+        fontweight="bold",
+        y=0.99,
+    )
+
+    # Panel A: ROCS vs Raw SA
+    if len(b_rocs) > 0 and len(b_sa) > 0:
+        _overlay_prior_contours(ax1, b_rocs, b_sa)
+    sc1 = ax1.scatter(
+        rocs, sa, c=qed, cmap="viridis", alpha=0.65, edgecolors="none", s=28, zorder=3
+    )
+    fig.colorbar(sc1, ax=ax1).set_label("QED (Evaluated)", fontsize=9)
+    sk1_x, sk1_y = compute_2d_skyline(rocs, sa, maximize_x=True, maximize_y=False)
+    if len(sk1_x) > 0:
+        ax1.plot(
+            sk1_x,
+            sk1_y,
+            drawstyle="steps-post",
+            color="#b91c1c",
+            linewidth=2.2,
+            zorder=4,
+            label="2D Empirical Skyline",
+        )
+    if len(p3_rocs) > 0:
+        ax1.scatter(
+            p3_rocs,
+            p3_sa,
+            marker="*",
+            s=140,
+            facecolors="#f59e0b",
+            edgecolors="#78350f",
+            linewidth=1.0,
+            zorder=5,
+            label=f"Non-dominated ({len(p3_rocs)})",
+        )
+    ax1.axvline(
+        rocs_thr,
+        color="#dc2626",
+        linestyle="--",
+        linewidth=1.2,
+        alpha=0.75,
+        label=f"ROCS Thr ({rocs_thr:.2f})",
+    )
+    ax1.axhline(
+        sa_raw_thr,
+        color="#2563eb",
+        linestyle="--",
+        linewidth=1.2,
+        alpha=0.75,
+        label=f"SA Thr ({sa_raw_thr:.2f})",
+    )
+    ax1.set_title(
+        "(A) 3D Shape (ROCS) vs. Synthesizability (Raw SA)", fontsize=11, fontweight="bold"
+    )
+    ax1.set_xlabel("ROCS TanimotoCombo [0, 2] (higher=better)")
+    ax1.set_ylabel("Raw SA Score [1, 10] (lower=better)")
+    ax1.grid(True, linestyle=":", alpha=0.4)
+    ax1.legend(loc="upper right", fontsize=7.8)
+
+    # Panel B: ROCS vs QED
+    if len(b_rocs) > 0 and len(b_qed) > 0:
+        _overlay_prior_contours(ax2, b_rocs, b_qed)
+    sc2 = ax2.scatter(
+        rocs, qed, c=sa, cmap="plasma_r", alpha=0.65, edgecolors="none", s=28, zorder=3
+    )
+    fig.colorbar(sc2, ax=ax2).set_label("Raw SA Score", fontsize=9)
+    sk2_x, sk2_y = compute_2d_skyline(rocs, qed, maximize_x=True, maximize_y=True)
+    if len(sk2_x) > 0:
+        ax2.plot(
+            sk2_x,
+            sk2_y,
+            drawstyle="steps-post",
+            color="#b91c1c",
+            linewidth=2.2,
+            zorder=4,
+            label="2D Empirical Skyline",
+        )
+    if len(p3_rocs) > 0:
+        ax2.scatter(
+            p3_rocs,
+            p3_qed,
+            marker="*",
+            s=140,
+            facecolors="#f59e0b",
+            edgecolors="#78350f",
+            linewidth=1.0,
+            zorder=5,
+            label=f"Non-dominated ({len(p3_rocs)})",
+        )
+    ax2.axvline(
+        rocs_thr,
+        color="#dc2626",
+        linestyle="--",
+        linewidth=1.2,
+        alpha=0.75,
+        label=f"ROCS Thr ({rocs_thr:.2f})",
+    )
+    ax2.axhline(
+        qed_thr,
+        color="#2563eb",
+        linestyle="--",
+        linewidth=1.2,
+        alpha=0.75,
+        label=f"QED Ref ({qed_thr:.2f})",
+    )
+    ax2.set_title("(B) 3D Shape (ROCS) vs. Drug-Likeness (QED)", fontsize=11, fontweight="bold")
+    ax2.set_xlabel("ROCS TanimotoCombo [0, 2] (higher=better)")
+    ax2.set_ylabel("QED Score [0, 1] (higher=better)")
+    ax2.grid(True, linestyle=":", alpha=0.4)
+    ax2.legend(loc="lower right", fontsize=7.8)
+
+    # Panel C: Raw SA vs QED
+    if len(b_sa) > 0 and len(b_qed) > 0:
+        _overlay_prior_contours(ax3, b_sa, b_qed)
+    sc3 = ax3.scatter(sa, qed, c=rocs, cmap="turbo", alpha=0.65, edgecolors="none", s=28, zorder=3)
+    fig.colorbar(sc3, ax=ax3).set_label("ROCS TanimotoCombo", fontsize=9)
+    sk3_x, sk3_y = compute_2d_skyline(sa, qed, maximize_x=False, maximize_y=True)
+    if len(sk3_x) > 0:
+        ax3.plot(
+            sk3_x,
+            sk3_y,
+            drawstyle="steps-post",
+            color="#b91c1c",
+            linewidth=2.2,
+            zorder=4,
+            label="2D Empirical Skyline",
+        )
+    if len(p3_sa) > 0:
+        ax3.scatter(
+            p3_sa,
+            p3_qed,
+            marker="*",
+            s=140,
+            facecolors="#f59e0b",
+            edgecolors="#78350f",
+            linewidth=1.0,
+            zorder=5,
+            label=f"Non-dominated ({len(p3_sa)})",
+        )
+    ax3.axvline(
+        sa_raw_thr,
+        color="#2563eb",
+        linestyle="--",
+        linewidth=1.2,
+        alpha=0.75,
+        label=f"SA Thr ({sa_raw_thr:.2f})",
+    )
+    ax3.axhline(
+        qed_thr,
+        color="#dc2626",
+        linestyle="--",
+        linewidth=1.2,
+        alpha=0.75,
+        label=f"QED Ref ({qed_thr:.2f})",
+    )
+    ax3.set_title(
+        "(C) Synthesizability (Raw SA) vs. Drug-Likeness (QED)", fontsize=11, fontweight="bold"
+    )
+    ax3.set_xlabel("Raw SA Score [1, 10] (lower=better)")
+    ax3.set_ylabel("QED Score [0, 1] (higher=better)")
+    ax3.grid(True, linestyle=":", alpha=0.4)
+    ax3.legend(loc="upper right", fontsize=7.8)
+
+    plt.tight_layout(rect=[0, 0.02, 1, 0.92])
+    target_png = out / "02_multiobjective_tradeoffs.png"
+    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
 
 
 # --------------------------------------------------------------------------------------
-# 07 -- is the output diverse, or one scaffold repeated
+# 03 -- SequenceRNN Reinforcement Learning Dynamics & Convergence Diagnostics (2x2)
 # --------------------------------------------------------------------------------------
 
 
-def scaffold_diversity(arms: dict[str, pd.DataFrame], out: Path) -> Path | None:
-    """Bemis-Murcko scaffold counts. A collapsing run finds one scaffold and stays."""
+def training_trajectories(
+    fit: pd.DataFrame,
+    summary: dict,
+    out: Path,
+    epochs: pd.DataFrame | None = None,
+    objectives: list[str] | None = None,
+    config: dict | None = None,
+    reference: Path | None = None,
+) -> Path | None:
+    if fit is None or fit.empty:
+        return None
     style()
-    present = [name for name in ARMS if name in arms]
-    rows = {}
-    for name in present:
-        frame = _unique(arms[name])
-        scaffolds = []
-        for mol in _mols(frame["SMILES"]):
-            try:
-                scaffolds.append(Chem.MolToSmiles(MurckoScaffold.GetScaffoldForMol(mol)))
-            except Exception:
-                continue
-        if not scaffolds:
-            continue
-        series = pd.Series(scaffolds)
-        rows[name] = {
-            "molecules": len(scaffolds),
-            "scaffolds": series.nunique(),
-            "unique_fraction": series.nunique() / len(scaffolds),
-            "top_share": series.value_counts().iloc[0] / len(scaffolds),
+    df = fit.copy()
+    rocs_col = (objectives or ["ROCS"])[0]
+    prov = provenance_tag(config, reference)
+
+    rocs_median = rocs_q25 = rocs_q75 = rocs_p95 = cum_p95 = None
+    sa_grp = None
+    if epochs is not None and not epochs.empty:
+        vep = enrich_descriptors(
+            _valid(epochs), rocs_col, (config or {}).get("reference_smiles"), config
+        )
+        if not vep.empty:
+            for col in ("ROCS", "QED"):
+                if col in vep.columns:
+                    df[col] = df["Epoch"].map(vep.groupby("Epoch")[col].mean())
+                    df[f"{col}_median"] = df["Epoch"].map(vep.groupby("Epoch")[col].median())
+            if "ROCS" in vep.columns:
+                r_grp = vep.groupby("Epoch")["ROCS"]
+                rocs_median = r_grp.median()
+                rocs_q25 = r_grp.quantile(0.25)
+                rocs_q75 = r_grp.quantile(0.75)
+                rocs_p95 = r_grp.quantile(0.95)
+                if not rocs_p95.dropna().empty:
+                    cum_p95 = np.maximum.accumulate(rocs_p95.dropna().values)
+            if "Raw_SA" in vep.columns and vep["Raw_SA"].notna().any():
+                sa_grp = vep.groupby("Epoch")["Raw_SA"]
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 9.2), dpi=200)
+    fig.suptitle(
+        f"SequenceRNN Reinforcement Learning Dynamics & Convergence Diagnostics (n_eval={(config or {}).get('n_eval', '?')})\n{prov}",
+        fontsize=12.2,
+        fontweight="bold",
+        y=0.99,
+    )
+
+    ep_vals = df["Epoch"]
+    best_des_ep = summary.get("best_desired_ratio_epoch")
+    freeze_ep = summary.get("desired_ratio_freeze_epoch")
+    best_gm_ep = summary.get("best_avg_gmean_epoch")
+    froze = bool(summary.get("desired_ratio_frozen"))
+
+    def _mark_events(ax: plt.Axes, is_legend: bool = False) -> None:
+        if best_des_ep:
+            ax.axvline(
+                best_des_ep,
+                color="#0D9488",
+                linestyle="--",
+                linewidth=1.4,
+                alpha=0.85,
+                label=f"desired_ratio peak (Ep {best_des_ep})" if is_legend else "",
+                zorder=2,
+            )
+        if best_gm_ep:
+            ax.axvline(
+                best_gm_ep,
+                color="#7C3AED",
+                linestyle="-.",
+                linewidth=1.4,
+                alpha=0.85,
+                label=f"gmean peak (Ep {best_gm_ep})" if is_legend else "",
+                zorder=2,
+            )
+        if freeze_ep:
+            lbl = f"patience freeze (Ep {freeze_ep})" if froze else f"end of run (Ep {freeze_ep})"
+            ax.axvline(
+                freeze_ep,
+                color="#dc2626",
+                linestyle=":",
+                linewidth=1.4,
+                alpha=0.85,
+                label=lbl if is_legend else "",
+                zorder=2,
+            )
+
+    # Panel A: Training Loss & Exploration Rate
+    ax1 = axes[0, 0]
+    _mark_events(ax1, is_legend=True)
+    if "loss_train" in df.columns:
+        ax1.plot(
+            ep_vals, df["loss_train"], color="#dc2626", linewidth=1.8, label="Train Loss", zorder=3
+        )
+    ax1.set_title("(A) Training Loss & Exploration Rate", fontsize=11, fontweight="bold")
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Loss")
+    ax1.grid(True, linestyle=":", alpha=0.4)
+    handles, labels = ax1.get_legend_handles_labels()
+    if config and "epsilon" in config:
+        ax1r = ax1.twinx()
+        eps_val = float(config.get("epsilon", 0.0))
+        eps_arr = np.full(len(ep_vals), eps_val)
+        ax1r.plot(
+            ep_vals,
+            eps_arr,
+            color="#EA580C",
+            linewidth=1.8,
+            linestyle="--",
+            label=f"ε = {eps_val:.2f} (right axis)",
+            zorder=4,
+        )
+        eps_top = max(eps_val, 0.05)
+        ax1r.set_ylim(-0.03 * eps_top, eps_top * 1.35)
+        ax1r.set_ylabel("Exploration ε", color="#9A3412")
+        ax1r.tick_params(axis="y", colors="#9A3412")
+        h2, l2 = ax1r.get_legend_handles_labels()
+        handles, labels = handles + h2, labels + l2
+    if handles:
+        ax1.legend(handles, labels, loc="best", fontsize=8.0)
+
+    # Panel B: Selection Criteria & Quality
+    ax2 = axes[0, 1]
+    _mark_events(ax2)
+    series_specs = [
+        ("avg_gmean", "Avg Geometric Mean ★", "#7C3AED", "o", True),
+        ("avg_amean", "Avg Arithmetic Mean", "#93C5FD", "s", False),
+        ("desired_ratio", "Desired Ratio ★", "#0D9488", "^", True),
+        ("valid_ratio", "Valid Ratio", "#B45309", "D", False),
+        ("unique_ratio", "Unique Ratio", "#BE185D", "v", False),
+    ]
+    mark_step = max(1, len(ep_vals) // 12)
+    for col, label, color, marker, is_crit in series_specs:
+        if col in df.columns and not df[col].dropna().empty:
+            ax2.plot(
+                ep_vals,
+                df[col],
+                color=color,
+                linewidth=2.2 if is_crit else 1.6,
+                linestyle="-" if is_crit else "--",
+                marker=marker,
+                markersize=4.0 if is_crit else 3.2,
+                markevery=mark_step,
+                label=label,
+                zorder=4 if is_crit else 3,
+            )
+    ax2.set_title(
+        "(B) Dual Checkpoint Criteria & Sample Quality (on n_eval)", fontsize=11, fontweight="bold"
+    )
+    ax2.set_xlabel("Epoch")
+    ax2.set_ylim(-0.05, 1.05)
+    ax2.grid(True, linestyle=":", alpha=0.4)
+    ax2.legend(loc="best", fontsize=7.8, ncol=2)
+
+    # Panel C: Objective Mean/Median & Raw Synthesizability
+    ax3 = axes[1, 0]
+    _mark_events(ax3)
+    plotted_objs = False
+    for col, mean_c, med_c, lbl in [
+        ("ROCS", "#2563EB", "#93C5FD", "ROCS"),
+        ("QED", "#F59E0B", "#FDE68A", "QED"),
+    ]:
+        if col in df.columns and not df[col].dropna().empty:
+            ax3.plot(ep_vals, df[col], color=mean_c, linewidth=2.1, label=f"{lbl} Mean", zorder=4)
+            if f"{col}_median" in df.columns:
+                ax3.plot(
+                    ep_vals,
+                    df[f"{col}_median"],
+                    color=med_c,
+                    linewidth=1.6,
+                    linestyle="--",
+                    label=f"{lbl} Median",
+                    zorder=3,
+                )
+            plotted_objs = True
+    if not plotted_objs and "avg_gmean" in df.columns:
+        ax3.plot(
+            ep_vals,
+            df["avg_gmean"],
+            color="#7C3AED",
+            linewidth=1.8,
+            label="Avg Geometric Mean",
+            zorder=3,
+        )
+    ax3.set_title(
+        "(C) Objective Mean/Median (left) & Raw Synthesizability (right)",
+        fontsize=11,
+        fontweight="bold",
+    )
+    ax3.set_xlabel("Epoch")
+    ax3.set_ylabel("ROCS TanimotoCombo (0–2) · QED (0–1)")
+    ax3.grid(True, linestyle=":", alpha=0.4)
+    h3, l3 = ax3.get_legend_handles_labels()
+    if sa_grp is not None:
+        sai_mean, sai_med, sa_q25, sa_q75 = (
+            sa_grp.mean(),
+            sa_grp.median(),
+            sa_grp.quantile(0.25),
+            sa_grp.quantile(0.75),
+        )
+        ax3r = ax3.twinx()
+        ax3r.fill_between(
+            sai_med.index,
+            sa_q25.values,
+            sa_q75.values,
+            color="#D1D5DB",
+            alpha=0.30,
+            linewidth=0,
+            label="Raw SA IQR",
+            zorder=2,
+        )
+        ax3r.plot(
+            sai_mean.index,
+            sai_mean.values,
+            color="#4B5563",
+            linewidth=2.1,
+            label="Raw SA Mean (right)",
+            zorder=5,
+        )
+        ax3r.plot(
+            sai_med.index,
+            sai_med.values,
+            color="#9CA3AF",
+            linewidth=1.6,
+            linestyle="--",
+            label="Raw SA Median (right)",
+            zorder=4,
+        )
+        sa_lo, sa_hi = float(np.nanmin(sa_q25.values)), float(np.nanmax(sa_q75.values))
+        pad = max(0.6, 0.15 * (sa_hi - sa_lo))
+        ax3r.set_ylim(sa_lo - pad, sa_hi + pad)
+        ax3r.set_ylabel("Raw RDKit SA [1, 10] (lower = easier)", color="#4B5563")
+        ax3r.tick_params(axis="y", colors="#4B5563")
+        hr, lr = ax3r.get_legend_handles_labels()
+        h3, l3 = h3 + hr, l3 + lr
+    if h3:
+        ax3.legend(h3, l3, loc="lower right", fontsize=7.5, ncol=2)
+
+    # Panel D: ROCS Distribution & Stored Shape/Color Split (zero rescoring)
+    ax4 = axes[1, 1]
+    _mark_events(ax4)
+    if rocs_median is not None and not rocs_median.dropna().empty:
+        ep_r = rocs_median.index.values
+        ax4.fill_between(
+            ep_r,
+            rocs_q25.values,
+            rocs_q75.values,
+            color="#93C5FD",
+            alpha=0.30,
+            linewidth=0,
+            label="ROCS IQR (25th–75th)",
+            zorder=2,
+        )
+        ax4.plot(
+            ep_r, rocs_median.values, color="#2563eb", linewidth=2.2, label="ROCS Median", zorder=4
+        )
+        ax4.plot(
+            ep_r,
+            rocs_p95.values,
+            color="#E11D48",
+            linewidth=1.4,
+            linestyle="-.",
+            label="ROCS 95th %ile",
+            zorder=3,
+        )
+        if cum_p95 is not None:
+            ax4.plot(
+                rocs_p95.dropna().index.values,
+                cum_p95,
+                color="#4338CA",
+                linewidth=1.5,
+                linestyle=":",
+                label="Cumulative p95 ceiling",
+                zorder=3,
+            )
+    ax4.set_title(
+        "(D) ROCS Distribution & Stored Shape/Color Split", fontsize=11, fontweight="bold"
+    )
+    ax4.set_xlabel("Epoch")
+    ax4.set_ylabel("ROCS TanimotoCombo (0–2)")
+    ax4.grid(True, linestyle=":", alpha=0.4)
+    h4, l4 = ax4.get_legend_handles_labels()
+    if "avg_ShapeTanimoto" in df.columns and "avg_ColorTanimoto" in df.columns:
+        ax4r = ax4.twinx()
+        (ls_line,) = ax4r.plot(
+            ep_vals,
+            df["avg_ShapeTanimoto"],
+            color="#0D9488",
+            linewidth=1.8,
+            label="avg_ShapeTanimoto (right)",
+            zorder=5,
+        )
+        (lc_line,) = ax4r.plot(
+            ep_vals,
+            df["avg_ColorTanimoto"],
+            color="#D97706",
+            linewidth=1.8,
+            label=f"avg_ColorTanimoto ({(config or {}).get('color_ff', 'fdef')})",
+            zorder=5,
+        )
+        sc_hi = max(float(df[["avg_ShapeTanimoto", "avg_ColorTanimoto"]].to_numpy().max()), 0.1)
+        ax4r.set_ylim(0.0, max(sc_hi * 1.28, 0.2))
+        ax4r.set_ylabel("Shape / Color Tanimoto [0, 1]", fontsize=8.6)
+        h4, l4 = h4 + [ls_line, lc_line], l4 + [ls_line.get_label(), lc_line.get_label()]
+    if h4:
+        ax4.legend(h4, l4, loc="lower right", fontsize=7.2, ncol=2)
+
+    plt.tight_layout(rect=[0, 0.02, 1, 0.93])
+    target_png = out / "03_training_trajectories.png"
+    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+# --------------------------------------------------------------------------------------
+# 05 / 05b -- Aligned 2D Lead Structure Cards (Target Seed + Row 1 Desired + Row 2 ROCS)
+# --------------------------------------------------------------------------------------
+
+
+def _render_lead_cards(
+    arm_df: pd.DataFrame,
+    objectives: list[str],
+    target_png: Path,
+    title: str,
+    config: dict | None = None,
+    reference: Path | None = None,
+    max_leads: int = 5,
+) -> Path | None:
+    u = _unique(arm_df)
+    if u.empty:
+        return None
+    ref_smi = (config or {}).get("reference_smiles", "")
+    en = enrich_descriptors(u, objectives[0], ref_smi, config)
+    depicter = AlignedDepicter(ref_smi)
+    ref_props = reference_properties(config, reference)
+    prov = provenance_tag(config, reference)
+
+    top_row: list[dict[str, Any]] = []
+    second_row: list[dict[str, Any]] = []
+    seen_smiles: set[str] = set()
+
+    if depicter.ref_mol is not None:
+        ref_clean = Chem.RemoveHs(Chem.Mol(depicter.ref_mol))
+        top_row.append(
+            {
+                "mol": ref_clean,
+                "title": "TARGET QUERY SEED",
+                "is_seed": True,
+                "rocs": None,
+                "sa": ref_props.get("SA_raw", 3.74),
+                "sa_mod": ref_props.get("SA", 0.63),
+                "qed": ref_props.get("QED", 0.21),
+                "mw": ref_props.get("MW", 458.4),
+                "hac": int(ref_props.get("HAC", 33)),
+                "delta_hac": 0,
+                "sim": 1.0,
+            }
+        )
+        seen_smiles.add(Chem.MolToSmiles(ref_clean))
+
+    seed_hac = int(ref_props.get("HAC", 33))
+    seed_fp = (
+        rdMolDescriptors.GetMorganFingerprintAsBitVect(depicter.ref_mol, 2, nBits=2048)
+        if depicter.ref_mol is not None
+        else None
+    )
+
+    def _card(row: pd.Series, card_title: str) -> dict[str, Any] | None:
+        smi = str(row.get("SMILES", ""))
+        m = Chem.MolFromSmiles(smi)
+        if m is None:
+            return None
+        m_clean = Chem.RemoveHs(m)
+        hac = int(m_clean.GetNumHeavyAtoms())
+        lead_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(m_clean, 2, nBits=2048)
+        sim = float(DataStructs.TanimotoSimilarity(seed_fp, lead_fp)) if seed_fp else 0.0
+        return {
+            "mol": m_clean,
+            "title": card_title,
+            "is_seed": False,
+            "rocs": float(row.get("ROCS", 0.0)),
+            "shape": float(row.get("ShapeTanimoto", math.nan)),
+            "color": float(row.get("ColorTanimoto", math.nan)),
+            "sa": float(row.get("Raw_SA", row.get("SA_raw", 0.0))),
+            "sa_mod": float(row.get("SA", 0.0)),
+            "qed": float(row.get("QED", 0.0)),
+            "mw": float(row.get("MW", Descriptors.MolWt(m_clean))),
+            "hac": hac,
+            "delta_hac": hac - seed_hac,
+            "sim": sim,
         }
+
+    # Row 1: Desired molecules ranked by ROCS (or overall top ROCS if fewer than max_leads are Desired)
+    des_sorted = en.sort_values(
+        by=["Desired", "ROCS"] if "Desired" in en.columns else ["ROCS"], ascending=False
+    )
+    for _, row in des_sorted.iterrows():
+        if len(top_row) >= max_leads + (1 if depicter.ref_mol is not None else 0):
+            break
+        can = str(row.get("Canonical") or "")
+        if not can or can in seen_smiles:
+            continue
+        c = _card(
+            row, f"LEAD #{len(top_row) if depicter.ref_mol is not None else len(top_row) + 1}"
+        )
+        if c is not None:
+            top_row.append(c)
+            seen_smiles.add(can)
+
+    # Row 2: Next best ROCS hits not already in Row 1
+    rocs_sorted = en.sort_values(by="ROCS", ascending=False)
+    for _, row in rocs_sorted.iterrows():
+        if len(second_row) >= max_leads:
+            break
+        can = str(row.get("Canonical") or "")
+        if not can or can in seen_smiles:
+            continue
+        c = _card(row, f"ROCS #{len(second_row) + 1}")
+        if c is not None:
+            second_row.append(c)
+            seen_smiles.add(can)
+
+    if not top_row:
+        return None
+
+    display_mols = [card["mol"] for card in top_row + second_row if card is not None]
+    depicter.prepare_template(display_mols)
+    for card in top_row + second_row:
+        card["mol"] = depicter.align_molecule(card["mol"])
+
+    rows: list[list[dict[str, Any] | None]] = [top_row]
+    if second_row:
+        rows.append([None] + second_row if depicter.ref_mol is not None else second_row)
+
+    ncols = max(len(r) for r in rows)
+    nrows = len(rows)
+    dpi = 200
+    card_w_in = 3.55
+    card_h_in = card_w_in * 540 / 760
+    pad_x_in = 0.06
+    caption_in = 1.25
+    title_in = 0.72
+    fig_w = ncols * card_w_in + (ncols + 1) * pad_x_in
+    fig_h = title_in + nrows * (card_h_in + caption_in)
+    fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi)
+
+    axes: list[list[Any]] = []
+    for r_idx in range(nrows):
+        row_axes = []
+        row_top = fig_h - title_in - r_idx * (card_h_in + caption_in)
+        for c_idx in range(ncols):
+            left = pad_x_in + c_idx * (card_w_in + pad_x_in)
+            row_axes.append(
+                fig.add_axes(
+                    [
+                        left / fig_w,
+                        (row_top - card_h_in) / fig_h,
+                        card_w_in / fig_w,
+                        card_h_in / fig_h,
+                    ]
+                )
+            )
+        axes.append(row_axes)
+
+    fig.suptitle(
+        f"{title}\n{prov}" if prov else title,
+        fontsize=11.5,
+        fontweight="bold",
+        x=0.5,
+        y=1 - 0.18 / fig_h,
+    )
+
+    for r_idx, row_cards in enumerate(rows):
+        for c_idx in range(ncols):
+            ax = axes[r_idx][c_idx]
+            ax.axis("off")
+            card = row_cards[c_idx] if c_idx < len(row_cards) else None
+            if card is None:
+                if r_idx == 1 and c_idx == 0 and second_row:
+                    ax.text(
+                        0.5,
+                        0.62,
+                        f"ADDITIONAL ROCS HITS\n\nNext-{len(second_row)} by TanimotoCombo,\nexcluding Row 1 leads",
+                        transform=ax.transAxes,
+                        ha="center",
+                        va="center",
+                        fontsize=9.0,
+                        fontweight="bold",
+                        color="#475569",
+                        bbox=dict(
+                            boxstyle="round,pad=0.5", facecolor="#f8fafc", edgecolor="#cbd5e1"
+                        ),
+                    )
+                continue
+
+            img = Draw.MolToImage(
+                card["mol"], size=(round(card_w_in * dpi), round(card_h_in * dpi))
+            )
+            ax.imshow(img)
+            header_color = (
+                "#1e3a8a"
+                if card["is_seed"]
+                else ("#0f766e" if str(card["title"]).startswith("ROCS") else "#1e293b")
+            )
+            ax.text(
+                0.5,
+                -0.05,
+                card["title"],
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=10.5,
+                fontweight="bold",
+                color=header_color,
+            )
+
+            if card["is_seed"]:
+                ax.text(
+                    0.5,
+                    -0.16,
+                    f"HAC: {card['hac']}  |  MW: {card['mw']:.1f} Da",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=8.5,
+                    bbox=dict(
+                        boxstyle="round,pad=0.25",
+                        facecolor="#f1f5f9",
+                        edgecolor="#cbd5e1",
+                        linewidth=0.8,
+                    ),
+                )
+                ax.text(
+                    0.5,
+                    -0.28,
+                    f"Raw SA: {card['sa']:.2f}  |  QED: {card['qed']:.2f}",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=8.5,
+                    bbox=dict(
+                        boxstyle="round,pad=0.25",
+                        facecolor="#f1f5f9",
+                        edgecolor="#cbd5e1",
+                        linewidth=0.8,
+                    ),
+                )
+                continue
+
+            rocs_c = (
+                "#dcfce7"
+                if card["rocs"] >= 1.0
+                else ("#dbeafe" if card["rocs"] >= 0.70 else "#f1f5f9")
+            )
+            rocs_e = (
+                "#15803d"
+                if card["rocs"] >= 1.0
+                else ("#2563eb" if card["rocs"] >= 0.70 else "#94a3b8")
+            )
+            dh = card["delta_hac"]
+            dh_c = "#dcfce7" if abs(dh) <= 3 else ("#fee2e2" if dh < -3 else "#dbeafe")
+            dh_e = "#15803d" if abs(dh) <= 3 else ("#dc2626" if dh < -3 else "#2563eb")
+
+            ax.text(
+                0.5,
+                -0.16,
+                f"ROCS: {card['rocs']:.3f}   Raw SA: {card['sa']:.2f}",
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=8.5,
+                fontweight="bold",
+                bbox=dict(
+                    boxstyle="round,pad=0.25", facecolor=rocs_c, edgecolor=rocs_e, linewidth=1.0
+                ),
+            )
+            ax.text(
+                0.5,
+                -0.28,
+                f"QED: {card['qed']:.2f}   ΔHAC: {dh:+d} (MW: {card['mw']:.0f})",
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=8.2,
+                bbox=dict(boxstyle="round,pad=0.25", facecolor=dh_c, edgecolor=dh_e, linewidth=0.9),
+            )
+            sc_str = (
+                f"Shape: {card['shape']:.2f} Color: {card['color']:.2f} | "
+                if math.isfinite(card.get("shape", math.nan))
+                and math.isfinite(card.get("color", math.nan))
+                else ""
+            )
+            ax.text(
+                0.5,
+                -0.39,
+                f"{sc_str}ECFP4 Sim: {card['sim']:.2f}",
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=7.8,
+                color="#475569",
+            )
+
+    fig.savefig(target_png, dpi=dpi)
+    plt.close(fig)
+    return target_png
+
+
+def lead_structures_gallery(
+    arms: dict[str, pd.DataFrame],
+    objectives: list[str],
+    out: Path,
+    config: dict | None = None,
+    reference: Path | None = None,
+    arm: str = PRIMARY_ARM,
+    name: str = "05_lead_structures_gallery",
+) -> Path | None:
+    """The lead cards of one arm. Four galleries of the same layout taught nothing that
+    the two the report actually discusses do not."""
+    win = shown_arm(arms, objectives, arm)
+    if win is None:
+        return None
+    frame = arms[win]
+    u = _unique(frame)
+    des = float(u["Desired"].sum()) / max(len(frame), 1) if "Desired" in u else 0.0
+    return _render_lead_cards(
+        frame,
+        objectives,
+        out / f"{name}.png",
+        "Prioritized Leads (row 1) vs. Best-ROCS Hits (row 2): Aligned 2D Topology — "
+        f"Arm: {win} (desired={des:.3f}, {len(u)} unique / {len(frame)} sampled)",
+        config=config,
+        reference=reference,
+    )
+
+
+# --------------------------------------------------------------------------------------
+# 06 -- Objective Conflict & Property Coupling (Spearman rho: Prior, Reinforced, Delta)
+# --------------------------------------------------------------------------------------
+
+
+CONFLICT_PROPERTIES: tuple[tuple[str, str], ...] = (
+    ("ROCS", "ROCS"),
+    ("ShapeTanimoto", "Shape"),
+    ("ColorTanimoto", "Color"),
+    ("Raw_SA", "SA (raw)"),
+    ("QED", "QED"),
+    ("MW", "MW"),
+    ("HAC", "HAC"),
+    ("LogP", "LogP"),
+    ("TPSA", "TPSA"),
+    ("RotBonds", "RotB"),
+    ("Fsp3", "Fsp³"),
+    ("Rings", "Rings"),
+)
+
+
+def _spearman_matrix(df: pd.DataFrame, props: list[tuple[str, str]]) -> np.ndarray:
+    n = len(props)
+    mat = np.full((n, n), np.nan)
+    if df is None or df.empty:
+        return mat
+    for i, (ca, _) in enumerate(props):
+        for j, (cb, _) in enumerate(props):
+            if ca not in df.columns or cb not in df.columns:
+                continue
+            sa = pd.to_numeric(df[ca], errors="coerce")
+            sb = pd.to_numeric(df[cb], errors="coerce")
+            mask = sa.notna() & sb.notna()
+            if (
+                int(mask.sum()) > 2
+                and float(sa[mask].std()) > 1e-6
+                and float(sb[mask].std()) > 1e-6
+            ):
+                mat[i, j] = 1.0 if i == j else float(sa[mask].corr(sb[mask], method="spearman"))
+    return mat
+
+
+def objective_conflict_correlations(
+    arms: dict[str, pd.DataFrame],
+    objectives: list[str],
+    out: Path,
+    config: dict | None = None,
+    reference: Path | None = None,
+) -> Path | None:
+    if len(objectives) < 2:
+        return None
+    style()
+    win = shown_arm(arms, objectives, PRIMARY_ARM)
+    if win is None and "prior" not in arms:
+        return None
+    target_arm = win or "prior"
+    ref_smi = (config or {}).get("reference_smiles")
+    a_frame = enrich_descriptors(_unique(arms.get("prior")), objectives[0], ref_smi, config)
+    b_frame = enrich_descriptors(_unique(arms.get(target_arm)), objectives[0], ref_smi, config)
+    if b_frame.empty and a_frame.empty:
+        return None
+
+    sample = b_frame if not b_frame.empty else a_frame
+    props = [
+        (col, lbl)
+        for col, lbl in CONFLICT_PROPERTIES
+        if col in sample.columns and sample[col].notna().sum() >= 3
+    ]
+    if len(props) < 2:
+        return None
+    labels = [lbl for _, lbl in props]
+    mat_a = _spearman_matrix(a_frame, props)
+    mat_b = _spearman_matrix(b_frame, props)
+    mat_d = mat_b - mat_a
+
+    prov = provenance_tag(config, reference)
+    fig, axes = plt.subplots(1, 3, figsize=(19, 6.6), dpi=200)
+    fig.suptitle(
+        f"Objective Conflict & Property Coupling (Spearman ρ, valid unique): Did RL Couple the Objectives?\n{prov}",
+        fontsize=12.2,
+        fontweight="bold",
+        y=0.99,
+    )
+
+    for ax, matrix, title in [
+        (axes[0], mat_a, f"(A) Baseline Prior (n={len(a_frame)})"),
+        (axes[1], mat_b, f"(B) Reinforced Agent: {target_arm} (n={len(b_frame)})"),
+    ]:
+        im = ax.imshow(np.ma.masked_invalid(matrix), cmap="RdBu_r", vmin=-1.0, vmax=1.0)
+        ax.set_xticks(range(len(labels)))
+        ax.set_yticks(range(len(labels)))
+        ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8.5)
+        ax.set_yticklabels(labels, fontsize=8.5)
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        for i in range(len(labels)):
+            for j in range(len(labels)):
+                val = matrix[i, j]
+                if np.isfinite(val):
+                    ax.text(
+                        j,
+                        i,
+                        f"{val:+.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=6.6,
+                        color="white" if abs(val) > 0.55 else "#111827",
+                    )
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03).set_label("ρ", fontsize=8)
+
+    dmax = max(0.35, float(np.nanmax(np.abs(mat_d))) if np.isfinite(mat_d).any() else 0.35)
+    im3 = axes[2].imshow(np.ma.masked_invalid(mat_d), cmap="PuOr_r", vmin=-dmax, vmax=dmax)
+    axes[2].set_xticks(range(len(labels)))
+    axes[2].set_yticks(range(len(labels)))
+    axes[2].set_xticklabels(labels, rotation=45, ha="right", fontsize=8.5)
+    axes[2].set_yticklabels(labels, fontsize=8.5)
+    axes[2].set_title("(C) Coupling Change  (B − A)", fontsize=11, fontweight="bold")
+    for i in range(len(labels)):
+        for j in range(len(labels)):
+            val = mat_d[i, j]
+            if np.isfinite(val):
+                axes[2].text(
+                    j,
+                    i,
+                    f"{val:+.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=6.6,
+                    color="white" if abs(val) > 0.55 * dmax / 0.35 else "#111827",
+                )
+    fig.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.03).set_label("Δρ", fontsize=8)
+
+    plt.tight_layout(rect=[0, 0.02, 1, 0.92])
+    target_png = out / "06_objective_conflict_correlations.png"
+    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+# --------------------------------------------------------------------------------------
+# 07 -- Bemis-Murcko Scaffold Space: Concentration, De Novo Novelty & Dominant Cores
+# --------------------------------------------------------------------------------------
+
+
+def scaffold_diversity(
+    arms: dict[str, pd.DataFrame],
+    out: Path,
+    config: dict | None = None,
+    reference: Path | None = None,
+    arm: str = PRIMARY_ARM,
+    name: str = "07_bemis_murcko_scaffold_diversity",
+) -> Path | None:
+    rows = scaffold_rows(arms)
     if not rows:
         return None
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.0))
-    names = list(rows)
-    for axis, key, title in (
-        (axes[0], "unique_fraction", "unique scaffolds / unique molecules"),
-        (axes[1], "top_share", "share held by the single commonest scaffold"),
-    ):
-        bars = axis.bar(
-            names, [rows[n][key] for n in names], color=[PALETTE[n] for n in names], width=0.6
-        )
-        axis.bar_label(bars, fmt="%.3f", fontsize=9, color=INK, padding=2)
-        axis.set(ylim=(0, 1.08), title=title)
-        axis.tick_params(axis="x", rotation=20)
-        axis.grid(axis="y")
+    style()
+    objs = (config or {}).get("objectives", ["ROCS"])
+    win = shown_arm(arms, objs, arm)
+    if win is None:
+        return None
+    b_counts = scaffold_counts(arms["prior"]) if "prior" in arms else pd.Series(dtype=int)
+    a_counts = scaffold_counts(arms[win]) if win in arms else pd.Series(dtype=int)
+    if a_counts.empty and b_counts.empty:
+        return None
+
+    def _entropy(counts: pd.Series) -> float:
+        if counts.empty:
+            return 0.0
+        p = counts.values / counts.values.sum()
+        return float(-np.sum(p * np.log2(p)))
+
+    b_ent, a_ent = _entropy(b_counts), _entropy(a_counts)
+    b_set, a_set = set(b_counts.index), set(a_counts.index)
+    shared, novel, lost = a_set & b_set, a_set - b_set, b_set - a_set
+    jaccard = len(shared) / len(a_set | b_set) if (a_set | b_set) else 0.0
+    prov = provenance_tag(config, reference)
+
+    fig = plt.figure(figsize=(20, 8.6), dpi=200)
+    # 1 : 1 : 2 -- the two statistics panels are small plots, the scaffold grid is the
+    # figure's subject and needs half the width to be legible at 12 cores.
+    grid = fig.add_gridspec(1, 4)
     fig.suptitle(
-        "07 - Bemis-Murcko scaffold diversity; low left bar or high right bar is collapse",
-        x=0.01,
-        ha="left",
+        f"Bemis-Murcko Scaffold Space: Concentration, De Novo Novelty & Dominant Cores ({win} vs prior)\n{prov}",
+        fontsize=12.2,
+        fontweight="bold",
+        y=0.99,
     )
-    fig.tight_layout()
-    return _save(fig, out, "07_bemis_murcko_scaffold_diversity.png")
+
+    # Panel A: Scaffold Concentration Curve
+    ax1 = fig.add_subplot(grid[0, 0])
+    for counts, color, label in [
+        (b_counts, "#64748B", f"Baseline Prior ({len(b_counts)} scaffolds)"),
+        (a_counts, "#4F46E5", f"Reinforced ({win}: {len(a_counts)} scaffolds)"),
+    ]:
+        if counts.empty:
+            continue
+        coverage = np.cumsum(counts.values) / counts.values.sum() * 100.0
+        ranks = np.arange(1, len(coverage) + 1)
+        ax1.plot(ranks, coverage, color=color, linewidth=2.0, label=label, zorder=3)
+        ax1.fill_between(ranks, 0, coverage, color=color, alpha=0.10, linewidth=0)
+    ax1.set_xscale("log")
+    ax1.set_xlabel("Top-N scaffolds (log rank)", fontsize=9.5)
+    ax1.set_ylabel("% of Ring-Containing Unique Library Covered", fontsize=9.5)
+    ax1.set_ylim(0, 102)
+    ax1.axhline(80, color="#CBD5E1", linestyle="--", linewidth=1.0, zorder=2)
+    ax1.text(
+        0.98,
+        82,
+        "80% coverage",
+        transform=ax1.get_yaxis_transform(),
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        color="#64748B",
+    )
+    ax1.set_title("(A) Scaffold Concentration Curve", fontsize=11, fontweight="bold")
+    ax1.grid(True, linestyle=":", alpha=0.4)
+    ax1.legend(loc="lower right", fontsize=8.0)
+    ax1.text(
+        0.03,
+        0.96,
+        f"Shannon H: prior {b_ent:.2f} → {win} {a_ent:.2f} bits",
+        transform=ax1.transAxes,
+        va="top",
+        fontsize=8.2,
+        color="#334155",
+    )
+
+    # Panel B: Scaffold Novelty Partition
+    ax2 = fig.add_subplot(grid[0, 1])
+    parts = [
+        ("Shared with prior", len(shared), "#94A3B8"),
+        ("De novo (new)", len(novel), "#4F46E5"),
+        ("Prior-only (lost)", len(lost), "#E11D48"),
+    ]
+    x = np.arange(len(parts))
+    vals = [v for _, v, _ in parts]
+    bars = ax2.bar(
+        x, vals, color=[c for _, _, c in parts], alpha=0.9, edgecolor="#1e293b", width=0.6
+    )
+    for bar, val in zip(bars, vals):
+        ax2.text(
+            bar.get_x() + bar.get_width() / 2,
+            val + (max(vals) * 0.02 if max(vals) else 0.1),
+            str(val),
+            ha="center",
+            fontsize=9.5,
+            fontweight="bold",
+        )
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([n for n, _, _ in parts], fontsize=8.6)
+    ax2.set_ylabel("Distinct Scaffolds (valid unique)", fontsize=9.5)
+    ax2.set_title(f"(B) Scaffold Novelty Partition ({win})", fontsize=11, fontweight="bold")
+    ax2.grid(True, linestyle=":", alpha=0.4, axis="y")
+    ax2.text(
+        0.5,
+        0.93,
+        f"Jaccard vs prior = {jaccard:.3f}",
+        transform=ax2.transAxes,
+        ha="center",
+        fontsize=8.6,
+        color="#334155",
+    )
+
+    # Panel C: Top-12 Reinforced Scaffolds
+    ax3 = fig.add_subplot(grid[0, 2:])
+    top = a_counts.head(12)
+    scaf_mols = [Chem.MolFromSmiles(s) for s in top.index]
+    total = max(int(a_counts.sum()), 1)
+    legends = [
+        f"{cnt / total * 100:.1f}% | {'NEW' if s in novel else 'shared'}" for s, cnt in top.items()
+    ]
+    if scaf_mols and all(m is not None for m in scaf_mols):
+        img = Draw.MolsToGridImage(
+            scaf_mols, molsPerRow=3, subImgSize=(420, 330), legends=legends, useSVG=False
+        )
+        ax3.imshow(img)
+        ax3.axis("off")
+        ax3.set_title(
+            f"(C) Top-12 {win} Scaffolds (prevalence | novelty)", fontsize=11, fontweight="bold"
+        )
+    else:
+        ax3.text(0.5, 0.5, "Insufficient scaffold data", ha="center", va="center")
+        ax3.axis("off")
+
+    plt.tight_layout(rect=[0, 0.02, 1, 0.92])
+    target_png = out / f"{name}.png"
+    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
 
 
 # --------------------------------------------------------------------------------------
-# 10 -- do the leads actually sit on the reference in 3D
+# 10 -- 3D Molecular Superposition: Target Query Seed vs. Prioritized De Novo Leads
 # --------------------------------------------------------------------------------------
+
+
+def _leads_for_3d(
+    arms: dict[str, pd.DataFrame], objectives: list[str]
+) -> tuple[str, pd.DataFrame] | None:
+    name = shown_arm(arms, objectives, PRIMARY_ARM) or "prior"
+    frame = arms.get(name)
+    if frame is None or _unique(frame).empty:
+        return None
+    return name, _unique(frame).nlargest(TOP_3D, objectives[0])
 
 
 def lead_to_seed_superposition(
@@ -613,177 +1619,770 @@ def lead_to_seed_superposition(
     reference: Path,
     out: Path,
     generator=None,
+    config: dict | None = None,
 ) -> Path | None:
-    """Overlay the best leads on the reference and project the result onto three planes.
-
-    The aligned poses are also written as an SDF, because a projection is a sanity check
-    and a real inspection happens in PyMOL.
-    """
     if generator is None or not reference.is_file():
         return None
     refs = [m for m in Chem.SDMolSupplier(str(reference), removeHs=False) if m is not None]
     if not refs:
         return None
-    seed = refs[0]
-
-    frame = arms.get("gmean", arms.get("prior"))
-    if frame is None:
+    selection = _leads_for_3d(arms, objectives)
+    if selection is None:
         return None
-    best = _unique(frame).nlargest(TOP_3D, objectives[0])
-    aligned: list[tuple[str, Chem.Mol, float]] = []
-    import tempfile
+    arm, best = selection
+    color_ff = (config or {}).get("color_ff", "fdef")
+    shape_wt = float((config or {}).get("alignment_shape_weight", 0.5))
+    prov = provenance_tag(config, reference)
+    ref_smi = (config or {}).get("reference_smiles")
+    best_en = enrich_descriptors(best, objectives[0], ref_smi, config)
 
-    from rdkit.Chem import rdShapeAlign
-
-    for smiles, score in zip(best["SMILES"], best[objectives[0]]):
+    aligned_leads: list[tuple[Chem.Mol, Chem.Mol, dict[str, Any]]] = []
+    for rank, (_, row) in enumerate(best_en.iterrows(), start=1):
+        smiles = str(row["SMILES"])
+        pipe_score = float(row[objectives[0]])
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                path = generator.genConformers([smiles], tmp)
-                poses = [m for m in Chem.SDMolSupplier(path, removeHs=False) if m is not None]
-            if not poses:
+            res = align_lead_to_bank(
+                smiles, refs, generator, color_ff=color_ff, alignment_shape_weight=shape_wt
+            )
+            if res is None:
                 continue
-            probe = Chem.Mol(poses[0])
-            rdShapeAlign.AlignMol(seed, probe, useColors=True)
-            aligned.append((smiles, probe, float(score)))
-        except Exception as error:  # a figure must never fail a run
+            ref_pose, aligned_probe, combo, sh, col, ref_idx = res
+            ref_heavy = Chem.RemoveHs(ref_pose)
+            lead_heavy = Chem.RemoveHs(aligned_probe)
+            seed_hac = ref_heavy.GetNumHeavyAtoms()
+            lead_hac = lead_heavy.GetNumHeavyAtoms()
+            props = {
+                "Rank": rank,
+                "SMILES": smiles,
+                "source_arm": arm,
+                f"pipeline_{objectives[0]}": pipe_score,
+                "ROCS": pipe_score,
+                "SA": float(row.get("Raw_SA", row.get("SA_raw", 0.0))),
+                "QED": float(row.get("QED", 0.0)),
+                "MW": float(row.get("MW", Descriptors.MolWt(lead_heavy))),
+                "HAC": lead_hac,
+                "Delta_HAC": lead_hac - seed_hac,
+                "TanimotoCombo": combo,
+                "ShapeScore": sh,
+                "ColorScore": col,
+                "matched_reference_conformer": ref_idx,
+            }
+            aligned_leads.append((ref_heavy, lead_heavy, props))
+        except Exception as error:
             logger.warning("3D overlay failed for %s: %s", smiles, error)
-    if not aligned:
+
+    if not aligned_leads:
         return None
+
+    ref_heavy0 = aligned_leads[0][0]
+    seed_hac = ref_heavy0.GetNumHeavyAtoms()
 
     writer = Chem.SDWriter(str(out / "top_leads_aligned_to_seed.sdf"))
-    for smiles, mol, score in aligned:
-        mol.SetProp("_Name", smiles)
-        # Named so it cannot be read as this pose's score: the pose here is a single
-        # re-alignment, measured up to 0.38 TanimotoCombo below the value the pipeline's
-        # full search found.
-        mol.SetDoubleProp(f"pipeline_{objectives[0]}", score)
-        mol.SetProp("pose_note", "illustrative re-alignment, not the scored pose")
-        writer.write(mol)
+    for _, lead_mol, props in aligned_leads:
+        m_out = Chem.Mol(lead_mol)
+        m_out.SetProp("_Name", props["SMILES"])
+        for k, v in props.items():
+            if isinstance(v, float):
+                m_out.SetDoubleProp(str(k), v)
+            else:
+                m_out.SetProp(str(k), str(v))
+        m_out.SetProp(
+            "pose_note",
+            "illustrative re-alignment using pipeline color_ff and alignment_shape_weight",
+        )
+        writer.write(m_out)
     writer.close()
 
     style()
-    planes = ((0, 1, "x", "y"), (0, 2, "x", "z"), (1, 2, "y", "z"))
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4.6))
-    seed_xyz = Chem.RemoveHs(seed).GetConformer().GetPositions()
-    for axis, (i, j, xi, yj) in zip(axes, planes):
-        axis.scatter(
-            seed_xyz[:, i],
-            seed_xyz[:, j],
-            s=70,
-            color=MUTED,
-            alpha=0.75,
-            label="reference (EGCG)",
-            zorder=3,
-        )
-        for index, (_, mol, score) in enumerate(aligned):
-            xyz = Chem.RemoveHs(mol).GetConformer().GetPositions()
-            axis.scatter(
-                xyz[:, i],
-                xyz[:, j],
-                s=26,
-                alpha=0.65,
-                linewidths=0,
-                color=list(PALETTE.values())[index % len(PALETTE)],
-                label=f"lead {index + 1}",
-            )
-        axis.set(xlabel=f"{xi} (A)", ylabel=f"{yj} (A)")
-        axis.set_aspect("equal", adjustable="datalim")
-        axis.grid(True)
-    axes[0].legend(fontsize=8, loc="best")
-    # The scores are deliberately NOT in the legend. This overlay is a single
-    # AlignMol call on the first conformer against the first reference pose; the
-    # pipeline's score is a maximum over every conformer pair, four axis-sign starts and
-    # the whole bank. Printing that score next to this pose would attribute the best of
-    # ~1000 alignments to one arbitrary one. The ranking is honest, the geometry is
-    # illustrative, and top_leads_aligned_to_seed.sdf is there for real inspection.
+    fig = plt.figure(figsize=(16, 6.1), dpi=200)
     fig.suptitle(
-        "10 - best leads, re-aligned onto the reference for illustration "
-        "(not the scored pose); ranked by " + _short(objectives[0]),
-        x=0.01,
-        ha="left",
+        f"3D Molecular Superposition: Target Query Seed vs. Top Leads of {arm}\n{prov}",
+        fontsize=12.2,
+        fontweight="bold",
+        y=0.99,
     )
-    fig.tight_layout()
-    return _save(fig, out, "10_lead_to_seed_3d_superposition.png")
+
+    def _draw_3d(
+        ax: Any, mol: Chem.Mol, color: str, alpha: float = 0.8, lw: float = 1.3, s: float = 14
+    ) -> None:
+        conf = mol.GetConformer()
+        pts = conf.GetPositions()
+        for b in mol.GetBonds():
+            i, j = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+            ax.plot(
+                [pts[i, 0], pts[j, 0]],
+                [pts[i, 1], pts[j, 1]],
+                [pts[i, 2], pts[j, 2]],
+                color=color,
+                linewidth=lw,
+                alpha=alpha,
+            )
+        ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], color=color, s=s, alpha=alpha)
+
+    frames = [ref_heavy0.GetConformer().GetPositions()] + [
+        m.GetConformer().GetPositions() for _, m, _ in aligned_leads
+    ]
+    stack = np.vstack(frames)
+    lo, hi = stack.min(axis=0), stack.max(axis=0)
+    pad = 0.06 * max(float((hi - lo).max()), 1e-3)
+    lo, hi = lo - pad, hi + pad
+
+    def _share_frame(ax: Any) -> None:
+        ax.set_xlim(float(lo[0]), float(hi[0]))
+        ax.set_ylim(float(lo[1]), float(hi[1]))
+        ax.set_zlim(float(lo[2]), float(hi[2]))
+        ax.set_box_aspect(tuple(float(v) for v in (hi - lo)))
+
+    ax1 = fig.add_subplot(1, 3, 1, projection="3d")
+    _draw_3d(ax1, ref_heavy0, color="#2563eb", alpha=0.9, lw=1.6, s=18)
+    ax1.set_title(
+        f"(A) Target Query Seed (Bank Pose #{aligned_leads[0][2]['matched_reference_conformer'] + 1}/{len(refs)})\nHAC = {seed_hac} | MW = {Descriptors.MolWt(ref_heavy0):.1f} Da",
+        fontsize=10.5,
+        fontweight="bold",
+        pad=10,
+    )
+    ax1.view_init(elev=20, azim=40)
+    ax1.set_axis_off()
+    _share_frame(ax1)
+
+    ax2 = fig.add_subplot(1, 3, 2, projection="3d")
+    _draw_3d(ax2, ref_heavy0, color="#94a3b8", alpha=0.45, lw=1.2, s=10)
+    _, lead1, p1 = aligned_leads[0]
+    _draw_3d(ax2, lead1, color="#16a34a", alpha=0.9, lw=1.6, s=18)
+    ax2.set_title(
+        f"(B) Top Lead #1 Aligned to Seed\nPose combo = {p1['TanimotoCombo']:.2f} (shape {p1['ShapeScore']:.2f}, color {p1['ColorScore']:.2f}) | pipeline = {p1['ROCS']:.3f}\nΔHAC = {p1['Delta_HAC']:+d} | Raw SA = {p1['SA']:.2f}",
+        fontsize=9.6,
+        fontweight="bold",
+        pad=10,
+    )
+    ax2.view_init(elev=20, azim=40)
+    ax2.set_axis_off()
+    _share_frame(ax2)
+
+    ax3 = fig.add_subplot(1, 3, 3, projection="3d")
+    _draw_3d(ax3, ref_heavy0, color="#1e293b", alpha=0.6, lw=1.5, s=14)
+    lead_colors = ["#16a34a", "#2563eb", "#ea580c", "#8b5cf6", "#d97706"]
+    for i, (_, l_mol, _p) in enumerate(aligned_leads):
+        _draw_3d(ax3, l_mol, color=lead_colors[i % len(lead_colors)], alpha=0.75, lw=1.3, s=12)
+    ax3.set_title(
+        f"(C) Superposition Ensemble ({len(aligned_leads)} Leads of {arm})\nAligned via color_ff={color_ff}, shape_wt={shape_wt:g}",
+        fontsize=10.5,
+        fontweight="bold",
+        pad=10,
+    )
+    ax3.view_init(elev=20, azim=40)
+    ax3.set_axis_off()
+    _share_frame(ax3)
+
+    plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.88))
+    target_png = out / "08_lead_to_seed_3d_superposition.png"
+    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
 
 
 # --------------------------------------------------------------------------------------
-# 11 -- property drift: the figure that catches a fragment-collapse "win"
+# 11 -- Longitudinal Per-Epoch Property Trajectories (3x3: Median, IQR, p95, Prior & Seed)
 # --------------------------------------------------------------------------------------
 
 
 def epoch_property_trajectories(
-    epochs: pd.DataFrame, prior: pd.DataFrame, out: Path
+    epochs: pd.DataFrame,
+    prior: pd.DataFrame,
+    out: Path,
+    objectives: list[str] | None = None,
+    config: dict | None = None,
+    reference: Path | None = None,
 ) -> Path | None:
-    """Molecular properties per epoch against the prior's band.
-
-    A shape score rises reliably when molecules shrink. Without this figure a collapse to
-    small fragments reads as a similarity win.
-    """
     if epochs is None or epochs.empty:
         return None
-    style()
-    properties = {
-        "heavy atoms": lambda m: m.GetNumHeavyAtoms(),
-        "molecular weight": Descriptors.MolWt,
-        "cLogP": Descriptors.MolLogP,
-        "TPSA": rdMolDescriptors.CalcTPSA,
-    }
-    rows = []
-    for epoch, group in _valid(epochs).groupby("Epoch"):
-        for mol in _mols(group["SMILES"]):
-            row = {"Epoch": epoch}
-            for label, fn in properties.items():
-                try:
-                    row[label] = float(fn(mol))
-                except Exception:
-                    row[label] = math.nan
-            rows.append(row)
-    if not rows:
+    vep = _valid(epochs)
+    if vep.empty:
         return None
-    table = pd.DataFrame(rows)
+    style()
+    rocs_col = (objectives or ["ROCS"])[0]
+    ref_smi = (config or {}).get("reference_smiles")
+    valid_df = enrich_descriptors(vep, rocs_col, ref_smi, config)
+    prior_df = (
+        enrich_descriptors(_unique(prior), rocs_col, ref_smi, config)
+        if prior is not None and not prior.empty
+        else pd.DataFrame()
+    )
+    ref_vals = reference_properties(config, reference)
+    prov = provenance_tag(config, reference)
 
-    baseline = {}
-    for mol in _mols(_valid(prior)["SMILES"]):
-        for label, fn in properties.items():
-            try:
-                baseline.setdefault(label, []).append(float(fn(mol)))
-            except Exception:
-                continue
-
-    fig, axes = plt.subplots(2, 2, figsize=(12, 7))
-    for axis, label in zip(axes.ravel(), properties):
-        grouped = table.groupby("Epoch")[label]
-        median, lo, hi = grouped.median(), grouped.quantile(0.1), grouped.quantile(0.9)
-        axis.fill_between(
-            median.index, lo, hi, color=PALETTE["desired_ratio"], alpha=0.18, linewidth=0
-        )
-        axis.plot(
-            median.index,
-            median,
-            linewidth=2,
-            color=PALETTE["desired_ratio"],
-            label="training p10-p90",
-        )
-        if baseline.get(label):
-            values = np.asarray(baseline[label], dtype=float)
-            axis.axhline(
-                float(np.median(values)),
-                color=PALETTE["prior"],
-                linestyle="--",
-                linewidth=1.6,
-                label="prior median",
-            )
-        axis.set(xlabel="epoch", ylabel=label, title=label)
-        axis.grid(True)
-        axis.xaxis.set_major_locator(MaxNLocator(integer=True))
-        axis.legend(fontsize=8)
+    fig, axes = plt.subplots(3, 3, figsize=(18, 13.5), dpi=200)
     fig.suptitle(
-        "11 - property drift; a falling heavy-atom count under a rising shape score is collapse",
-        x=0.01,
+        f"Longitudinal Per-Epoch Property Trajectories (Median, IQR, p95, Prior Baseline & Seed Reference)\n{prov}",
+        fontsize=12.5,
+        fontweight="bold",
+        y=0.992,
+    )
+
+    panels_config = [
+        ("ROCS", "ROCS TanimotoCombo (3D Shape+Color)", "TanimotoCombo (0–2)", "ROCS"),
+        ("QED", "QED Drug-Likeness", "QED (0–1)", "QED"),
+        (
+            "Raw_SA",
+            "Synthetic Accessibility (raw RDKit SA)",
+            "SA [1, 10] (lower = easier)",
+            "SA_raw",
+        ),
+        ("MW", "Molecular Weight Drift", "MW (Da)", "MW"),
+        ("HAC", "Heavy Atom Count (Shrinkage Guard)", "Atoms", "HAC"),
+        ("LogP", "Lipophilicity", "cLogP", "cLogP"),
+        ("TPSA", "Polar Surface Area", "TPSA (Å²)", "TPSA"),
+        ("Fsp3", "Carbon sp³ Fraction", "Fraction", "Fsp3"),
+        ("RotBonds", "Rotatable Bonds", "Bonds", "RotB"),
+    ]
+
+    for idx, (col, p_title, y_lbl, r_key) in enumerate(panels_config):
+        ax = axes[idx // 3, idx % 3]
+        if col not in valid_df.columns or valid_df[col].notna().sum() == 0:
+            ax.axis("off")
+            continue
+
+        grp = valid_df.groupby("Epoch")[col]
+        med, p25, p75, p95 = (
+            grp.median(),
+            grp.quantile(0.25),
+            grp.quantile(0.75),
+            grp.quantile(0.95),
+        )
+        if med.dropna().empty:
+            ax.axis("off")
+            continue
+        ep = med.index.values
+
+        ax.plot(ep, med.values, color="#4F46E5", linewidth=2.0, label="Agent Median", zorder=4)
+        ax.fill_between(
+            ep,
+            p25.values,
+            p75.values,
+            color="#4F46E5",
+            alpha=0.20,
+            linewidth=0,
+            label="IQR (25th–75th %ile)",
+            zorder=2,
+        )
+        ax.plot(
+            ep,
+            p95.values,
+            color="#E11D48",
+            linestyle="-.",
+            linewidth=1.4,
+            alpha=0.85,
+            label="Upper 95th %ile",
+            zorder=3,
+        )
+
+        if not prior_df.empty and col in prior_df.columns:
+            p_vals = pd.to_numeric(prior_df[col], errors="coerce").dropna()
+            if not p_vals.empty:
+                p_med = float(p_vals.median())
+                ax.axhline(
+                    p_med,
+                    color="#64748B",
+                    linestyle="--",
+                    linewidth=1.4,
+                    label=f"Prior Med ({p_med:.2f})",
+                    zorder=2,
+                )
+
+        ref_v = ref_vals.get(r_key)
+        if ref_v is not None and math.isfinite(ref_v):
+            ax.axhline(
+                ref_v,
+                color="#0D9488",
+                linestyle=":",
+                linewidth=1.6,
+                label=f"Seed ({ref_v:.2f})",
+                zorder=2,
+            )
+
+        lo, hi = float(np.nanmin(p25.values)), float(np.nanmax(p95.values))
+        if ref_v is not None and math.isfinite(ref_v) and col != "ROCS":
+            lo, hi = min(lo, ref_v), max(hi, ref_v)
+        span = hi - lo if hi > lo else 1.0
+        ax.set_ylim(lo - 0.10 * span, hi + 0.10 * span)
+        ax.set_title(f"({chr(65 + idx)}) {p_title}", fontsize=10.5, fontweight="bold")
+        ax.set_xlabel("Epoch", fontsize=9.0)
+        ax.set_ylabel(y_lbl, fontsize=9.0)
+        ax.grid(True, linestyle=":", alpha=0.4)
+        ax.legend(loc="best", fontsize=7.2)
+
+    plt.tight_layout(rect=[0, 0.02, 1, 0.955])
+    target_png = out / "04_epoch_property_trajectories.png"
+    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
+
+
+# --------------------------------------------------------------------------------------
+# 12 -- Six-Panel Longitudinal Training Diagnostics
+# --------------------------------------------------------------------------------------
+
+
+def training_diagnostics(
+    fit: pd.DataFrame,
+    epochs: pd.DataFrame,
+    prior: pd.DataFrame | None = None,
+    objectives: list[str] | None = None,
+    out: Path | None = None,
+    config: dict | None = None,
+    reference: Path | None = None,
+    arms: dict[str, pd.DataFrame] | None = None,
+    summary: dict | None = None,
+) -> Path | None:
+    if isinstance(prior, Path) and out is None:
+        out = prior
+        prior = None
+    if fit is None or fit.empty or out is None:
+        return None
+    if epochs is None or epochs.empty:
+        return None
+
+    style()
+    if not objectives:
+        objectives = [c for c in epochs.columns if c.startswith("RDKit_")] + (
+            ["SA"] if "SA" in epochs.columns else []
+        )
+    objectives = objectives or ["ROCS", "SA"]
+    rocs_col = objectives[0]
+    ref_smi = (config or {}).get("reference_smiles", "")
+    prov = provenance_tag(config, reference)
+    summary = summary or (config or {}).get("summary", {})
+
+    table = enrich_descriptors(epochs, rocs_col, ref_smi, config)
+    val_df = _valid(table)
+    if val_df.empty:
+        return None
+
+    ep_nums = np.array(sorted(val_df["Epoch"].unique()), dtype=int)
+    best_epoch = summary.get("best_desired_ratio_epoch") or summary.get("best_avg_gmean_epoch")
+
+    # (A) Hypervolume per epoch and cumulative in actual objective space
+    hv_epoch: list[float] = []
+    hv_cumulative: list[float] = []
+    cum_front = np.empty((0, len(objectives)))
+    for ep in ep_nums:
+        grp = val_df[val_df["Epoch"] == ep]
+        pts = scored_points(grp, objectives)
+        hv_epoch.append(dominated_volume(pts))
+        if len(pts):
+            cum_front = np.vstack([cum_front, pts])
+            cum_front = cum_front[pareto_mask(cum_front)]
+        hv_cumulative.append(dominated_volume(cum_front))
+
+    # (C) Centroid trajectory in ECFP4 seed similarity vs ROCS space
+    centroid_sim, centroid_rocs = [], []
+    for ep in ep_nums:
+        grp = val_df[val_df["Epoch"] == ep]
+        centroid_sim.append(float(grp["SimToSeed"].mean()) if "SimToSeed" in grp else 0.0)
+        centroid_rocs.append(float(grp["ROCS"].mean()) if "ROCS" in grp else 0.0)
+    centroid_sim_arr = np.asarray(centroid_sim, dtype=float)
+    centroid_rocs_arr = np.asarray(centroid_rocs, dtype=float)
+
+    prior_en = (
+        enrich_descriptors(_unique(prior), rocs_col, ref_smi, config)
+        if prior is not None and not prior.empty
+        else pd.DataFrame()
+    )
+
+    # (D) Per-epoch sample outcome composition (deduplicating on Canonical SMILES)
+    outcomes: list[str] = []
+    seen_canonical: set[str] = set()
+    for _, row in table.iterrows():
+        is_val = int(row.get("Valid", 0)) == 1
+        is_des = float(row.get("Desired", 0.0) or 0.0) > 0.5
+        canon = str(row.get("Canonical") or "")
+        if not is_val:
+            outcomes.append("invalid")
+        elif not is_des:
+            outcomes.append("valid_undesired")
+        elif canon and canon in seen_canonical:
+            outcomes.append("desired_duplicate")
+        else:
+            outcomes.append("desired_novel")
+            if canon:
+                seen_canonical.add(canon)
+    outcome_frame = table.copy()
+    outcome_frame["Outcome"] = outcomes
+    outcome_order = ["desired_novel", "desired_duplicate", "valid_undesired", "invalid"]
+    outcome_labels = {
+        "desired_novel": "Desired & new",
+        "desired_duplicate": "Desired but duplicate",
+        "valid_undesired": "Valid but undesired",
+        "invalid": "Unparsable",
+    }
+    outcome_colors = {
+        "desired_novel": "#34D399",
+        "desired_duplicate": "#93C5FD",
+        "valid_undesired": "#FDE68A",
+        "invalid": "#FCA5A5",
+    }
+    outcome_counts = pd.crosstab(outcome_frame["Epoch"], outcome_frame["Outcome"]).reindex(
+        columns=outcome_order, fill_value=0
+    )
+    outcome_fractions = outcome_counts.div(outcome_counts.sum(axis=1), axis=0)
+
+    fig, axes = plt.subplots(2, 3, figsize=(19, 10.4), dpi=200)
+    fig.suptitle(
+        f"Training Diagnostics: Weight-Free Progress, Population Path and Lead Discovery\n{prov}",
+        fontsize=12.8,
+        fontweight="bold",
+        y=0.99,
+    )
+
+    def _mark_best(ax: plt.Axes) -> None:
+        if best_epoch is not None:
+            ax.axvline(
+                best_epoch,
+                color="#7C3AED",
+                linewidth=1.4,
+                linestyle="-.",
+                label=f"Best checkpoint (ep {best_epoch})",
+                zorder=1,
+            )
+
+    # Panel A: Dominated Hypervolume per Epoch
+    ax = axes[0, 0]
+    _mark_best(ax)
+    ax.plot(
+        ep_nums,
+        hv_epoch,
+        color="#93C5FD",
+        linewidth=1.1,
+        alpha=0.9,
+        label="Per-epoch hypervolume",
+        zorder=2,
+    )
+    ax.plot(
+        ep_nums,
+        pd.Series(hv_epoch).rolling(5, center=True, min_periods=1).median().to_numpy(),
+        color="#1D4ED8",
+        linewidth=2.2,
+        label="Per-epoch (rolling median)",
+        zorder=3,
+    )
+    ax.plot(
+        ep_nums,
+        hv_cumulative,
+        color="#0F172A",
+        linewidth=1.8,
+        linestyle="--",
+        label="Cumulative hypervolume",
+        zorder=3,
+    )
+    if not prior_en.empty:
+        p_pts = scored_points(prior_en, objectives)
+        if len(p_pts):
+            p_hv = dominated_volume(p_pts)
+            ax.axhline(
+                p_hv,
+                color="#64748B",
+                linewidth=1.3,
+                linestyle=":",
+                label=f"Prior arm ({p_hv:.3f}, n={len(p_pts)})",
+                zorder=1,
+            )
+    ax.set_title(
+        "(A) Dominated Hypervolume per Epoch (in objective space)", fontsize=11, fontweight="bold"
+    )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Dominated objective volume")
+    ax.grid(True, linestyle=":", alpha=0.4)
+    ax.legend(loc="lower right", fontsize=7.4)
+
+    # Panel B: Pareto Front at the Best Delivered Arm (colour = QED)
+    ax = axes[0, 1]
+    if not prior_en.empty and {"ROCS", "Raw_SA"}.issubset(prior_en.columns):
+        p_sub = prior_en[["ROCS", "Raw_SA"]].dropna()
+        ax.scatter(
+            p_sub["ROCS"],
+            p_sub["Raw_SA"],
+            s=10,
+            color="#CBD5E1",
+            alpha=0.55,
+            linewidth=0,
+            label="Baseline prior",
+            zorder=1,
+        )
+    win = shown_arm(arms or {}, objectives, PRIMARY_ARM)
+    deliv_df = (
+        enrich_descriptors(_unique(arms[win]), rocs_col, ref_smi, config)
+        if (arms and win and win in arms)
+        else val_df[val_df["Epoch"] == ep_nums[-1]]
+    )
+    stage_short = f"Arm {win}" if win else f"Epoch {ep_nums[-1]}"
+    sub_d = deliv_df.dropna(
+        subset=[c for c in ("ROCS", "Raw_SA", "QED", *objectives) if c in deliv_df.columns]
+    )
+    if not sub_d.empty:
+        d_pts = sub_d[[o for o in objectives if o in sub_d.columns]].to_numpy(dtype=float)
+        mask_f = pareto_mask(d_pts) if d_pts.size else np.zeros(len(sub_d), dtype=bool)
+        ax.scatter(
+            sub_d["ROCS"],
+            sub_d["Raw_SA"],
+            c=sub_d["QED"],
+            cmap="viridis",
+            s=42,
+            alpha=0.55,
+            edgecolor="white",
+            linewidth=0.4,
+            label=stage_short,
+            zorder=2,
+        )
+        front_sc = ax.scatter(
+            sub_d.loc[sub_d.index[mask_f], "ROCS"],
+            sub_d.loc[sub_d.index[mask_f], "Raw_SA"],
+            c=sub_d.loc[sub_d.index[mask_f], "QED"],
+            cmap="viridis",
+            s=95,
+            edgecolor="#111827",
+            linewidth=1.0,
+            label="Pareto front",
+            zorder=3,
+        )
+        plt.colorbar(front_sc, ax=ax, label="QED", fraction=0.046, pad=0.02)
+        y_lo, y_hi = float(sub_d["Raw_SA"].min()), float(sub_d["Raw_SA"].max())
+        y_pad = 0.08 * max(y_hi - y_lo, 0.5)
+        ax.set_ylim(y_hi + y_pad, max(1.0, y_lo - y_pad))
+    ax.set_title(
+        f"(B) Pareto Front at {stage_short} (colour = QED)", fontsize=11, fontweight="bold"
+    )
+    ax.set_xlabel("ROCS TanimotoCombo (0–2)")
+    ax.set_ylabel("Raw RDKit SA [1, 10] (lower = easier)")
+    ax.grid(True, linestyle=":", alpha=0.4)
+    ax.legend(loc="lower left", fontsize=7.2)
+
+    # Panel C: Fidelity to Seed vs Shape Fit
+    ax = axes[0, 2]
+    if not prior_en.empty and {"SimToSeed", "ROCS"}.issubset(prior_en.columns):
+        ps = prior_en[["SimToSeed", "ROCS"]].dropna()
+        ax.scatter(
+            ps["SimToSeed"],
+            ps["ROCS"],
+            s=8,
+            color="#CBD5E1",
+            alpha=0.45,
+            linewidth=0,
+            label="Baseline prior",
+            zorder=1,
+        )
+    ax.text(
+        0.02,
+        0.97,
+        "seed: sim 1.00 · ROCS 2.00 (off-scale)",
+        transform=ax.transAxes,
+        fontsize=7.6,
+        color="#7F1D1D",
+        va="top",
         ha="left",
     )
-    fig.tight_layout()
-    return _save(fig, out, "11_epoch_property_trajectories.png")
+    if np.isfinite(centroid_sim_arr).any():
+        ax.plot(centroid_sim_arr, centroid_rocs_arr, color="#94A3B8", linewidth=1.2, zorder=2)
+        norm = plt.Normalize(vmin=float(ep_nums.min()), vmax=float(ep_nums.max()))
+        ep_sc = ax.scatter(
+            centroid_sim_arr,
+            centroid_rocs_arr,
+            c=ep_nums,
+            cmap="viridis",
+            norm=norm,
+            s=34,
+            edgecolor="white",
+            linewidth=0.4,
+            zorder=3,
+        )
+        ax.scatter(
+            [centroid_sim_arr[0]],
+            [centroid_rocs_arr[0]],
+            marker="o",
+            s=110,
+            facecolor="none",
+            edgecolor="#111827",
+            linewidth=1.4,
+            label=f"Epoch {ep_nums[0]}",
+            zorder=4,
+        )
+        ax.scatter(
+            [centroid_sim_arr[-1]],
+            [centroid_rocs_arr[-1]],
+            marker="s",
+            s=95,
+            facecolor="none",
+            edgecolor="#111827",
+            linewidth=1.4,
+            label=f"Epoch {ep_nums[-1]}",
+            zorder=4,
+        )
+        if best_epoch is not None and best_epoch in set(ep_nums.tolist()):
+            idx_b = int(np.flatnonzero(ep_nums == best_epoch)[0])
+            ax.scatter(
+                [centroid_sim_arr[idx_b]],
+                [centroid_rocs_arr[idx_b]],
+                marker="*",
+                s=240,
+                color="#7C3AED",
+                edgecolor="white",
+                linewidth=0.8,
+                label=f"Best checkpoint (ep {best_epoch})",
+                zorder=5,
+            )
+        plt.colorbar(ep_sc, ax=ax, label="Epoch", fraction=0.046, pad=0.02)
+    ax.set_title("(C) Fidelity to the Seed vs. Shape Fit", fontsize=11, fontweight="bold")
+    ax.set_xlabel("ECFP4 Tanimoto similarity to seed (centroid)")
+    ax.set_ylabel("ROCS TanimotoCombo (centroid)")
+    ax.set_xlim(0.0, 1.02)
+    ax.grid(True, linestyle=":", alpha=0.4)
+    ax.legend(loc="lower right", fontsize=7.0)
+
+    # Panel D: Composition of Each Epoch's Samples
+    ax = axes[1, 0]
+    ax.stackplot(
+        outcome_fractions.index,
+        *[outcome_fractions[c] for c in outcome_order],
+        labels=[outcome_labels[c] for c in outcome_order],
+        colors=[outcome_colors[c] for c in outcome_order],
+        alpha=0.85,
+        linewidth=0,
+    )
+    ax.plot(
+        outcome_fractions.index,
+        1.0 - outcome_fractions["invalid"],
+        color="#111827",
+        linewidth=1.1,
+        linestyle="--",
+        label="Monitor valid ratio",
+    )
+    ax.plot(
+        outcome_fractions.index,
+        outcome_fractions["desired_novel"],
+        color="#064E3B",
+        linewidth=1.3,
+        linestyle="-",
+        label="Unique desired ratio",
+    )
+    _mark_best(ax)
+    ax.set_title("(D) Composition of Each Epoch's Samples", fontsize=11, fontweight="bold")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Share of samples (on n_eval)")
+    ax.set_ylim(0.0, 1.0)
+    ax.grid(True, linestyle=":", alpha=0.35)
+    ax.legend(loc="lower left", fontsize=6.8, ncol=2)
+
+    # Panel E: Age of the Best Molecule (ROCS & gmean)
+    ax = axes[1, 1]
+    incumbent = -math.inf
+    inc_ep: int | None = None
+    ages: list[int] = []
+    for ep in ep_nums:
+        grp = val_df[val_df["Epoch"] == ep]["ROCS"].dropna()
+        cur = float(grp.max()) if not grp.empty else -math.inf
+        if cur > incumbent or inc_ep is None:
+            incumbent, inc_ep = cur, int(ep)
+        ages.append(int(ep) - int(inc_ep))
+    ax.step(
+        ep_nums, ages, where="post", color="#0D9488", linewidth=2.2, label="Best ROCS molecule age"
+    )
+    if "avg_gmean" in fit.columns:
+        inc_g = -math.inf
+        inc_gep: int | None = None
+        ages_g: list[int] = []
+        for _, r in fit.iterrows():
+            ep_i = int(r["Epoch"])
+            gv = float(r.get("avg_gmean", -math.inf))
+            if gv > inc_g or inc_gep is None:
+                inc_g, inc_gep = gv, ep_i
+            ages_g.append(ep_i - int(inc_gep))
+        ax.step(
+            fit["Epoch"],
+            ages_g,
+            where="post",
+            color="#2563EB",
+            linewidth=1.8,
+            linestyle="--",
+            label="Best avg_gmean epoch age",
+        )
+    _mark_best(ax)
+    ax.set_title("(E) Age of the Incumbent Best Molecule / Epoch", fontsize=11, fontweight="bold")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Epochs since best was found")
+    ax.grid(True, linestyle=":", alpha=0.4)
+    ax.legend(loc="upper left", fontsize=7.4)
+
+    # Panel F: When the Global Top-k Leads First Appeared (ranked by primary objective ROCS)
+    ax = axes[1, 2]
+    k = max(5, int(round(0.15 * float(val_df.groupby("Epoch").size().median()))))
+    ranked = (
+        val_df.dropna(subset=["ROCS"])
+        .sort_values("ROCS", ascending=False)
+        .drop_duplicates(subset=["Canonical"], keep="first")
+    )
+    global_top = ranked.head(k)
+    first_seen: dict[str, int] = {}
+    for ep in ep_nums:
+        for s in val_df[val_df["Epoch"] == ep]["Canonical"]:
+            if s:
+                first_seen.setdefault(str(s), int(ep))
+    found = [first_seen[str(s)] for s in global_top["Canonical"].tolist() if str(s) in first_seen]
+    if found:
+        discovery = [sum(1 for e in found if e <= cur) / len(found) for cur in ep_nums]
+        ax.fill_between(ep_nums, 0, discovery, color="#DBEAFE", alpha=0.7, linewidth=0)
+        ax.plot(
+            ep_nums,
+            discovery,
+            color="#1D4ED8",
+            linewidth=2.4,
+            label=f"Fraction of global top-{len(found)} discovered",
+        )
+        median_ep = int(np.median(found))
+        ax.axvline(
+            median_ep,
+            color="#7C3AED",
+            linewidth=1.2,
+            linestyle="--",
+            label=f"Median discovery epoch ({median_ep})",
+        )
+        if best_epoch is not None:
+            share = sum(1 for e in found if e <= best_epoch) / len(found)
+            ax.scatter(
+                [best_epoch],
+                [share],
+                marker="*",
+                s=230,
+                color="#7C3AED",
+                edgecolor="white",
+                linewidth=0.8,
+                zorder=5,
+                label=f"Best checkpoint (ep {best_epoch})",
+            )
+            ax.text(
+                0.02,
+                0.96,
+                f"{share:.0%} of top-{len(found)} existed by ep {best_epoch};\n{sum(1 for e in found if e > best_epoch)} appeared after it",
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=7.4,
+                color="#1E3A8A",
+            )
+    ax.set_title(
+        f"(F) When the Global Top-{len(found) or k} ROCS Leads First Appeared",
+        fontsize=11,
+        fontweight="bold",
+    )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Cumulative fraction of leads")
+    ax.set_ylim(0.0, 1.02)
+    ax.grid(True, linestyle=":", alpha=0.4)
+    ax.legend(loc="lower right", fontsize=7.4)
+
+    plt.tight_layout(rect=(0, 0, 1, 0.94))
+    target_png = out / "09_training_diagnostics.png"
+    plt.savefig(target_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return target_png
 
 
 # --------------------------------------------------------------------------------------
@@ -800,30 +2399,167 @@ def render_all(
     reference: Path,
     out: Path,
     generator=None,
+    config: dict | None = None,
 ) -> list[Path]:
-    """Every figure. A failure in one is logged and never stops the rest."""
+    """Render every figure in the suite. Removes stale PNGs first and logs any individual error."""
     out.mkdir(parents=True, exist_ok=True)
+    for stale in out.glob("*.png"):
+        try:
+            stale.unlink()
+        except Exception:
+            pass
+
+    if config is None:
+        cfg_path = out.parent / "config.json"
+        if cfg_path.is_file():
+            try:
+                import json
+
+                config = json.loads(cfg_path.read_text())
+            except Exception:
+                config = {}
+
     prior = arms.get("prior")
+    # Numbered contiguously, in reading order: the two distribution dashboards, the
+    # trade-offs, the two training views, the two lead galleries, the coupling matrix,
+    # the two scaffold views, the 3D overlay and the diagnostics. A "b" figure is its
+    # primary repeated on the desired_ratio checkpoint, never a different drawing.
     jobs = [
-        ("01", lambda: before_after_distributions(arms, objectives, thresholds, out)),
-        ("01b", lambda: before_after_final_epoch(prior, epochs, objectives, out)),
-        ("02", lambda: multiobjective_tradeoffs(arms, objectives, thresholds, out)),
-        ("03", lambda: training_trajectories(fit, summary, out)),
-        ("05", lambda: lead_structures_gallery(arms, objectives, out)),
-        ("05b", lambda: best_model_leads(arms, objectives, out)),
-        ("06", lambda: objective_conflict_correlations(arms, objectives, out)),
-        ("07", lambda: scaffold_diversity(arms, out)),
-        ("10", lambda: lead_to_seed_superposition(arms, objectives, reference, out, generator)),
-        ("11", lambda: epoch_property_trajectories(epochs, prior, out)),
-        ("12", lambda: training_diagnostics(fit, epochs, out)),
+        (
+            "01",
+            lambda: before_after_distributions(
+                arms,
+                objectives,
+                thresholds,
+                out,
+                config=config,
+                reference=reference,
+                arm=PRIMARY_ARM,
+                name="01_before_after_distributions",
+            ),
+        ),
+        (
+            "01b",
+            lambda: before_after_distributions(
+                arms,
+                objectives,
+                thresholds,
+                out,
+                config=config,
+                reference=reference,
+                arm=SECONDARY_ARM,
+                name="01b_before_after_distributions_desired_ratio",
+            ),
+        ),
+        (
+            "02",
+            lambda: multiobjective_tradeoffs(
+                arms, objectives, thresholds, out, config=config, reference=reference
+            ),
+        ),
+        (
+            "03",
+            lambda: training_trajectories(
+                fit,
+                summary,
+                out,
+                epochs=epochs,
+                objectives=objectives,
+                config=config,
+                reference=reference,
+            ),
+        ),
+        (
+            "04",
+            lambda: epoch_property_trajectories(
+                epochs, prior, out, objectives=objectives, config=config, reference=reference
+            ),
+        ),
+        (
+            "05",
+            lambda: lead_structures_gallery(
+                arms,
+                objectives,
+                out,
+                config=config,
+                reference=reference,
+                arm=PRIMARY_ARM,
+                name="05_lead_structures_gallery",
+            ),
+        ),
+        (
+            "05b",
+            lambda: lead_structures_gallery(
+                arms,
+                objectives,
+                out,
+                config=config,
+                reference=reference,
+                arm=SECONDARY_ARM,
+                name="05b_lead_structures_gallery_desired_ratio",
+            ),
+        ),
+        (
+            "06",
+            lambda: objective_conflict_correlations(
+                arms, objectives, out, config=config, reference=reference
+            ),
+        ),
+        (
+            "07",
+            lambda: scaffold_diversity(
+                arms,
+                out,
+                config=config,
+                reference=reference,
+                arm=PRIMARY_ARM,
+                name="07_bemis_murcko_scaffold_diversity",
+            ),
+        ),
+        (
+            "07b",
+            lambda: scaffold_diversity(
+                arms,
+                out,
+                config=config,
+                reference=reference,
+                arm=SECONDARY_ARM,
+                name="07b_bemis_murcko_scaffold_diversity_desired_ratio",
+            ),
+        ),
+        (
+            "08",
+            lambda: lead_to_seed_superposition(
+                arms, objectives, reference, out, generator=generator, config=config
+            ),
+        ),
+        (
+            "09",
+            lambda: training_diagnostics(
+                fit,
+                epochs,
+                prior,
+                objectives,
+                out,
+                config=config,
+                reference=reference,
+                arms=arms,
+                summary=summary,
+            ),
+        ),
     ]
     written: list[Path] = []
     for number, job in jobs:
+        # Timed per figure: this suite is re-rendered over a whole campaign, so a panel
+        # that costs a minute at n_final=5000 has to be visible rather than guessed at.
+        started = time.monotonic()
         try:
             result = job()
         except Exception:
             logger.exception("figure %s failed", number)
             continue
+        finally:
+            logger.debug("figure %s took %.1fs", number, time.monotonic() - started)
         if isinstance(result, list):
             written.extend(result)
         elif result is not None:
