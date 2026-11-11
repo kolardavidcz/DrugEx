@@ -215,6 +215,7 @@ def _render_property_grid(
     note: str,
     a_label: str,
     checkpoints: tuple[str, ...] = (),
+    objectives: tuple[str, ...] = (),
 ) -> Path:
     style()
     target_png.parent.mkdir(parents=True, exist_ok=True)
@@ -324,8 +325,28 @@ def _render_property_grid(
         if idx == 0:
             ax.legend(loc="upper right", fontsize=8.0)
 
+    # The top row always draws ROCS, raw SA and QED, but QED is an objective only when
+    # the run asked for it -- most do not. Calling it an objective in a run that never
+    # optimised it is the kind of caption that gets believed and written up.
+    optimised = [
+        label
+        for label, present in (
+            ("ROCS", any(o.startswith("RDKit_") for o in objectives)),
+            ("SA", "SA" in objectives),
+            ("QED", "QED" in objectives),
+        )
+        if present
+    ]
+    spare = [label for label in ("ROCS", "SA", "QED") if label not in optimised]
+    row_one = (
+        f"PRIMARY RL OBJECTIVES ({', '.join(optimised)}; SA SHOWN RAW)"
+        if optimised
+        else "PROPERTIES"
+    )
+    if spare:
+        row_one += f" -- {', '.join(spare)}: DIAGNOSTIC ONLY, NOT IN THE REWARD"
     row_titles = [
-        "PRIMARY RL OBJECTIVES (ROCS, RAW SA, QED)",
+        row_one,
         "MOLECULAR SIZE & COMPLEXITY DIAGNOSTICS (MW, HAC, ROTB)",
         "PHYSICOCHEMICAL & 3D INTEGRITY (SLOGP, TPSA, FSP³)",
     ]
@@ -395,6 +416,7 @@ def before_after_distributions(
         prov,
         a_label=f"Reinforced ({win})",
         checkpoints=tuple(line for line in checkpoints if line),
+        objectives=tuple(objectives),
     )
 
 
