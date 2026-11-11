@@ -120,6 +120,20 @@ def caption(path: Path) -> str:
 #: makes it the one comparison worth drawing beside it rather than a third of each figure.
 PRIMARY_ARM = "gmean"
 SECONDARY_ARM = "desired_ratio"
+#: Two lead cards are the same chemotype when they share a Murcko scaffold or their ECFP4
+#: Tanimoto reaches this. A collapsed arm ranks hundreds of near-identical analogues at
+#: the top, so a gallery that only de-duplicates exact SMILES shows one molecule five
+#: times -- which says nothing the scaffold count in the title does not say better. The
+#: cards are worth the space only if each one is a different chemotype. 0.7 on ECFP4 is
+#: the conventional "same series" cutoff; this is DrugEx's own PRTD idea (rank, then
+#: separate by Tanimoto distance) applied to what gets drawn rather than to the reward.
+LEAD_SIMILARITY_CEILING = 0.7
+
+#: The policy training actually ended on, as opposed to the best epoch either criterion
+#: checkpointed. The lead galleries draw this one: a card of the molecules a *selected*
+#: checkpoint produced answers "what is the best this run ever did", which is not the
+#: question a lead gallery is read for. The final policy is the one that would be shipped.
+FINAL_ARM = "desired_ratio_at_stop"
 
 
 def shown_arm(
@@ -1129,35 +1143,72 @@ def _render_lead_cards(
             "sim": sim,
         }
 
-    # Row 1: Desired molecules ranked by ROCS (or overall top ROCS if fewer than max_leads are Desired)
-    des_sorted = en.sort_values(
-        by=["Desired", "ROCS"] if "Desired" in en.columns else ["ROCS"], ascending=False
-    )
-    for _, row in des_sorted.iterrows():
-        if len(top_row) >= max_leads + (1 if depicter.ref_mol is not None else 0):
-            break
-        can = str(row.get("Canonical") or "")
-        if not can or can in seen_smiles:
-            continue
-        rank = len(top_row) if depicter.ref_mol is not None else len(top_row) + 1
-        is_desired = int(pd.to_numeric(row.get("Desired", 0), errors="coerce") or 0) == 1
-        c = _card(row, f"LEAD #{rank}" if is_desired else f"#{rank} (not desired)")
-        if c is not None:
-            top_row.append(c)
-            seen_smiles.add(can)
+    seen_scaffolds: set[str] = set()
+    taken_fps: list[Any] = []
 
-    # Row 2: Next best ROCS hits not already in Row 1
-    rocs_sorted = en.sort_values(by="ROCS", ascending=False)
-    for _, row in rocs_sorted.iterrows():
-        if len(second_row) >= max_leads:
-            break
-        can = str(row.get("Canonical") or "")
-        if not can or can in seen_smiles:
-            continue
-        c = _card(row, f"ROCS #{len(second_row) + 1}")
-        if c is not None:
-            second_row.append(c)
-            seen_smiles.add(can)
+    def _is_new_chemotype(row: pd.Series, fp) -> bool:
+        scaffold = str(row.get("Scaffold") or "")
+        if scaffold and scaffold in seen_scaffolds:
+            return False
+        return all(
+            float(DataStructs.TanimotoSimilarity(fp, other)) < LEAD_SIMILARITY_CEILING
+            for other in taken_fps
+        )
+
+    def _fill(target: list, ordered: pd.DataFrame, limit: int, title: Any) -> int:
+        """Take the best rows that are each a different chemotype, then top up.
+
+        Two passes, both down the same ranking, so the cards stay in score order and the
+        figure is never short: the first takes only new chemotypes, the second fills any
+        remaining slots from what is left. A card from the second pass says so, because
+        at that point the arm genuinely had nothing else to show.
+        """
+        repeats = 0
+        for distinct_only in (True, False):
+            for _, row in ordered.iterrows():
+                if len(target) >= limit:
+                    return repeats
+                can = str(row.get("Canonical") or "")
+                if not can or can in seen_smiles:
+                    continue
+                mol = Chem.MolFromSmiles(can)
+                if mol is None:
+                    continue
+                fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
+                if distinct_only and not _is_new_chemotype(row, fp):
+                    continue
+                card = _card(row, title(row, len(target), distinct_only))
+                if card is None:
+                    continue
+                target.append(card)
+                seen_smiles.add(can)
+                seen_scaffolds.add(str(row.get("Scaffold") or ""))
+                taken_fps.append(fp)
+                repeats += 0 if distinct_only else 1
+        return repeats
+
+    # Row 1: Desired molecules ranked by ROCS (or overall top ROCS if fewer than max_leads are Desired)
+    def _lead_title(row: pd.Series, taken: int, distinct: bool) -> str:
+        rank = taken if depicter.ref_mol is not None else taken + 1
+        desired = int(pd.to_numeric(row.get("Desired", 0), errors="coerce") or 0) == 1
+        label = f"LEAD #{rank}" if desired else f"#{rank} (not desired)"
+        return label if distinct else f"{label} (analogue)"
+
+    repeats = _fill(
+        top_row,
+        en.sort_values(by=["Desired", "ROCS"] if "Desired" in en.columns else ["ROCS"], ascending=False),
+        max_leads + (1 if depicter.ref_mol is not None else 0),
+        _lead_title,
+    )
+
+    # Row 2: Next best ROCS hits, again one card per chemotype
+    repeats += _fill(
+        second_row,
+        en.sort_values(by="ROCS", ascending=False),
+        max_leads,
+        lambda row, taken, distinct: f"ROCS #{taken + 1}"
+        + ("" if distinct else " (analogue)"),
+    )
 
     if not top_row:
         return None
@@ -1351,23 +1402,31 @@ def lead_structures_gallery(
     out: Path,
     config: dict | None = None,
     reference: Path | None = None,
-    arm: str = PRIMARY_ARM,
+    arm: str = FINAL_ARM,
     name: str = "05_lead_structures_gallery",
+    fallback: bool = True,
 ) -> Path | None:
     """The lead cards of one arm. Four galleries of the same layout taught nothing that
     the two the report actually discusses do not."""
-    win = shown_arm(arms, objectives, arm, fallback=arm == PRIMARY_ARM)
+    win = shown_arm(arms, objectives, arm, fallback=fallback)
     if win is None:
         return None
     frame = arms[win]
     u = _unique(frame)
     des = float(u["Desired"].sum()) / max(len(frame), 1) if "Desired" in u else 0.0
+    # The cards show one molecule per chemotype, so the title has to say how many
+    # chemotypes there were: five distinct cards drawn from 40 scaffolds and five drawn
+    # from 1900 are the same picture of very different runs. enrich_descriptors caches
+    # per molecule, so this re-uses the work _render_lead_cards is about to do.
+    scaffolds = enrich_descriptors(u, objectives[0], (config or {}).get("reference_smiles", ""), config)
+    n_scaffolds = int(scaffolds["Scaffold"].replace("", np.nan).nunique()) if not scaffolds.empty else 0
     return _render_lead_cards(
         frame,
         objectives,
         out / f"{name}.png",
-        "Prioritized Leads (row 1) vs. Best-ROCS Hits (row 2): Aligned 2D Topology — "
-        f"Arm: {win} (desired={des:.3f}, {len(u)} unique / {len(frame)} sampled)",
+        "Prioritized Leads (row 1) vs. Best-ROCS Hits (row 2), one card per chemotype — "
+        f"Arm: {win} (desired={des:.3f}, {len(u)} unique / {len(frame)} sampled, "
+        f"{n_scaffolds} Murcko scaffolds)",
         config=config,
         reference=reference,
     )
@@ -2579,7 +2638,7 @@ def render_all(
                 out,
                 config=config,
                 reference=reference,
-                arm=PRIMARY_ARM,
+                arm=FINAL_ARM,
                 name="05_lead_structures_gallery",
             ),
         ),
@@ -2593,6 +2652,7 @@ def render_all(
                 reference=reference,
                 arm=SECONDARY_ARM,
                 name="05b_lead_structures_gallery_desired_ratio",
+                fallback=False,
             ),
         ),
         (

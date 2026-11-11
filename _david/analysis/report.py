@@ -472,8 +472,13 @@ def analyse(run_dir: Path) -> Path:
             f"Every figure describes the **{shown}** checkpoint unless its name says "
             "otherwise; the `b` figures (`01b`, `05b`, `07b`) repeat the same drawing for "
             "the `desired_ratio` checkpoint, which is frozen the first time its patience "
-            f"window expires. Figure `05_lead_structures_gallery.png` draws {shown}'s "
-            "leads and `05b_lead_structures_gallery_desired_ratio.png` the other's."
+            "window expires. The two lead galleries are the exception: "
+            "`05_lead_structures_gallery.png` draws the **final policy** "
+            f"(`{figures_module.FINAL_ARM}`), because what a run would ship is the model "
+            "it ended on and not the best epoch either criterion kept, and "
+            "`05b_lead_structures_gallery_desired_ratio.png` draws `desired_ratio`. Both "
+            "show one molecule per chemotype: a card marked *(analogue)* means the arm "
+            "had no further distinct scaffold to show, which is itself the finding."
             if (shown := figures_module.shown_arm(arms, objectives, figures_module.PRIMARY_ARM))
             else "No trained arm was scored, so there is no checkpoint to draw."
         ),
