@@ -36,6 +36,19 @@ COLOURS = ("#2563EB", "#DC2626", "#16A34A", "#F59E0B", "#7C3AED", "#0891B2", "#D
 #: The cost column every figure reads. Wall seconds are kept in the table for reference.
 COST = "cell_cpu_seconds"
 
+#: How close to a perfect overlay counts as "the reference pose was recovered". ROCS
+#: aligns before scoring, so this is sameness of pose up to a rigid motion, not identical
+#: coordinates -- two conformers 4.3 A apart in raw coordinates reach combo 2.0 once
+#: aligned. At 1e-6 the measurement cannot tell the two poses apart at all; a stricter
+#: float-exact test answers a question about arithmetic rather than about chemistry, and
+#: reports a tenth of the real rate.
+CEILING_TOLERANCE = 1e-6
+
+
+def at_ceiling(frame: pd.DataFrame) -> pd.Series:
+    """Per row, whether the candidate recovered a reference pose outright."""
+    return frame["combo"] >= 2.0 - CEILING_TOLERANCE
+
 
 def style() -> None:
     plt.rcParams.update(
@@ -65,7 +78,14 @@ def _subtitle(cfg: StudyConfig, frame: pd.DataFrame) -> str:
 
 
 def _agg(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
-    """Median over seeds, with the seed spread kept beside it."""
+    """Median over seeds, with the seed spread kept beside it.
+
+    Cells whose score failed are dropped rather than averaged: a scoring timeout records
+    0.0, and two conformers of one molecule never overlay at zero, so leaving it in would
+    put a failure into the medians and into the "worst cell" column as if it were data.
+    """
+    if "score_failed" in frame.columns:
+        frame = frame[frame["score_failed"] == 0]
     grouped = frame.groupby(by, as_index=False).agg(
         self_recovery=("self_recovery", "median"),
         low=("self_recovery", lambda s: s.quantile(0.05)),
@@ -95,7 +115,10 @@ def _coincident(frame: pd.DataFrame, methods: list[str], axis: str) -> dict[str,
             .to_numpy()
         )
         for earlier, values in seen.items():
-            if values.shape == curve.shape and np.allclose(values, curve, atol=1e-12):
+            # rtol=0: np.allclose keeps rtol=1e-5 by default, which near 1.0 makes the
+            # real tolerance 1e-5 -- enough to call two genuinely different methods the
+            # same force field in the legend.
+            if values.shape == curve.shape and np.allclose(values, curve, rtol=0.0, atol=1e-12):
                 duplicate[name] = earlier
                 break
         else:
@@ -193,10 +216,12 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
         # has shortfall 0, which a log axis cannot place. Saying so stops 1e-6 being read
         # as a number the study measured.
         bottom.axhline(1e-6, color="#6B7280", linewidth=0.9, linestyle=":")
+        # "at or below", not "exact": a median over ten seeds can be 0.9999995 with no
+        # single cell at 1.0, and that 5e-7 shortfall also lands on the floor.
         bottom.text(
             0.01,
             1.2e-6,
-            "exact recovery, drawn at the floor",
+            "floor: shortfall at or below 1e-6",
             transform=bottom.get_yaxis_transform(),
             fontsize=7.5,
             color="#6B7280",
@@ -320,7 +345,11 @@ def grids(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
             table = part.pivot(index="candidate_count", columns="reference_cap", values=column)
             table = table.reindex(index=counts, columns=caps)
             values = table.to_numpy(dtype=float)
-            kwargs = {"vmin": vmin, "vmax": 1.0} if column == "self_recovery" else {}
+            kwargs = (
+                {"vmin": vmin, "vmax": 1.0}
+                if column == "self_recovery"
+                else {"vmin": float(rows["cost"].min()), "vmax": float(rows["cost"].max())}
+            )
             image = ax.imshow(values, cmap=cmap, aspect="auto", **kwargs)
             for i in range(values.shape[0]):
                 for j in range(values.shape[1]):
@@ -330,7 +359,20 @@ def grids(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
                             if column == "self_recovery"
                             else f"{values[i, j]:.2f}"
                         )
-                        ax.text(j, i, text, ha="center", va="center", fontsize=7.5)
+                        # White on the dark end of either map: the saturated cells were
+                        # black text on near-black and could not be read at all.
+                        span = (kwargs["vmax"] - kwargs["vmin"]) or 1.0
+                        position = (values[i, j] - kwargs["vmin"]) / span
+                        dark = position < 0.25 if column == "self_recovery" else position > 0.6
+                        ax.text(
+                            j,
+                            i,
+                            text,
+                            ha="center",
+                            va="center",
+                            fontsize=7.5,
+                            color="#ffffff" if dark else "#111827",
+                        )
             ax.set_xticks(range(len(caps)), [str(c) for c in caps])
             ax.set_yticks(range(len(counts)), [f"C{c}" for c in counts])
             ax.set_xlabel("Reference bank cap (K)")
@@ -350,9 +392,10 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     style()
     methods = sorted(frame["method"].unique())
     palette = _palette(methods)
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5.5), dpi=200)
+    fig, axes = plt.subplots(1, 3, figsize=(19, 5.5), dpi=200)
     fig.suptitle(
-        f"Seed-to-seed spread · the only honest error bar here\n{_subtitle(cfg, frame)}",
+        "Spread across seeds · panel B is the error bar, panel A is the whole grid\n"
+        + _subtitle(cfg, frame),
         fontsize=11,
         fontweight="bold",
     )
@@ -364,7 +407,12 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
         patch.set_facecolor(palette[name])
         patch.set_alpha(0.45)
     ax.set_ylabel("ROCS TanimotoCombo / 2  [0, 1]")
-    ax.set_title("Every cell of every seed, per method", fontsize=11, fontweight="bold")
+    ax.set_title(
+        "Every cell of every seed, per method\n(spans K and C as well as seed, so it is "
+        "wider than the seed spread)",
+        fontsize=10,
+        fontweight="bold",
+    )
     ax.tick_params(axis="x", rotation=20)
 
     # Range across seeds for one fixed cell, so the comparison is like for like: the box
@@ -390,6 +438,42 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     ax2.set_ylabel("ROCS TanimotoCombo / 2  [0, 1]")
     ax2.set_title(f"One cell across seeds (K={cap}, C={count})", fontsize=11, fontweight="bold")
     ax2.legend(fontsize=8, loc="lower right")
+    # Panel C is the one that decides how to read the whole study. A cell at combo
+    # exactly 2.0 is a candidate that minimised into the same pose as a reference, so a
+    # high score there measures how often two draws funnel into one local minimum --
+    # which is a loss of ensemble diversity, not a better ensemble. Left out, a reader
+    # takes the medians in panel A as quality.
+    ax3 = axes[2]
+    if "combo" in frame.columns:
+        rate = (
+            frame.assign(_ceiling=at_ceiling(frame))
+            .groupby("method")["_ceiling"]
+            .mean()
+            .reindex(methods)
+        )
+        bars = ax3.bar(range(len(methods)), rate.to_numpy(), color=[palette[m] for m in methods])
+        for bar, value in zip(bars, rate.to_numpy()):
+            ax3.text(
+                bar.get_x() + bar.get_width() / 2,
+                value + 0.012,
+                f"{value:.1%}",
+                ha="center",
+                fontsize=9,
+                fontweight="bold",
+            )
+        ax3.set_xticks(range(len(methods)), methods, rotation=20, ha="right")
+        ax3.set_ylim(0, max(0.1, float(rate.max()) * 1.25))
+        ax3.set_ylabel(f"Share of cells within {CEILING_TOLERANCE:g} of combo 2.0")
+        ax3.set_title(
+            "C. How often a candidate recovers a reference pose outright\n"
+            "(the ceiling this metric rewards: read panel A against this)",
+            fontsize=10,
+            fontweight="bold",
+        )
+    else:
+        ax3.text(0.5, 0.5, "no combo column in this table", ha="center", va="center")
+        ax3.axis("off")
+
     plt.tight_layout(rect=[0, 0, 1, 0.88])
     path = out / "04_spread.png"
     plt.savefig(path, dpi=200, bbox_inches="tight")

@@ -47,12 +47,12 @@ from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnum
 
 from drugex.training.scorers.parallel import capped_n_jobs, pool_context
 
-from _david.conformer.config import METHODS, Method, StudyConfig
+from _david.conformer.config import METHODS, RANKING_FALLBACK, Method, StudyConfig
 
 # The scoring seam the pipeline itself uses: best (shape, colour) over every
 # conformer-reference pair, with native's per-molecule guard. Importing it rather than
 # reimplementing it is the point -- the study must measure the pipeline's scorer.
-from _david.scorers.rocs import _best_for_molecule
+from _david.scorers.rocs import _annotate_color_features, _best_for_molecule
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +61,14 @@ logger = logging.getLogger(__name__)
 #: "independent" repeats correlated -- the collision the previous study hit and documented.
 #: Primes above 10^5 keep every stream disjoint.
 #: Added to a reference seed to get its candidate seed. A large prime, not ``+1``: RDKit
-#: builds each conformer's seed from ``randomSeed`` multiplicatively, so two streams must
-#: not share small factors or the "independent" candidate set is partly the reference set
-#: and self-recovery is measured against conformers it already contains.
+#: builds each conformer's seed from ``randomSeed`` multiplicatively -- conformer *i* of
+#: seed *s* is bit-identical to conformer 0 of seed *s(i+1)* -- so two streams must not
+#: share small factors, or the "independent" candidate set partly *is* the reference set.
 CANDIDATE_OFFSET = 15485863
 
+#: Ten reference seeds. All prime, and coprime with CANDIDATE_OFFSET, so by the rule above
+#: a collision would need a quotient smaller than the grid; the smallest here is above
+#: 10^5 against grids of 200 and 40, which makes every stream provably disjoint.
 SEEDS: tuple[int, ...] = (
     104729,
     224737,
@@ -155,7 +158,12 @@ def _relax(mols: list[Chem.Mol], method: Method, cfg: StudyConfig) -> list[Chem.
         return mols
     out = []
     for mol in mols:
-        field = force_field(mol, method, cfg)
+        # Minimised on a copy. Minimize() writes coordinates back as it iterates, so
+        # minimising in place and then catching the exception kept a half-moved geometry
+        # -- neither ETKDG's pose nor a minimum -- under the name of a minimised method.
+        # The pipeline avoids it the same way (_david/scorers/conformers.py:201).
+        working = Chem.Mol(mol)
+        field = force_field(working, method, cfg)
         if field is None:
             out.append(mol)
             continue
@@ -164,8 +172,9 @@ def _relax(mols: list[Chem.Mol], method: Method, cfg: StudyConfig) -> list[Chem.
         except RuntimeError:
             # RDKit's BFGS raises on pathological geometries. That is a property of this
             # conformer, not of the method; keep the pre-minimisation pose.
-            pass
-        out.append(mol)
+            out.append(mol)
+            continue
+        out.append(working)
     return out
 
 
@@ -178,7 +187,12 @@ def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig
     """
     if not mols:
         return []
-    ranked = sorted(((_energy(mol, method, cfg), mol) for mol in mols), key=lambda p: p[0])
+    # A method with no force field still gets an energy ranking, because the pipeline
+    # gives one: its _force_field is not gated on cfg.minimize, so an unminimised bank is
+    # MMFF94s-ranked all the same. Ranking ETKDG by nothing anchored its bank on
+    # embedding order, which is not the control this row is meant to be.
+    ranking = method if method.force_field else RANKING_FALLBACK
+    ranked = sorted(((_energy(mol, ranking, cfg), mol) for mol in mols), key=lambda p: p[0])
     probes = [Chem.RemoveHs(Chem.Mol(mol)) for _, mol in ranked]
     kept = [0]
     spread = [rdMolAlign.GetBestRMS(Chem.Mol(probe), Chem.Mol(probes[0])) for probe in probes]
@@ -193,6 +207,18 @@ def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig
             spread[i] = min(
                 spread[i], rdMolAlign.GetBestRMS(Chem.Mol(probes[i]), Chem.Mol(probes[nxt]))
             )
+    if len(kept) < cap:
+        # Silence here made K=8 and K=16 the same measurement for every minimised method:
+        # both returned the same six or seven poses, so the figures showed a "saturation
+        # at K=8" that was the pool running out, not the metric settling.
+        logger.debug(
+            "bank asked for %d and kept %d: only that many poses are further than %.2f A "
+            "apart in a pool of %d",
+            cap,
+            len(kept),
+            cfg.reference_rmsd,
+            len(ranked),
+        )
     out = []
     for i in sorted(kept, key=lambda i: ranked[i][0]):
         energy, mol = ranked[i]
@@ -203,15 +229,22 @@ def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig
 
 def score(
     candidates: list[Chem.Mol], references: list[Chem.Mol], cfg: StudyConfig
-) -> tuple[float, float]:
-    """Best (shape, colour) Tanimoto over every candidate-reference pair, via the pipeline."""
+) -> tuple[float, float, bool]:
+    """Best (shape, colour) over every pair, and whether the measurement is real.
+
+    The third value is what a table needs: ``_best_for_molecule`` catches a timeout or a
+    scoring error and returns ``(0.0, 0.0)`` with only a log line, which in a column of
+    numbers cannot be told from a molecule that genuinely scored zero. Two conformers of
+    one molecule never overlay at zero, so an exact zero here is a failure and is recorded
+    as one instead of being averaged into the medians.
+    """
     if not candidates or not references:
-        return 0.0, 0.0
+        return 0.0, 0.0, True
     groups = [list(range(len(references)))]
     shape, colour = _best_for_molecule(
         candidates, references, groups, cfg.alignment_shape_weight, True, cfg.color_ff
     )[0]
-    return float(shape), float(colour)
+    return float(shape), float(colour), shape + colour <= 0.0
 
 
 def _one_stream(args: tuple[StudyConfig, str, int]) -> tuple[list[dict], dict]:
@@ -225,8 +258,24 @@ def _one_stream(args: tuple[StudyConfig, str, int]) -> tuple[list[dict], dict]:
     method = cfg.method(method_key)
 
     started, cpu0 = time.perf_counter(), time.process_time()
-    pool = _relax(_embed(cfg.smiles, cfg.reference_attempts, seed, cfg), method, cfg)
+    embedded = _embed(cfg.smiles, cfg.reference_attempts, seed, cfg)
+    pool = _relax(embedded, method, cfg)
     reference_wall, reference_cpu = time.perf_counter() - started, time.process_time() - cpu0
+
+    # A force field that cannot parameterise this molecule minimises nothing, so the row
+    # would be the ETKDG control wearing another method's name -- a whole mislabelled
+    # result set whose only trace was `lowest_energy=inf` in a file no figure reads.
+    parameterised = (
+        sum(force_field(mol, method, cfg) is not None for mol in embedded)
+        if method.force_field
+        else 0
+    )
+    if method.force_field and not parameterised:
+        raise SystemExit(
+            f"{method.force_field} cannot parameterise {cfg.smiles!r}: every conformer "
+            "would be returned unminimised and the results would be the ETKDG control "
+            f"labelled {method_key!r}. Drop that method or change the molecule."
+        )
 
     banks: dict[int, list[Chem.Mol]] = {}
     bank_wall: dict[int, float] = {}
@@ -235,6 +284,14 @@ def _one_stream(args: tuple[StudyConfig, str, int]) -> tuple[list[dict], dict]:
         banks[cap] = select_bank(pool, cap, method, cfg)
         bank_wall[cap] = time.perf_counter() - t0
 
+    # Colour typing is annotated onto a molecule the first time it is scored and cached
+    # on it, so without this the first cell to touch a molecule paid for every later one
+    # and the K axis of the Pareto plot was tilted. Paid once, up front, outside the
+    # stopwatch -- like the bank, it is setup rather than a per-cell cost.
+    if cfg.color_ff != "default":
+        for mol in pool:
+            _annotate_color_features(mol, color_ff=cfg.color_ff)
+
     rows: list[dict] = []
     for count in cfg.candidate_counts:
         # A candidate stream disjoint from the reference stream: the same seed on both
@@ -242,9 +299,12 @@ def _one_stream(args: tuple[StudyConfig, str, int]) -> tuple[list[dict], dict]:
         t0, c0 = time.perf_counter(), time.process_time()
         candidates = _relax(_embed(cfg.smiles, count, seed + CANDIDATE_OFFSET, cfg), method, cfg)
         candidate_wall, candidate_cpu = time.perf_counter() - t0, time.process_time() - c0
+        if cfg.color_ff != "default":
+            for mol in candidates:
+                _annotate_color_features(mol, color_ff=cfg.color_ff)
         for cap in cfg.reference_caps:
             t1, c1 = time.perf_counter(), time.process_time()
-            shape, colour = score(candidates, banks[cap], cfg)
+            shape, colour, failed = score(candidates, banks[cap], cfg)
             score_wall, score_cpu = time.perf_counter() - t1, time.process_time() - c1
             rows.append(
                 {
@@ -254,10 +314,15 @@ def _one_stream(args: tuple[StudyConfig, str, int]) -> tuple[list[dict], dict]:
                     "seed": seed,
                     "bank_size": len(banks[cap]),
                     "candidates": len(candidates),
-                    "shape": round(shape, 6),
-                    "colour": round(colour, 6),
-                    "combo": round(shape + colour, 6),
-                    "self_recovery": round((shape + colour) / 2.0, 6),
+                    "shape": round(shape, 9),
+                    "colour": round(colour, 9),
+                    # Nine places, not six: whether a cell sits at the ceiling is decided
+                    # at a tolerance of 1e-6, and a column rounded to 1e-6 cannot support
+                    # that test. The ceiling itself is a threshold the analysis chooses,
+                    # so it is derived in figures.py rather than frozen in here.
+                    "combo": round(shape + colour, 9),
+                    "self_recovery": round((shape + colour) / 2.0, 9),
+                    "score_failed": int(failed),
                     "candidate_seconds": round(candidate_wall, 4),
                     "candidate_cpu_seconds": round(candidate_cpu, 4),
                     "score_seconds": round(score_wall, 4),
@@ -271,6 +336,8 @@ def _one_stream(args: tuple[StudyConfig, str, int]) -> tuple[list[dict], dict]:
         "method": method_key,
         "seed": seed,
         "pool_size": len(pool),
+        "parameterised": parameterised,
+        "embedded": len(embedded),
         "reference_seconds": round(reference_wall, 4),
         "reference_cpu_seconds": round(reference_cpu, 4),
         "bank_sizes": json.dumps({str(k): len(v) for k, v in banks.items()}),

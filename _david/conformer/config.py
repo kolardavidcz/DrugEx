@@ -54,6 +54,13 @@ METHODS: dict[str, Method] = {
 }
 
 
+#: The force field a reference pool is energy-ranked with when the method has none of its
+#: own. ``_david/scorers/conformers._force_field`` is not gated on ``cfg.minimize``, so the
+#: pipeline ranks even an *unminimised* bank by MMFF94s energy. Ranking the ETKDG row by
+#: nothing anchored its bank on embedding order instead, and moved the headline number.
+RANKING_FALLBACK = METHODS["MMFF94s_e78.4"]
+
+
 @dataclass(frozen=True)
 class StudyConfig:
     smiles: str = EGCG  # the molecule recovered against itself; any SMILES
@@ -82,8 +89,9 @@ class StudyConfig:
     alignment_shape_weight: float = 0.5  # AlignMol opt_param
     color_ff: str = "fdef"  # ^[fdef, oe_mills_dean, default] colour typing
 
-    # execution
-    seed: int = 20261111  # the stream the per-repeat seeds are drawn from
+    # execution. There is deliberately no `seed` field: the repeat seeds are a fixed,
+    # documented list of primes in `study.SEEDS`, chosen so the streams cannot collide.
+    # A knob recorded in config.json that changed nothing is worse than no knob.
     n_jobs: int = -1  # -1 = all cores; one cell per worker, RDKit single-threaded inside
     output_root: Path = PROJECT_ROOT / "_david" / "output" / "conformer"
 

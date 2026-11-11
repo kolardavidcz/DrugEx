@@ -14,6 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from rdkit import Chem
 
 from _david.config import Config
@@ -160,12 +161,30 @@ class Scoring(unittest.TestCase):
     def test_a_molecule_scored_against_itself_is_the_maximum(self):
         cfg = small()
         mols = study._embed(IBUPROFEN, 1, 104729, cfg)
-        shape, colour = study.score(mols, mols, cfg)
+        shape, colour, failed = study.score(mols, mols, cfg)
         self.assertAlmostEqual(shape + colour, 2.0, places=3, msg="self-overlay must be 2.0")
+        self.assertFalse(failed)
 
-    def test_missing_input_scores_zero_rather_than_raising(self):
+    def test_missing_input_is_flagged_as_a_failure_not_a_real_zero(self):
+        """An exact zero is unreachable for two conformers of one molecule."""
         cfg = small()
-        self.assertEqual(study.score([], [], cfg), (0.0, 0.0))
+        self.assertEqual(study.score([], [], cfg), (0.0, 0.0, True))
+
+
+class Parameterisation(unittest.TestCase):
+    def test_a_force_field_that_covers_nothing_is_refused_not_relabelled(self):
+        """Otherwise the row is the ETKDG control wearing a minimised method's name."""
+        # Boron has no MMFF parameters, so MMFF94s covers none of this molecule.
+        cfg = small(smiles="B(O)(O)c1ccccc1", methods=("MMFF94s_e78.4",), reference_attempts=4)
+        with self.assertRaises(SystemExit) as caught:
+            study._one_stream((cfg, "MMFF94s_e78.4", study.SEEDS[0]))
+        self.assertIn("cannot parameterise", str(caught.exception))
+
+    def test_a_molecule_the_force_field_covers_runs_normally(self):
+        cfg = small(reference_attempts=4, candidate_counts=(2,), reference_caps=(1,))
+        rows, reference = study._one_stream((cfg, "MMFF94s_e78.4", study.SEEDS[0]))
+        self.assertTrue(rows)
+        self.assertEqual(reference["parameterised"], reference["embedded"])
 
 
 class Grid(unittest.TestCase):
@@ -189,6 +208,7 @@ class Grid(unittest.TestCase):
             np.testing.assert_allclose(frame["self_recovery"], frame["combo"] / 2.0, atol=1e-6)
             self.assertTrue((frame["cell_cpu_seconds"] > 0).all(), "a cell with no cost is a bug")
             self.assertTrue((frame["bank_size"] <= frame["reference_cap"]).all())
+            self.assertFalse(frame["score_failed"].any(), "no cell should fail to score")
             self.assertTrue((out / "measurements.tsv").is_file())
             self.assertTrue((out / "references.tsv").is_file())
 
@@ -201,6 +221,18 @@ class Grid(unittest.TestCase):
             self.assertEqual(len(written), 4, "every sheet must draw")
             for path in written:
                 self.assertGreater(path.stat().st_size, 0)
+
+
+class Ceiling(unittest.TestCase):
+    def test_the_ceiling_tolerance_is_about_pose_not_float_equality(self):
+        """ROCS aligns before scoring, so 2.0 means the same pose, not the same numbers.
+
+        A float-exact test reported 2.7% of this study's cells against the 24.7% that are
+        actually indistinguishable from a perfect overlay -- a tenfold understatement of
+        the caveat the whole study turns on.
+        """
+        frame = pd.DataFrame({"combo": [2.0, 2.0 - 1e-9, 2.0 - 5e-7, 2.0 - 1e-4, 1.5]})
+        self.assertEqual(list(figures.at_ceiling(frame)), [True, True, True, False, False])
 
 
 class ConfigValidation(unittest.TestCase):
