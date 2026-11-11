@@ -78,6 +78,31 @@ def _agg(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     return grouped
 
 
+def _coincident(frame: pd.DataFrame, methods: list[str], axis: str) -> dict[str, str]:
+    """Methods whose median curve is identical to an earlier one, and which one.
+
+    MMFF94 and MMFF94s differ only in how they treat delocalised trigonal nitrogen, so on
+    a molecule without any they are the same force field and draw the same line. Saying so
+    in the legend is the difference between a reader seeing five curves and hunting for a
+    sixth that is hidden underneath.
+    """
+    seen: dict[str, np.ndarray] = {}
+    duplicate: dict[str, str] = {}
+    for name in methods:
+        curve = (
+            _agg(frame[frame["method"] == name], [axis])
+            .sort_values(axis)["self_recovery"]
+            .to_numpy()
+        )
+        for earlier, values in seen.items():
+            if values.shape == curve.shape and np.allclose(values, curve, atol=1e-12):
+                duplicate[name] = earlier
+                break
+        else:
+            seen[name] = curve
+    return duplicate
+
+
 def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     """Score against C at a fixed bank, and against K at a fixed candidate budget."""
     style()
@@ -90,7 +115,7 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     fixed_cap = min(caps, key=lambda k: abs(k - 4))
     fixed_count = min(counts, key=lambda c: abs(c - 20))
 
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6), dpi=200)
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10.5), dpi=200)
     fig.suptitle(
         f"Conformer self-recovery of {cfg.name}\n{_subtitle(cfg, frame)}",
         fontsize=11,
@@ -99,43 +124,86 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
 
     panels = (
         (
-            axes[0],
             "candidate_count",
             frame[frame["reference_cap"] == fixed_cap],
-            f"A. Self-recovery vs candidate budget C (K={fixed_cap})",
+            f"Self-recovery vs candidate budget C (K={fixed_cap})",
             "Candidate embedding attempts per stereoisomer (C)",
         ),
         (
-            axes[1],
             "reference_cap",
             frame[frame["candidate_count"] == fixed_count],
-            f"B. Self-recovery vs reference bank cap K (C={fixed_count})",
+            f"Self-recovery vs reference bank cap K (C={fixed_count})",
             "Reference bank cap (K)",
         ),
     )
-    for ax, axis, slice_, title, xlabel in panels:
+    for column, (axis, slice_, title, xlabel) in enumerate(panels):
+        duplicate = _coincident(slice_, methods, axis)
+        top, bottom = axes[0][column], axes[1][column]
         for name in methods:
             rows = _agg(slice_[slice_["method"] == name], [axis]).sort_values(axis)
             if rows.empty:
                 continue
-            ax.plot(
+            label = f"{name} (= {duplicate[name]})" if name in duplicate else name
+            # A coincident curve is drawn dashed and wider so the line underneath stays
+            # visible, instead of being painted over by whichever method was drawn last.
+            extra = (
+                {"linestyle": "--", "linewidth": 2.8, "alpha": 0.6}
+                if name in duplicate
+                else {"linestyle": "-"}
+            )
+            top.plot(
                 rows[axis],
                 rows["self_recovery"],
-                "-o",
+                marker="o",
                 color=palette[name],
-                label=name,
-                linewidth=1.8,
+                label=label,
                 markersize=5,
+                **{"linewidth": 1.8, **extra},
             )
             # The band is the 5th-95th percentile across seeds, not a standard error: with
             # ten seeds the spread is the measurement, and a symmetric bar would hide that
             # the failures are one-sided.
-            ax.fill_between(rows[axis], rows["low"], rows["high"], color=palette[name], alpha=0.12)
-        ax.set_title(title, fontsize=11, fontweight="bold")
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel("ROCS TanimotoCombo / 2  [0, 1]")
-        ax.legend(fontsize=8, loc="lower right")
-    plt.tight_layout(rect=[0, 0, 1, 0.90])
+            top.fill_between(rows[axis], rows["low"], rows["high"], color=palette[name], alpha=0.10)
+            # Shortfall on a log axis: every minimised method sits above 0.99, where a
+            # linear axis cannot separate 0.9992 from 0.9944. Floored at 1e-6 so a cell
+            # that recovers exactly stays on the plot instead of falling to -inf.
+            shortfall = np.maximum(1.0 - rows["self_recovery"].to_numpy(), 1e-6)
+            bottom.plot(
+                rows[axis],
+                shortfall,
+                marker="o",
+                color=palette[name],
+                label=label,
+                markersize=5,
+                **{"linewidth": 1.8, **extra},
+            )
+        top.set_title(f"{'AB'[column]}. {title}", fontsize=11, fontweight="bold")
+        top.set_xlabel(xlabel)
+        top.set_ylabel("ROCS TanimotoCombo / 2  [0, 1]")
+        top.legend(fontsize=8, loc="lower right")
+        bottom.set_yscale("log")
+        bottom.set_title(
+            f"{'CD'[column]}. The same, as shortfall from perfect recovery",
+            fontsize=11,
+            fontweight="bold",
+        )
+        bottom.set_xlabel(xlabel)
+        bottom.set_ylabel("1 - self-recovery  (log, lower is better)")
+        # The floor is a drawing device, not a measurement: a cell that recovers exactly
+        # has shortfall 0, which a log axis cannot place. Saying so stops 1e-6 being read
+        # as a number the study measured.
+        bottom.axhline(1e-6, color="#6B7280", linewidth=0.9, linestyle=":")
+        bottom.text(
+            0.01,
+            1.2e-6,
+            "exact recovery, drawn at the floor",
+            transform=bottom.get_yaxis_transform(),
+            fontsize=7.5,
+            color="#6B7280",
+            va="bottom",
+        )
+        bottom.legend(fontsize=8, loc="upper right")
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
     path = out / "01_omnibus.png"
     plt.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)

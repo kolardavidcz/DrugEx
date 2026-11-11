@@ -64,6 +64,40 @@ class ForceFieldMatchesThePipeline(unittest.TestCase):
             msg="the study's MMFF94s eps=78.4 has drifted from _david/scorers/conformers.py",
         )
 
+    def test_mmff94_and_mmff94s_agree_only_when_there_is_no_nitrogen(self):
+        """Why the grid's MMFF94 and MMFF94s rows are identical for EGCG, and not a bug.
+
+        MMFF94s differs from MMFF94 in one respect: it planarises delocalised trigonal
+        nitrogen. EGCG is C22H18O11 and has none, so the two are the same force field for
+        it. The second half of this test is what makes the first half meaningful -- an
+        implementation that ignored ``mmffVariant`` entirely would pass the first.
+        """
+        cfg = small()
+        from rdkit.Chem import AllChem
+
+        params = AllChem.ETKDGv3()
+        params.randomSeed = 7
+
+        from _david.config import EGCG
+
+        nitrogen_free = Chem.AddHs(Chem.MolFromSmiles(EGCG))
+        AllChem.EmbedMolecule(nitrogen_free, params=params)
+        self.assertEqual(
+            sum(1 for a in nitrogen_free.GetAtoms() if a.GetSymbol() == "N"), 0, "EGCG has no N"
+        )
+        self.assertEqual(
+            study._energy(nitrogen_free, METHODS["MMFF94_e1"], cfg),
+            study._energy(nitrogen_free, METHODS["MMFF94s_e1"], cfg),
+        )
+
+        amide = Chem.AddHs(Chem.MolFromSmiles("c1ccc(cc1)N(C)C(=O)C"))
+        AllChem.EmbedMolecule(amide, params=params)
+        self.assertNotEqual(
+            study._energy(amide, METHODS["MMFF94_e1"], cfg),
+            study._energy(amide, METHODS["MMFF94s_e1"], cfg),
+            "the variant is being ignored: MMFF94s must differ on a delocalised amide N",
+        )
+
     def test_an_unparameterisable_molecule_scores_infinity_not_zero(self):
         """0.0 would sort first and seed the bank with a failure -- the original bug."""
         cfg = small()
