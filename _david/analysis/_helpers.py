@@ -151,30 +151,26 @@ def enrich_descriptors(
 ) -> pd.DataFrame:
     """Attach 2D medicinal-chemistry descriptors, raw SA, Murcko scaffold and ECFP4 seed similarity.
 
-    Never rescales ROCS (which is already raw TanimotoCombo on [0, 2]), and replaces
+    Returns ROCS as published TanimotoCombo on [0, 2] whatever units the run stored it
+    in (see ``rocs_scale``), and replaces
     unscorable SA failure sentinels (10.0) with NaN for continuous distributions so a
     failed score can never sort, colour or rank as good.
     """
     if frame is None or frame.empty:
         return pd.DataFrame()
     df = frame.copy()
-    # Shape + colour, not the stored combo column. The scorer carries a ClippedScore
-    # that puts the reward on [0, 1], so the stored TanimotoCombo of a run made after
-    # that change is half of the published value -- while the 52 runs finished before it
-    # hold the raw [0, 2]. The two components are never modified, and combo is exactly
-    # their sum (verified to 0.0e+00 across every finished arm), so reconstructing it
-    # here keeps every figure and every table in one unit whichever side of the change
-    # a run came from.
-    if {"ShapeTanimoto", "ColorTanimoto"} <= set(df.columns):
-        df["ROCS"] = pd.to_numeric(df["ShapeTanimoto"], errors="coerce") + pd.to_numeric(
-            df["ColorTanimoto"], errors="coerce"
-        )
-    elif rocs_col and rocs_col in df.columns:
-        df["ROCS"] = pd.to_numeric(df[rocs_col], errors="coerce")
+    # Published TanimotoCombo on [0, 2], whichever side of the reward rescale the run
+    # came from. Applied to the stored column rather than rebuilt from the components,
+    # because rl_smiles.tsv carries no components and every per-epoch figure reads it:
+    # reconstructing where possible and not elsewhere drew the trained epochs at half
+    # the prior's scale on one shared axis.
+    scale = rocs_scale(config)
+    if rocs_col and rocs_col in df.columns:
+        df["ROCS"] = pd.to_numeric(df[rocs_col], errors="coerce") * scale
     elif "ROCS" not in df.columns:
         rocs_cands = [c for c in df.columns if c.startswith("RDKit_")]
         if rocs_cands:
-            df["ROCS"] = pd.to_numeric(df[rocs_cands[0]], errors="coerce")
+            df["ROCS"] = pd.to_numeric(df[rocs_cands[0]], errors="coerce") * scale
 
     ref_fp = None
     if isinstance(ref_smiles, str) and ref_smiles:
@@ -446,35 +442,21 @@ def _graph_framework(scaffold_smiles: str, core: Chem.Mol) -> str:
     return cached
 
 
-def rocs_threshold_scale(frame: pd.DataFrame, rocs_col: str | None = None) -> float:
-    """Factor taking a stored ROCS threshold into the units the figures report.
+def rocs_scale(config: dict | None) -> float:
+    """Factor from a run's stored ROCS units to published TanimotoCombo on [0, 2].
 
-    The scorer carries a ClippedScore that puts every objective on [0, 1], so the stored
-    TanimotoCombo column -- and every threshold derived from it -- is half the published
-    value. ROCS is reported as the raw ``ShapeTanimoto + ColorTanimoto`` sum on [0, 2],
-    because those two are never modified. Runs finished before that change stored the
-    raw combo and need no conversion, so the factor is read off the data rather than
-    guessed from a date or a config flag: it is the ratio between the two columns.
+    Every objective reaches the reward on [0, 1], so a run made after that change stores
+    the combo halved and records ``rocs_reward_scale``. The 52 runs finished before it
+    stored the raw value and carry no such field, which is exactly what the 1.0 default
+    means. It is read from the run's own config rather than sniffed from the columns,
+    because ``rl_smiles.tsv`` -- every per-epoch figure -- has no shape/colour components
+    to sniff, and a heuristic that silently works on one table and not another is worse
+    than no heuristic at all.
     """
-    if frame is None or frame.empty or not {"ShapeTanimoto", "ColorTanimoto"} <= set(frame.columns):
+    try:
+        return float((config or {}).get("rocs_reward_scale", 1.0)) or 1.0
+    except (TypeError, ValueError):
         return 1.0
-    column = rocs_col if rocs_col in frame.columns else next(
-        (c for c in frame.columns if "TanimotoCombo" in c), None
-    )
-    if column is None:
-        return 1.0
-    stored = pd.to_numeric(frame[column], errors="coerce")
-    components = pd.to_numeric(frame["ShapeTanimoto"], errors="coerce") + pd.to_numeric(
-        frame["ColorTanimoto"], errors="coerce"
-    )
-    usable = stored.notna() & components.notna() & (stored > 1e-6)
-    if not usable.any():
-        return 1.0
-    ratio = float((components[usable] / stored[usable]).median())
-    # Only ever 1 (raw) or 2 (modified); anything else means the columns disagree for a
-    # reason this does not understand, and silently halving a threshold line would be
-    # worse than leaving it where the manifest put it.
-    return 2.0 if abs(ratio - 2.0) < 0.01 else 1.0
 
 
 def scaffold_counts(frame: pd.DataFrame, generic: bool = False) -> pd.Series:

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import itertools
-import math
 from dataclasses import dataclass, field
 
 from _david.metacentrum.submit import STORAGE, Job, remote, submit, sync, validate_deltas
@@ -71,11 +70,6 @@ TOKEN = {
 #: 64 GB is twice the largest surviving peak. A flat 32 GB killed 13 runs of this grid,
 #: several of them after all 70 epochs had finished.
 MEMORY_GB = 64
-
-
-def memory_gb(settings: dict) -> int:
-    """What to ask PBS for. ``settings`` is accepted so the caller stays uniform."""
-    return MEMORY_GB
 
 
 @dataclass(frozen=True)
@@ -188,7 +182,7 @@ def show(chosen: list[str]) -> list[tuple[str, dict]]:
             print(f"    {key:<24} {', '.join(str(v) for v in values)}")
         print()
         for job, settings in rows:
-            print(f"    {job:<16} {memory_gb(settings):>3} GB  {' '.join(deltas(settings))}")
+            print(f"    {job:<16} {MEMORY_GB:>3} GB  {' '.join(deltas(settings))}")
         planned.extend(rows)
     return planned
 
@@ -229,7 +223,7 @@ def launch(
     try:
         for name, settings in chosen:
             flat = tuple(part for delta in deltas(settings) for part in ("--set", delta))
-            mem = resources["mem"] or memory_gb(settings)
+            mem = resources["mem"] or MEMORY_GB
             submit(Job(name=name, args=flat, **{**resources, "mem": mem}), revision=revision)
             done += 1
     finally:
@@ -259,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
         "--mem",
         type=int,
         default=None,
-        help="GB for every run; the default is per cell, from the measurements in memory_gb",
+        help=f"GB for every run; the default is {MEMORY_GB}, measured -- see MEMORY_GB",
     )
     parser.add_argument("--scratch", type=int, default=Job.scratch, help="GB")
     parser.add_argument("--walltime", default=Job.walltime)
@@ -270,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     planned = show(chosen)
 
     hours = args.walltime.split(":")[0]
-    asked = f"{args.mem} GB each" if args.mem else "memory per cell (see the GB column)"
+    asked = f"{args.mem or MEMORY_GB} GB each"
     print(f"\n{len(planned)} runs, {args.ncpus} cpus each, {asked}, walltime {args.walltime}")
     print(f"worst case {len(planned) * args.ncpus * int(hours)} core-hours if none stops early")
     for repeat, original in duplicates():

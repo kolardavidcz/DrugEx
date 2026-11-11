@@ -50,7 +50,10 @@ class Job:
     name: str
     args: tuple[str, ...] = ()
     ncpus: int = 16
-    mem: int = 32  # GB
+    # 64, not 32: a flat 32 GB OOM-killed 14 runs of the first campaign, several of
+    # them after all 70 epochs had finished. See campaign.MEMORY_GB for the measured
+    # peaks this comes from.
+    mem: int = 64  # GB
     scratch: int = 15  # GB
     walltime: str = "24:00:00"
     queue: str | None = None  # None routes by walltime, which is the only way that works

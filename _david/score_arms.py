@@ -41,7 +41,12 @@ from _david.run import (
     _write_arm,
 )
 from _david.scorers.conformers import check_pool, use_double_precision_pickling
-from _david.scorers.objectives import build_environment, build_scorers, reward_scheme
+from _david.scorers.objectives import (
+    ROCS_PUBLISHED_MAX,
+    build_environment,
+    build_scorers,
+    reward_scheme,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +112,22 @@ def rebuild(run_dir: Path, force: bool = False) -> dict:
         if isinstance(stored, dict)
         else [float(value) for value in stored]
     )
+    # Into the units this scorer produces. A run made before every objective was put on
+    # [0, 1] recorded its ROCS threshold as raw TanimotoCombo -- around 1.3 -- while the
+    # scorer rebuilt here caps that column at 1.0, so the comparison could never be met
+    # and every rebuilt molecule came back undesired: desired_ratio 0.0000 on all three
+    # arms of a run that in fact reached 1.0, and no lead gallery, since those draw only
+    # desired molecules. The run records what its own scale was; this converts from it.
+    rocs_was = float(recorded.get("rocs_reward_scale", 1.0)) or 1.0
+    if rocs_was != ROCS_PUBLISHED_MAX and recorded["objectives"]:
+        thresholds[0] *= rocs_was / ROCS_PUBLISHED_MAX
+        logger.info(
+            "ROCS threshold %.4f recorded on a [0, %g] scale, rescaled to %.4f for the "
+            "rebuilt scorer",
+            thresholds[0] * ROCS_PUBLISHED_MAX / rocs_was,
+            ROCS_PUBLISHED_MAX / rocs_was * ROCS_PUBLISHED_MAX,
+            thresholds[0],
+        )
     env = build_environment(
         build_scorers(cfg, [str(reference)]), thresholds, reward_scheme(cfg.scheme)
     )

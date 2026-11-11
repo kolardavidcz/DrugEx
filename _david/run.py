@@ -42,6 +42,7 @@ from _david.scorers.conformers import (
 from _david.training.explorer import DualCheckpointExplorer
 from _david.provenance import ARTIFACTS, Manifest, describe, digest
 from _david.scorers.objectives import (
+    ROCS_PUBLISHED_MAX,
     build_environment,
     build_scorers,
     calibrate_thresholds,
@@ -354,6 +355,10 @@ def _pipeline(
     # Recorded as the class that will actually rank the rewards, not as the short name:
     # "WeightedSum" in config.json is unambiguous to a reader who has never seen `--scheme`.
     resolved["reward_scheme"] = type(scheme).__name__
+    # Every objective reaches the reward on [0, 1], so the stored ROCS column is the
+    # published TanimotoCombo divided by this. Recorded rather than assumed: runs made
+    # before the modifier stored the raw [0, 2] value and carry no such field.
+    resolved["rocs_reward_scale"] = ROCS_PUBLISHED_MAX
     resolved["objectives"] = env.getScorerKeys()
     resolved["thresholds"] = thresholds
     (run_dir / "config.json").write_text(json.dumps(resolved, indent=2) + "\n")

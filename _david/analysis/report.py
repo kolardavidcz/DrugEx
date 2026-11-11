@@ -16,6 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 from _david.analysis import figures as figures_module
+from _david.analysis._helpers import rocs_scale
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ def top_molecules(arm: pd.DataFrame, objectives: list[str]) -> pd.DataFrame:
     )
 
 
-def _describe(arm: pd.DataFrame, objectives: list[str]) -> dict:
+def _describe(arm: pd.DataFrame, objectives: list[str], scale: float = 1.0) -> dict:
     """The ratios a thesis table reports, plus each objective's median and p90."""
     valid = _valid(arm)
     unique = valid.drop_duplicates(subset=_dedup_key(valid))  # DrugEx's unique-compound denominator
@@ -161,9 +162,15 @@ def _describe(arm: pd.DataFrame, objectives: list[str]) -> dict:
     # two statistics on two populations. Under mode collapse the sample median is the
     # score of whichever molecule was drawn most often.
     row["duplicate_fraction"] = round(1.0 - len(unique) / len(valid), 4) if len(valid) else 0.0
-    for objective in objectives:
-        row[f"{objective} median"] = round(float(unique[objective].median()), 4)
-        row[f"{objective} p90"] = round(float(unique[objective].quantile(0.90)), 4)
+    # The ROCS column is stored in reward units; every number a reader sees is published
+    # TanimotoCombo on [0, 2]. Only the first objective is ROCS -- SA and QED are already
+    # on [0, 1] on both sides of the rescale.
+    for index, objective in enumerate(objectives):
+        column = pd.to_numeric(unique[objective], errors="coerce")
+        if index == 0:
+            column = column * scale
+        row[f"{objective} median"] = round(float(column.median()), 4)
+        row[f"{objective} p90"] = round(float(column.quantile(0.90)), 4)
     if "SA_raw" in unique.columns and not unique.empty:
         raw_sa = pd.to_numeric(unique["SA_raw"], errors="coerce")
         raw_sa = raw_sa[(raw_sa > 0.5) & (raw_sa < 9.99)]
@@ -267,10 +274,9 @@ def _threshold_prose(
             "builds each objective's weight from the fraction of the batch below versus "
             "above its own threshold, so unlike every Pareto run, here they do not only "
             "decide `Desired` and the stop condition. The weights are DrugEx's, not this "
-            "project's, and they move every epoch with the batch. One consequence worth "
-            "stating: a weighted *sum* adds raw columns, so range is leverage -- "
-            "TanimotoCombo on [0, 2] moves the reward twice as far as SA or QED on [0, 1] "
-            "at the same weight."
+            "project's, and they move every epoch with the batch. A weighted *sum* adds "
+            "the columns, so range would be leverage -- which is why ROCS reaches the "
+            "reward on [0, 1] like SA and QED, rather than on its published [0, 2]."
         )
     else:
         tail = (
@@ -291,8 +297,9 @@ def _units(config: dict, objectives: list[str]) -> str:
         f"`alignment_shape_weight={config.get('alignment_shape_weight', 0.5)}`, "
         f"`minimize={config.get('minimize', True)}`) -- a "
         "generated SMILES usually leaves stereocentres unassigned, so this is a maximum "
-        "over the isomers it could be, not the score of one molecule. No "
-        "modifier. Shape + colour Tanimoto on [0, 2], colour typed with "
+        "over the isomers it could be, not the score of one molecule. Reported as shape "
+        "+ colour Tanimoto on [0, 2]; the reward saw it halved onto [0, 1], so that "
+        "every objective reaches the reward on one scale. Colour typed with "
         f"`{config.get('color_ff')}`, taken as the best overlay against any conformer in "
         "the reference bank.",
         f"- `SA`: the ClippedScore *desirability* on [0, 1], not the raw 1-10 score. 1.0 "
@@ -309,6 +316,9 @@ def analyse(run_dir: Path) -> Path:
     """Write every figure and ``report.md`` for one run directory. Returns the report path."""
     config = json.loads((run_dir / "config.json").read_text())
     objectives = config["objectives"]
+    # Every ROCS number in this file is published TanimotoCombo on [0, 2]; the column on
+    # disk is in the units that run's reward used. See `rocs_scale`.
+    scale = rocs_scale(config)
     thresholds = config["thresholds"]
     summary = config.get("summary", {})
     from_reference = [
@@ -402,7 +412,9 @@ def analyse(run_dir: Path) -> Path:
         "Medians and percentiles are over valid *unique* molecules, the same population, "
         "so no two columns in a row describe different sets.",
         "",
-        _table({name: _describe(arm, objectives) for name, arm in arms.items()}, "arm"),
+        _table(
+            {name: _describe(arm, objectives, scale) for name, arm in arms.items()}, "arm"
+        ),
         "",
         "### what the score columns are",
         "",
@@ -492,7 +504,9 @@ def analyse(run_dir: Path) -> Path:
             _table(
                 {
                     row["SMILES"]: {
-                        o: round(float(row[o]), 4) for o in [*objectives, *extra_cols] if o in row
+                        o: round(float(row[o]) * (scale if o == objectives[0] else 1.0), 4)
+                        for o in [*objectives, *extra_cols]
+                        if o in row
                     }
                     for _, row in best.iterrows()
                 },

@@ -43,9 +43,10 @@ def reward_scheme(name: str):
     design, not an addition here, but it means a ``WS`` run and a ``PRCD`` run are not
     answering the same question, and `report.md` says so in the run's own words.
 
-    ``WS`` also sums the raw columns, so an objective's *range* is leverage:
-    TanimotoCombo on [0, 2] moves the sum twice as far as SA or QED on [0, 1] at equal
-    weight. Pareto ranking is scale-free and has no such asymmetry.
+    ``WS`` also sums the columns, so an objective's *range* would be leverage. That is
+    why ``build_scorers`` puts ROCS on [0, 1] with the rest: on its raw [0, 2] it moved
+    the sum twice as far as SA or QED at equal weight, and the reward left [0, 1]
+    entirely. Pareto ranking is affine-invariant and never had that asymmetry.
     """
     try:
         return SCHEMES[name]()
@@ -55,13 +56,23 @@ def reward_scheme(name: str):
         ) from None
 
 
+#: Upper bound of raw TanimotoCombo, and therefore the factor between a ROCS value in
+#: reward units and the published one. The reward sees [0, 1]; everything a human reads
+#: is multiplied back by this. Recorded per run as ``rocs_reward_scale`` so a run made
+#: before the modifier existed -- which stored raw [0, 2] and has no such field -- is
+#: read back correctly without guessing from a date or sniffing the data.
+ROCS_PUBLISHED_MAX = 2.0
+
+
 def build_scorers(cfg: Config, references: list[Chem.Mol]) -> list:
     """The objectives, in a fixed order: shape/colour, synthesizability, optionally QED.
 
-    The ROCS scorer carries no modifier, so its raw TanimotoCombo on [0, 2] is what enters
-    the reward and the metrics. Under Pareto ranking the scale does not affect which
-    molecule wins, and ``avg_gmean`` is scale-free in the same way: it responds to a
-    relative change in either objective equally, whatever their units.
+    The ROCS scorer carries a ``ClippedScore`` that puts its raw TanimotoCombo on [0, 1]
+    with the other two, so every objective reaches the reward on one scale; the published
+    [0, 2] value is what the analysis reports, via the recorded ``rocs_reward_scale``.
+    Under Pareto ranking the scale does not affect which molecule wins, and ``avg_gmean``
+    is scale-free in the same way: it responds to a relative change in either objective
+    equally, whatever their units.
     """
     rocs = ComboROCSScorer(
         conformer_generator=RelaxingConformerGenerator(cfg),
@@ -84,7 +95,7 @@ def build_scorers(cfg: Config, references: list[Chem.Mol]) -> list:
     # Reporting is unaffected: ShapeTanimoto and ColorTanimoto come from `components`
     # and are never modified, and the analysis reads raw TanimotoCombo as their exact
     # sum, so figures and report.md stay in published [0, 2] units for every run.
-    rocs.setModifier(ClippedScore(lower_x=0.0, upper_x=2.0))
+    rocs.setModifier(ClippedScore(lower_x=0.0, upper_x=ROCS_PUBLISHED_MAX))
     # Native Property, not a subclass: drugex's FAILURE_VALUES leaves an unscorable SA at
     # 10.0, the worst value on its own scale, which this descending modifier maps to 0.0.
     # Before that, a failure sat at 0.0 and the same modifier called it the best molecule

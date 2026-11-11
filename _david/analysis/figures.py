@@ -37,7 +37,7 @@ from _david.analysis._helpers import (
     pareto_rows,
     provenance_tag,
     reference_properties,
-    rocs_threshold_scale,
+    rocs_scale,
     scaffold_counts,
     scaffold_rows,
     scored_points,
@@ -541,10 +541,9 @@ def multiobjective_tradeoffs(
     )
 
     thr_map = dict(zip(objectives, thresholds))
-    # The manifest's ROCS threshold is in the units the reward used, which the scorer's
-    # ClippedScore puts on [0, 1]; this axis is the raw shape + colour sum on [0, 2].
-    # Without the factor the threshold line lands at half its true position.
-    rocs_thr = float(thr_map.get(objectives[0], 0.70)) * rocs_threshold_scale(a_u, objectives[0])
+    # The manifest's ROCS threshold is in the units that run's reward used; this axis is
+    # published TanimotoCombo. Without the factor the line lands at half its position.
+    rocs_thr = float(thr_map.get(objectives[0], 0.70)) * rocs_scale(config)
     # Map SA desirability threshold on [0, 1] back to physical raw SA [1, 10]
     sa_mod_thr = float(thr_map.get("SA", 0.63))
     sa_lo = float((config or {}).get("sa_reward_zero", 5.0))
@@ -1877,7 +1876,10 @@ def lead_to_seed_superposition(
     aligned_leads: list[tuple[Chem.Mol, Chem.Mol, dict[str, Any]]] = []
     for rank, (_, row) in enumerate(best_en.iterrows(), start=1):
         smiles = str(row["SMILES"])
-        pipe_score = float(row[objectives[0]])
+        # The enriched column, not the stored one: `best_en` already carries published
+        # TanimotoCombo, while row[objectives[0]] is whatever units the run stored. Panel
+        # B prints this beside the pose's own shape + colour, so the two must match.
+        pipe_score = float(row["ROCS"]) if "ROCS" in row else float(row[objectives[0]])
         try:
             res = align_lead_to_bank(
                 smiles, refs, generator, color_ff=color_ff, alignment_shape_weight=shape_wt

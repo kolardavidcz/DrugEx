@@ -32,6 +32,7 @@ from _david import provenance
 from _david import run as runner
 from _david.analysis import _helpers as analysis_helpers, figures, report as analysis
 from _david.metacentrum import campaign
+from _david.metacentrum.submit import Job
 from _david.scorers import conformers, objectives as scorers
 from _david.config import PROJECT_ROOT, Config
 from _david.training.explorer import DualCheckpointExplorer
@@ -695,7 +696,7 @@ class RewardSchemes(unittest.TestCase):
             modifier(np.array([0.0, 1.0, 2.0])), np.array([0.0, 0.5, 1.0]), atol=1e-9
         )
 
-    def test_a_rescaled_rocs_column_still_reports_and_thresholds_on_zero_to_two(self):
+    def test_every_table_reports_rocs_on_zero_to_two_whatever_it_stored(self):
         # The scorer's modifier halves the stored combo. Figures read ROCS as the
         # unmodified shape + colour sum, so a run from either side of that change is
         # drawn on [0, 2] -- and the manifest's threshold, which is in reward units,
@@ -711,11 +712,16 @@ class RewardSchemes(unittest.TestCase):
         )
         modified = raw.assign(RDKit_Aggregate_1refs_TanimotoCombo=[0.7, 0.4])
         col = "RDKit_Aggregate_1refs_TanimotoCombo"
-        self.assertEqual(analysis_helpers.rocs_threshold_scale(raw, col), 1.0)
-        self.assertEqual(analysis_helpers.rocs_threshold_scale(modified, col), 2.0)
-        for frame in (raw, modified):
-            enriched = analysis_helpers.enrich_descriptors(frame, col, "", {})
+        self.assertEqual(analysis_helpers.rocs_scale({}), 1.0)
+        self.assertEqual(analysis_helpers.rocs_scale({"rocs_reward_scale": 2.0}), 2.0)
+        self.assertEqual(analysis_helpers.rocs_scale(None), 1.0)
+        for frame, config in ((raw, {}), (modified, {"rocs_reward_scale": 2.0})):
+            enriched = analysis_helpers.enrich_descriptors(frame, col, "", config)
             self.assertEqual(list(enriched["ROCS"]), [1.4, 0.8])
+        # The per-epoch table has no components at all; it must still come back on [0, 2].
+        epochs = modified[["SMILES", "Valid", col]]
+        enriched = analysis_helpers.enrich_descriptors(epochs, col, "", {"rocs_reward_scale": 2.0})
+        self.assertEqual(list(enriched["ROCS"]), [1.4, 0.8])
 
     def test_the_environment_uses_the_scheme_it_was_given(self):
         env = scorers.build_environment([Property("SA")], [0.0], scorers.reward_scheme("WS"))
@@ -1145,10 +1151,12 @@ class Campaign(unittest.TestCase):
             (True, 20): 31.2,
         }
         for (minimize, conformers), peak in measured.items():
-            asked = campaign.memory_gb({"minimize": minimize, "max_conformers": conformers})
+            asked = campaign.MEMORY_GB
             # Twice the peak, not 1.2x: siblings of one configuration differ by ~5 GB.
             self.assertGreaterEqual(asked, peak * 2.0, f"minimize={minimize} c{conformers}")
-        self.assertEqual(campaign.memory_gb({"minimize": True, "max_conformers": 30}), 64)
+        self.assertEqual(campaign.MEMORY_GB, 64)
+        # The ad-hoc path must not be the one that still asks for the fatal 32 GB.
+        self.assertGreaterEqual(Job.mem, campaign.MEMORY_GB)
 
     def test_the_four_repeated_configurations_are_named(self):
         # The colour batch is centred on a cell the parent batch already holds. They are
