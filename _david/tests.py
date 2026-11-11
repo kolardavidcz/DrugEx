@@ -845,6 +845,18 @@ class StartMethod(unittest.TestCase):
                 list(range(40)),
             )
 
+    def test_a_multi_core_run_refuses_to_start_without_workers(self):
+        with patch.object(conformers, "_POOL_BROKEN", True):
+            self.assertIsNone(
+                runner._serial_run_refusal(small(n_jobs=1)),
+                "a one-core run is serial anyway and must still run",
+            )
+            refusal = runner._serial_run_refusal(small(n_jobs=16))
+            self.assertIsNotNone(refusal, "16 cores and no workers cannot finish a run")
+            self.assertIn("DRUGEX_MP_CONTEXT=fork", refusal)
+        with patch.object(conformers, "_POOL_BROKEN", False):
+            self.assertIsNone(runner._serial_run_refusal(small(n_jobs=16)))
+
 
 class ArmCompleteness(unittest.TestCase):
     def test_missing_short_and_unreadable_tables_are_incomplete(self):

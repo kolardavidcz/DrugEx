@@ -11,6 +11,7 @@ import argparse
 import dataclasses
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -27,12 +28,15 @@ from drugex.data.corpus.vocabulary import VocSmiles
 from drugex.training.generators.sequence_rnn import SequenceRNN
 from drugex.training.monitors import FileMonitor
 
+from drugex.training.scorers.parallel import capped_n_jobs
+
 from _david.config import PROJECT_ROOT, Config
 from _david.scorers.conformers import (
     FORCE_FIELD,
     RELAXATION_TALLY,
     build_reference,
     check_pool,
+    pool_is_healthy,
     use_double_precision_pickling,
 )
 from _david.training.explorer import DualCheckpointExplorer
@@ -238,6 +242,25 @@ def _arm_is_complete(path: Path, n: int) -> bool:
     )
 
 
+def _serial_run_refusal(cfg: Config) -> str | None:
+    """Why a run asking for several cores must not start when no worker can be created.
+
+    A multi-core run that has to score serially cannot finish: a default run is ~140
+    core-hours, which is nine hours on sixteen cores and six days on one. On the cluster
+    that is a job killed at walltime after burning its whole allocation, so it stops while
+    the run is seconds old instead. A one-core run is serial anyway and continues.
+    """
+    workers = capped_n_jobs(cfg.n_jobs if cfg.n_jobs > 0 else (os.cpu_count() or 1))
+    if pool_is_healthy() or workers <= 1:
+        return None
+    return (
+        f"{workers} cores were requested but no worker can start, and scoring one core at "
+        "a time does not finish inside any sensible walltime. Start the pipeline as "
+        "`python -m _david.run`, or set DRUGEX_MP_CONTEXT=fork, or --set n_jobs=1 to "
+        "accept a serial run."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -284,6 +307,12 @@ def main(argv: list[str] | None = None) -> int:
         manifest.data["provenance"]["source"]["revision"],
         manifest.data["provenance"]["source"]["dirty"],
     )
+
+    refusal = _serial_run_refusal(cfg)
+    if refusal:
+        logger.error("%s", refusal)
+        manifest.finish("failed", error=refusal)
+        return 2
 
     started = time.monotonic()
     try:
