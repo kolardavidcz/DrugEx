@@ -29,25 +29,25 @@ from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import FAILURE_VALUES, Property
 
 from _david import provenance
+from _david import run as runner
 from _david.analysis import figures, report as analysis
 from _david.metacentrum import campaign
 from _david.scorers import conformers, objectives as scorers
 from _david.config import PROJECT_ROOT, Config
 from _david.training.explorer import DualCheckpointExplorer
-from _david.run import _write_arm, config_from_args
+from _david.run import _arm_is_complete, _write_arm, config_from_args
 
 
 def small(**changes) -> Config:
-    """A config cheap enough to build a conformer from."""
-    return replace(
-        Config(),
-        max_conformers=2,
-        max_isomers=1,
-        reference_attempts=4,
-        reference_conformers=2,
-        n_jobs=1,
-        **changes,
-    )
+    """A config cheap enough to build a conformer from; ``changes`` may override any default."""
+    cheap = {
+        "max_conformers": 2,
+        "max_isomers": 1,
+        "reference_attempts": 4,
+        "reference_conformers": 2,
+        "n_jobs": 1,
+    }
+    return replace(Config(), **{**cheap, **changes})
 
 
 class FailureValues(unittest.TestCase):
@@ -691,6 +691,20 @@ class RewardSchemes(unittest.TestCase):
         self.assertIn("part of the reward", weighted)
         self.assertNotIn("stop condition only", weighted)
 
+    def test_a_saturated_prior_does_not_turn_ws_report_prose_into_pareto(self):
+        config = {
+            "scheme": "WS",
+            "threshold_percentile": 85.0,
+            "n_prior": 2,
+            "threshold_from_reference": [],
+            "sa_reward_one": 3.0,
+        }
+        prior = pd.DataFrame({"SA_raw": [2.5, 2.6], "Valid": [1, 1]})
+        prose = analysis._threshold_prose(config, {"prior": prior}, ["SA"], [0.5])
+        self.assertIn("WeightedSum", prose)
+        self.assertNotIn("Pareto reward is effectively the ROCS", prose)
+        self.assertNotIn("stop condition only", prose)
+
 
 class ScoringBatches(unittest.TestCase):
     """What ``batch_size`` chunks, and what it does not."""
@@ -756,7 +770,10 @@ class StartMethod(unittest.TestCase):
             def Pool(self, workers):
                 raise OSError(24, "Too many open files")
 
-        with patch.object(conformers, "pool_context", return_value=_Dead()):
+        with (
+            patch.object(conformers, "_POOL_BROKEN", False),
+            patch.object(conformers, "pool_context", return_value=_Dead()),
+        ):
             self.assertIn("broken", conformers.check_pool(timeout=1.0))
 
     def test_a_pool_that_hangs_is_bounded_and_terminated(self):
@@ -786,11 +803,113 @@ class StartMethod(unittest.TestCase):
 
         wedged = _Wedged()
         started = time.perf_counter()
-        with patch.object(conformers, "pool_context", return_value=wedged):
+        with (
+            patch.object(conformers, "_POOL_BROKEN", False),
+            patch.object(conformers, "pool_context", return_value=wedged),
+        ):
             result = conformers.check_pool(timeout=0.2)
         self.assertIn("broken", result)
         self.assertTrue(wedged.terminated, "a wedged pool must be terminated, not left running")
         self.assertLess(time.perf_counter() - started, 10.0)
+
+    def test_a_broken_probe_disables_production_pools(self):
+        class _Wedged:
+            def get_start_method(self):
+                return "forkserver"
+
+            def Pool(self, workers):
+                return self
+
+            def map_async(self, function, items):
+                return self
+
+            def get(self, timeout=None):
+                raise mp.TimeoutError()
+
+            def terminate(self):
+                pass
+
+            def join(self):
+                pass
+
+        with (
+            patch.object(conformers, "_POOL_BROKEN", False),
+            patch.object(conformers, "pool_context", return_value=_Wedged()),
+        ):
+            self.assertIn("broken", conformers.check_pool(timeout=0.01))
+            self.assertFalse(conformers.pool_is_healthy())
+            # Forty records would ordinarily use two workers. Another Pool() here would
+            # raise AttributeError because the wedged stub deliberately has no map().
+            self.assertEqual(
+                conformers._map(conformers._touch, list(range(40)), small(n_jobs=2)),
+                list(range(40)),
+            )
+
+
+class ArmCompleteness(unittest.TestCase):
+    def test_missing_short_and_unreadable_tables_are_incomplete(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "arm.tsv"
+            self.assertFalse(_arm_is_complete(path, 2))
+            pd.DataFrame(
+                {"SMILES": ["CC"], "Canonical": ["CC"], "Valid": [1], "Desired": [0]}
+            ).to_csv(path, sep="\t", index=False)
+            self.assertFalse(_arm_is_complete(path, 2), "a one-row table cannot satisfy n=2")
+            path.write_text("SMILES\tCanonical\tValid\tDesired\nnot a complete row")
+            self.assertFalse(_arm_is_complete(path, 1), "a truncated row must be rebuilt")
+            pd.DataFrame(
+                {
+                    "SMILES": ["CC", "CCC"],
+                    "Canonical": ["CC", "CCC"],
+                    "Valid": [1, 1],
+                    "Desired": [0, 1],
+                }
+            ).to_csv(path, sep="\t", index=False)
+            self.assertTrue(_arm_is_complete(path, 2))
+
+    def test_the_original_run_cannot_finish_complete_with_a_missing_arm(self):
+        cfg = small(n_final=2, fixed_thresholds=(0.5, 0.5))
+        env = types.SimpleNamespace(
+            getScorerKeys=lambda: ["ROCS", "SA"],
+            getScores=lambda smiles: pd.DataFrame({"ROCS": [0.5] * len(smiles)}),
+        )
+        explorer = unittest.mock.Mock()
+        explorer.fit.return_value = {"epochs_run": 1}
+
+        def complete_file(path, n):
+            return path.name != "final_gmean.tsv"
+
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            manifest = provenance.Manifest(run_dir / "manifest.json")
+            resolved = {"thresholds": [0.5, 0.5]}
+            with (
+                patch.object(runner, "build_reference", return_value=[Chem.MolFromSmiles("CC")]),
+                # Config is a frozen dataclass, so the method is patched on the class.
+                patch.object(Config, "pretrained", return_value=("agent", "vocabulary")),
+                patch.object(runner.VocSmiles, "fromFile"),
+                patch.object(runner, "_load"),
+                patch.object(runner, "_sample", return_value=["CC", "CC"]),
+                patch.object(
+                    runner,
+                    "calibrate_thresholds",
+                    return_value=(
+                        [0.5, 0.5],
+                        pd.DataFrame({"ROCS": [0.6, 0.4], "SA": [1.0, 1.0], "Valid": [1, 1]}),
+                    ),
+                ),
+                patch.object(runner, "build_environment", return_value=env),
+                patch.object(runner, "build_scorers"),
+                patch.object(runner, "_write_arm", return_value={}),
+                patch.object(runner, "_components", return_value={}),
+                patch.object(runner, "DualCheckpointExplorer", return_value=explorer),
+                patch.object(runner, "_arm_is_complete", side_effect=complete_file),
+                patch.object(analysis, "analyse"),
+            ):
+                status = runner._pipeline(cfg, run_dir, resolved, manifest, time.monotonic())
+            self.assertEqual(status, 1)
+            self.assertEqual(manifest.data["state"], "failed")
+            self.assertIn("gmean", manifest.data["error"])
 
 
 def _arm(scores: list[float], desired: list[int]) -> pd.DataFrame:
@@ -841,6 +960,11 @@ class BestModelGallery(unittest.TestCase):
     def test_no_trained_arm_means_no_figure(self):
         self.assertIsNone(figures.best_arm({"prior": _arm([0.9], [1])}, ["ROCS"]))
 
+    def test_all_invalid_trained_arms_do_not_promise_a_gallery(self):
+        invalid = _arm([0.0], [0])
+        invalid["Valid"] = 0
+        self.assertIsNone(figures.best_arm({"desired_ratio": invalid}, ["ROCS"]))
+
 
 class Campaign(unittest.TestCase):
     """The 148 planned runs. Every assertion here is a job that would die on a node."""
@@ -861,6 +985,8 @@ class Campaign(unittest.TestCase):
                 self.assertEqual(cfg.include_qed, settings["include_qed"], name)
                 self.assertEqual(cfg.color_ff, settings["color_ff"], name)
                 self.assertEqual(cfg.max_conformers, settings["max_conformers"], name)
+                for key, wanted in settings.items():
+                    self.assertEqual(getattr(cfg, key), wanted, f"{name}: {key}")
                 scorers.reward_scheme(cfg.scheme)
 
     def test_only_the_weighted_sum_batch_changes_the_reward(self):
@@ -870,11 +996,24 @@ class Campaign(unittest.TestCase):
                 self.assertEqual(settings["scheme"], wanted, job)
 
     def test_names_are_unique_and_decode_to_their_settings(self):
-        names = [job for batch in campaign.BATCHES.values() for job, _ in campaign.runs(batch)]
+        names = []
+        suffixes = {
+            "minimize": lambda v: f"m{int(v)}",
+            "epsilon": lambda v: f"e{int(v * 100):02d}",
+            "reference_conformers": lambda v: f"r{v}",
+            "max_conformers": lambda v: f"c{v}",
+            "include_qed": lambda v: f"q{int(v)}",
+            "color_ff": lambda v: {"default": "fd", "fdef": "ff", "oe_mills_dean": "fo"}[v],
+            "alignment_shape_weight": lambda v: f"s{int(v * 100):02d}",
+        }
+        for batch in campaign.BATCHES.values():
+            for name, settings in campaign.runs(batch):
+                expected = (
+                    batch.prefix + "_" + "".join(suffixes[key](settings[key]) for key in batch.axes)
+                )
+                self.assertEqual(name, expected, "every name must encode every varying setting")
+                names.append(name)
         self.assertEqual(len(names), len(set(names)), "a repeated name overwrites a spec")
-        self.assertIn("p_m1e05r4c20q0", names)
-        self.assertIn("w_e00q1", names)
-        self.assertIn("c_e05fos10q1", names)
 
     def test_no_run_sets_a_setting_the_job_owns(self):
         # output_root and n_jobs come from the PBS allocation; a delta would undo them.

@@ -63,8 +63,21 @@ def _touch(value):
     return value
 
 
+_POOL_BROKEN = False
+
+
+def pool_is_healthy() -> bool:
+    """Whether the startup probe proved that production workers can return a result."""
+    return not _POOL_BROKEN
+
+
 def check_pool(timeout: float = 20.0) -> str:
-    """Prove the configured start method can produce a worker, before a run depends on it.
+    """Prove workers can return a result; a failed probe disables every production pool.
+
+    Both scorer pools consult :func:`pool_is_healthy`. Recording a broken start method
+    in the manifest but entering an unbounded ``pool.map`` afterwards would hang on the
+    same fault the probe just found. Small batches were already serial; this makes every
+    batch serial after a failed probe.
 
     Every parallel path here degrades *silently*: a pool that cannot start is caught,
     logged and rescored serially, so the run still finishes -- a day later than it should
@@ -78,6 +91,8 @@ def check_pool(timeout: float = 20.0) -> str:
     _david.run`` has an importable main module and is safe; it is how ``job.py`` starts
     the run on the cluster, where ``DRUGEX_MP_CONTEXT=forkserver`` is set.
     """
+    global _POOL_BROKEN
+    _POOL_BROKEN = False
     context = pool_context()
     method = context.get_start_method()
     pool = None
@@ -89,6 +104,7 @@ def check_pool(timeout: float = 20.0) -> str:
         # it exists to protect. Measured: a broken forkserver spins until killed.
         pool.map_async(_touch, (1, 2)).get(timeout=timeout)
     except Exception as error:  # noqa: BLE001 - any failure here means "no workers"
+        _POOL_BROKEN = True
         logger.error(
             "multiprocessing start method %r cannot start a worker here (%s: %s). Every "
             "scoring stage will fall back to a single core. Start the pipeline as "
@@ -218,7 +234,12 @@ def _relax_one(record: Chem.Mol, cfg: Config) -> tuple[Chem.Mol | None, str]:
 def _map(fn, tasks: list, cfg: Config) -> list:
     """``map`` over a process pool, serially where a pool is unavailable or not worth it."""
     workers = capped_n_jobs(cfg.n_jobs if cfg.n_jobs > 0 else (os.cpu_count() or 1))
-    if len(tasks) < 32 or workers <= 1 or multiprocessing.current_process().daemon:
+    if (
+        len(tasks) < 32
+        or workers <= 1
+        or multiprocessing.current_process().daemon
+        or not pool_is_healthy()
+    ):
         return [fn(task) for task in tasks]
     try:
         # DrugEx's default start method (fork) on purpose: forkserver avoids the
@@ -412,7 +433,12 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
         # A flat floor, not a multiple of the worker count: at 32 cores the latter would
         # send every 50-molecule evaluation arm down the serial path, once per epoch.
         # Below this, forkserver startup costs more than the embedding saves.
-        if workers <= 1 or len(wanted) < 8 or multiprocessing.current_process().daemon:
+        if (
+            workers <= 1
+            or len(wanted) < 8
+            or multiprocessing.current_process().daemon
+            or not pool_is_healthy()
+        ):
             return Path(super().genConformers(smiles_list, out_dir))
 
         size = math.ceil(len(smiles_list) / workers)

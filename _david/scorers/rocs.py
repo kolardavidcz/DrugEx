@@ -47,6 +47,8 @@ from drugex.training.scorers.rocs_rdkit import (
     RDKitROCSScorer,
 )
 
+from _david.scorers.conformers import pool_is_healthy
+
 logger = logging.getLogger(__name__)
 
 #: Set in each pool worker by :func:`_worker_init`.
@@ -206,7 +208,12 @@ class ComboROCSScorer(RDKitROCSScorer):
         workers = capped_n_jobs(self.workers if self.workers > 0 else (os.cpu_count() or 1))
 
         results: list[tuple[int, list[tuple[float, float]]]]
-        if workers <= 1 or unique_count < 8 or multiprocessing.current_process().daemon:
+        if (
+            workers <= 1
+            or unique_count < 8
+            or multiprocessing.current_process().daemon
+            or not pool_is_healthy()
+        ):
             results = [
                 (
                     mol_id,

@@ -30,7 +30,15 @@ from pathlib import Path
 from drugex.data.corpus.vocabulary import VocSmiles
 
 from _david.config import Config
-from _david.run import ARMS, _components, _load, _sample, _seed_everything, _write_arm
+from _david.run import (
+    ARMS,
+    _arm_is_complete,
+    _components,
+    _load,
+    _sample,
+    _seed_everything,
+    _write_arm,
+)
 from _david.scorers.conformers import check_pool, use_double_precision_pickling
 from _david.scorers.objectives import build_environment, build_scorers, reward_scheme
 
@@ -69,7 +77,8 @@ def rebuild(run_dir: Path, force: bool = False) -> dict:
     missing = [
         name
         for name in ARMS
-        if name != "prior" and (force or not (run_dir / f"final_{name}.tsv").is_file())
+        if name != "prior"
+        and (force or not _arm_is_complete(run_dir / f"final_{name}.tsv", cfg.n_final))
     ]
     if not missing:
         logger.info("every arm is already written; nothing to rebuild")
@@ -125,7 +134,7 @@ def rebuild(run_dir: Path, force: bool = False) -> dict:
         still_missing = [
             name
             for name in ARMS
-            if name != "prior" and not (run_dir / f"final_{name}.tsv").is_file()
+            if name != "prior" and not _arm_is_complete(run_dir / f"final_{name}.tsv", cfg.n_final)
         ]
         manifest["state"] = "running" if still_missing else "complete"
         if still_missing:

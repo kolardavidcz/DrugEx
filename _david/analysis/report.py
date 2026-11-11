@@ -191,13 +191,19 @@ def _threshold_prose(
             float((valid_raw <= config.get("sa_reward_one", 3.0)).mean()) if len(valid_raw) else 0.0
         )
         if ceiling > 0.5:
+            sa_effect = (
+                "the tied SA term cannot distinguish those molecules; their ranking comes "
+                "from the other objectives, under the weights DrugEx computes"
+                if config.get("scheme", "PRCD") == "WS"
+                else "the Pareto reward is effectively the ROCS ranking"
+            )
             notes.append(
                 f"**SA barely shapes the reward.** {ceiling:.1%} of the valid prior sits "
                 f"at raw SA <= {config.get('sa_reward_one', 3.0):g}, where `ClippedScore` "
                 "returns exactly 1.0. Molecules tied at that ceiling cannot dominate one "
                 "another on the SA axis and contribute no crowding distance along it, so "
-                "for most of the population the Pareto reward is effectively the ROCS "
-                "ranking. This is a property of the *reward* and is not changed by where "
+                f"for most of the population {sa_effect}. This is a property of the "
+                "*reward* and is not changed by where "
                 "the threshold sits: widen the clip (`sa_reward_zero` / `sa_reward_one`) "
                 "if SA should be a gradient rather than a near-constant. The `SA_raw` "
                 "column shows what the modified column cannot."

@@ -44,7 +44,7 @@ class Config:
     fixed_thresholds: tuple[
         float, ...
     ] = ()  # ^[(), (1.0, 1.0)] per objective; overrides the percentile
-    threshold_percentile: float = 85.0  # percentile of the prior's own output; stop condition only
+    threshold_percentile: float = 85.0  # prior p85 for stop; WS also derives reward weights from it
     threshold_from_reference: tuple[str, ...] = ("SA", "QED")  # ^[(), ("SA",)] use EGCG's own value
     n_prior: int = 5000  # molecules sampled from the prior to calibrate the thresholds
     n_final: int = 5000  # molecules sampled from each checkpoint once the run ends

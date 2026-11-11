@@ -29,7 +29,7 @@ from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
 from rdkit import Chem
-from rdkit.Chem import Descriptors, Draw, rdMolAlign, rdMolDescriptors
+from rdkit.Chem import Descriptors, Draw, Lipinski, QED, rdMolDescriptors
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
 logger = logging.getLogger(__name__)
@@ -439,7 +439,7 @@ def best_arm(arms: dict[str, pd.DataFrame], objectives: list[str]) -> str | None
     best, ranked = None, (-1.0, -1.0)
     for name in ARMS:
         arm = arms.get(name)
-        if name == "prior" or arm is None or not len(arm):
+        if name == "prior" or arm is None or not len(arm) or _unique(arm).empty:
             continue
         unique = _unique(arm)
         score = (

@@ -221,6 +221,23 @@ def _write_arm(
     return ratios
 
 
+def _arm_is_complete(path: Path, n: int) -> bool:
+    """A full readable arm, not merely a file left behind by an interrupted writer."""
+    try:
+        table = pd.read_csv(path, sep="\t")
+    except (OSError, UnicodeError, pd.errors.ParserError, pd.errors.EmptyDataError):
+        return False
+    # Valid and Desired, not SMILES: an RNN can emit an empty string, which round-trips
+    # through the TSV as NaN in both SMILES and Canonical. A truncated final row leaves
+    # the trailing numeric columns empty, which is what this actually has to catch.
+    required = {"SMILES", "Canonical", "Valid", "Desired"}
+    return (
+        len(table) == n
+        and required.issubset(table.columns)
+        and not table[["Valid", "Desired"]].isna().any().any()
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -256,10 +273,9 @@ def main(argv: list[str] | None = None) -> int:
         gpus=list(DEFAULT_GPUS) if DEFAULT_GPUS else [],
         provenance=describe(PROJECT_ROOT),
         # Recorded, because it decides whether this run had 16 cores or one of them.
-        # Run here, before the first stage, for two reasons: a start method that cannot
-        # produce a worker is reported while the run is seconds old rather than silently
-        # halving its throughput for a day, and the forkserver bootstrap (measured: 5.2 s,
-        # once per process) is paid here instead of inside the first scoring call.
+        # Probe before the reference bank. A failed probe disables every production
+        # pool, so scoring is deliberately serial rather than entering another unbounded
+        # map with the same broken start method. The probe's own workers are then closed.
         mp_context=check_pool(),
         config=resolved,
     )
@@ -412,13 +428,21 @@ def _pipeline(
     except Exception:
         logger.exception("analysis failed; rerun it with: python -m _david.analysis %s", run_dir)
 
+    incomplete = [
+        name
+        for name in ARMS
+        if name != "prior" and not _arm_is_complete(run_dir / f"final_{name}.tsv", cfg.n_final)
+    ]
+    if incomplete:
+        logger.error("incomplete final arms: %s", ", ".join(incomplete))
     manifest.finish(
-        "complete",
+        "failed" if incomplete else "complete",
         finished=datetime.now().isoformat(timespec="seconds"),
         elapsed_seconds=round(time.monotonic() - started, 1),
+        error="incomplete final arms: " + ", ".join(incomplete) if incomplete else None,
     )
     logger.info("done: %s", run_dir)
-    return 0
+    return 1 if incomplete else 0
 
 
 if __name__ == "__main__":
