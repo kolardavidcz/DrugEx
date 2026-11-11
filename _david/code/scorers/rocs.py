@@ -1,25 +1,17 @@
 """The shape/colour scorer: one pose search, three numbers, one objective.
 
-Native DrugEx computes ShapeTanimoto and ColorTanimoto in the same pose loop and then
-throws one of them away -- native's ``score_type`` picks which number comes back. Reading all three
-therefore costs three full pose searches through the native scorer, which is the dominant
-cost of a run. This subclass owns the loop, so it reports the configured score *and*
-records the two components of the winning pose, for free.
+Native computes ShapeTanimoto and ColorTanimoto in the same pose loop and throws one
+away, so reading all three through native costs three pose searches -- the dominant cost
+of a run. This subclass owns the loop and records both components of the winning pose for
+free. It also separates ``AlignMol``'s ``opt_param`` (what the pose optimiser maximises)
+from ``score_type`` (what is reported), which native ties together; the reported score
+stays shape + colour on [0, 2] whatever the alignment objective, so runs stay comparable.
 
-It also exposes what native keeps internal: ``AlignMol``'s ``opt_param``, the weight the
-pose optimiser maximises (1.0 shape-only, 0.5 equal, 0.0 colour-only). Native derives it
-from ``score_type``, so changing the alignment objective there also changes which number
-is reported and on what scale. Here the two are separate: the alignment objective moves,
-the reported score stays ``shape + colour`` on [0, 2], and runs remain comparable.
+The components are diagnostics, never objectives: ``getKey`` returns one key, so a
+two-objective run cannot silently become a four-objective one. A test pins the count.
 
-**The components are diagnostics, never objectives.** ``getKey`` returns exactly one key,
-so ``DrugExEnvironment.getScorerKeys()`` sees one column and ``ParetoCrowdingDistance``
-optimises one shape objective. Returning three keys would silently turn a two-objective
-run into a four-objective one -- the class of bug this codebase exists to avoid. There is
-a test pinning the key count.
-
-Only ``_score_sequential`` is overridden, so conformer generation, SMILES de-duplication,
-conformer-name parsing and reference grouping all stay native.
+Only ``_score_sequential`` is overridden -- conformer generation, de-duplication, name
+parsing and reference grouping stay native.
 """
 
 from __future__ import annotations

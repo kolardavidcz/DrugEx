@@ -1,19 +1,13 @@
 """What a run needs to be re-creatable later: versions, revision, host, and a state.
 
-``config.json`` records what was asked for. This records what actually ran, which is a
-different question and the one a thesis has to answer two years later. The three parts
-that matter:
+``config.json`` records what was asked for; this records what actually ran. Three parts
+carry the weight:
 
-* **the native kernel's fingerprint.** Every number in this project comes out of
-  ``drugex/training/scorers/rocs_rdkit.py`` and its two neighbours. The archived conformer
-  study is only comparable with a run whose kernel is byte-identical to the one it
-  measured, and "same commit" does not prove that in a tree someone edited by hand. A
-  SHA-256 per file does.
-* **a state.** A run killed at walltime leaves a directory that looks complete. Without a
-  state a reader cannot tell a finished run from a corpse, and the analysis will happily
-  plot half of one.
-* **the environment.** ``DRUGEX_MP_CONTEXT`` and the thread caps change timing, not
-  results; the library versions change results.
+* **the kernel fingerprint** -- a SHA-256 per native scorer file. "Same commit" does not
+  prove a byte-identical kernel in a tree someone edited by hand.
+* **a state** -- a run killed at walltime leaves a directory that looks complete, and the
+  analysis will happily plot half of one.
+* **the environment** -- the thread caps change timing, the library versions change results.
 """
 
 from __future__ import annotations

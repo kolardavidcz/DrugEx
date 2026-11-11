@@ -1,21 +1,15 @@
-"""Rebuild a run's final arms from its checkpoints: ``python -m _david.code.score_arms <run_dir>``.
+"""Rebuild a run's final arms from its checkpoints: ``python -m _david.code.score_arms <run>``.
 
-The final stage samples and scores four arms of ``n_final`` molecules each -- about a
-quarter of a run's compute, and it happens *after* training. A walltime kill or a fault
-there leaves a directory with valid checkpoints, a manifest stuck at ``running`` and no
-arm tables, and training cannot be resumed: ``fit`` always restarts from the pretrained
-weights. Without this the whole run is lost to recover a stage that only needs the files
-already on disk.
+The final stage is a quarter of a run's compute and happens after training, so a
+walltime kill or an OOM there leaves valid checkpoints and no arm tables -- and training
+cannot be resumed, since ``fit`` always restarts from the pretrained weights. This
+recovers that stage from files already on disk.
 
-Nothing here re-derives anything: the configuration, thresholds and objectives come from
-the run's own ``config.json`` and the policies from its own ``models/*.pkg``, so a rebuilt
-arm is scored against exactly what the run scored against.
-
-It is **not** the same draw. The run's RNG state at the final stage depends on all of
-training, which cannot be reconstructed, so a rebuilt arm is the same policy sampled
-again. Sampling is seeded from ``Config.seed`` so that two rebuilds agree with each
-other, and the manifest records which arms were rebuilt. Arms that already exist are left
-alone, so this is safe to re-run after a partial recovery.
+Everything comes from the run's own ``config.json`` and ``models/*.pkg``, so a rebuilt
+arm is scored against what the run scored against. It is **not** the same draw: the RNG
+state at the final stage depends on all of training. Sampling is seeded from
+``Config.seed`` so two rebuilds agree, existing arms are left alone, and the manifest
+records which were rebuilt.
 """
 
 from __future__ import annotations

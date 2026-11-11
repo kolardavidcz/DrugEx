@@ -29,27 +29,19 @@ def _save_atomically(state, path: Path) -> None:
 class DualCheckpointExplorer(SequenceExplorer):
     """``SequenceExplorer`` tracking ``desired_ratio`` and ``avg_gmean`` independently.
 
-    DrugEx fits against a single ``criteria``, so a native run yields one checkpoint. This
-    experiment wants both, because they answer different questions: ``desired_ratio`` is
-    how much of the output clears every objective's threshold, ``avg_gmean`` is how good
-    the output is on average without letting one objective collapse.
+    DrugEx fits one ``criteria`` and yields one checkpoint; these two answer different
+    questions, so three are written:
 
-    - ``desired_ratio.pkg`` holds the best ``desired_ratio`` seen. It is frozen the first
-      time that metric's patience window expires, and is never written again even if
-      ``desired_ratio`` improves later;
-    - ``desired_ratio_at_stop.pkg`` is the live policy at that same freeze epoch. The two
-      differ by up to ``patience`` epochs of training, and reading the spec either way is
-      defensible, so both are written and the thesis can report either without a rerun;
-    - ``gmean.pkg`` holds the best ``avg_gmean`` seen.
+    - ``desired_ratio.pkg`` -- best ``desired_ratio``, frozen when its patience expires
+      and never rewritten after;
+    - ``desired_ratio_at_stop.pkg`` -- the live policy at that same epoch, up to
+      ``patience`` epochs further trained. Either reading is defensible, so both exist;
+    - ``gmean.pkg`` -- best ``avg_gmean``.
 
-    The run ends only once *both* patience windows have expired, so neither criterion is
-    cut short by the other: stopping on ``avg_gmean`` alone would end a run while
-    ``desired_ratio`` was still improving.
-
-    DrugEx's periodic best-state reload is not implemented here at all. Copying a past
-    checkpoint back over the live agent every n epochs would mean the policy the run ends
-    on is not the policy it trained into, and neither checkpoint would be a plain record
-    of an epoch.
+    The run ends only once *both* patience windows expire, so neither criterion cuts the
+    other short. DrugEx's periodic best-state reload is deliberately absent: copying a
+    past checkpoint over the live agent would mean the policy the run ends on is not the
+    one it trained into.
     """
 
     def __init__(

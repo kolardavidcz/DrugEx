@@ -26,17 +26,10 @@ from _david.code.config import Config
 
 logger = logging.getLogger(__name__)
 
-#: The only force field in this project. MMFF94s, the "static" variant: it planarises
-#: delocalised trigonal nitrogen so that a single minimised structure matches the
-#: time-averaged geometry crystallography observes, which is what this pipeline produces
-#: -- we minimise to a local minimum and score it, never run dynamics. Halgren introduced
-#: the variant for exactly this case ("MMFF94s option for energy minimization studies").
-#: EGCG has no nitrogen, so the reference bank is bit-identical either way. Measured on
-#: sulfanilamide: the *aniline* N planarises 131.7 deg -> 173.8 deg (0.031 A heavy-atom
-#: RMSD) while the sulfonamide N does not move at all (135.4 deg under both). So the
-#: variant reaches nitrogen conjugated into a ring, not sulfonamides -- an earlier note
-#: here named the wrong nitrogen of the same molecule. Not a config knob -- the two arms are "relaxed" and "not relaxed",
-#: never "relaxed under a different force field".
+#: MMFF94s, the "static" variant: it planarises delocalised trigonal nitrogen, which is
+#: what a single minimised structure needs to match the time-averaged geometry
+#: crystallography sees. Not a config knob -- the two arms are "relaxed" and "not
+#: relaxed", never "relaxed under a different force field".
 FORCE_FIELD = "MMFF94s"
 
 #: Every relaxation outcome of the run, by reason. Three reasons drop a conformer in the
@@ -57,7 +50,6 @@ PROTONATE = False
 #: alike. It runs before stereoisomer enumeration in DrugEx, which is load-bearing.
 CANONICALIZE_TAUTOMER = True
 
-
 def _touch(value):
     """A task a worker can run. Module level on purpose: forkserver and spawn workers
     import the function by qualified name, so a nested definition cannot be sent."""
@@ -75,29 +67,14 @@ def pool_is_healthy() -> bool:
 def check_pool(timeout: float = 300.0) -> str:
     """Prove workers can return a result; a failed probe disables every production pool.
 
-    Both scorer pools consult :func:`pool_is_healthy`. Recording a broken start method
-    in the manifest but entering an unbounded ``pool.map`` afterwards would hang on the
-    same fault the probe just found. Small batches were already serial; this makes every
-    batch serial after a failed probe.
+    Without it a pool that cannot start is caught, logged and rescored serially, so the
+    run finishes a day late with nothing in the output saying why. Easy to hit: forkserver
+    children re-import ``__main__``, so a heredoc-launched run has ``<stdin>`` as its main
+    module and every worker dies. Start with ``python -m _david.code.run``.
 
-    Every parallel path here degrades *silently*: a pool that cannot start is caught,
-    logged and rescored serially, so the run still finishes -- a day later than it should
-    have. On 16 cores that is the difference between 20 hours and most of a week, with
-    nothing in the output saying why.
-
-    The failure is real and easy to hit. ``forkserver`` and ``spawn`` children re-import
-    ``__main__`` (``multiprocessing.spawn.prepare``), so a pipeline started from a
-    heredoc -- ``python - <<EOF`` -- has a ``__main__`` of ``<stdin>``, which does not
-    exist on disk, and *every* worker dies with ``FileNotFoundError``. ``python -m
-    _david.code.run`` has an importable main module and is safe; it is how ``job.py`` starts
-    the run on the cluster, where ``DRUGEX_MP_CONTEXT=forkserver`` is set.
-
-    The timeout is patience, not a budget: a healthy probe returns as soon as the workers
-    answer, so a generous bound costs a healthy run nothing. It has to be generous because
-    a forkserver child re-imports the main module, and on the cluster the venv is on NFS:
-    importing torch, rdkit and drugex measured 14.4 s on the frontend with a warm-ish
-    cache, and the first 20 s-bounded probe on a compute node timed out and killed 148
-    queued jobs in twenty seconds each. Five minutes of patience against a 24 h walltime.
+    The timeout is patience, not a budget -- a healthy probe returns immediately. It must
+    be generous because that re-import loads torch, rdkit and drugex off NFS (14.4 s
+    measured); a 20 s bound once killed all 148 queued jobs.
     """
     global _POOL_BROKEN
     _POOL_BROKEN = False
@@ -147,11 +124,10 @@ def use_double_precision_pickling() -> None:
 
 
 def _force_field(mol: Chem.Mol, cfg: Config):
-    """An MMFF94 force field for ``mol``, or None when MMFF has no parameters for it.
+    """An MMFF94s force field for ``mol``, or None when MMFF has no parameters for it.
 
-    There is deliberately no fallback to another force field: relaxing part of a library
-    under different physics would make two molecules' scores incomparable for a reason
-    nothing in the output records.
+    No fallback to another force field: relaxing part of a library under different
+    physics makes two molecules' scores incomparable for a reason nothing records.
     """
     if not AllChem.MMFFHasAllMoleculeParams(mol):
         return None
@@ -162,12 +138,11 @@ def _force_field(mol: Chem.Mol, cfg: Config):
 
 
 def single_point_energy(mol: Chem.Mol, cfg: Config) -> float:
-    """Force-field energy of ``mol`` as it stands, without moving an atom.
+    """Energy of ``mol`` as it stands, without moving an atom.
 
-    Infinity when MMFF cannot parameterize the molecule, so an unscorable conformer sorts
-    last instead of sorting first on a fabricated 0.0 kcal/mol. This ranks the reference
-    bank and runs whether or not ``minimize`` is set, so the relaxed and unrelaxed arms
-    differ in exactly one respect rather than also in how their bank was ordered.
+    Infinity when MMFF cannot parameterize it, so an unscorable conformer sorts last
+    rather than first on a fabricated 0.0. Runs whether or not ``minimize`` is set, so
+    the two arms differ in one respect and not also in how their bank was ordered.
     """
     field = _force_field(mol, cfg)
     if field is None:
@@ -360,18 +335,12 @@ def relax_sdf(path: Path, cfg: Config) -> list[Chem.Mol]:
 def _embed_shard(args: tuple[int, list[str], dict, str]) -> str:
     """Embed one slice of the batch with a plain native generator, in a worker process.
 
-    ``offset`` is where this slice began in the caller's list. Native titles conformers
-    ``mol_<index>`` and the scorer maps them back to input molecules by that index, so a
-    worker that numbered from zero would attribute every molecule's conformers to the
-    wrong SMILES. The index is rewritten to the global one here.
-
-    ``num_threads=1``: parallelism is across molecules now, so letting each worker thread
-    internally as well would oversubscribe the allocation.
-
-    A path is returned rather than the molecules themselves. RDKit pickles properties only
-    when ``SetDefaultPickleProperties`` has been called, so returning molecules would make
-    the conformer titles -- and with them every molecule's identity -- depend on a global
-    set in another module. Writing an SDF and handing back its path cannot lose them.
+    Native titles conformers ``mol_<index>`` and the scorer maps them back by that index,
+    so the worker's local index is rewritten to the global one or every molecule's
+    conformers are attributed to the wrong SMILES. ``num_threads=1`` because parallelism
+    is across molecules now. A path comes back rather than molecules: RDKit pickles
+    properties only when ``SetDefaultPickleProperties`` has been called, so returning
+    molecules would make identity depend on a global set in another module.
     """
     offset, smiles, kwargs, out_dir = args
     shard = Path(out_dir) / f"shard_{offset}"
@@ -497,19 +466,11 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
 def build_reference(cfg: Config, out_path: Path) -> list[Chem.Mol]:
     """Generate the reference conformer bank from ``cfg.reference_smiles``.
 
-    Embed ``reference_attempts`` conformers through the same generator the candidates use,
-    then pick ``reference_conformers`` of them by *geometric diversity*
-    rather than by energy rank. The bank is one ROCS group, so a candidate's score is its
-    best overlay against any conformer in it -- which is exactly why the bank should span
-    the accessible shapes instead of clustering in the lowest-energy basin.
-
-    Energy anchors and orders; it never filters, and that is deliberate. Taking the N
-    lowest-energy conformers is the worst of the available strategies: on the Platinum set
-    it retained a pose within 1 A of the crystal conformation for 57.6 % of ligands, versus
-    67.8 % for unbiased sampling and 72.7 % for RMSD-diversity selection, and it did not
-    beat unbiased sampling for any N > 1. Force-field energies rank conformers poorly in
-    the first place (MMFF94 vs QM: median Spearman -0.10), and bound ligands sit 4-6
-    kcal/mol above the global minimum about half the time. See ``DECISIONS.md``.
+    Picked by geometric diversity, not energy rank: the bank is one ROCS group, so a
+    candidate scores against its best member and the bank should span the accessible
+    shapes. Energy anchors and orders, never filters -- lowest-N energy is the worst
+    strategy on the Platinum set (57.6% of ligands within 1 A of the crystal pose against
+    72.7% for RMSD diversity). Evidence in ``DECISIONS.md``.
     """
     # timeout=0 (native: "no timeout"): cfg.timeout is a per-isomer wall-clock cap meant
     # to bound the ~10 % of *generated* molecules that will not embed cleanly. The
