@@ -30,7 +30,7 @@ from drugex.training.scorers.properties import FAILURE_VALUES, Property
 
 from _david import provenance
 from _david import run as runner
-from _david.analysis import figures, report as analysis
+from _david.analysis import _helpers as analysis_helpers, figures, report as analysis
 from _david.metacentrum import campaign
 from _david.scorers import conformers, objectives as scorers
 from _david.config import PROJECT_ROOT, Config
@@ -679,21 +679,43 @@ class RewardSchemes(unittest.TestCase):
         tight = scheme(["C", "CC", "CCC"], values, np.array([0.8, 0.1]))
         self.assertFalse(np.allclose(loose, tight), "WS must respond to its thresholds")
 
-    def test_only_weighted_sum_rescales_rocs_onto_the_other_objectives(self):
+    def test_every_objective_reaches_the_reward_on_the_same_scale(self):
         # WS dots its weights with the raw columns, so TanimotoCombo on [0, 2] carries
         # twice the leverage of SA and QED and the reward leaves [0, 1]. Pareto ranking
         # is affine-invariant, so the same modifier would be a no-op there and is not
         # applied -- which keeps the reported ROCS of 144 of 148 runs in published units.
-        for scheme, rescaled in (("WS", True), ("PRCD", False), ("PRTD", False)):
+        for scheme in ("WS", "PRCD", "PRTD"):
             cfg = small(scheme=scheme)
             rocs = scorers.build_scorers(cfg, [Chem.MolFromSmiles("c1ccccc1")])[0]
-            self.assertEqual(rocs.getModifier() is not None, rescaled, scheme)
+            self.assertIsNotNone(rocs.getModifier(), scheme)
         modifier = scorers.build_scorers(
             small(scheme="WS"), [Chem.MolFromSmiles("c1ccccc1")]
         )[0].getModifier()
         np.testing.assert_allclose(
             modifier(np.array([0.0, 1.0, 2.0])), np.array([0.0, 0.5, 1.0]), atol=1e-9
         )
+
+    def test_a_rescaled_rocs_column_still_reports_and_thresholds_on_zero_to_two(self):
+        # The scorer's modifier halves the stored combo. Figures read ROCS as the
+        # unmodified shape + colour sum, so a run from either side of that change is
+        # drawn on [0, 2] -- and the manifest's threshold, which is in reward units,
+        # has to be scaled to match or the line lands at half its true position.
+        raw = pd.DataFrame(
+            {
+                "SMILES": ["c1ccccc1", "CCO"],
+                "Valid": [1, 1],
+                "RDKit_Aggregate_1refs_TanimotoCombo": [1.4, 0.8],
+                "ShapeTanimoto": [0.9, 0.5],
+                "ColorTanimoto": [0.5, 0.3],
+            }
+        )
+        modified = raw.assign(RDKit_Aggregate_1refs_TanimotoCombo=[0.7, 0.4])
+        col = "RDKit_Aggregate_1refs_TanimotoCombo"
+        self.assertEqual(analysis_helpers.rocs_threshold_scale(raw, col), 1.0)
+        self.assertEqual(analysis_helpers.rocs_threshold_scale(modified, col), 2.0)
+        for frame in (raw, modified):
+            enriched = analysis_helpers.enrich_descriptors(frame, col, "", {})
+            self.assertEqual(list(enriched["ROCS"]), [1.4, 0.8])
 
     def test_the_environment_uses_the_scheme_it_was_given(self):
         env = scorers.build_environment([Property("SA")], [0.0], scorers.reward_scheme("WS"))

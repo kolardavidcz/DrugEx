@@ -158,7 +158,18 @@ def enrich_descriptors(
     if frame is None or frame.empty:
         return pd.DataFrame()
     df = frame.copy()
-    if rocs_col and rocs_col in df.columns:
+    # Shape + colour, not the stored combo column. The scorer carries a ClippedScore
+    # that puts the reward on [0, 1], so the stored TanimotoCombo of a run made after
+    # that change is half of the published value -- while the 52 runs finished before it
+    # hold the raw [0, 2]. The two components are never modified, and combo is exactly
+    # their sum (verified to 0.0e+00 across every finished arm), so reconstructing it
+    # here keeps every figure and every table in one unit whichever side of the change
+    # a run came from.
+    if {"ShapeTanimoto", "ColorTanimoto"} <= set(df.columns):
+        df["ROCS"] = pd.to_numeric(df["ShapeTanimoto"], errors="coerce") + pd.to_numeric(
+            df["ColorTanimoto"], errors="coerce"
+        )
+    elif rocs_col and rocs_col in df.columns:
         df["ROCS"] = pd.to_numeric(df[rocs_col], errors="coerce")
     elif "ROCS" not in df.columns:
         rocs_cands = [c for c in df.columns if c.startswith("RDKit_")]
@@ -433,6 +444,37 @@ def _graph_framework(scaffold_smiles: str, core: Chem.Mol) -> str:
             cached = ""
         _GENERIC_FRAMEWORKS[scaffold_smiles] = cached
     return cached
+
+
+def rocs_threshold_scale(frame: pd.DataFrame, rocs_col: str | None = None) -> float:
+    """Factor taking a stored ROCS threshold into the units the figures report.
+
+    The scorer carries a ClippedScore that puts every objective on [0, 1], so the stored
+    TanimotoCombo column -- and every threshold derived from it -- is half the published
+    value. ROCS is reported as the raw ``ShapeTanimoto + ColorTanimoto`` sum on [0, 2],
+    because those two are never modified. Runs finished before that change stored the
+    raw combo and need no conversion, so the factor is read off the data rather than
+    guessed from a date or a config flag: it is the ratio between the two columns.
+    """
+    if frame is None or frame.empty or not {"ShapeTanimoto", "ColorTanimoto"} <= set(frame.columns):
+        return 1.0
+    column = rocs_col if rocs_col in frame.columns else next(
+        (c for c in frame.columns if "TanimotoCombo" in c), None
+    )
+    if column is None:
+        return 1.0
+    stored = pd.to_numeric(frame[column], errors="coerce")
+    components = pd.to_numeric(frame["ShapeTanimoto"], errors="coerce") + pd.to_numeric(
+        frame["ColorTanimoto"], errors="coerce"
+    )
+    usable = stored.notna() & components.notna() & (stored > 1e-6)
+    if not usable.any():
+        return 1.0
+    ratio = float((components[usable] / stored[usable]).median())
+    # Only ever 1 (raw) or 2 (modified); anything else means the columns disagree for a
+    # reason this does not understand, and silently halving a threshold line would be
+    # worse than leaving it where the manifest put it.
+    return 2.0 if abs(ratio - 2.0) < 0.01 else 1.0
 
 
 def scaffold_counts(frame: pd.DataFrame, generic: bool = False) -> pd.Series:

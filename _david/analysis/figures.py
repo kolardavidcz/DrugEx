@@ -37,6 +37,7 @@ from _david.analysis._helpers import (
     pareto_rows,
     provenance_tag,
     reference_properties,
+    rocs_threshold_scale,
     scaffold_counts,
     scaffold_rows,
     scored_points,
@@ -540,7 +541,10 @@ def multiobjective_tradeoffs(
     )
 
     thr_map = dict(zip(objectives, thresholds))
-    rocs_thr = float(thr_map.get(objectives[0], 0.70))
+    # The manifest's ROCS threshold is in the units the reward used, which the scorer's
+    # ClippedScore puts on [0, 1]; this axis is the raw shape + colour sum on [0, 2].
+    # Without the factor the threshold line lands at half its true position.
+    rocs_thr = float(thr_map.get(objectives[0], 0.70)) * rocs_threshold_scale(a_u, objectives[0])
     # Map SA desirability threshold on [0, 1] back to physical raw SA [1, 10]
     sa_mod_thr = float(thr_map.get("SA", 0.63))
     sa_lo = float((config or {}).get("sa_reward_zero", 5.0))
