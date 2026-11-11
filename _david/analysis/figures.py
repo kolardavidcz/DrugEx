@@ -1575,6 +1575,36 @@ def objective_conflict_correlations(
 # --------------------------------------------------------------------------------------
 
 
+def _spread_scaffolds(counts: pd.Series, k: int) -> list[str]:
+    """The ``k`` scaffolds of ``counts`` that are least like each other.
+
+    Panel C ranks cores by prevalence, and a collapsed run's twelve commonest cores are
+    twelve decorations of one chemistry -- true and unreadable. This walks the other
+    axis: start at the commonest core and repeatedly take whichever remaining scaffold
+    is farthest from everything already taken (max-min ECFP4 distance), so the panel
+    shows how wide the arm's chemistry actually got. Prevalence stays in each legend, so
+    a core that is one molecule in five thousand still reads as one.
+    """
+    scaffolds = [s for s in counts.index if s]
+    if len(scaffolds) <= k:
+        return scaffolds
+    mols = [Chem.MolFromSmiles(s) for s in scaffolds]
+    pairs = [(s, m) for s, m in zip(scaffolds, mols) if m is not None]
+    if len(pairs) <= k:
+        return [s for s, _ in pairs]
+    fps = [rdMolDescriptors.GetMorganFingerprintAsBitVect(m, 2, nBits=2048) for _, m in pairs]
+    chosen = [0]
+    nearest = 1.0 - np.array(DataStructs.BulkTanimotoSimilarity(fps[0], fps))
+    for _ in range(k - 1):
+        nxt = int(np.argmax(nearest))
+        chosen.append(nxt)
+        nearest = np.minimum(
+            nearest, 1.0 - np.array(DataStructs.BulkTanimotoSimilarity(fps[nxt], fps))
+        )
+        nearest[nxt] = -1.0
+    return [pairs[i][0] for i in chosen]
+
+
 def scaffold_diversity(
     arms: dict[str, pd.DataFrame],
     out: Path,
@@ -1593,6 +1623,10 @@ def scaffold_diversity(
         return None
     b_counts = scaffold_counts(arms["prior"]) if "prior" in arms else pd.Series(dtype=int)
     a_counts = scaffold_counts(arms[win]) if win in arms else pd.Series(dtype=int)
+    # The graph framework in the legend beside the Murcko count, because the gap between
+    # them is how much of a run's apparent diversity is heteroatom decoration of one core.
+    b_graphs = scaffold_counts(arms["prior"], generic=True) if "prior" in arms else pd.Series(dtype=int)
+    a_graphs = scaffold_counts(arms[win], generic=True) if win in arms else pd.Series(dtype=int)
     if a_counts.empty and b_counts.empty:
         return None
 
@@ -1608,10 +1642,12 @@ def scaffold_diversity(
     jaccard = len(shared) / len(a_set | b_set) if (a_set | b_set) else 0.0
     prov = provenance_tag(config, reference)
 
-    fig = plt.figure(figsize=(20, 8.6), dpi=200)
-    # 1 : 1 : 2 -- the two statistics panels are small plots, the scaffold grid is the
-    # figure's subject and needs half the width to be legible at 12 cores.
-    grid = fig.add_gridspec(1, 4)
+    fig = plt.figure(figsize=(20, 17.5), dpi=200)
+    # Row 1 is 1 : 1 : 2 -- the two statistics panels are small plots, the scaffold grid
+    # is the figure's subject and needs half the width to be legible at 12 cores. Row 2
+    # is the whole width, because panel D's job is breadth and it shows its cores larger
+    # than C does.
+    grid = fig.add_gridspec(2, 4)
     fig.suptitle(
         f"Bemis-Murcko Scaffold Space: Concentration, De Novo Novelty & Dominant Cores ({win} vs prior)\n{prov}",
         fontsize=12.2,
@@ -1622,8 +1658,8 @@ def scaffold_diversity(
     # Panel A: Scaffold Concentration Curve
     ax1 = fig.add_subplot(grid[0, 0])
     for counts, color, label in [
-        (b_counts, "#64748B", f"Baseline Prior ({len(b_counts)} scaffolds)"),
-        (a_counts, "#4F46E5", f"Reinforced ({win}: {len(a_counts)} scaffolds)"),
+        (b_counts, "#64748B", f"Baseline Prior ({len(b_counts)} scaffolds, {len(b_graphs)} frameworks)"),
+        (a_counts, "#4F46E5", f"Reinforced ({win}: {len(a_counts)} scaffolds, {len(a_graphs)} frameworks)"),
     ]:
         if counts.empty:
             continue
@@ -1716,7 +1752,34 @@ def scaffold_diversity(
         ax3.text(0.5, 0.5, "Insufficient scaffold data", ha="center", va="center")
         ax3.axis("off")
 
-    plt.tight_layout(rect=[0, 0.02, 1, 0.92])
+    # Panel D: the widest 12 scaffolds this arm reached
+    ax4 = fig.add_subplot(grid[1, :])
+    spread = _spread_scaffolds(a_counts, 12)
+    spread_mols = [Chem.MolFromSmiles(s) for s in spread]
+    if spread_mols and all(m is not None for m in spread_mols):
+        img = Draw.MolsToGridImage(
+            spread_mols,
+            molsPerRow=4,
+            subImgSize=(420, 330),
+            legends=[
+                f"{a_counts[s] / total * 100:.1f}% | {'NEW' if s in novel else 'shared'}"
+                for s in spread
+            ],
+            useSVG=False,
+        )
+        ax4.imshow(img)
+        ax4.axis("off")
+        ax4.set_title(
+            f"(D) The 12 most dissimilar {win} scaffolds, farthest-point on ECFP4 from the "
+            "most common one (prevalence | novelty)",
+            fontsize=11,
+            fontweight="bold",
+        )
+    else:
+        ax4.text(0.5, 0.5, "Insufficient scaffold data", ha="center", va="center")
+        ax4.axis("off")
+
+    plt.tight_layout(rect=[0, 0.02, 1, 0.94])
     target_png = out / f"{name}.png"
     plt.savefig(target_png, dpi=200, bbox_inches="tight")
     plt.close(fig)

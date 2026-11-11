@@ -416,14 +416,44 @@ def compute_2d_skyline(
     return sky_arr[:, 0], sky_arr[:, 1]
 
 
-def scaffold_counts(frame: pd.DataFrame) -> pd.Series:
-    """Bemis-Murcko scaffold counts of unique valid molecules, excluding acyclic chains."""
+#: Murcko scaffold SMILES -> its graph framework. Every arm is counted twice (once for
+#: report.md's table, once for figure 07's legend) and 07b counts them again, while many
+#: molecules share one scaffold -- on a collapsed arm, 1905 molecules over 84 scaffolds.
+#: Keying the cache on the scaffold rather than the molecule collapses all of that.
+_GENERIC_FRAMEWORKS: dict[str, str] = {}
+
+
+def _graph_framework(scaffold_smiles: str, core: Chem.Mol) -> str:
+    """Bemis and Murcko's graph framework: every atom carbon, every bond single."""
+    cached = _GENERIC_FRAMEWORKS.get(scaffold_smiles)
+    if cached is None:
+        try:
+            cached = Chem.MolToSmiles(MurckoScaffold.MakeScaffoldGeneric(core))
+        except Exception:
+            cached = ""
+        _GENERIC_FRAMEWORKS[scaffold_smiles] = cached
+    return cached
+
+
+def scaffold_counts(frame: pd.DataFrame, generic: bool = False) -> pd.Series:
+    """Bemis-Murcko scaffold counts of unique valid molecules, excluding acyclic chains.
+
+    ``generic`` returns the *graph* framework instead -- Bemis and Murcko's second
+    definition, every atom carbon and every bond single. A collapsed run decorates one
+    chemistry with heteroatom swaps, and phenyl -> thiophene -> pyridine mints a new
+    Murcko scaffold each time while the series is unchanged; the graph framework does not
+    move. Measured on this campaign's worst arm the counts are 84 against 51, and on its
+    healthiest 1980 against 879, so the plain count flatters a wide run most.
+    """
     scaffolds = []
     for mol in parse_mols(unique(frame)["SMILES"]):
         try:
-            smi = Chem.MolToSmiles(MurckoScaffold.GetScaffoldForMol(mol))
+            core = MurckoScaffold.GetScaffoldForMol(mol)
+            smi = Chem.MolToSmiles(core)
         except Exception:
             continue
+        if smi and generic:
+            smi = _graph_framework(smi, core)
         if smi:
             scaffolds.append(smi)
     return pd.Series(scaffolds, dtype=str).value_counts()
@@ -432,6 +462,7 @@ def scaffold_counts(frame: pd.DataFrame) -> pd.Series:
 def scaffold_rows(arms: dict[str, pd.DataFrame]) -> dict[str, dict]:
     """Scaffold concentration and novelty vs the prior for figure 07 and report.md."""
     counts = {name: scaffold_counts(arms[name]) for name in ARMS if name in arms}
+    graphs = {name: scaffold_counts(arms[name], generic=True) for name in counts}
     prior = set(counts["prior"].index) if "prior" in counts else set()
     rows: dict[str, dict] = {}
     for name, series in counts.items():
@@ -439,9 +470,11 @@ def scaffold_rows(arms: dict[str, pd.DataFrame]) -> dict[str, dict]:
             continue
         molecules = int(series.sum())
         novel = [s for s in series.index if s not in prior]
+        graph = graphs.get(name, pd.Series(dtype=int))
         rows[name] = {
             "molecules": molecules,
             "scaffolds": int(series.size),
+            "graph_frameworks": int(graph.size),
             "unique_fraction": round(series.size / molecules, 4),
             "top_share": round(float(series.iloc[0]) / molecules, 4),
             "de_novo_scaffolds": "n/a" if name == "prior" or not prior else len(novel),
