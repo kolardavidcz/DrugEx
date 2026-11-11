@@ -129,6 +129,9 @@ SECONDARY_ARM = "desired_ratio"
 #: separate by Tanimoto distance) applied to what gets drawn rather than to the reward.
 LEAD_SIMILARITY_CEILING = 0.7
 
+#: Rows of progressively more distinct molecules drawn under the lead row in figure 05.
+SPREAD_ROWS = 2
+
 #: The policy training actually ended on, as opposed to the best epoch either criterion
 #: checkpointed. The lead galleries draw this one: a card of the molecules a *selected*
 #: checkpoint produced answers "what is the best this run ever did", which is not the
@@ -1080,6 +1083,11 @@ def _render_lead_cards(
     max_leads: int = 5,
 ) -> Path | None:
     u = _unique(arm_df)
+    # Only molecules that cleared every threshold are drawn. A card is a claim that the
+    # run produced something worth looking at, and a molecule below the thresholds is
+    # not that however well it overlays -- the arm's own `Desired` column is the test.
+    if "Desired" in u.columns:
+        u = u[pd.to_numeric(u["Desired"], errors="coerce").fillna(0).astype(int) == 1]
     if u.empty:
         return None
     ref_smi = (config or {}).get("reference_smiles", "")
@@ -1089,7 +1097,7 @@ def _render_lead_cards(
     prov = provenance_tag(config, reference)
 
     top_row: list[dict[str, Any]] = []
-    second_row: list[dict[str, Any]] = []
+    spread_rows: list[list[dict[str, Any]]] = []
     seen_smiles: set[str] = set()
 
     if depicter.ref_mol is not None:
@@ -1187,40 +1195,68 @@ def _render_lead_cards(
                 repeats += 0 if distinct_only else 1
         return repeats
 
-    # Row 1: Desired molecules ranked by ROCS (or overall top ROCS if fewer than max_leads are Desired)
-    def _lead_title(row: pd.Series, taken: int, distinct: bool) -> str:
-        rank = taken if depicter.ref_mol is not None else taken + 1
-        desired = int(pd.to_numeric(row.get("Desired", 0), errors="coerce") or 0) == 1
-        label = f"LEAD #{rank}" if desired else f"#{rank} (not desired)"
-        return label if distinct else f"{label} (analogue)"
-
+    # Row 1: the best of the desired molecules, by the first objective.
+    by_score = en.sort_values(by="ROCS", ascending=False)
     repeats = _fill(
         top_row,
-        en.sort_values(by=["Desired", "ROCS"] if "Desired" in en.columns else ["ROCS"], ascending=False),
+        by_score,
         max_leads + (1 if depicter.ref_mol is not None else 0),
-        _lead_title,
+        lambda row, taken, distinct: (
+            f"LEAD #{taken if depicter.ref_mol is not None else taken + 1}"
+            + ("" if distinct else " (analogue)")
+        ),
     )
-
-    # Row 2: Next best ROCS hits, again one card per chemotype
-    repeats += _fill(
-        second_row,
-        en.sort_values(by="ROCS", ascending=False),
-        max_leads,
-        lambda row, taken, distinct: f"ROCS #{taken + 1}"
-        + ("" if distinct else " (analogue)"),
-    )
-
     if not top_row:
         return None
 
-    display_mols = [card["mol"] for card in top_row + second_row if card is not None]
+    # The rows below walk away from those leads. A second row of next-best-by-ROCS was
+    # five more of the same chemistry, which the ranking guarantees and which taught
+    # nothing; distance from the leads is the axis with something left to show. Every
+    # card is still a desired molecule, so the grid reads "best" to "most different
+    # thing that still cleared the thresholds" rather than "best" to "worst".
+    lead_fps = [
+        rdMolDescriptors.GetMorganFingerprintAsBitVect(card["mol"], 2, nBits=2048)
+        for card in top_row
+        if not card["is_seed"]
+    ]
+    if lead_fps:
+        remaining = by_score[~by_score["Canonical"].astype(str).isin(seen_smiles)].copy()
+        if not remaining.empty:
+            far = []
+            for can in remaining["Canonical"].astype(str):
+                mol = Chem.MolFromSmiles(can)
+                if mol is None:
+                    far.append(-1.0)
+                    continue
+                fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048)
+                far.append(1.0 - max(DataStructs.BulkTanimotoSimilarity(fp, lead_fps)))
+            remaining["_from_leads"] = far
+            # Ascending: the grid grows more distinct as it is read, row by row.
+            ordered = remaining[remaining["_from_leads"] >= 0].sort_values("_from_leads")
+            for _ in range(SPREAD_ROWS):
+                row_cards: list[dict[str, Any]] = []
+                repeats += _fill(
+                    row_cards,
+                    ordered[~ordered["Canonical"].astype(str).isin(seen_smiles)],
+                    max_leads,
+                    lambda row, taken, distinct: (
+                        f"d={row['_from_leads']:.2f} from leads"
+                        + ("" if distinct else " (analogue)")
+                    ),
+                )
+                if not row_cards:
+                    break
+                spread_rows.append(row_cards)
+
+    flat_spread = [card for row in spread_rows for card in row]
+    display_mols = [card["mol"] for card in top_row + flat_spread if card is not None]
     depicter.prepare_template(display_mols)
-    for card in top_row + second_row:
+    for card in top_row + flat_spread:
         card["mol"] = depicter.align_molecule(card["mol"])
 
     rows: list[list[dict[str, Any] | None]] = [top_row]
-    if second_row:
-        rows.append([None] + second_row if depicter.ref_mol is not None else second_row)
+    for row_cards in spread_rows:
+        rows.append([None] + row_cards if depicter.ref_mol is not None else row_cards)
 
     ncols = max(len(r) for r in rows)
     nrows = len(rows)
@@ -1266,11 +1302,11 @@ def _render_lead_cards(
             ax.axis("off")
             card = row_cards[c_idx] if c_idx < len(row_cards) else None
             if card is None:
-                if r_idx == 1 and c_idx == 0 and second_row:
+                if r_idx >= 1 and c_idx == 0 and spread_rows:
                     ax.text(
                         0.5,
                         0.62,
-                        f"ADDITIONAL ROCS HITS\n\nNext-{len(second_row)} by TanimotoCombo,\nexcluding Row 1 leads",
+                        f"MORE DISTINCT\n(row {r_idx} of {len(spread_rows)})\n\nstill desired, ordered by\nECFP4 distance from the leads",
                         transform=ax.transAxes,
                         ha="center",
                         va="center",
@@ -1418,15 +1454,18 @@ def lead_structures_gallery(
     # chemotypes there were: five distinct cards drawn from 40 scaffolds and five drawn
     # from 1900 are the same picture of very different runs. enrich_descriptors caches
     # per molecule, so this re-uses the work _render_lead_cards is about to do.
-    scaffolds = enrich_descriptors(u, objectives[0], (config or {}).get("reference_smiles", ""), config)
+    drawn = u[pd.to_numeric(u["Desired"], errors="coerce").fillna(0).astype(int) == 1] if "Desired" in u else u
+    scaffolds = enrich_descriptors(
+        drawn, objectives[0], (config or {}).get("reference_smiles", ""), config
+    )
     n_scaffolds = int(scaffolds["Scaffold"].replace("", np.nan).nunique()) if not scaffolds.empty else 0
     return _render_lead_cards(
         frame,
         objectives,
         out / f"{name}.png",
-        "Prioritized Leads (row 1) vs. Best-ROCS Hits (row 2), one card per chemotype — "
-        f"Arm: {win} (desired={des:.3f}, {len(u)} unique / {len(frame)} sampled, "
-        f"{n_scaffolds} Murcko scaffolds)",
+        "Top leads (row 1), then progressively more distinct molecules — desired only, "
+        f"one card per chemotype. Arm: {win} (desired={des:.3f}, {len(drawn)} desired of "
+        f"{len(u)} unique / {len(frame)} sampled, {n_scaffolds} Murcko scaffolds among them)",
         config=config,
         reference=reference,
     )
@@ -1798,7 +1837,14 @@ def _leads_for_3d(
     frame = arms.get(name)
     if frame is None or _unique(frame).empty:
         return None
-    return name, _unique(frame).nlargest(TOP_3D, objectives[0])
+    # Same rule as the lead gallery: a molecule below the thresholds is not a lead, so
+    # it does not get a pose drawn against the reference either.
+    pool = _unique(frame)
+    if "Desired" in pool.columns:
+        desired = pool[pd.to_numeric(pool["Desired"], errors="coerce").fillna(0).astype(int) == 1]
+        if not desired.empty:
+            pool = desired
+    return name, pool.nlargest(TOP_3D, objectives[0])
 
 
 def lead_to_seed_superposition(
