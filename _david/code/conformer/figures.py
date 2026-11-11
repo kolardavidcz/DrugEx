@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from _david.conformer.config import StudyConfig
+from _david.code.conformer.config import StudyConfig
 
 logger = logging.getLogger(__name__)
 

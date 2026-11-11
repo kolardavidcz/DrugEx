@@ -1,4 +1,4 @@
-"""Run this pipeline on MetaCentrum: ``python -m _david.metacentrum.submit <command>``.
+"""Run this pipeline on MetaCentrum: ``python -m _david.code.metacentrum.submit <command>``.
 
     check                 ssh, the storage venv, the staged release, the queue
     sync                  stage HEAD on storage without submitting
@@ -23,10 +23,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from _david.config import PROJECT_ROOT, Config
+from _david.code.config import PROJECT_ROOT, Config
 
 #: ssh alias and account. Never switch aliases: the Kerberos ticket is bound to this one.
-PACKAGE = "_david"
+PACKAGE = "_david/code"
 
 HOST = "meta"
 USER = "kolardavidcz"
@@ -125,8 +125,8 @@ def _tracked_at_head() -> set[str]:
 
 def validate_deltas(deltas: list[str]) -> None:
     """Parse the overrides here, so a bad one fails now rather than on the worker node."""
-    from _david.run import config_from_args
-    from _david.scorers.objectives import reward_scheme
+    from _david.code.run import config_from_args
+    from _david.code.scorers.objectives import reward_scheme
 
     try:
         # Resolved, not just parsed: `scheme` is a string field, so a typo survives
@@ -256,7 +256,7 @@ def submit(job: Job, revision: str | None = None) -> str:
         f"walltime={job.walltime}",
         "-v",
         f"RUN_SPEC={spec},STORAGE_DIR={STORAGE},RELEASE_DIR={release}",
-        f"{release}/_david/metacentrum/pbs_launcher.sh",
+        f"{release}/_david/code/metacentrum/pbs_launcher.sh",
     ]
     print(f"queue    : {job.queue or 'routed by walltime (' + job.walltime + ')'}")
     print(f"resources: {job.resources}, walltime={job.walltime}")

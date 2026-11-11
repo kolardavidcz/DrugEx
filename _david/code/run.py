@@ -1,4 +1,4 @@
-"""Run the pipeline: ``python -m _david.run [--set name=value ...] [--tag name]``.
+"""Run the pipeline: ``python -m _david.code.run [--set name=value ...] [--tag name]``.
 
 Stages: reference bank -> prior baseline and thresholds -> RL -> one evaluation arm per
 checkpoint -> figures and report. Everything the run resolved is written to
@@ -30,8 +30,8 @@ from drugex.training.monitors import FileMonitor
 
 from drugex.training.scorers.parallel import capped_n_jobs
 
-from _david.config import PROJECT_ROOT, Config
-from _david.scorers.conformers import (
+from _david.code.config import PROJECT_ROOT, Config
+from _david.code.scorers.conformers import (
     FORCE_FIELD,
     RELAXATION_TALLY,
     build_reference,
@@ -39,9 +39,9 @@ from _david.scorers.conformers import (
     pool_is_healthy,
     use_double_precision_pickling,
 )
-from _david.training.explorer import DualCheckpointExplorer
-from _david.provenance import ARTIFACTS, Manifest, describe, digest
-from _david.scorers.objectives import (
+from _david.code.training.explorer import DualCheckpointExplorer
+from _david.code.provenance import ARTIFACTS, Manifest, describe, digest
+from _david.code.scorers.objectives import (
     ROCS_PUBLISHED_MAX,
     build_environment,
     build_scorers,
@@ -258,7 +258,7 @@ def _serial_run_refusal(cfg: Config) -> str | None:
     return (
         f"{workers} cores were requested but no worker can start, and scoring one core at "
         "a time does not finish inside any sensible walltime. Start the pipeline as "
-        "`python -m _david.run`, or set DRUGEX_MP_CONTEXT=fork, or --set n_jobs=1 to "
+        "`python -m _david.code.run`, or set DRUGEX_MP_CONTEXT=fork, or --set n_jobs=1 to "
         "accept a serial run."
     )
 
@@ -426,7 +426,7 @@ def _pipeline(
         except Exception:
             logger.exception(
                 "arm %s failed; the others continue. Rebuild it later with: "
-                "python -m _david.score_arms %s",
+                "python -m _david.code.score_arms %s",
                 name,
                 run_dir,
             )
@@ -455,13 +455,13 @@ def _pipeline(
     )
 
     # Imported here, and never allowed to fail the run: by this point every number is on
-    # disk, and `python -m _david.analysis <run_dir>` reproduces the figures.
+    # disk, and `python -m _david.code.analysis <run_dir>` reproduces the figures.
     try:
-        from _david.analysis.report import analyse
+        from _david.code.analysis.report import analyse
 
         analyse(run_dir)
     except Exception:
-        logger.exception("analysis failed; rerun it with: python -m _david.analysis %s", run_dir)
+        logger.exception("analysis failed; rerun it with: python -m _david.code.analysis %s", run_dir)
 
     incomplete = [
         name

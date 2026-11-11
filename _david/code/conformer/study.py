@@ -1,7 +1,7 @@
 """Measure how well a molecule's conformer ensemble recovers its own shape, and at what cost.
 
-    python -m _david.conformer --set smiles='CCO' --set name=ethanol
-    python -m _david.conformer --set repeats=3 --set methods='ETKDG,MMFF94s_e78.4'
+    python -m _david.code.conformer --set smiles='CCO' --set name=ethanol
+    python -m _david.code.conformer --set repeats=3 --set methods='ETKDG,MMFF94s_e78.4'
 
 One molecule in, one directory out: ``measurements.tsv`` (one row per grid cell),
 ``references.tsv`` (the one-time bank cost, per method and seed), ``config.json`` and the
@@ -47,12 +47,12 @@ from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnum
 
 from drugex.training.scorers.parallel import capped_n_jobs, pool_context
 
-from _david.conformer.config import METHODS, RANKING_FALLBACK, Method, StudyConfig
+from _david.code.conformer.config import METHODS, RANKING_FALLBACK, Method, StudyConfig
 
 # The scoring seam the pipeline itself uses: best (shape, colour) over every
 # conformer-reference pair, with native's per-molecule guard. Importing it rather than
 # reimplementing it is the point -- the study must measure the pipeline's scorer.
-from _david.scorers.rocs import _annotate_color_features, _best_for_molecule
+from _david.code.scorers.rocs import _annotate_color_features, _best_for_molecule
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +161,7 @@ def _relax(mols: list[Chem.Mol], method: Method, cfg: StudyConfig) -> list[Chem.
         # Minimised on a copy. Minimize() writes coordinates back as it iterates, so
         # minimising in place and then catching the exception kept a half-moved geometry
         # -- neither ETKDG's pose nor a minimum -- under the name of a minimised method.
-        # The pipeline avoids it the same way (_david/scorers/conformers.py:201).
+        # The pipeline avoids it the same way (_david/code/scorers/conformers.py:201).
         working = Chem.Mol(mol)
         field = force_field(working, method, cfg)
         if field is None:
@@ -183,7 +183,7 @@ def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig
 
     Energy anchors the bank at the global minimum; every further pose is the one whose
     closest already-kept neighbour is furthest away, on heavy atoms. Identical rule to
-    ``_david/scorers/conformers.build_reference`` -- see its comment for the evidence.
+    ``_david/code/scorers/conformers.build_reference`` -- see its comment for the evidence.
     """
     if not mols:
         return []
@@ -451,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("grid finished in %.1f s", time.perf_counter() - started)
 
     if not args.no_figures:
-        from _david.conformer import figures
+        from _david.code.conformer import figures
 
         figures.render_all(measurements, cfg, out_dir)
     print(out_dir)

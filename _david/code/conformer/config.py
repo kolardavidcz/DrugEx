@@ -1,6 +1,6 @@
 """Every setting of a self-similarity study, in one place.
 
-House style follows ``_david/config.py``: one frozen dataclass, one line of comment per
+House style follows ``_david/code/config.py``: one frozen dataclass, one line of comment per
 field, alternatives written as ``# ^[a, b, c]``. Override on the command line with
 ``--set name=value``; the resolved config is written to the study directory as
 ``config.json``.
@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from _david.config import EGCG, PROJECT_ROOT
+from _david.code.config import EGCG, PROJECT_ROOT
 
 
 #: A generation method: which force field relaxes the embedded conformers, and under what
@@ -40,7 +40,7 @@ class Method:
 
 
 #: The methods the study compares. MMFF94s at eps=78.4 is the pipeline's own setting
-#: (`_david/scorers/conformers.py`), so it is the row every other row is read against.
+#: (`_david/code/scorers/conformers.py`), so it is the row every other row is read against.
 #: eps=1 is the gas-phase control that `DECISIONS.md` cites [Gur17] against; MMFF94 is the
 #: unplanarised variant MMFF94s replaced; UFF is the force field [Kan17] ranked worst.
 METHODS: dict[str, Method] = {
@@ -55,7 +55,7 @@ METHODS: dict[str, Method] = {
 
 
 #: The force field a reference pool is energy-ranked with when the method has none of its
-#: own. ``_david/scorers/conformers._force_field`` is not gated on ``cfg.minimize``, so the
+#: own. ``_david/code/scorers/conformers._force_field`` is not gated on ``cfg.minimize``, so the
 #: pipeline ranks even an *unminimised* bank by MMFF94s energy. Ranking the ETKDG row by
 #: nothing anchored its bank on embedding order instead, and moved the headline number.
 RANKING_FALLBACK = METHODS["MMFF94s_e78.4"]

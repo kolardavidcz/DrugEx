@@ -25,7 +25,7 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import Descriptors, Draw, QED, rdMolDescriptors
 from scipy.stats import gaussian_kde
 
-from _david.analysis._helpers import (
+from _david.code.analysis._helpers import (
     ARMS,
     AlignedDepicter,
     align_lead_to_bank,

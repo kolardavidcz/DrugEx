@@ -26,7 +26,7 @@ from contextlib import suppress
 from pathlib import Path
 
 #: Proof that a staged release is complete rather than half-extracted.
-ENTRY_POINT = Path("_david") / "run.py"
+ENTRY_POINT = Path("_david") / "code" / "run.py"
 
 SPEC_KEYS = ("name", "args", "source", "revision")
 REQUIRED_ENV = ("PBS_JOBID", "SCRATCHDIR", "STORAGE_DIR", "RUN_SPEC")
@@ -114,7 +114,7 @@ def run_command(python: Path, output_root: Path, cpus: int, spec: dict) -> list[
         str(python),
         "-u",
         "-m",
-        "_david.run",
+        "_david.code.run",
         "--tag",
         spec["name"],
         "--set",
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         if missing:
             raise JobError(
                 f"missing PBS environment: {', '.join(missing)}. Submit through "
-                "`python -m _david.submit submit`."
+                "`python -m _david.code.submit submit`."
             )
         storage = Path(env["STORAGE_DIR"])
         scratch = Path(env["SCRATCHDIR"])

@@ -47,7 +47,7 @@ from drugex.training.scorers.rocs_rdkit import (
     RDKitROCSScorer,
 )
 
-from _david.scorers.conformers import pool_is_healthy
+from _david.code.scorers.conformers import pool_is_healthy
 
 logger = logging.getLogger(__name__)
 

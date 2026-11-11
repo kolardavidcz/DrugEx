@@ -9,7 +9,7 @@ evidence, and what would overturn it.
 
 **Status:** selected · **Confidence:** moderate · **Cheap to reverse:** yes
 
-Settings in `_david/config.py`: `minimize = True`, **MMFF94s** (`conformers.FORCE_FIELD`),
+Settings in `_david/code/config.py`: `minimize = True`, **MMFF94s** (`conformers.FORCE_FIELD`),
 `dielectric = 78.4`, `dielectric_model = 1`, `max_conformers = 20` (lowered from 30), `reference_conformers = 4`,
 `reference_rmsd = 0.5`, `max_iterations = 500`, `PROTONATE = False`.
 

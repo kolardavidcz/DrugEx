@@ -1,6 +1,6 @@
 """Figures and a summary table for a finished run.
 
-``python -m _david.analysis <run_dir>`` reads only what the run wrote, so it can be
+``python -m _david.code.analysis <run_dir>`` reads only what the run wrote, so it can be
 re-run on any old run directory and never touches training. Every number comes from a file
 in that directory; nothing is rescored here, because rescoring with a setting other than
 the one the run used is how two different numbers for one molecule happen.
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from _david.analysis import figures as figures_module
-from _david.analysis._helpers import rocs_scale
+from _david.code.analysis import figures as figures_module
+from _david.code.analysis._helpers import rocs_scale
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def _configurable(config: dict) -> dict:
     """Only the keys ``Config`` actually declares, coerced back from the JSON manifest."""
     import dataclasses
 
-    from _david.config import Config
+    from _david.code.config import Config
 
     fields = {f.name: f.type for f in dataclasses.fields(Config)}
     out = {}
@@ -344,8 +344,8 @@ def analyse(run_dir: Path) -> Path:
     reference = run_dir / "reference.sdf"
     if reference.is_file():
         try:
-            from _david.config import Config
-            from _david.scorers.conformers import RelaxingConformerGenerator
+            from _david.code.config import Config
+            from _david.code.scorers.conformers import RelaxingConformerGenerator
 
             generator = RelaxingConformerGenerator(Config(**_configurable(config)))
         except Exception:
@@ -519,7 +519,7 @@ def analyse(run_dir: Path) -> Path:
         "## files",
         "",
         "Every artifact this run wrote. The figures are regenerated from these tables "
-        "alone by `python -m _david.analysis <run_dir>`, which rescores nothing.",
+        "alone by `python -m _david.code.analysis <run_dir>`, which rescores nothing.",
         "",
         _artifacts(run_dir, written),
         "",
@@ -533,7 +533,7 @@ def analyse(run_dir: Path) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_dir", type=Path, help="a run directory written by _david.run")
+    parser.add_argument("run_dir", type=Path, help="a run directory written by _david.code.run")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     analyse(args.run_dir)

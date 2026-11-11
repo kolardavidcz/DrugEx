@@ -1,4 +1,4 @@
-"""Rebuild a run's final arms from its checkpoints: ``python -m _david.score_arms <run_dir>``.
+"""Rebuild a run's final arms from its checkpoints: ``python -m _david.code.score_arms <run_dir>``.
 
 The final stage samples and scores four arms of ``n_final`` molecules each -- about a
 quarter of a run's compute, and it happens *after* training. A walltime kill or a fault
@@ -29,8 +29,8 @@ from pathlib import Path
 
 from drugex.data.corpus.vocabulary import VocSmiles
 
-from _david.config import Config
-from _david.run import (
+from _david.code.config import Config
+from _david.code.run import (
     ARMS,
     _arm_is_complete,
     _components,
@@ -40,8 +40,8 @@ from _david.run import (
     _serial_run_refusal,
     _write_arm,
 )
-from _david.scorers.conformers import check_pool, use_double_precision_pickling
-from _david.scorers.objectives import (
+from _david.code.scorers.conformers import check_pool, use_double_precision_pickling
+from _david.code.scorers.objectives import (
     ROCS_PUBLISHED_MAX,
     build_environment,
     build_scorers,
@@ -185,12 +185,12 @@ def main(argv: list[str] | None = None) -> int:
     for name, ratios in rebuilt.items():
         print(f"{name}: {ratios}")
     try:
-        from _david.analysis.report import analyse
+        from _david.code.analysis.report import analyse
 
         analyse(args.run_dir)
     except Exception:
         logger.exception(
-            "analysis failed; rerun it with: python -m _david.analysis %s", args.run_dir
+            "analysis failed; rerun it with: python -m _david.code.analysis %s", args.run_dir
         )
     return 0
 

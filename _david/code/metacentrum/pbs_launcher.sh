@@ -21,4 +21,4 @@ set -euo pipefail
 PYTHON="$STORAGE_DIR/.venv/bin/python"
 [ -x "$PYTHON" ] || { echo "missing validated environment: $PYTHON" >&2; exit 1; }
 
-exec "$PYTHON" "$RELEASE_DIR/_david/metacentrum/job.py" --release "$RELEASE_DIR"
+exec "$PYTHON" "$RELEASE_DIR/_david/code/metacentrum/job.py" --release "$RELEASE_DIR"

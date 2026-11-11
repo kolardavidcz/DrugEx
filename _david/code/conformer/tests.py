@@ -1,4 +1,4 @@
-"""Tests for the self-similarity study: ``python -m unittest _david.conformer.tests``.
+"""Tests for the self-similarity study: ``python -m unittest _david.code.conformer.tests``.
 
 Two of these exist to stop specific, previously-made mistakes rather than to raise
 coverage: that the study's force field is still the pipeline's force field, and that the
@@ -17,10 +17,10 @@ import numpy as np
 import pandas as pd
 from rdkit import Chem
 
-from _david.config import Config
-from _david.conformer import figures, study
-from _david.conformer.config import METHODS, StudyConfig
-from _david.scorers.conformers import single_point_energy
+from _david.code.config import Config
+from _david.code.conformer import figures, study
+from _david.code.conformer.config import METHODS, StudyConfig
+from _david.code.scorers.conformers import single_point_energy
 
 ETHANOL = "CCO"
 #: Small, rigid and fully specified: one stereoisomer, embeds in milliseconds.
@@ -62,7 +62,7 @@ class ForceFieldMatchesThePipeline(unittest.TestCase):
             mine,
             theirs,
             places=6,
-            msg="the study's MMFF94s eps=78.4 has drifted from _david/scorers/conformers.py",
+            msg="the study's MMFF94s eps=78.4 has drifted from _david/code/scorers/conformers.py",
         )
 
     def test_mmff94_and_mmff94s_agree_only_when_there_is_no_nitrogen(self):
@@ -79,7 +79,7 @@ class ForceFieldMatchesThePipeline(unittest.TestCase):
         params = AllChem.ETKDGv3()
         params.randomSeed = 7
 
-        from _david.config import EGCG
+        from _david.code.config import EGCG
 
         nitrogen_free = Chem.AddHs(Chem.MolFromSmiles(EGCG))
         AllChem.EmbedMolecule(nitrogen_free, params=params)

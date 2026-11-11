@@ -1,8 +1,8 @@
 """The planned sweep: 148 runs in three batches.
 
-    python -m _david.metacentrum.campaign              # all three batches, nothing submitted
-    python -m _david.metacentrum.campaign parent       # one batch, exactly as it would be sent
-    python -m _david.metacentrum.campaign parent --submit   # stage HEAD once, then qsub all 96
+    python -m _david.code.metacentrum.campaign              # all three batches, nothing submitted
+    python -m _david.code.metacentrum.campaign parent       # one batch, exactly as it would be sent
+    python -m _david.code.metacentrum.campaign parent --submit   # stage HEAD once, then qsub all 96
 
 Nothing leaves this machine without ``--submit``; the default prints the plan. Submission
 validates every delta of the whole batch first, so a typo stops the campaign before the
@@ -20,7 +20,7 @@ import argparse
 import itertools
 from dataclasses import dataclass, field
 
-from _david.metacentrum.submit import STORAGE, Job, remote, submit, sync, validate_deltas
+from _david.code.metacentrum.submit import STORAGE, Job, remote, submit, sync, validate_deltas
 
 #: Pinned in every run of every batch. Each is an axis some *other* batch varies, so
 #: writing it out makes each spec state the whole experiment instead of inheriting half

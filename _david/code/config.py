@@ -13,7 +13,8 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# parents[2]: this file is _david/code/config.py, so the repo root is two levels up.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 #: Epigallocatechin gallate. A default example, not a special case: the pipeline applies
 #: the same preparation and scoring to any reference molecule.

@@ -2,7 +2,7 @@
 
 Written 2026-11-10, at `feature/david-mmff94s-pipeline`. The comparison is against
 `~/WITH_BUGS_drugex/_david/code/` (the tree this project was restarted from), and it is about
-**method, not files**: a line-by-line diff is meaningless because `_david/` was written from
+**method, not files**: a line-by-line diff is meaningless because `_david/code/` was written from
 scratch rather than edited. Every claim below names the file and line on both sides so it can be
 checked rather than believed.
 

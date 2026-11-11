@@ -22,7 +22,7 @@ from rdkit.Chem import AllChem, rdMolAlign
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.parallel import capped_n_jobs, pool_context
 
-from _david.config import Config
+from _david.code.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ def check_pool(timeout: float = 300.0) -> str:
     ``__main__`` (``multiprocessing.spawn.prepare``), so a pipeline started from a
     heredoc -- ``python - <<EOF`` -- has a ``__main__`` of ``<stdin>``, which does not
     exist on disk, and *every* worker dies with ``FileNotFoundError``. ``python -m
-    _david.run`` has an importable main module and is safe; it is how ``job.py`` starts
+    _david.code.run`` has an importable main module and is safe; it is how ``job.py`` starts
     the run on the cluster, where ``DRUGEX_MP_CONTEXT=forkserver`` is set.
 
     The timeout is patience, not a budget: a healthy probe returns as soon as the workers
@@ -116,7 +116,7 @@ def check_pool(timeout: float = 300.0) -> str:
         logger.error(
             "multiprocessing start method %r cannot start a worker here (%s: %s). Every "
             "scoring stage will fall back to a single core. Start the pipeline as "
-            "`python -m _david.run` (a heredoc has no importable __main__) or set "
+            "`python -m _david.code.run` (a heredoc has no importable __main__) or set "
             "DRUGEX_MP_CONTEXT=fork.",
             method,
             type(error).__name__,

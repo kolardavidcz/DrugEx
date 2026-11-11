@@ -17,9 +17,9 @@ from drugex.training.rewards import (
 from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import Property
 
-from _david.config import Config
-from _david.scorers.conformers import RelaxingConformerGenerator
-from _david.scorers.rocs import ComboROCSScorer
+from _david.code.config import Config
+from _david.code.scorers.conformers import RelaxingConformerGenerator
+from _david.code.scorers.rocs import ComboROCSScorer
 
 logger = logging.getLogger(__name__)
 

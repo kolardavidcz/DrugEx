@@ -1,4 +1,4 @@
-"""Behavioural tests: ``python -m unittest _david.tests -v``.
+"""Behavioural tests: ``python -m unittest _david.code.tests -v``.
 
 Each test pins a decision that was argued about, not a line of code. The point is that if
 someone later "simplifies" one of these behaviours back, a test says which argument they
@@ -28,15 +28,15 @@ from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
 from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import FAILURE_VALUES, Property
 
-from _david import provenance
-from _david import run as runner
-from _david.analysis import _helpers as analysis_helpers, figures, report as analysis
-from _david.metacentrum import campaign
-from _david.metacentrum.submit import Job
-from _david.scorers import conformers, objectives as scorers
-from _david.config import PROJECT_ROOT, Config
-from _david.training.explorer import DualCheckpointExplorer
-from _david.run import _arm_is_complete, _write_arm, config_from_args
+from _david.code import provenance
+from _david.code import run as runner
+from _david.code.analysis import _helpers as analysis_helpers, figures, report as analysis
+from _david.code.metacentrum import campaign
+from _david.code.metacentrum.submit import Job
+from _david.code.scorers import conformers, objectives as scorers
+from _david.code.config import PROJECT_ROOT, Config
+from _david.code.training.explorer import DualCheckpointExplorer
+from _david.code.run import _arm_is_complete, _write_arm, config_from_args
 
 
 def small(**changes) -> Config:
@@ -475,7 +475,7 @@ class Rocs(unittest.TestCase):
     def test_matches_native_bit_for_bit_at_equal_weight(self):
         from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
 
-        from _david.scorers.rocs import ComboROCSScorer
+        from _david.code.scorers.rocs import ComboROCSScorer
 
         with tempfile.TemporaryDirectory() as directory:
             cfg, path = self._bank(directory)
@@ -499,7 +499,7 @@ class Rocs(unittest.TestCase):
             self.assertEqual(ours.getKey(), native.getKey())
 
     def test_components_sum_to_the_reported_combo(self):
-        from _david.scorers.rocs import ComboROCSScorer
+        from _david.code.scorers.rocs import ComboROCSScorer
 
         with tempfile.TemporaryDirectory() as directory:
             cfg, path = self._bank(directory)
@@ -523,7 +523,7 @@ class Rocs(unittest.TestCase):
     def test_components_never_become_objectives(self):
         # Returning a key per component would make ParetoCrowdingDistance optimise shape
         # and colour as separate objectives -- a two-objective run silently becoming four.
-        from _david.scorers.rocs import ComboROCSScorer
+        from _david.code.scorers.rocs import ComboROCSScorer
 
         with tempfile.TemporaryDirectory() as directory:
             cfg, path = self._bank(directory)
@@ -548,7 +548,7 @@ class Rocs(unittest.TestCase):
     def test_components_survive_the_environment_round_trip(self):
         # The scorer keys components by canonical SMILES. Looking them up with the raw
         # strings a generator emits must still line up, or a row stops adding up.
-        from _david.scorers.rocs import ComboROCSScorer
+        from _david.code.scorers.rocs import ComboROCSScorer
 
         with tempfile.TemporaryDirectory() as directory:
             cfg, path = self._bank(directory)
@@ -576,7 +576,7 @@ class Rocs(unittest.TestCase):
             replace(Config(), alignment_shape_weight=1.5)
 
     def test_malformed_align_result_costs_one_pose_not_the_epoch(self):
-        from _david.scorers import rocs
+        from _david.code.scorers import rocs
 
         with tempfile.TemporaryDirectory() as directory:
             _, path = self._bank(directory)
