@@ -72,6 +72,17 @@ def build_scorers(cfg: Config, references: list[Chem.Mol]) -> list:
         show_progress=False,
         alignment_shape_weight=cfg.alignment_shape_weight,
     )
+    if cfg.scheme == "WS":
+        # WeightedSum dots its weights with the raw columns, so a range
+        # is leverage: TanimotoCombo on [0, 2] moves the sum twice as far as SA or QED
+        # at equal weight, and the reward leaves [0, 1] -- measured at 0.55 to 1.38, with
+        # 30% of molecules above 1. Both Pareto schemes are affine-invariant (fronts are
+        # ordinal, crowding distance divides by the within-front range, and the reward is
+        # the rank itself), so the same modifier is provably a no-op there and is not
+        # applied: 144 of 148 runs keep their ROCS in published TanimotoCombo units.
+        # ShapeTanimoto and ColorTanimoto come from `components` and stay raw, so a WS
+        # run's [0, 2] combo is still recoverable exactly as their sum.
+        rocs.setModifier(ClippedScore(lower_x=0.0, upper_x=2.0))
     # Native Property, not a subclass: drugex's FAILURE_VALUES leaves an unscorable SA at
     # 10.0, the worst value on its own scale, which this descending modifier maps to 0.0.
     # Before that, a failure sat at 0.0 and the same modifier called it the best molecule

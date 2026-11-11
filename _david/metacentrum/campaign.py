@@ -50,36 +50,32 @@ TOKEN = {
 }
 
 
-#: Peak resident memory, measured from ``resources_used.mem`` of this campaign's own
-#: jobs: a fixed cost for the interpreter, the prior and the reference, plus a linear
-#: term in ``max_conformers`` that doubles when ``minimize`` is on.
+#: What to ask PBS for, per run. One number, because the measurements do not support
+#: anything finer. These are the true peaks from ``resources_used.mem`` of this
+#: campaign's own finished jobs, not samples taken mid-run:
 #:
-#:                   c10     c20     c30
-#:     minimize=0   14.0    19.5    24.5  GB
-#:     minimize=1   19.5    29.8   (40.3) GB
+#:                   c10     c20     c30      deaths at 32 GB
+#:     minimize=0   22.7    28.0    27.8      0 / 1 / 2
+#:     minimize=1   22.1    31.2      --      0 / 1 / all
 #:
-#: What sets the peak is a 5000-molecule batch -- threshold calibration and the three
-#: final arms -- not an epoch: ``RelaxingConformerGenerator._embed`` collects every
-#: shard's molecules into one list in the parent before writing the combined SDF, so the
-#: high-water mark scales with conformers per molecule and not with the schedule.
+#: Two things that table says. The peak barely scales with ``max_conformers`` -- c20 and
+#: c30 are the same number -- because it is set by the 5000-molecule calibration and
+#: final-arm batches, where ``_embed`` collects every shard into one list in the parent,
+#: and that cost is driven by molecule count rather than conformers per molecule. And
+#: the spread *within* one cell is about 5 GB, so siblings of the same configuration
+#: peaked at 28 GB and above 32 GB: the generated molecules differ in size, so the peak
+#: is partly stochastic. A per-cell formula over these axes would be false precision --
+#: an earlier version of this file had one, fitted to mid-run samples that understated
+#: every peak, and it would still have under-requested for c20.
 #:
-#: A flat 32 GB killed all 16 ``minimize=True, max_conformers=30`` runs of this grid
-#: inside half an hour, during calibration, before a single checkpoint existed.
-MEMORY_BASE_GB = 9.0
-MEMORY_PER_CONFORMER_GB = 0.52
-MEMORY_HEADROOM = 1.5
+#: 64 GB is twice the largest surviving peak. A flat 32 GB killed 13 runs of this grid,
+#: several of them after all 70 epochs had finished.
+MEMORY_GB = 64
 
 
 def memory_gb(settings: dict) -> int:
-    """What to ask PBS for, from the two axes that set the peak.
-
-    One number for the whole grid has to be the most expensive cell's, which overbooks
-    every other cell by up to 2x and lengthens the queue wait for all 148 -- or it is a
-    cheap cell's, and the expensive ones are killed. Asking per cell is neither.
-    """
-    per_conformer = MEMORY_PER_CONFORMER_GB * (2 if settings.get("minimize") else 1)
-    peak = MEMORY_BASE_GB + per_conformer * settings["max_conformers"]
-    return math.ceil(peak * MEMORY_HEADROOM / 8) * 8
+    """What to ask PBS for. ``settings`` is accepted so the caller stays uniform."""
+    return MEMORY_GB
 
 
 @dataclass(frozen=True)

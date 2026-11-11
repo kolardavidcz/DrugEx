@@ -679,6 +679,22 @@ class RewardSchemes(unittest.TestCase):
         tight = scheme(["C", "CC", "CCC"], values, np.array([0.8, 0.1]))
         self.assertFalse(np.allclose(loose, tight), "WS must respond to its thresholds")
 
+    def test_only_weighted_sum_rescales_rocs_onto_the_other_objectives(self):
+        # WS dots its weights with the raw columns, so TanimotoCombo on [0, 2] carries
+        # twice the leverage of SA and QED and the reward leaves [0, 1]. Pareto ranking
+        # is affine-invariant, so the same modifier would be a no-op there and is not
+        # applied -- which keeps the reported ROCS of 144 of 148 runs in published units.
+        for scheme, rescaled in (("WS", True), ("PRCD", False), ("PRTD", False)):
+            cfg = small(scheme=scheme)
+            rocs = scorers.build_scorers(cfg, [Chem.MolFromSmiles("c1ccccc1")])[0]
+            self.assertEqual(rocs.getModifier() is not None, rescaled, scheme)
+        modifier = scorers.build_scorers(
+            small(scheme="WS"), [Chem.MolFromSmiles("c1ccccc1")]
+        )[0].getModifier()
+        np.testing.assert_allclose(
+            modifier(np.array([0.0, 1.0, 2.0])), np.array([0.0, 0.5, 1.0]), atol=1e-9
+        )
+
     def test_the_environment_uses_the_scheme_it_was_given(self):
         env = scorers.build_environment([Property("SA")], [0.0], scorers.reward_scheme("WS"))
         self.assertIsInstance(env.rewardScheme, WeightedSum)
@@ -1096,16 +1112,20 @@ class Campaign(unittest.TestCase):
         # threshold calibration, before any checkpoint existed. These are the high-water
         # marks PBS reported for the cells that survived; the c30 row is the linear
         # extrapolation the kills are consistent with.
+        # True peaks from resources_used.mem of this campaign's finished jobs. The
+        # earlier version of this test used mid-run samples, which understated every
+        # one of them and let a 32 GB request through for cells that then died.
         measured = {
-            (False, 10): 14.0,
-            (False, 20): 19.5,
-            (False, 30): 24.5,
-            (True, 10): 19.5,
-            (True, 20): 30.1,
+            (False, 10): 22.7,
+            (False, 20): 28.0,
+            (False, 30): 27.8,
+            (True, 10): 22.1,
+            (True, 20): 31.2,
         }
         for (minimize, conformers), peak in measured.items():
             asked = campaign.memory_gb({"minimize": minimize, "max_conformers": conformers})
-            self.assertGreater(asked, peak * 1.2, f"minimize={minimize} c{conformers}")
+            # Twice the peak, not 1.2x: siblings of one configuration differ by ~5 GB.
+            self.assertGreaterEqual(asked, peak * 2.0, f"minimize={minimize} c{conformers}")
         self.assertEqual(campaign.memory_gb({"minimize": True, "max_conformers": 30}), 64)
 
     def test_the_four_repeated_configurations_are_named(self):
