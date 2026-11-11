@@ -25,9 +25,9 @@ class Config:
     reference_smiles: str = EGCG  # the reference; its 3D conformer bank is generated from this
 
     # reinforcement learning
-    epochs: int = 120  # hard cap; patience normally ends the run first
-    patience: int = 30  # epochs without improvement before a criterion is done
-    min_epochs: int = 50  # neither criterion may freeze or stop below this epoch
+    epochs: int = 70  # hard cap; patience normally ends the run first
+    patience: int = 20  # epochs without improvement before a criterion is done
+    min_epochs: int = 40  # neither criterion may freeze or stop below this epoch
     n_samples: int = 1000  # molecules generated and scored per epoch for the policy gradient
     n_eval: int = 50  # held-out molecules scored each epoch to measure the stop condition
     batch_size: int = 128  # ^[64, 128] molecules per policy-gradient step
