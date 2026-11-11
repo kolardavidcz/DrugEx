@@ -41,6 +41,7 @@ from _david.analysis._helpers import (
     scaffold_rows,
     scored_points,
     unique,
+    unique_per_epoch,
     valid,
 )
 
@@ -121,16 +122,24 @@ PRIMARY_ARM = "gmean"
 SECONDARY_ARM = "desired_ratio"
 
 
-def shown_arm(arms: dict[str, pd.DataFrame], objectives: list[str], wanted: str) -> str | None:
+def shown_arm(
+    arms: dict[str, pd.DataFrame],
+    objectives: list[str],
+    wanted: str,
+    fallback: bool = True,
+) -> str | None:
     """``wanted`` when it holds valid unique molecules, else the measured best arm.
 
-    The fallback matters for a run whose chosen checkpoint produced nothing scorable: the
-    figure then describes an arm that exists, and says which one, rather than vanishing.
+    The fallback keeps a primary figure useful when its checkpoint produced nothing
+    scorable: the figure describes an arm that exists and names it in the title. The
+    ``b`` figures pass ``fallback=False``, because their filename and the report's index
+    both say *desired_ratio*: drawing another arm under that name would re-attribute a
+    whole checkpoint silently, which is worse than having no 01b at all.
     """
     arm = arms.get(wanted)
     if arm is not None and len(arm) and not _unique(arm).empty:
         return wanted
-    return best_arm(arms, objectives)
+    return best_arm(arms, objectives) if fallback else None
 
 
 def best_arm(arms: dict[str, pd.DataFrame], objectives: list[str]) -> str | None:
@@ -385,7 +394,7 @@ def before_after_distributions(
     One function for 01 and 01b: they differ only in which checkpoint the prior is
     compared with, and keeping two copies of the grid is how the two drifted apart.
     """
-    win = shown_arm(arms, objectives, arm)
+    win = shown_arm(arms, objectives, arm, fallback=arm == PRIMARY_ARM)
     if win is None:
         return None
     b_u = _unique(arms.get("prior"))
@@ -474,6 +483,12 @@ def multiobjective_tradeoffs(
     df_clean = enrich_descriptors(a_u, objectives[0], ref_smi, config)
     b_clean = enrich_descriptors(b_u, objectives[0], ref_smi, config) if not b_u.empty else None
 
+    # QED is drawn in two of these three panels but is an objective only when the run
+    # asked for it. Where it is not, it is a diagnostic axis: the panels keep it (the
+    # correlation is worth seeing) but say so, and no skyline is drawn over it -- a
+    # frontier implies a trade-off the reward was never asked to make.
+    qed_is_objective = "QED" in objectives
+    qed_role = "" if qed_is_objective else ", diagnostic -- not in the reward"
     rocs = pd.to_numeric(df_clean["ROCS"], errors="coerce").to_numpy(dtype=float)
     sa = pd.to_numeric(df_clean["Raw_SA"], errors="coerce").to_numpy(dtype=float)
     qed = pd.to_numeric(df_clean["QED"], errors="coerce").to_numpy(dtype=float)
@@ -537,7 +552,7 @@ def multiobjective_tradeoffs(
         ax1.plot(
             sk1_x,
             sk1_y,
-            drawstyle="steps-post",
+            drawstyle="steps-pre",
             color="#b91c1c",
             linewidth=2.2,
             zorder=4,
@@ -586,12 +601,16 @@ def multiobjective_tradeoffs(
         rocs, qed, c=sa, cmap="plasma_r", alpha=0.65, edgecolors="none", s=28, zorder=3
     )
     fig.colorbar(sc2, ax=ax2).set_label("Raw SA Score", fontsize=9)
-    sk2_x, sk2_y = compute_2d_skyline(rocs, qed, maximize_x=True, maximize_y=True)
+    sk2_x, sk2_y = (
+        compute_2d_skyline(rocs, qed, maximize_x=True, maximize_y=True)
+        if qed_is_objective
+        else (np.array([]), np.array([]))
+    )
     if len(sk2_x) > 0:
         ax2.plot(
             sk2_x,
             sk2_y,
-            drawstyle="steps-post",
+            drawstyle="steps-pre",
             color="#b91c1c",
             linewidth=2.2,
             zorder=4,
@@ -625,7 +644,9 @@ def multiobjective_tradeoffs(
         alpha=0.75,
         label=f"QED Ref ({qed_thr:.2f})",
     )
-    ax2.set_title("(B) 3D Shape (ROCS) vs. Drug-Likeness (QED)", fontsize=11, fontweight="bold")
+    ax2.set_title(
+        f"(B) 3D Shape (ROCS) vs. Drug-Likeness (QED{qed_role})", fontsize=11, fontweight="bold"
+    )
     ax2.set_xlabel("ROCS TanimotoCombo [0, 2] (higher=better)")
     ax2.set_ylabel("QED Score [0, 1] (higher=better)")
     ax2.grid(True, linestyle=":", alpha=0.4)
@@ -636,12 +657,16 @@ def multiobjective_tradeoffs(
         _overlay_prior_contours(ax3, b_sa, b_qed)
     sc3 = ax3.scatter(sa, qed, c=rocs, cmap="turbo", alpha=0.65, edgecolors="none", s=28, zorder=3)
     fig.colorbar(sc3, ax=ax3).set_label("ROCS TanimotoCombo", fontsize=9)
-    sk3_x, sk3_y = compute_2d_skyline(sa, qed, maximize_x=False, maximize_y=True)
+    sk3_x, sk3_y = (
+        compute_2d_skyline(sa, qed, maximize_x=False, maximize_y=True)
+        if qed_is_objective
+        else (np.array([]), np.array([]))
+    )
     if len(sk3_x) > 0:
         ax3.plot(
             sk3_x,
             sk3_y,
-            drawstyle="steps-post",
+            drawstyle="steps-pre",
             color="#b91c1c",
             linewidth=2.2,
             zorder=4,
@@ -676,7 +701,9 @@ def multiobjective_tradeoffs(
         label=f"QED Ref ({qed_thr:.2f})",
     )
     ax3.set_title(
-        "(C) Synthesizability (Raw SA) vs. Drug-Likeness (QED)", fontsize=11, fontweight="bold"
+        f"(C) Synthesizability (Raw SA) vs. Drug-Likeness (QED{qed_role})",
+        fontsize=11,
+        fontweight="bold",
     )
     ax3.set_xlabel("Raw SA Score [1, 10] (lower=better)")
     ax3.set_ylabel("QED Score [0, 1] (higher=better)")
@@ -715,7 +742,7 @@ def training_trajectories(
     sa_grp = None
     if epochs is not None and not epochs.empty:
         vep = enrich_descriptors(
-            _valid(epochs), rocs_col, (config or {}).get("reference_smiles"), config
+            unique_per_epoch(epochs), rocs_col, (config or {}).get("reference_smiles"), config
         )
         if not vep.empty:
             for col in ("ROCS", "QED"):
@@ -851,10 +878,12 @@ def training_trajectories(
     ax3 = axes[1, 0]
     _mark_events(ax3)
     plotted_objs = False
-    for col, mean_c, med_c, lbl in [
-        ("ROCS", "#2563EB", "#93C5FD", "ROCS"),
-        ("QED", "#F59E0B", "#FDE68A", "QED"),
-    ]:
+    # QED only when the run optimised it: enrich_descriptors computes it for every
+    # molecule, so the column exists either way and the panel is titled "Objective".
+    series = [("ROCS", "#2563EB", "#93C5FD", "ROCS")]
+    if "QED" in (objectives or []):
+        series.append(("QED", "#F59E0B", "#FDE68A", "QED"))
+    for col, mean_c, med_c, lbl in series:
         if col in df.columns and not df[col].dropna().empty:
             ax3.plot(ep_vals, df[col], color=mean_c, linewidth=2.1, label=f"{lbl} Mean", zorder=4)
             if f"{col}_median" in df.columns:
@@ -1095,9 +1124,9 @@ def _render_lead_cards(
         can = str(row.get("Canonical") or "")
         if not can or can in seen_smiles:
             continue
-        c = _card(
-            row, f"LEAD #{len(top_row) if depicter.ref_mol is not None else len(top_row) + 1}"
-        )
+        rank = len(top_row) if depicter.ref_mol is not None else len(top_row) + 1
+        is_desired = int(pd.to_numeric(row.get("Desired", 0), errors="coerce") or 0) == 1
+        c = _card(row, f"LEAD #{rank}" if is_desired else f"#{rank} (not desired)")
         if c is not None:
             top_row.append(c)
             seen_smiles.add(can)
@@ -1312,7 +1341,7 @@ def lead_structures_gallery(
 ) -> Path | None:
     """The lead cards of one arm. Four galleries of the same layout taught nothing that
     the two the report actually discusses do not."""
-    win = shown_arm(arms, objectives, arm)
+    win = shown_arm(arms, objectives, arm, fallback=arm == PRIMARY_ARM)
     if win is None:
         return None
     frame = arms[win]
@@ -1485,7 +1514,7 @@ def scaffold_diversity(
         return None
     style()
     objs = (config or {}).get("objectives", ["ROCS"])
-    win = shown_arm(arms, objs, arm)
+    win = shown_arm(arms, objs, arm, fallback=arm == PRIMARY_ARM)
     if win is None:
         return None
     b_counts = scaffold_counts(arms["prior"]) if "prior" in arms else pd.Series(dtype=int)
@@ -1704,10 +1733,13 @@ def lead_to_seed_superposition(
         m_out = Chem.Mol(lead_mol)
         m_out.SetProp("_Name", props["SMILES"])
         for k, v in props.items():
+            # "SA" in this project means the ClippedScore desirability on [0, 1]; what
+            # the lead carries is the raw 1-10 score, so it is written under that name.
+            key = "SA_raw" if k == "SA" else str(k)
             if isinstance(v, float):
-                m_out.SetDoubleProp(str(k), v)
+                m_out.SetDoubleProp(key, v)
             else:
-                m_out.SetProp(str(k), str(v))
+                m_out.SetProp(key, str(v))
         m_out.SetProp(
             "pose_note",
             "illustrative re-alignment using pipeline color_ff and alignment_shape_weight",
@@ -1784,10 +1816,20 @@ def lead_to_seed_superposition(
     ax3 = fig.add_subplot(1, 3, 3, projection="3d")
     _draw_3d(ax3, ref_heavy0, color="#1e293b", alpha=0.6, lw=1.5, s=14)
     lead_colors = ["#16a34a", "#2563eb", "#ea580c", "#8b5cf6", "#d97706"]
-    for i, (_, l_mol, _p) in enumerate(aligned_leads):
+    # Only the leads that matched the conformer this panel draws. Each bank conformer is
+    # canonicalised into its own inertial frame, so a lead aligned to another one would
+    # be drawn in a frame it was never fitted to -- it would look mis-overlaid, or fit,
+    # for reasons that have nothing to do with its score.
+    shown_pose = aligned_leads[0][2]["matched_reference_conformer"]
+    same_pose = [
+        entry for entry in aligned_leads if entry[2]["matched_reference_conformer"] == shown_pose
+    ]
+    for i, (_, l_mol, _p) in enumerate(same_pose):
         _draw_3d(ax3, l_mol, color=lead_colors[i % len(lead_colors)], alpha=0.75, lw=1.3, s=12)
     ax3.set_title(
-        f"(C) Superposition Ensemble ({len(aligned_leads)} Leads of {arm})\nAligned via color_ff={color_ff}, shape_wt={shape_wt:g}",
+        f"(C) Superposition Ensemble ({len(same_pose)} of {len(aligned_leads)} leads of "
+        f"{arm} that matched bank pose #{shown_pose + 1})\n"
+        f"Aligned via color_ff={color_ff}, shape_wt={shape_wt:g}",
         fontsize=10.5,
         fontweight="bold",
         pad=10,
@@ -1818,7 +1860,7 @@ def epoch_property_trajectories(
 ) -> Path | None:
     if epochs is None or epochs.empty:
         return None
-    vep = _valid(epochs)
+    vep = unique_per_epoch(epochs)
     if vep.empty:
         return None
     style()
@@ -1981,7 +2023,17 @@ def training_diagnostics(
         return None
 
     ep_nums = np.array(sorted(val_df["Epoch"].unique()), dtype=int)
-    best_epoch = summary.get("best_desired_ratio_epoch") or summary.get("best_avg_gmean_epoch")
+    # The arm this figure delivers, resolved here because the "best checkpoint" marker
+    # below has to agree with it.
+    win = shown_arm(arms or {}, objectives, PRIMARY_ARM)
+    # The epoch of that arm, not whichever criterion peaked first: marking the
+    # desired_ratio epoch on a figure whose delivered arm is gmean points at a
+    # checkpoint that produced none of the molecules shown.
+    best_epoch = (
+        summary.get("best_avg_gmean_epoch")
+        if win == "gmean"
+        else summary.get("best_desired_ratio_epoch")
+    ) or summary.get("best_avg_gmean_epoch")
 
     # (A) Hypervolume per epoch and cumulative in actual objective space
     hv_epoch: list[float] = []
@@ -2130,7 +2182,6 @@ def training_diagnostics(
             label="Baseline prior",
             zorder=1,
         )
-    win = shown_arm(arms or {}, objectives, PRIMARY_ARM)
     deliv_df = (
         enrich_descriptors(_unique(arms[win]), rocs_col, ref_smi, config)
         if (arms and win and win in arms)
@@ -2283,10 +2334,18 @@ def training_diagnostics(
         color="#064E3B",
         linewidth=1.3,
         linestyle="-",
-        label="Unique desired ratio",
+        label="Desired and first seen in this epoch",
     )
     _mark_best(ax)
-    ax.set_title("(D) Composition of Each Epoch's Samples", fontsize=11, fontweight="bold")
+    # "first seen" is cumulative across the run, so this green line sits below the
+    # desired_ratio of figure 03, which deduplicates inside one epoch only. Saying so
+    # here stops the two being read as the same quantity disagreeing.
+    ax.set_title(
+        "(D) Composition of Each Epoch's Samples (novelty is cumulative over the run, "
+        "so it sits below figure 03's within-epoch desired_ratio)",
+        fontsize=10.0,
+        fontweight="bold",
+    )
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Share of samples (on n_eval)")
     ax.set_ylim(0.0, 1.0)

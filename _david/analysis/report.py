@@ -105,7 +105,7 @@ TABLES = (
     ("reference.sdf", "the reference conformer bank, exactly as it was scored against"),
     (
         "figures/top_leads_aligned_to_seed.sdf",
-        "figure 10's leads as 3D poses -- an illustrative re-alignment, not the scored pose",
+        "figure 08's leads as 3D poses -- an illustrative re-alignment, not the scored pose",
     ),
     ("config.json", "every setting this run resolved, with its training summary"),
     ("manifest.json", "provenance: source digests, timings and the relaxation tallies"),
@@ -146,11 +146,15 @@ def _describe(arm: pd.DataFrame, objectives: list[str]) -> dict:
     """The ratios a thesis table reports, plus each objective's median and p90."""
     valid = _valid(arm)
     unique = valid.drop_duplicates(subset=_dedup_key(valid))  # DrugEx's unique-compound denominator
+    # An arm can legitimately have no rows -- run.py keeps going when one arm raises --
+    # and dividing by its length would lose the whole report to a ZeroDivisionError that
+    # run.py then swallows, leaving figures and no text.
+    sampled = max(len(arm), 1)
     row = {
         "n": len(arm),
-        "valid": round(len(valid) / len(arm), 4),
-        "unique": round(len(unique) / len(arm), 4),
-        "desired": round(float(unique["Desired"].sum()) / len(arm), 4),
+        "valid": round(len(valid) / sampled, 4),
+        "unique": round(len(unique) / sampled, 4),
+        "desired": round(float(unique["Desired"].sum()) / sampled, 4),
     }
     # Unique, not merely valid: the ratio columns above already deduplicate, and a row
     # whose ratios describe unique molecules while its median describes a sample would be
@@ -335,7 +339,7 @@ def analyse(run_dir: Path) -> Path:
 
             generator = RelaxingConformerGenerator(Config(**_configurable(config)))
         except Exception:
-            logger.exception("could not rebuild a conformer generator; skipping figure 10")
+            logger.exception("could not rebuild a conformer generator; skipping figure 08")
 
     written = figures_module.render_all(
         arms=arms,
@@ -391,8 +395,10 @@ def analyse(run_dir: Path) -> Path:
         "## arms",
         "",
         "`prior` is the pretrained model before any reinforcement; the rest are the "
-        "checkpoints this run kept. Ratios are over all sampled molecules, including "
-        "invalid ones, and count a molecule once however often it was sampled. "
+        "checkpoints this run kept. Every ratio divides by all sampled molecules, "
+        "invalid ones included. `unique` and `desired` count a molecule once however "
+        "often it was sampled; `valid` counts every row, so under mode collapse it can "
+        "stay high while `unique` falls -- which is the pair worth reading together. "
         "Medians and percentiles are over valid *unique* molecules, the same population, "
         "so no two columns in a row describe different sets.",
         "",
@@ -430,8 +436,13 @@ def analyse(run_dir: Path) -> Path:
         "",
         "## the non-dominated front",
         "",
-        "The reward is Pareto ranking, so no weighted score says what a run improved. "
-        "These two columns do, without weights: how many of an arm's molecules nothing "
+        (
+            "The reward is a weighted sum, whose weights DrugEx rebuilds from the batch "
+            "every epoch, so no single weighted score describes the whole run. "
+            if config.get("scheme", "PRCD") == "WS"
+            else "The reward is Pareto ranking, so no weighted score says what a run improved. "
+        )
+        + "These two columns say it without weights: how many of an arm's molecules nothing "
         "else in that arm beats on every objective at once, and how much objective space "
         "the arm dominates, measured from the origin. Both grow with the sample, which is "
         "why `n scored` is in the table -- rows whose n differs are not comparable, and "

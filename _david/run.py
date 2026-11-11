@@ -231,14 +231,15 @@ def _arm_is_complete(path: Path, n: int) -> bool:
         table = pd.read_csv(path, sep="\t")
     except (OSError, UnicodeError, pd.errors.ParserError, pd.errors.EmptyDataError):
         return False
-    # Valid and Desired, not SMILES: an RNN can emit an empty string, which round-trips
-    # through the TSV as NaN in both SMILES and Canonical. A truncated final row leaves
-    # the trailing numeric columns empty, which is what this actually has to catch.
-    required = {"SMILES", "Canonical", "Valid", "Desired"}
+    # SA_raw is the last column written, so a row cut short anywhere leaves it empty --
+    # Desired sits fifth of nine and a truncation after it passed unnoticed. SMILES and
+    # Canonical are deliberately not checked: an RNN can emit an empty string, which
+    # round-trips through the TSV as NaN in both and is a real, complete row.
+    required = {"SMILES", "Canonical", "Valid", "Desired", "SA_raw"}
     return (
         len(table) == n
         and required.issubset(table.columns)
-        and not table[["Valid", "Desired"]].isna().any().any()
+        and not table[["Valid", "Desired", "SA_raw"]].isna().any().any()
     )
 
 

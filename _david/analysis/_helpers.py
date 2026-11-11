@@ -51,6 +51,20 @@ def dedup_key(frame: pd.DataFrame) -> str:
     return "Canonical" if "Canonical" in frame.columns else "SMILES"
 
 
+def unique_per_epoch(epochs: pd.DataFrame | None) -> pd.DataFrame:
+    """Valid rows, one per distinct canonical structure *within each epoch*.
+
+    The per-epoch figures state medians and percentiles, and the report says those are
+    over valid unique molecules. Without this they were over valid rows: under the mode
+    collapse these figures exist to detect, the median becomes the score of whichever
+    molecule was drawn most often, which is the one reading that must not be wrong.
+    """
+    rows = valid(epochs)
+    if rows.empty or "Epoch" not in rows.columns:
+        return rows
+    return rows.drop_duplicates(subset=["Epoch", dedup_key(rows)]).copy()
+
+
 def unique(arm: pd.DataFrame | None) -> pd.DataFrame:
     """Valid rows, one per distinct canonical structure."""
     v = valid(arm)

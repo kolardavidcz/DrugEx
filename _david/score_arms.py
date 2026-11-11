@@ -37,6 +37,7 @@ from _david.run import (
     _load,
     _sample,
     _seed_everything,
+    _serial_run_refusal,
     _write_arm,
 )
 from _david.scorers.conformers import check_pool, use_double_precision_pickling
@@ -85,6 +86,12 @@ def rebuild(run_dir: Path, force: bool = False) -> dict:
         return {}
 
     check_pool()
+    # The same refusal the run itself makes: rebuilding three arms is 15,000 molecules,
+    # about 31 core-hours, so a serial rebuild on a multi-core host is a day and a half
+    # rather than two hours. Cheaper than a full run, but not cheap enough to drift into.
+    refusal = _serial_run_refusal(cfg)
+    if refusal:
+        raise SystemExit(refusal)
     use_double_precision_pickling()
     # Seeded so two rebuilds of the same directory agree. This cannot reproduce the
     # original draw -- see the module docstring.

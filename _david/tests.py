@@ -859,24 +859,58 @@ class StartMethod(unittest.TestCase):
 
 
 class ArmCompleteness(unittest.TestCase):
+    @staticmethod
+    def _arm_frame(rows: int) -> pd.DataFrame:
+        """An arm in the column order run.py writes: Desired is fifth of nine."""
+        molecules = ["CC", "CCC", "CCCC"][:rows]
+        return pd.DataFrame(
+            {
+                "SMILES": molecules,
+                "Valid": [1] * rows,
+                "ROCS": [0.5] * rows,
+                "SA": [1.0] * rows,
+                "Desired": [0] * rows,
+                "ShapeTanimoto": [0.4] * rows,
+                "ColorTanimoto": [0.1] * rows,
+                "Canonical": molecules,
+                "SA_raw": [2.5] * rows,
+            }
+        )
+
     def test_missing_short_and_unreadable_tables_are_incomplete(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "arm.tsv"
             self.assertFalse(_arm_is_complete(path, 2))
-            pd.DataFrame(
-                {"SMILES": ["CC"], "Canonical": ["CC"], "Valid": [1], "Desired": [0]}
-            ).to_csv(path, sep="\t", index=False)
+            self._arm_frame(1).to_csv(path, sep="\t", index=False)
             self.assertFalse(_arm_is_complete(path, 2), "a one-row table cannot satisfy n=2")
             path.write_text("SMILES\tCanonical\tValid\tDesired\nnot a complete row")
             self.assertFalse(_arm_is_complete(path, 1), "a truncated row must be rebuilt")
-            pd.DataFrame(
-                {
-                    "SMILES": ["CC", "CCC"],
-                    "Canonical": ["CC", "CCC"],
-                    "Valid": [1, 1],
-                    "Desired": [0, 1],
-                }
-            ).to_csv(path, sep="\t", index=False)
+            self._arm_frame(2).to_csv(path, sep="\t", index=False)
+            self.assertTrue(_arm_is_complete(path, 2))
+
+    def test_a_row_cut_off_after_desired_is_incomplete(self):
+        """Desired is the fifth of nine columns, so NaN there cannot be the only test."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "arm.tsv"
+            table = self._arm_frame(2)
+            table.to_csv(path, sep="\t", index=False)
+            lines = path.read_text().splitlines()
+            # Everything through Desired survives; the writer died before the rest.
+            lines[-1] = "\t".join(lines[-1].split("\t")[:5])
+            path.write_text("\n".join(lines) + "\n")
+            self.assertFalse(
+                _arm_is_complete(path, 2),
+                "a row truncated after Desired has no Canonical and must be rebuilt",
+            )
+
+    def test_an_empty_generated_smiles_is_still_a_complete_row(self):
+        """The RNN can emit "", which round-trips as NaN in SMILES and Canonical."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "arm.tsv"
+            table = self._arm_frame(2)
+            table.loc[1, ["SMILES", "Canonical"]] = ""
+            table.loc[1, "Valid"] = 0
+            table.to_csv(path, sep="\t", index=False)
             self.assertTrue(_arm_is_complete(path, 2))
 
     def test_the_original_run_cannot_finish_complete_with_a_missing_arm(self):
