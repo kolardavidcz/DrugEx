@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import math
 from dataclasses import dataclass, field
 
 from _david.metacentrum.submit import STORAGE, Job, remote, submit, sync, validate_deltas
@@ -47,6 +48,38 @@ TOKEN = {
     "color_ff": lambda v: {"default": "fd", "fdef": "ff", "oe_mills_dean": "fo"}[v],
     "alignment_shape_weight": lambda v: f"s{round(v * 100):02d}",
 }
+
+
+#: Peak resident memory, measured from ``resources_used.mem`` of this campaign's own
+#: jobs: a fixed cost for the interpreter, the prior and the reference, plus a linear
+#: term in ``max_conformers`` that doubles when ``minimize`` is on.
+#:
+#:                   c10     c20     c30
+#:     minimize=0   14.0    19.5    24.5  GB
+#:     minimize=1   19.5    29.8   (40.3) GB
+#:
+#: What sets the peak is a 5000-molecule batch -- threshold calibration and the three
+#: final arms -- not an epoch: ``RelaxingConformerGenerator._embed`` collects every
+#: shard's molecules into one list in the parent before writing the combined SDF, so the
+#: high-water mark scales with conformers per molecule and not with the schedule.
+#:
+#: A flat 32 GB killed all 16 ``minimize=True, max_conformers=30`` runs of this grid
+#: inside half an hour, during calibration, before a single checkpoint existed.
+MEMORY_BASE_GB = 9.0
+MEMORY_PER_CONFORMER_GB = 0.52
+MEMORY_HEADROOM = 1.5
+
+
+def memory_gb(settings: dict) -> int:
+    """What to ask PBS for, from the two axes that set the peak.
+
+    One number for the whole grid has to be the most expensive cell's, which overbooks
+    every other cell by up to 2x and lengthens the queue wait for all 148 -- or it is a
+    cheap cell's, and the expensive ones are killed. Asking per cell is neither.
+    """
+    per_conformer = MEMORY_PER_CONFORMER_GB * (2 if settings.get("minimize") else 1)
+    peak = MEMORY_BASE_GB + per_conformer * settings["max_conformers"]
+    return math.ceil(peak * MEMORY_HEADROOM / 8) * 8
 
 
 @dataclass(frozen=True)
@@ -143,7 +176,7 @@ def show(chosen: list[str]) -> list[tuple[str, dict]]:
             print(f"    {key:<24} {', '.join(str(v) for v in values)}")
         print()
         for job, settings in rows:
-            print(f"    {job:<16} {' '.join(deltas(settings))}")
+            print(f"    {job:<16} {memory_gb(settings):>3} GB  {' '.join(deltas(settings))}")
         planned.extend(rows)
     return planned
 
@@ -184,7 +217,8 @@ def launch(
     try:
         for name, settings in chosen:
             flat = tuple(part for delta in deltas(settings) for part in ("--set", delta))
-            submit(Job(name=name, args=flat, **resources), revision=revision)
+            mem = resources["mem"] or memory_gb(settings)
+            submit(Job(name=name, args=flat, **{**resources, "mem": mem}), revision=revision)
             done += 1
     finally:
         # A qsub that fails halfway leaves real jobs in the queue. Saying how many is the
@@ -209,7 +243,12 @@ def main(argv: list[str] | None = None) -> int:
         "--again", action="store_true", help="queue runs that were submitted before"
     )
     parser.add_argument("--ncpus", type=int, default=Job.ncpus)
-    parser.add_argument("--mem", type=int, default=Job.mem, help="GB")
+    parser.add_argument(
+        "--mem",
+        type=int,
+        default=None,
+        help="GB for every run; the default is per cell, from the measurements in memory_gb",
+    )
     parser.add_argument("--scratch", type=int, default=Job.scratch, help="GB")
     parser.add_argument("--walltime", default=Job.walltime)
     parser.add_argument("--queue", default=None)
@@ -219,7 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     planned = show(chosen)
 
     hours = args.walltime.split(":")[0]
-    print(f"\n{len(planned)} runs, {args.ncpus} cpus each, walltime {args.walltime}")
+    asked = f"{args.mem} GB each" if args.mem else "memory per cell (see the GB column)"
+    print(f"\n{len(planned)} runs, {args.ncpus} cpus each, {asked}, walltime {args.walltime}")
     print(f"worst case {len(planned) * args.ncpus * int(hours)} core-hours if none stops early")
     for repeat, original in duplicates():
         if any(repeat == name for name, _ in planned):

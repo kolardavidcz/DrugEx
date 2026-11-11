@@ -1085,6 +1085,23 @@ class Campaign(unittest.TestCase):
                 for reserved in ("output_root", "n_jobs"):
                     self.assertNotIn(reserved, settings, job)
 
+    def test_every_run_asks_for_more_memory_than_its_cell_was_measured_to_use(self):
+        # A flat 32 GB killed all 16 minimise+c30 runs of the first attempt during
+        # threshold calibration, before any checkpoint existed. These are the high-water
+        # marks PBS reported for the cells that survived; the c30 row is the linear
+        # extrapolation the kills are consistent with.
+        measured = {
+            (False, 10): 14.0,
+            (False, 20): 19.5,
+            (False, 30): 24.5,
+            (True, 10): 19.5,
+            (True, 20): 30.1,
+        }
+        for (minimize, conformers), peak in measured.items():
+            asked = campaign.memory_gb({"minimize": minimize, "max_conformers": conformers})
+            self.assertGreater(asked, peak * 1.2, f"minimize={minimize} c{conformers}")
+        self.assertEqual(campaign.memory_gb({"minimize": True, "max_conformers": 30}), 64)
+
     def test_the_four_repeated_configurations_are_named(self):
         # The colour batch is centred on a cell the parent batch already holds. They are
         # kept (fixed seed: a free reproducibility check) but must never be read as four
