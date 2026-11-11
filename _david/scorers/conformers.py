@@ -71,7 +71,7 @@ def pool_is_healthy() -> bool:
     return not _POOL_BROKEN
 
 
-def check_pool(timeout: float = 20.0) -> str:
+def check_pool(timeout: float = 300.0) -> str:
     """Prove workers can return a result; a failed probe disables every production pool.
 
     Both scorer pools consult :func:`pool_is_healthy`. Recording a broken start method
@@ -90,6 +90,13 @@ def check_pool(timeout: float = 20.0) -> str:
     exist on disk, and *every* worker dies with ``FileNotFoundError``. ``python -m
     _david.run`` has an importable main module and is safe; it is how ``job.py`` starts
     the run on the cluster, where ``DRUGEX_MP_CONTEXT=forkserver`` is set.
+
+    The timeout is patience, not a budget: a healthy probe returns as soon as the workers
+    answer, so a generous bound costs a healthy run nothing. It has to be generous because
+    a forkserver child re-imports the main module, and on the cluster the venv is on NFS:
+    importing torch, rdkit and drugex measured 14.4 s on the frontend with a warm-ish
+    cache, and the first 20 s-bounded probe on a compute node timed out and killed 148
+    queued jobs in twenty seconds each. Five minutes of patience against a 24 h walltime.
     """
     global _POOL_BROKEN
     _POOL_BROKEN = False
