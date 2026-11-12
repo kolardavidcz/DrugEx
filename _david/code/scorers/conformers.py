@@ -44,7 +44,7 @@ def check_pool(timeout: float = 300.0) -> str:
     try:
         pool = context.Pool(2)
         pool.map_async(_touch, (1, 2)).get(timeout=timeout)
-    except Exception as error:  # noqa: BLE001 - any failure here means "no workers"
+    except Exception as error:
         _POOL_BROKEN = True
         logger.error(
             "multiprocessing start method %r cannot start a worker here (%s: %s). Every "
@@ -121,12 +121,11 @@ def _relax(task: tuple[Chem.Mol, Config]) -> tuple[Chem.Mol | None, str]:
         if before is None or after is None:
             return mol, "stereo_uncheckable"
         if before != after:
-            #! my probably should we really keep it if we have different geometry
             return None, "stereo_changed"
         mol.SetDoubleProp("Energy", energy)
         mol.SetIntProp("MinimizeStatus", status)
         return mol, "converged" if status == 0 else "unconverged"
-    except Exception as error:  # noqa: BLE001 - a per-conformer fault must stay local
+    except Exception as error:
         logger.debug("relaxation raised for one conformer: %s", error)
         return record, "relax_raised"
 

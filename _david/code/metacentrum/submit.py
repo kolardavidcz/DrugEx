@@ -1,17 +1,3 @@
-"""Run this pipeline on MetaCentrum: ``python -m _david.code.metacentrum.submit <command>``.
-
-    check                 ssh, the storage venv, the staged release, the queue
-    sync                  stage HEAD on storage without submitting
-    submit --name <name>  stage HEAD, upload the spec, qsub  [-- name=value ...]
-    status                the user's queue
-    logs <name>           the PBS stdout of the newest job of that name
-    cancel <name|id> ...  qdel
-    pull                  copy finished runs back into _david/output
-
-One job at a time; the planned sweep lives in ``campaign.py`` and calls into this. A job runs
-``git archive HEAD``, so a fix travels through a commit, never through an edit on storage.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -107,7 +93,7 @@ def validate_deltas(deltas: list[str]) -> None:
             + " ".join(malformed)
         )
     try:
-        reward_scheme(config_from_args(list(deltas)).scheme)  # a string field: parsing is not enough
+        reward_scheme(config_from_args(list(deltas)).scheme)
     except SystemExit as error:
         raise SystemExit(f"delta rejected locally, nothing submitted: {error}") from None
     except (ValueError, TypeError) as error:
@@ -194,7 +180,7 @@ def submit(job: Job, revision: str | None = None) -> str:
     release = f"{STORAGE}/releases/{revision}"
     command = ["qsub", "-N", job.name]
     if job.queue:
-        command += ["-q", job.queue]  # frontends cannot submit into an execution queue
+        command += ["-q", job.queue]
     command += [
         "-l",
         job.resources,
@@ -247,9 +233,25 @@ def pull(name: str | None) -> None:
     print(f"pulled into {destination}")
 
 
+HELP = (
+    "Run this pipeline on MetaCentrum: python -m _david.code.metacentrum.submit <command>\n"
+    "\n"
+    "    check                 ssh, the storage venv, the staged release, the queue\n"
+    "    sync                  stage HEAD on storage without submitting\n"
+    "    submit --name <name>  stage HEAD, upload the spec, qsub  [-- name=value ...]\n"
+    "    status                the user's queue\n"
+    "    logs <name>           the PBS stdout of the newest job of that name\n"
+    "    cancel <name|id> ...  qdel\n"
+    "    pull                  copy finished runs back into _david/output\n"
+    "\n"
+    "One job at a time; the planned sweep lives in campaign.py and calls into this. A job\n"
+    "runs `git archive HEAD`, so a fix travels through a commit, never an edit on storage."
+)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check")

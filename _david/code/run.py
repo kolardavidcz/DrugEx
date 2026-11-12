@@ -1,5 +1,3 @@
-"""One reinforcement-learning run: python -m _david.code.run [--set name=value ...] [--tag name]"""
-
 from __future__ import annotations
 
 import argparse
@@ -196,8 +194,11 @@ def serial_run_refusal(cfg: Config) -> str | None:
     )
 
 
+HELP = "One reinforcement-learning run: python -m _david.code.run [--set name=value ...] [--tag name]"
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=HELP)
     parser.add_argument(
         "--set",
         dest="overrides",
@@ -259,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
 def _pipeline(
     cfg: Config, run_dir: Path, resolved: dict, manifest: Manifest, started: float
 ) -> int:
-    scheme = reward_scheme(cfg.scheme)  # before anything expensive
+    scheme = reward_scheme(cfg.scheme)
     references = build_reference(cfg, run_dir / "reference.sdf")
 
     checkpoint, vocabulary = cfg.pretrained()
@@ -280,7 +281,7 @@ def _pipeline(
     resolved.update(
         force_field=FORCE_FIELD if cfg.minimize else None,
         reward_scheme=type(scheme).__name__,
-        rocs_reward_scale=ROCS_PUBLISHED_MAX,  # score_arms converts out of it
+        rocs_reward_scale=ROCS_PUBLISHED_MAX,
         objectives=objectives,
         thresholds=thresholds,
     )

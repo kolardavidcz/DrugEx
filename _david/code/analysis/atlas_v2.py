@@ -153,6 +153,23 @@ def tree_payload(scan: dict[str, Any]) -> dict[str, Any]:
     totals = dict(scan.get("totals") or {})
     for verdict in ("collapsed", "concentrated", "clean", "unlearned"):
         totals.setdefault(verdict, counts.get(verdict, 0))
+    # The chemical layer's campaign headline, computed here once: median effective
+    # scaffolds and NN-similarity p50 per verdict, and the novelty floor across runs.
+    # Unique-ratio is not chemical breadth, and these three numbers say so on load.
+    judged = [r for r in scan["runs"] if r.get("diversity")]
+    for verdict in ("collapsed", "concentrated", "clean"):
+        values = sorted(
+            r["diversity"]["effective_scaffolds"]
+            for r in judged
+            if r.get("verdict") == verdict
+            and (r["diversity"].get("effective_scaffolds") is not None)
+        )
+        if values:
+            totals[f"{verdict}_eff_scaffolds"] = values[len(values) // 2]
+    novelties = [r["diversity"]["novelty_rate"] for r in judged
+                 if r["diversity"].get("novelty_rate") is not None]
+    if novelties:
+        totals["novelty_min"] = round(min(novelties), 3)
     families = []
     for family in FAMILIES:
         family_records = [

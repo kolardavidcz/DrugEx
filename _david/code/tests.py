@@ -146,7 +146,7 @@ class _FakeAgent:
         return ["CCO"] * n
 
     def evaluate(self, smiles, evaluator=None, no_multifrag_smiles=True):
-        index = min(self.epoch - 1, len(self.ratios) - 1)  # forward() already incremented
+        index = min(self.epoch - 1, len(self.ratios) - 1)
         desired = self.ratios[index]
         self.current_gmean = self.gmeans[min(index, len(self.gmeans) - 1)]
         n = len(smiles)
@@ -170,7 +170,7 @@ class _FakeExplorer(DualCheckpointExplorer):
         self.desired_ratio_at_stop_path = kwargs["desired_ratio_at_stop_path"]
         self.gmean_path = kwargs["gmean_path"]
         self.training_samples_path = None
-        self.n_eval = 100  # a small arm would quantise hits/n_eval
+        self.n_eval = 100
         self.saved = []
 
     def forward(self):
@@ -232,7 +232,7 @@ class Checkpoints(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             summary, _ = self._run(
                 ratios=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-                gmeans=[0.9] * 6,  # best at epoch 1, never improves again
+                gmeans=[0.9] * 6,
                 directory=directory,
                 patience=2,
             )
@@ -443,7 +443,7 @@ class Rocs(unittest.TestCase):
     def test_components_survive_the_environment_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             scorer = self._scorer(*self._bank(directory))
-            raw = ["C(C)O", "C(C)N"]  # deliberately non-canonical
+            raw = ["C(C)O", "C(C)N"]
             frame = self._two_objectives(scorer).getScores(raw)
             split = scorer.component_frame(raw)
             total = np.asarray(split["ShapeTanimoto"]) + np.asarray(split["ColorTanimoto"])
@@ -629,7 +629,7 @@ class ScoringBatches(unittest.TestCase):
             def __init__(self):
                 self.w = torch.nn.Parameter(torch.zeros(1))
 
-            def likelihood(self, seq):  # native returns (batch, sequence length)
+            def likelihood(self, seq):
                 return self.w * torch.ones(seq.shape, dtype=torch.float32)
 
         agent = _Agent()
@@ -770,7 +770,7 @@ class ArmCompleteness(unittest.TestCase):
             table = self._arm_frame(2)
             table.to_csv(path, sep="\t", index=False)
             lines = path.read_text().splitlines()
-            lines[-1] = "\t".join(lines[-1].split("\t")[:5])  # the writer died after Desired
+            lines[-1] = "\t".join(lines[-1].split("\t")[:5])
             path.write_text("\n".join(lines) + "\n")
             self.assertFalse(
                 arm_is_complete(path, 2),
@@ -948,8 +948,6 @@ class Campaign(unittest.TestCase):
 
 
 class CollapseVerdict(unittest.TestCase):
-    """The triage labels collapse.py hands out, and the statistics they are built on."""
-
     @staticmethod
     def _stop_arm(unique_ratio, desired=0.9, top10=0.1, valid=0.99):
         return {
@@ -1024,9 +1022,9 @@ class CollapseVerdict(unittest.TestCase):
         )
         stats = collapse.arm_stats(frame, "RDKit_Aggregate_1refs_TanimotoCombo", 2.0)
         self.assertEqual(stats["n"], 5)
-        self.assertAlmostEqual(stats["unique_ratio"], 0.4)  # CCO and CCN of five draws
-        self.assertAlmostEqual(stats["desired_ratio"], 0.2)  # CCO alone, once
-        self.assertAlmostEqual(stats["rocs_median"], 2.4)  # published scale, deduped: median of 2.8 and 2.0
+        self.assertAlmostEqual(stats["unique_ratio"], 0.4)
+        self.assertAlmostEqual(stats["desired_ratio"], 0.2)
+        self.assertAlmostEqual(stats["rocs_median"], 2.4)
         self.assertAlmostEqual(stats["top1_share"], 0.6)
 
     def test_the_frontier_ignores_runs_the_verdict_cannot_trust(self):
@@ -1047,8 +1045,6 @@ class CollapseVerdict(unittest.TestCase):
 
 
 class TreeAtlas(unittest.TestCase):
-    """What the tree atlas celebrates, what it refuses to, and which runs it counts."""
-
     @staticmethod
     def _scan_run(name, verdict="clean", desired=0.5, unique=0.8, qed=False,
                   gmean_desired=0.0, n=5000):
@@ -1077,12 +1073,12 @@ class TreeAtlas(unittest.TestCase):
                 ]}
         payload = atlas_v2.tree_payload(scan)
         by_name = {r["run_id"]: r for r in payload["runs"]}
-        self.assertEqual(by_name["winner"]["rank"], 1)  # gmean 0.95 on "second" loses
+        self.assertEqual(by_name["winner"]["rank"], 1)
         self.assertEqual(by_name["second"]["rank"], 2)
         self.assertEqual(by_name["third"]["rank"], 3)
         self.assertNotIn("rank", by_name["collapsed_but_shiny"])
         self.assertNotIn("rank", by_name["pilot"])
-        self.assertNotIn("rank", by_name["fourth"])  # three medals per family, no more
+        self.assertNotIn("rank", by_name["fourth"])
 
     def test_factors_fold_the_axes_onto_the_tree_floors(self):
         factors = atlas_v2._factors(
@@ -1113,8 +1109,6 @@ class TreeAtlas(unittest.TestCase):
 
 
 class DiversityProfile(unittest.TestCase):
-    """The chemical-diversity metrics and the cache that keeps them cheap."""
-
     @staticmethod
     def _frame(rows):
         return pd.DataFrame(
@@ -1170,7 +1164,7 @@ class DiversityProfile(unittest.TestCase):
             (cache / "diversity.json").write_text(json.dumps(profile))
             self.assertTrue(diversity.profile_is_fresh(run))
             self.assertEqual(diversity.load_profile(run), profile)
-            (run / "prior.tsv").write_text(  # same table plus one molecule: stale now
+            (run / "prior.tsv").write_text(
                 self._frame([("CCO", 1, 0), ("CCCO", 1, 0)]).to_csv(sep="\t", index=False))
             self.assertFalse(diversity.profile_is_fresh(run))
             self.assertIsNone(diversity.load_profile(run))

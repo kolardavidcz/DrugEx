@@ -134,7 +134,7 @@ class ComboROCSScorer(RDKitROCSScorer):
         self.alignment_shape_weight = float(alignment_shape_weight)
         self.components: dict[str, tuple[float, float]] = {}
         self._by_mol_id: dict[int, tuple[float, float]] = {}
-        self.workers = self.n_jobs  # the parent's own pool would call native's worker
+        self.workers = self.n_jobs
         self.n_jobs = 1
 
     def _score_sequential(self, unique_count, conformers_by_mol, num_groups) -> np.ndarray:
@@ -172,7 +172,7 @@ class ComboROCSScorer(RDKitROCSScorer):
         return scores
 
     def getScores(self, mols, frags=None) -> np.ndarray:
-        self._by_mol_id = {}  # also here: the parent can return before the override
+        self._by_mol_id = {}
         self.components = {}
         scores = super().getScores(mols, frags)
         unique, _ = self._deduplicate_smiles(self._convert_to_smiles(mols))

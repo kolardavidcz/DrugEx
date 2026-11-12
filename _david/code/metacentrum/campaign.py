@@ -1,17 +1,3 @@
-"""The planned sweep, as batches of runs.
-
-    python -m _david.code.metacentrum.campaign                 # every batch, nothing submitted
-    python -m _david.code.metacentrum.campaign parent          # one batch, as it would be sent
-    python -m _david.code.metacentrum.campaign parent --submit  # stage HEAD once, then qsub it
-
-Nothing leaves this machine without ``--submit``; the default prints the plan. Submission
-validates every delta of the batch first, so a typo stops the campaign before the first
-``qsub`` rather than after fifty of them.
-
-A batch is a full factorial over its axes and nothing else: two runs differ only in the axes
-their names spell out, and every setting another batch varies is pinned in ``COMMON``.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -101,6 +87,58 @@ BATCHES: dict[str, Batch] = {
             "include_qed": (False, True),
         },
     ),
+    # The WeightedSum sweep: every batch below runs WS, where the thresholds are part
+    # of the reward (DrugEx builds the weights from them), so each axis is priced under
+    # the scheme it changes the most.
+    "wso": Batch(
+        prefix="wso",
+        purpose=(
+            "WeightedSum on the relaxed bank: exploration breadth against conformer "
+            "count, single reference"
+        ),
+        fixed={"scheme": "WS", "minimize": True, "reference_conformers": 1},
+        axes={
+            "epsilon": (0.2, 0.1, 0.05, 0.0),
+            "max_conformers": (10, 20),
+            "include_qed": (False, True),
+        },
+    ),
+    "wsu": Batch(
+        prefix="wsu",
+        purpose=(
+            "WeightedSum without relaxation: raw ETKDG poses, the four-conformer "
+            "bank and the larger candidate counts"
+        ),
+        fixed={"scheme": "WS", "minimize": False, "reference_conformers": 4},
+        axes={
+            "epsilon": (0.1, 0.05, 0.0),
+            "max_conformers": (20, 30),
+            "include_qed": (False, True),
+        },
+    ),
+    "wcm": Batch(
+        prefix="wcm",
+        purpose="colour typing under WeightedSum, relaxed single-reference centre",
+        fixed={"scheme": "WS", "minimize": True, "reference_conformers": 1},
+        axes={
+            "epsilon": (0.2, 0.1, 0.05),
+            "color_ff": ("default", "fdef", "oe_mills_dean"),
+            "include_qed": (False, True),
+        },
+    ),
+    "wcw": Batch(
+        prefix="wcw",
+        purpose=(
+            "colour/shape weight split under WeightedSum, default colour typing, "
+            "single reference"
+        ),
+        fixed={"scheme": "WS", "minimize": True, "reference_conformers": 1, "color_ff": "default"},
+        axes={
+            "epsilon": (0.2, 0.1, 0.05),
+            "alignment_shape_weight": (0.5, 0.3, 0.2),
+            "include_qed": (False, True),
+        },
+    ),
 }
 
 
@@ -177,9 +215,24 @@ def launch(
         print(f"\nsubmitted {done} of {len(chosen)} ({len(chosen) - done} not queued)")
 
 
+HELP = (
+    "The planned sweep, as batches of runs.\n"
+    "\n"
+    "    campaign                 # every batch, nothing submitted\n"
+    "    campaign parent          # one batch, exactly as it would be sent\n"
+    "    campaign parent --submit  # stage HEAD once, then qsub it\n"
+    "\n"
+    "Nothing leaves this machine without --submit; the default prints the plan, and\n"
+    "submission validates every delta of the batch before the first qsub.\n"
+    "\n"
+    "A batch is a full factorial over its axes: two runs differ only in the axes their\n"
+    "names spell out, and every setting another batch varies is pinned in COMMON."
+)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
         "batch",

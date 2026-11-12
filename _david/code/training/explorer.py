@@ -91,7 +91,7 @@ class DualCheckpointExplorer(SequenceExplorer):
     ):
         self.monitor = monitor if monitor else NullMonitor()
 
-        best = {"desired_ratio": -1.0, "avg_gmean": -1.0}  # 0.0 is a legitimate early value
+        best = {"desired_ratio": -1.0, "avg_gmean": -1.0}
         last = {"desired_ratio": 0, "avg_gmean": 0}
         paths = {"desired_ratio": self.desired_ratio_path, "avg_gmean": self.gmean_path}
         population: dict[str, dict] = {}
@@ -111,14 +111,14 @@ class DualCheckpointExplorer(SequenceExplorer):
                     continue
                 if metrics[criterion] <= best[criterion]:
                     continue
-                best[criterion] = float(metrics[criterion])  # JSON cannot take numpy scalars
+                best[criterion] = float(metrics[criterion])
                 last[criterion] = epoch
                 population[criterion] = _population(metrics)
                 _save(self.getModel(), paths[criterion])
 
             self._record_training_samples(epoch)
 
-            self.best_value = best["avg_gmean"]  # the base class logs `best_epoch` from these
+            self.best_value = best["avg_gmean"]
             self.last_save = last["avg_gmean"]
             self.logPerformanceAndCompounds(epoch, metrics, scores)
             logger.info(
@@ -160,7 +160,7 @@ class DualCheckpointExplorer(SequenceExplorer):
                 break
 
         if not frozen:
-            frozen_epoch = epoch  # the cap arrived first, so the final policy plays that part
+            frozen_epoch = epoch
             at_stop = self._save_at_stop(metrics, population)
             logger.info(
                 "desired_ratio never exhausted its patience window: its checkpoint holds the "

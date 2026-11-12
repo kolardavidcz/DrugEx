@@ -735,6 +735,10 @@ svg.spark { vertical-align:middle; }
     <div class="scroll"><table id="runtable"></table></div></section>
   <section id="map"><h2>Collapse map: diversity retained vs desired reached</h2>
     <div class="controls" id="filters"></div>
+    <div class="controls"><b>x-axis:</b>
+      <label><input type="radio" name="scatter-x" value="unique" checked> unique / draw</label>
+      <label><input type="radio" name="scatter-x" value="eff"> eff. scaffolds (log)</label>
+      <span class="legend" style="margin-left:8px">unique-ratio is not chemical breadth — switch axes to see the "concentrated" band sit below the "collapsed" one.</span></div>
     <div id="scatter-box"></div>
     <div class="legend">Dashed line: the non-dominated frontier on (desired, unique). Top-left is a collapsed policy that still collects reward; top-right is the goal.</div></section>
   <section id="axes"><h2>What the axes do to uniqueness</h2><div class="axisgrid" id="axisgrid"></div></section>
@@ -866,14 +870,20 @@ for (const a of [...AXES, 'repo']) {
     });
   sel.onchange = () => { filters[a] = sel.value; drawScatter(); };
 }
+let scatterX = 'unique';
+document.querySelectorAll('input[name="scatter-x"]').forEach(rb => rb.onchange = () => { scatterX = rb.value; drawScatter(); });
 function drawScatter() {
   const runs = R.filter(r => r.verdict !== 'pilot' && r.verdict !== 'incomplete'
     && Object.entries(filters).every(([a, v]) => !v || (a === 'repo' ? r.repo : String(r.axes[a])) === v));
   const W = 860, H = 480, m = { l: 52, r: 16, t: 16, b: 42 };
-  const xs = runs.map(r => stopOf(r).unique_ratio).filter(v => v != null);
+  const xOf = r => scatterX === 'eff' ? (r.diversity || {}).effective_scaffolds : stopOf(r).unique_ratio;
+  const xs = runs.map(xOf).filter(v => v != null);
   const ys = runs.map(r => stopOf(r).desired_ratio).filter(v => v != null);
-  const xmin = Math.min(...xs, 0), xmax = Math.max(...xs, 1), ymin = 0, ymax = Math.max(...ys, 0.1);
-  const X = v => m.l + (v - xmin) / (xmax - xmin || 1) * (W - m.l - m.r);
+  // Effective scaffolds span 1..2500: log scale, floored at 1, so both bands stay readable.
+  const logX = scatterX === 'eff';
+  const xmin = logX ? 1 : Math.min(...xs, 0), xmax = logX ? Math.max(...xs, 2) : Math.max(...xs, 1), ymin = 0, ymax = Math.max(...ys, 0.1);
+  const sx = v => logX ? Math.log10(Math.max(v, 1)) : v;
+  const X = v => m.l + (sx(v) - sx(xmin)) / (sx(xmax) - sx(xmin) || 1) * (W - m.l - m.r);
   const Y = v => H - m.b - (v - ymin) / (ymax - ymin || 1) * (H - m.t - m.b);
   const color = { collapsed: '#dc2626', concentrated: '#d97706', clean: '#16a34a', unlearned: '#4f46e5', pilot: '#94a3b8', incomplete: '#94a3b8' };
   const fr = runs.filter(r => r.frontier).sort((a, b) => stopOf(a).desired_ratio - stopOf(b).desired_ratio);
@@ -881,18 +891,20 @@ function drawScatter() {
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
     ${ticks(0, 1, 5).map(t => `<line x1="${X(t * xmax)}" y1="${m.t}" x2="${X(t * xmax)}" y2="${H - m.b}" stroke="var(--line)"/>`).join('')}
     ${ticks(0, 1, 5).map(t => `<line x1="${m.l}" y1="${Y(t * ymax)}" x2="${W - m.r}" y2="${Y(t * ymax)}" stroke="var(--line)"/>`).join('')}
-    ${ticks(0, 1, 5).map(t => `<text x="${X(t * xmax)}" y="${H - m.b + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${(t * xmax).toFixed(2)}</text>`).join('')}
+    ${(logX ? [1, 10, 100, 1000, xmax].filter((v, i, a) => a.indexOf(v) === i && v <= xmax)
+             : ticks(0, 1, 5).map(t => t * xmax)).map(xv =>
+      `<text x="${X(xv)}" y="${H - m.b + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${logX ? Math.round(xv).toLocaleString() : xv.toFixed(2)}</text>`).join('')}
     ${ticks(0, 1, 5).map(t => `<text x="${m.l - 8}" y="${Y(t * ymax) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${(t * ymax).toFixed(2)}</text>`).join('')}
-    <text x="${(m.l + W - m.r) / 2}" y="${H - 6}" text-anchor="middle" font-size="12">unique molecules per draw (stop arm)</text>
+    <text x="${(m.l + W - m.r) / 2}" y="${H - 6}" text-anchor="middle" font-size="12">${logX ? 'effective scaffolds in the stop arm (log)' : 'unique molecules per draw (stop arm)'}</text>
     <text x="18" y="${(m.t + H - m.b) / 2}" text-anchor="middle" font-size="12" transform="rotate(-90 18 ${(m.t + H - m.b) / 2})">desired ratio</text>`;
-  if (fr.length > 1) svg += `<polyline points="${fr.map(r => `${X(stopOf(r).unique_ratio)},${Y(stopOf(r).desired_ratio)}`).join(' ')}" fill="none" stroke="var(--fg)" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>`;
+  if (fr.length > 1) svg += `<polyline points="${fr.map(r => `${X(xOf(r))},${Y(stopOf(r).desired_ratio)}`).join(' ')}" fill="none" stroke="var(--fg)" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>`;
   for (const r of runs) {
-    const x = stopOf(r).unique_ratio, y = stopOf(r).desired_ratio;
+    const x = xOf(r), y = stopOf(r).desired_ratio;
     if (x == null || y == null) continue;
     svg += `<g><circle cx="${X(x)}" cy="${Y(y)}" r="${r.frontier ? 6 : 4}" fill="${color[r.verdict] || '#94a3b8'}"
       opacity="0.8" stroke="${r.frontier ? 'var(--fg)' : 'none'}" stroke-width="1.5">
       <title>${esc(r.run)} — ${r.verdict}
-unique ${num(x)} · desired ${num(y)} · valid ${num(stopOf(r).valid_ratio)}
+unique ${num(stopOf(r).unique_ratio)} · desired ${num(y)} · valid ${num(stopOf(r).valid_ratio)}${(r.diversity || {}).effective_scaffolds != null ? ' · eff. scaffolds ' + Math.round(r.diversity.effective_scaffolds).toLocaleString() + ' (NN p50 ' + num(r.diversity.nn_sim_p50) + ')' : ''}
 ε=${num(r.axes.epsilon)} ${esc(r.axes.scheme)} K=${esc(r.axes.reference_conformers)} C=${esc(r.axes.max_conformers)} qed=${cell(r.axes.include_qed)}</title></circle></g>`;
   }
   svg += `</svg><div class="legend">${Object.entries(color).map(([k, c]) =>

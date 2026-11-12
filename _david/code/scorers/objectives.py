@@ -63,7 +63,7 @@ def build_scorers(cfg: Config, references: list[Chem.Mol]) -> list:
 
 def _reference_thresholds(cfg: Config, scorers: list, keys: list[str]) -> dict[str, float]:
     named = set(cfg.threshold_from_reference)
-    unknown = named - set(MOLECULE_LEVEL)  # before filtering, or a typo falls through
+    unknown = named - set(MOLECULE_LEVEL)
     if unknown:
         raise ValueError(
             f"threshold_from_reference names {sorted(unknown)}, which is not a "
@@ -126,7 +126,7 @@ def calibrate_thresholds(
         )
         return thresholds, scores
 
-    from_reference = _reference_thresholds(cfg, scorers, keys)  # SA's p85 is its maximum
+    from_reference = _reference_thresholds(cfg, scorers, keys)
 
     thresholds = []
     for key in keys:

@@ -246,6 +246,7 @@ function init() {
 
 function renderKPIs() {
   const t = DATA.totals;
+  const es = v => v == null ? '—' : Math.round(v).toLocaleString();
   const items = [
     [t.runs, 'runs', ''],
     [t.complete, 'complete', 'green'],
@@ -256,7 +257,15 @@ function renderKPIs() {
     [t.unlearned, 'unlearned', 'indigo'],
     [t.frontier, 'frontier ★', ''],
   ];
-  $('kpis').innerHTML = items.map(([v, l, c]) =>
+  // Medians of the stop arm's effective scaffold count: the chemical breadth each
+  // verdict band actually holds (prior ~3,800 for every run's reference draw).
+  const divRow = t.clean_eff_scaffolds != null ? [
+    [es(t.clean_eff_scaffolds), 'median eff. scaffolds · clean', 'green'],
+    [es(t.concentrated_eff_scaffolds), 'median eff. scaffolds · concentrated', 'amber'],
+    [es(t.collapsed_eff_scaffolds), 'median eff. scaffolds · collapsed', 'red'],
+    [`${t.novelty_min ?? '—'} min`, 'novelty vs prior', ''],
+  ] : [];
+  $('kpis').innerHTML = [...items, ...divRow].map(([v, l, c]) =>
     `<div class="kpi-card"><div class="kpi-label">${esc(l)}</div><div class="kpi-value ${c}">${v}</div></div>`).join('');
 }
 

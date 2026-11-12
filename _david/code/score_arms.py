@@ -1,10 +1,3 @@
-"""Rebuild a run's final arms from its checkpoints: python -m _david.code.score_arms <run>
-
-A walltime kill after training leaves valid checkpoints and no arm tables, and fit() cannot
-resume. Everything comes from the run's own config.json and models/*.pkg, so a rebuilt arm is
-scored against what the run scored against -- but not on the same draw.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -79,7 +72,7 @@ def rebuild(run_dir: Path, force: bool = False, only: tuple[str, ...] = (),
     recorded = json.loads((run_dir / "config.json").read_text())
     cfg = config_from_run(run_dir)
     if n_jobs is not None:
-        cfg = replace(cfg, n_jobs=n_jobs)  # in memory only; the recorded config stands
+        cfg = replace(cfg, n_jobs=n_jobs)
     reference = run_dir / "reference.sdf"
     if not reference.is_file():
         raise SystemExit(
@@ -136,7 +129,7 @@ def _update_manifest(run_dir: Path, cfg: Config, rebuilt: dict) -> None:
     manifest = json.loads(path.read_text())
     manifest.setdefault("arms", {}).update(rebuilt)
     manifest.pop("error", None)
-    manifest["arms_rebuilt"] = sorted(rebuilt)  # a later draw of the same policy
+    manifest["arms_rebuilt"] = sorted(rebuilt)
     still_missing = incomplete_arms(run_dir, cfg.n_final)
     manifest["state"] = "running" if still_missing else "complete"
     if still_missing:
@@ -144,9 +137,18 @@ def _update_manifest(run_dir: Path, cfg: Config, rebuilt: dict) -> None:
     path.write_text(json.dumps(manifest, indent=2, default=str) + "\n")
 
 
+HELP = (
+    "Rebuild a run's final arms from its checkpoints: python -m _david.code.score_arms <run>\n"
+    "\n"
+    "A walltime kill after training leaves valid checkpoints and no arm tables, and fit()\n"
+    "cannot resume. Everything comes from the run's own config.json and models/*.pkg, so a\n"
+    "rebuilt arm is scored against what the run scored against -- but not on the same draw."
+)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("run_dir", type=Path)
     parser.add_argument(

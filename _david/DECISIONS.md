@@ -236,3 +236,33 @@ if that prose ever reverts to the Pareto wording.
 **What would overturn it:** evidence that the shape objective's wider range dominates the weighted
 sum enough to make the `WS` arm a shape-only run. Cheap to test on the four planned runs: compare
 `avg_ColorTanimoto` against the `PRCD` runs at the same epsilon.
+
+---
+
+## 2026-11-12 — A conformer whose stereochemistry changed under minimization is dropped
+
+**Status:** selected · **Confidence:** high · **Cheap to reverse:** yes
+
+`scorers/conformers.py:_relax` compares `_stereo_key` before and after the MMFF run and returns
+`None, "stereo_changed"` when they differ, so that conformer never reaches the scorer. The
+question raised at the call site was whether a changed geometry should be kept anyway.
+
+**Why it is dropped.** The key is the canonical SMILES with stereochemistry read off the 3D
+coordinates, so a change means the relaxation moved the molecule to a *different stereoisomer*
+than the SMILES the generator proposed. Scoring it would enter a different compound under that
+SMILES, and the arm tables, the lead gallery and every per-molecule claim would name a structure
+the pipeline never scored. Keeping it also breaks the arm comparison in a worse way than dropping
+it does: the unminimised arm cannot produce this outcome at all, so a kept inversion is a
+molecule only the minimised arm has.
+
+This is distinct from the two neighbouring outcomes, which are deliberately **kept**:
+`unconverged` (same stereoisomer, geometry not at a stationary point) and `stereo_uncheckable`
+(RDKit could not kekulize the probe, so the comparison could not be made — dropping there would
+filter the minimised arm on a chemistry-dependent property).
+
+Every drop is counted in `RELAXATION_TALLY` and totalled in the manifest under `relaxation`, so
+the rate is visible per run rather than silent.
+
+**What would overturn it:** a run where `stereo_changed` is a material fraction of the batch
+rather than a handful of conformers. The tally is the number to look at; if it is large, the fix
+is upstream in embedding or in the force-field settings, not in keeping the inverted poses.
