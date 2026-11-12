@@ -44,7 +44,7 @@ def check_pool(timeout: float = 300.0) -> str:
     try:
         pool = context.Pool(2)
         pool.map_async(_touch, (1, 2)).get(timeout=timeout)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - any failure here means "no workers"
         _POOL_BROKEN = True
         logger.error(
             "multiprocessing start method %r cannot start a worker here (%s: %s). Every "
@@ -121,11 +121,12 @@ def _relax(task: tuple[Chem.Mol, Config]) -> tuple[Chem.Mol | None, str]:
         if before is None or after is None:
             return mol, "stereo_uncheckable"
         if before != after:
+            #! my probably should we really keep it if we have different geometry
             return None, "stereo_changed"
         mol.SetDoubleProp("Energy", energy)
         mol.SetIntProp("MinimizeStatus", status)
         return mol, "converged" if status == 0 else "unconverged"
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - a per-conformer fault must stay local
         logger.debug("relaxation raised for one conformer: %s", error)
         return record, "relax_raised"
 
@@ -233,6 +234,8 @@ def _embed_shard(task: tuple[int, list[str], dict, str]) -> str:
 
 
 class RelaxingConformerGenerator(RDKitConformerGenerator):
+    """ETKDGv3 conformers, relaxed with MMFF94s when ``cfg.minimize`` is set."""
+
     def __init__(self, cfg: Config, max_conformers: int | None = None, timeout: int | None = None):
         super().__init__(
             max_conformers=cfg.max_conformers if max_conformers is None else max_conformers,
@@ -260,6 +263,7 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
         }
 
     def _embed(self, smiles_list, out_dir) -> Path:
+        """Embed across molecules, not one at a time."""
         workers = _workers(self.cfg)
         wanted = [smiles for smiles in smiles_list if smiles]
         if (
@@ -305,6 +309,7 @@ def _rmsd(probe: Chem.Mol, other: Chem.Mol) -> float:
 
 
 def build_reference(cfg: Config, out_path: Path) -> list[Chem.Mol]:
+    """The reference bank, by geometric diversity: energy only anchors and breaks ties."""
     generator = RelaxingConformerGenerator(cfg, max_conformers=cfg.reference_attempts, timeout=0)
     with tempfile.TemporaryDirectory() as tmp:
         records = _read(Path(generator.genConformers([cfg.reference_smiles], tmp)))

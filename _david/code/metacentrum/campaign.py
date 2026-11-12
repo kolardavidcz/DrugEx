@@ -1,3 +1,17 @@
+"""The planned sweep, as batches of runs.
+
+    python -m _david.code.metacentrum.campaign                 # every batch, nothing submitted
+    python -m _david.code.metacentrum.campaign parent          # one batch, as it would be sent
+    python -m _david.code.metacentrum.campaign parent --submit  # stage HEAD once, then qsub it
+
+Nothing leaves this machine without ``--submit``; the default prints the plan. Submission
+validates every delta of the batch first, so a typo stops the campaign before the first
+``qsub`` rather than after fifty of them.
+
+A batch is a full factorial over its axes and nothing else: two runs differ only in the axes
+their names spell out, and every setting another batch varies is pinned in ``COMMON``.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -6,6 +20,7 @@ from dataclasses import dataclass, field
 
 from _david.code.metacentrum.submit import STORAGE, Job, remote, submit, sync, validate_deltas
 
+# Each is an axis some *other* batch varies, so a spec states the whole experiment.
 COMMON: dict[str, object] = {
     "scheme": "PRCD",
     "minimize": True,
@@ -15,6 +30,8 @@ COMMON: dict[str, object] = {
     "alignment_shape_weight": 0.5,
 }
 
+# qstat shows the name and nothing else; floats become hundredths because a dot in a PBS
+# job name asks for trouble.
 TOKEN = {
     "minimize": lambda v: "m1" if v else "m0",
     "epsilon": lambda v: f"e{round(v * 100):02d}",
@@ -25,11 +42,14 @@ TOKEN = {
     "alignment_shape_weight": lambda v: f"s{round(v * 100):02d}",
 }
 
+# Twice the largest measured peak; the table is in tests.py.
 MEMORY_GB = 64
 
 
 @dataclass(frozen=True)
 class Batch:
+    """One full factorial; ``axes`` is ordered and fixes the job names."""
+
     prefix: str
     axes: dict[str, tuple]
     purpose: str
@@ -143,6 +163,7 @@ BATCHES: dict[str, Batch] = {
 
 
 def runs(batch: Batch) -> list[tuple[str, dict]]:
+    """One batch as ``(job name, settings)`` pairs."""
     plan = []
     for values in itertools.product(*batch.axes.values()):
         chosen = dict(zip(batch.axes, values))
@@ -156,6 +177,7 @@ def deltas(settings: dict) -> list[str]:
 
 
 def duplicates() -> list[tuple[str, str]]:
+    """Runs repeating an earlier batch's settings: replicates, never independent."""
     seen: dict[tuple, str] = {}
     repeats = []
     for batch in BATCHES.values():
@@ -169,6 +191,7 @@ def duplicates() -> list[tuple[str, str]]:
 
 
 def show(chosen: list[str], memory_gb: int) -> list[tuple[str, dict]]:
+    """Print the plan; returns every run in it."""
     planned: list[tuple[str, dict]] = []
     for name in chosen:
         batch = BATCHES[name]
@@ -184,6 +207,7 @@ def show(chosen: list[str], memory_gb: int) -> list[tuple[str, dict]]:
 
 
 def already_submitted() -> set[str]:
+    """Job names with a spec on storage; a spec outlives the queue entry."""
     listing = remote(f"ls {STORAGE}/jobs 2>/dev/null || true")
     return {line.strip() for line in listing.splitlines() if line.strip()}
 
@@ -191,6 +215,7 @@ def already_submitted() -> set[str]:
 def launch(
     planned: list[tuple[str, dict]], resources: dict, limit: int | None, again: bool = False
 ) -> None:
+    """Validate every delta, stage HEAD once, then queue the runs."""
     for _, settings in planned:
         validate_deltas(deltas(settings))
     repeats = sorted(already_submitted() & {name for name, _ in planned}) if not again else []
@@ -212,27 +237,13 @@ def launch(
             submit(Job(name=name, args=args, **resources), revision=revision)
             done += 1
     finally:
+        # A qsub failing halfway leaves real jobs queued; the count allows a resume.
         print(f"\nsubmitted {done} of {len(chosen)} ({len(chosen) - done} not queued)")
-
-
-HELP = (
-    "The planned sweep, as batches of runs.\n"
-    "\n"
-    "    campaign                 # every batch, nothing submitted\n"
-    "    campaign parent          # one batch, exactly as it would be sent\n"
-    "    campaign parent --submit  # stage HEAD once, then qsub it\n"
-    "\n"
-    "Nothing leaves this machine without --submit; the default prints the plan, and\n"
-    "submission validates every delta of the batch before the first qsub.\n"
-    "\n"
-    "A batch is a full factorial over its axes: two runs differ only in the axes their\n"
-    "names spell out, and every setting another batch varies is pinned in COMMON."
-)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
         "batch",

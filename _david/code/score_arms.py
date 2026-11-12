@@ -1,3 +1,10 @@
+"""Rebuild a run's final arms from its checkpoints: python -m _david.code.score_arms <run>
+
+A walltime kill after training leaves valid checkpoints and no arm tables, and fit() cannot
+resume. Everything comes from the run's own config.json and models/*.pkg, so a rebuilt arm is
+scored against what the run scored against -- but not on the same draw.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -31,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def config_from_run(run_dir: Path) -> Config:
+    """The configuration the run used, not today's defaults."""
     recorded = json.loads((run_dir / "config.json").read_text())
     values = {}
     for field in fields(Config):
@@ -47,6 +55,7 @@ def config_from_run(run_dir: Path) -> Config:
 
 
 def recorded_thresholds(recorded: dict) -> list[float]:
+    """The run's own thresholds, converted out of the scale that run recorded them on."""
     stored = recorded["thresholds"]
     thresholds = (
         [float(stored[key]) for key in recorded["objectives"]]
@@ -72,6 +81,8 @@ def rebuild(run_dir: Path, force: bool = False, only: tuple[str, ...] = (),
     recorded = json.loads((run_dir / "config.json").read_text())
     cfg = config_from_run(run_dir)
     if n_jobs is not None:
+        # In memory only: a shared node splits its cores between concurrent rebuilds, but
+        # the recorded config stays what the run trained with. Config is frozen.
         cfg = replace(cfg, n_jobs=n_jobs)
     reference = run_dir / "reference.sdf"
     if not reference.is_file():
@@ -82,6 +93,8 @@ def rebuild(run_dir: Path, force: bool = False, only: tuple[str, ...] = (),
 
     missing = list(FINAL_ARMS) if force else incomplete_arms(run_dir, cfg.n_final)
     if only:
+        # A triage rebuild names the arms it needs (``--only desired_ratio_at_stop``):
+        # the verdict reads the stop arm, so that one arm upgrades an unfinished run.
         missing = [name for name in missing if name in only]
     if not missing:
         logger.info("every arm is already written; nothing to rebuild")
@@ -129,6 +142,7 @@ def _update_manifest(run_dir: Path, cfg: Config, rebuilt: dict) -> None:
     manifest = json.loads(path.read_text())
     manifest.setdefault("arms", {}).update(rebuilt)
     manifest.pop("error", None)
+    # Recorded, not hidden: an arm sampled later is the same policy on a different draw.
     manifest["arms_rebuilt"] = sorted(rebuilt)
     still_missing = incomplete_arms(run_dir, cfg.n_final)
     manifest["state"] = "running" if still_missing else "complete"
@@ -137,18 +151,9 @@ def _update_manifest(run_dir: Path, cfg: Config, rebuilt: dict) -> None:
     path.write_text(json.dumps(manifest, indent=2, default=str) + "\n")
 
 
-HELP = (
-    "Rebuild a run's final arms from its checkpoints: python -m _david.code.score_arms <run>\n"
-    "\n"
-    "A walltime kill after training leaves valid checkpoints and no arm tables, and fit()\n"
-    "cannot resume. Everything comes from the run's own config.json and models/*.pkg, so a\n"
-    "rebuilt arm is scored against what the run scored against -- but not on the same draw."
-)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("run_dir", type=Path)
     parser.add_argument(

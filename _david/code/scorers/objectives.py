@@ -21,6 +21,7 @@ from _david.code.scorers.rocs import ComboROCSScorer
 
 logger = logging.getLogger(__name__)
 
+# Pareto ignores the thresholds it is handed; WS builds its weights from them.
 SCHEMES = {
     "PRCD": ParetoCrowdingDistance,
     "PRTD": ParetoTanimotoDistance,
@@ -49,9 +50,11 @@ def build_scorers(cfg: Config, references: list[Chem.Mol]) -> list:
         show_progress=False,
         alignment_shape_weight=cfg.alignment_shape_weight,
     )
+    # Onto [0, 1]: WS sums the columns, so raw [0, 2] gave ROCS twice the leverage.
     rocs.setModifier(ClippedScore(lower_x=0.0, upper_x=ROCS_PUBLISHED_MAX))
     scorers = [
         rocs,
+        # Descending: native's unscorable SA of 10.0 must map to 0.0, not to the best.
         Property(
             "SA", modifier=ClippedScore(lower_x=cfg.sa_reward_zero, upper_x=cfg.sa_reward_one)
         ),
@@ -63,6 +66,7 @@ def build_scorers(cfg: Config, references: list[Chem.Mol]) -> list:
 
 def _reference_thresholds(cfg: Config, scorers: list, keys: list[str]) -> dict[str, float]:
     named = set(cfg.threshold_from_reference)
+    # Before filtering to this run's objectives, or a typo falls through to the percentile.
     unknown = named - set(MOLECULE_LEVEL)
     if unknown:
         raise ValueError(
@@ -103,6 +107,7 @@ def _percentile_threshold(column: pd.Series, percentile: float, key: str) -> flo
 def calibrate_thresholds(
     cfg: Config, scorers: list, prior_smiles: list[str]
 ) -> tuple[list[float], pd.DataFrame]:
+    """A percentile of the prior's own output, plus the scored prior arm as the baseline."""
     probe = DrugExEnvironment(scorers, [0.0] * len(scorers), ParetoCrowdingDistance())
     scores = probe.getScores(prior_smiles)
     valid = scores[scores["Valid"] == 1]
@@ -126,6 +131,7 @@ def calibrate_thresholds(
         )
         return thresholds, scores
 
+    # SA saturates: p85 of that column is its maximum, so the reference's own value is used.
     from_reference = _reference_thresholds(cfg, scorers, keys)
 
     thresholds = []

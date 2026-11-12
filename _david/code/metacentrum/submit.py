@@ -1,3 +1,17 @@
+"""Run this pipeline on MetaCentrum: ``python -m _david.code.metacentrum.submit <command>``.
+
+    check                 ssh, the storage venv, the staged release, the queue
+    sync                  stage HEAD on storage without submitting
+    submit --name <name>  stage HEAD, upload the spec, qsub  [-- name=value ...]
+    status                the user's queue
+    logs <name>           the PBS stdout of the newest job of that name
+    cancel <name|id> ...  qdel
+    pull                  copy finished runs back into _david/output
+
+One job at a time; the planned sweep lives in ``campaign.py`` and calls into this. A job runs
+``git archive HEAD``, so a fix travels through a commit, never through an edit on storage.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -68,6 +82,7 @@ def _git(*args: str) -> str:
 
 
 def remote(command: str, stdin: bytes | None = None) -> str:
+    """An expired ticket comes back as the fix for it."""
     result = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", HOST, command], input=stdin, capture_output=True
     )
@@ -83,6 +98,7 @@ def remote(command: str, stdin: bytes | None = None) -> str:
 
 
 def validate_deltas(deltas: list[str]) -> None:
+    """Parsed here, so a bad override fails now and not after the queue wait."""
     from _david.code.run import config_from_args
     from _david.code.scorers.objectives import reward_scheme
 
@@ -93,7 +109,7 @@ def validate_deltas(deltas: list[str]) -> None:
             + " ".join(malformed)
         )
     try:
-        reward_scheme(config_from_args(list(deltas)).scheme)
+        reward_scheme(config_from_args(list(deltas)).scheme)  # a string field: parsing is not enough
     except SystemExit as error:
         raise SystemExit(f"delta rejected locally, nothing submitted: {error}") from None
     except (ValueError, TypeError) as error:
@@ -103,6 +119,7 @@ def validate_deltas(deltas: list[str]) -> None:
 
 
 def head_revision() -> str:
+    """HEAD, refusing to stage a release that is not what the working tree holds."""
     dirty = _git("status", "--porcelain", "--untracked-files=no")
     if dirty:
         raise SystemExit(
@@ -138,6 +155,7 @@ def head_revision() -> str:
 
 
 def sync(revision: str | None = None) -> str:
+    """Stage an immutable ``$STORAGE/releases/<sha>`` and repoint ``current``."""
     revision = revision or head_revision()
     release = f"{STORAGE}/releases/{revision}"
     archive = _run(["git", "-C", str(PROJECT_ROOT), "archive", revision]).stdout
@@ -168,6 +186,7 @@ def stage_spec(job: Job, revision: str) -> str:
 
 
 def submit(job: Job, revision: str | None = None) -> str:
+    """Stage, upload and queue one job; a campaign stages once and passes ``revision`` in."""
     for delta in job.args:
         name = delta.split("=", 1)[0]
         if name in RESERVED:
@@ -180,7 +199,7 @@ def submit(job: Job, revision: str | None = None) -> str:
     release = f"{STORAGE}/releases/{revision}"
     command = ["qsub", "-N", job.name]
     if job.queue:
-        command += ["-q", job.queue]
+        command += ["-q", job.queue]  # frontends cannot submit into an execution queue
     command += [
         "-l",
         job.resources,
@@ -199,6 +218,7 @@ def submit(job: Job, revision: str | None = None) -> str:
 
 
 def check() -> None:
+    """Everything a submission depends on, in the order it would fail."""
     print(remote("hostname").strip(), "reachable")
     venv = f"{STORAGE}/.venv/bin/python"
     print("storage venv:", remote(f"test -x {venv} && echo present || echo MISSING").strip())
@@ -223,35 +243,21 @@ def logs(name: str, lines: int, follow: bool) -> None:
 
 
 def pull(name: str | None) -> None:
+    """MetaCentrum to here only; nothing is pushed the other way."""
     destination = PROJECT_ROOT / "_david" / "output"
     destination.mkdir(parents=True, exist_ok=True)
     command = ["rsync", "-az", "--info=progress2"]
     if name:
+        # A run directory is `<YYYYmmdd_HHMM>_<tag>`: the job name is only a suffix.
         command += ["--include=*/", f"--include=*_{name}/***", "--exclude=*"]
     command += [f"{HOST}:{STORAGE}/_david/output/", f"{destination}/"]
     subprocess.run(command, check=True)
     print(f"pulled into {destination}")
 
 
-HELP = (
-    "Run this pipeline on MetaCentrum: python -m _david.code.metacentrum.submit <command>\n"
-    "\n"
-    "    check                 ssh, the storage venv, the staged release, the queue\n"
-    "    sync                  stage HEAD on storage without submitting\n"
-    "    submit --name <name>  stage HEAD, upload the spec, qsub  [-- name=value ...]\n"
-    "    status                the user's queue\n"
-    "    logs <name>           the PBS stdout of the newest job of that name\n"
-    "    cancel <name|id> ...  qdel\n"
-    "    pull                  copy finished runs back into _david/output\n"
-    "\n"
-    "One job at a time; the planned sweep lives in campaign.py and calls into this. A job\n"
-    "runs `git archive HEAD`, so a fix travels through a commit, never an edit on storage."
-)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=HELP, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check")
