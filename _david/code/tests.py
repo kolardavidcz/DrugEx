@@ -28,7 +28,8 @@ from _david.code import run as runner
 from _david.code.analysis import _helpers as analysis_helpers, figures, report as analysis
 from _david.code.analysis import atlas_v2, collapse, diversity
 from _david.code.config import PROJECT_ROOT, SCHEMES, Config
-from _david.code.metacentrum import campaign, monitor, submit as submit_module
+from _david.code.metacentrum import campaign, monitor, queues, submit as submit_module
+from _david.code.metacentrum import job as job_module
 from _david.code.metacentrum.submit import Job
 from _david.code.reconstruct import provenance
 from _david.code.scorers import conformers, objectives as scorers, rocs
@@ -562,6 +563,7 @@ class Provenance(unittest.TestCase):
             "metacentrum/job.py",
             "metacentrum/submit.py",
             "metacentrum/monitor.py",
+            "metacentrum/queues.py",
         ):
             self.assertIn(name, digests)
 
@@ -1070,6 +1072,37 @@ Job Id: 25256880.pbs-m1.metacentrum.cz
         self.assertEqual(probe["epochs"], "70")
         self.assertEqual(probe["state"], "running")
 
+    def test_a_32gb_request_caps_the_scoring_pool_below_the_oom_killer(self):
+        # The heaviest cell reached ~40 GB at 16 workers; 12 keeps it under 32 GB.
+        self.assertEqual(job_module.workers_for({"mem_gb": 32}, 16), 12)
+        self.assertEqual(job_module.workers_for({"mem_gb": 64}, 16), 16)
+        self.assertEqual(job_module.workers_for({"mem_gb": 32}, 8), 8)
+        self.assertEqual(job_module.workers_for({}, 16), 16, "old specs stay all-cores")
+        self.assertEqual(job_module.workers_for({"mem_gb": 4}, 16), 1)
+
+    def test_the_queue_script_watches_only_the_three_useful_lanes(self):
+        self.assertEqual(queues.QUEUES, ("q_4h", "q_1d", "q_2d"))
+        self.assertIn("NOT for training", queues.ROLE["q_4h"])
+        self.assertIn("DEFAULT", queues.ROLE[submit_module.DEFAULT_QUEUE])
+
+    def test_long_format_queue_state_is_parsed(self):
+        text = """Queue: q_1d
+    total_jobs = 5454
+    state_count = Transit:0 Queued:3873 Held:0 Waiting:0 Running:1581 Exiting:0 Begun:0
+    resources_max.walltime = 24:00:00
+
+Queue: q_2d
+    total_jobs = 5253
+    state_count = Transit:0 Queued:4986 Held:0 Waiting:0 Running:267 Exiting:0 Begun:0
+    resources_max.walltime = 48:00:00
+"""
+        depth = {entry.name: entry for entry in queues.parse_queues(text)}
+        self.assertEqual(depth["q_1d"].running, 1581)
+        self.assertEqual(depth["q_1d"].queued, 3873)
+        self.assertEqual(depth["q_1d"].max_walltime, "24:00:00")
+        self.assertAlmostEqual(depth["q_2d"].pressure, 4986 / 267)
+        self.assertEqual(depth["q_1d"].total, 5454)
+
 
 class Campaign(unittest.TestCase):
 
@@ -1110,7 +1143,10 @@ class Campaign(unittest.TestCase):
         for cell, peak in measured.items():
             # Twice the peak: siblings of one configuration differ by ~5 GB.
             self.assertGreaterEqual(campaign.MEMORY_GB, peak * 2.0, f"minimize/c{cell}")
-        self.assertGreaterEqual(Job.mem_gb, campaign.MEMORY_GB, "the ad-hoc path must match")
+        # The ad-hoc default is the fast-to-place 32 GB request; the planned sweep includes
+        # the ~40 GB heavy cell and deliberately buys headroom instead of queue speed.
+        self.assertEqual(submit_module.Job.mem_gb, submit_module.DEFAULT_MEM_GB)
+        self.assertLess(submit_module.Job.mem_gb, campaign.MEMORY_GB)
 
     def test_a_repeated_configuration_is_reported_as_a_replicate(self):
         by_name = {

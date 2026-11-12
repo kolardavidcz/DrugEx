@@ -11,7 +11,7 @@ it; the PBS side is a small launcher plus `job.py`, and neither changes per run.
 
 ---
 
-## 0. Three rules
+## 0. Four rules
 
 1. **Defaults live in code.** `_david/code/config.py::Config` is the single source of truth.
    A submission carries **only the deltas** you actually want. "Defaults, but no QED and a
@@ -24,6 +24,9 @@ it; the PBS side is a small launcher plus `job.py`, and neither changes per run.
 3. **Commit before submitting.** A job runs `git archive <revision>`, so a fix travels
    through a commit, never through an edit on storage. `submit` refuses a dirty tracked tree,
    because those changes would silently not be in the job.
+4. **Default to `q_1d` at 32 GB.** The 24 h walltime routes to `q_1d`, the only lane used for
+   training. 32 GB places roughly 3× faster than 64 GB; the job body caps scoring workers to
+   fit it. Ask for 64 GB only for the heavy cell that grows past ~40 GB.
 
 `PY` below means the local project interpreter:
 
@@ -45,7 +48,8 @@ It prints, in the order things fail:
 - whether `$STORAGE/.venv/bin/python` exists,
 - whether HEAD is staged as a release,
 - which release `$STORAGE/current` points at,
-- the default lane (`24:00:00 -> q_1d`),
+- the default lane (`24:00:00 -> q_1d`, the training lane),
+- a reminder for `python -m _david.code.metacentrum.queues`,
 - your current queue, or "nothing queued".
 
 An SSH refusal is almost always an expired Kerberos ticket. The ticket needs interactive 2FA,
@@ -142,17 +146,39 @@ same name remain distinguishable, but `cancel <name>` and `logs <name>` would co
 
 ### 2c. Resources and queues
 
-The default is a CPU job: **16 cores, 64 GB RAM, 15 GB scratch, 24 h, no GPU, no `-q`**.
-PBS routes it by walltime. This is the scientifically relevant default: ROCS scoring and
-conformer generation are CPU-bound; the RNN itself is tiny.
+The default is a CPU job: **16 cores, 32 GB RAM, 15 GB scratch, 24 h, no GPU, no `-q`**.
+PBS routes it by walltime to **`q_1d`**, the default and only lane used for training. ROCS
+scoring and conformer generation are CPU-bound; the RNN itself is tiny, so this is the
+scientifically relevant shape.
+
+**Why 32 GB and not 64:** a 32 GB request places on far more nodes and, on our account,
+has queued roughly **3× faster** than 64 GB. The trade is headroom: the heaviest measured
+cell grew to about **40 GB around epoch 30** at 16 workers. The job body therefore derives
+the scoring-worker count from the memory request:
+
+| `--mem` | scoring workers (16 cores requested) | what fits |
+| ---: | ---: | :--- |
+| 32 GB | 12 | default; keeps the pool below 32 GB |
+| 64 GB | 16 (all cores) | the heavy/minimised cells with ~40 GB peaks |
+| 128 GB | 16 at 32 cores | wide runs with many workers |
+
+That cap changes epoch time, never a score. It is automatic — do not pass a worker flag.
+`Job` still refuses a pairing below ~2 GB per core (`16 cores` → at least `32 GB`), because
+raising cores without memory is an OOM kill after the queue wait.
+
+**Occasional extra memory.** PBS reserves the memory you request for the whole run and does
+not grow it mid-job; there is no "start at 32 and wait for 64". If a run is known to grow
+past 32 GB (the minimised 20-conformer cell is the one we measured), ask for 64 up front:
 
 ```bash
-$PY -m _david.code.metacentrum.submit submit --name egcg_long --ncpus 32 --mem 128
+$PY -m _david.code.metacentrum.submit submit --name heavy --mem 64
+$PY -m _david.code.metacentrum.submit submit --name wide --ncpus 32 --mem 128
 ```
 
-Cores and memory move together. The scoring pool keeps roughly **2 GB per worker** alive, so
-`Job` refuses a starved pairing (`16 cores` need at least `32 GB`; the default gives 64 GB).
-Doubling the pool without doubling memory is an OOM kill after the queue wait.
+That job waits longer for a node that can satisfy 64 GB, but it is not killed at 32. This is
+the honest version of "wait until more RAM is available": request the amount the run needs
+and let PBS queue it. A 32 GB job that reaches 40 GB is an under-request, not a scheduling
+bug.
 
 Queue selection is a consequence of the walltime, not a knob:
 
@@ -160,7 +186,7 @@ Queue selection is a consequence of the walltime, not a knob:
 | :--- | :--- |
 | 2 h | `q_2h` |
 | 4 h | `q_4h` |
-| 24 h | `q_1d` |
+| 24 h | **`q_1d` — the default training lane** |
 | 48 h | `q_2d` |
 | 96 h | `q_4d` |
 | 168 h | `q_1w` |
@@ -169,11 +195,37 @@ Queue selection is a consequence of the walltime, not a knob:
 MetaCentrum frontends cannot submit to an execution queue directly: `q_2h`…`q_1d` are
 `from_route_only` and `p2e_1d` has an `acl_hosts` restriction. Ask for the compute the run
 needs; **do not shorten the walltime to land in a shallower queue**, because a job that needs
-20 h but asked for 2 is killed at hour two. `--queue` is for a route or special queue an
-administrator grants, and is otherwise unnecessary. The CLI is CPU-only: GPU queues are deep
-and this pipeline does not need one.
+20 h but asked for 2 is killed at hour two.
 
-### 2d. Rerunning a staged release
+**`q_4h` is not for training.** A training run needs the whole day; four hours is for
+probes, inspections and score-only checks. `q_2d` is only for a minimised run whose honest
+budget exceeds 24 h. `--queue` is for a route or special queue an administrator grants, and
+is otherwise unnecessary. The CLI is CPU-only: GPU queues are deep and this pipeline does
+not need one.
+
+### 2d. How deep is the queue?
+
+```bash
+$PY -m _david.code.metacentrum.queues
+$PY -m _david.code.metacentrum.queues --json
+```
+
+It reads `qstat -Qf` and shows only the three lanes that matter (example snapshot from
+2026-11-04; the script always prints the live numbers):
+
+```
+QUEUE    RUNNING  QUEUED  HELD   TOTAL  MAX WALLTIME  QUEUED/RUNNING
+q_4h         471      28     0     499      04:00:00            0.1x
+q_1d        1581    3873     0    5454      24:00:00            2.4x
+q_2d         267    4986     0    5253      48:00:00           18.7x
+```
+
+`q_1d` is the default (24 h routes there and every training run asks for it). `q_4h` is
+probes only. `q_2d` is only for a run that honestly needs more than a day. Depth moves
+hourly; use it to time a submission, not as an ETA promise. The `QUEUED/RUNNING` ratio is
+a rough comparison between lanes; it is not a wait estimate.
+
+### 2e. Rerunning a staged release
 
 Every submission normally stages HEAD. Two flags make that explicit:
 

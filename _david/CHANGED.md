@@ -185,8 +185,16 @@ The planned sweep is `campaign.py`: a full factorial per batch over declared axe
 as a whole before the first `qsub`, staged once per batch, skipping specs that already exist
 on storage. `RUNBOOK.md` is the operator contract; `monitor.py` reads the live `rl_fit.tsv`
 from a running job's scratch directory and warns when the ETA exceeds the walltime or an
-epoch has not appeared for 30 minutes. Nothing here changes the science: the job body calls
-the same `_david.code.run` entry point, with the same single-checkpoint training loop.
+epoch has not appeared for 30 minutes; `queues.py` reports depth for the three lanes worth
+watching (`q_4h` probes, `q_1d` training, `q_2d` long runs).
+
+The default job is 16 cores, **32 GB**, 24 h, which routes to **`q_1d`**; 32 GB places
+roughly 3× faster than 64 GB on our account. PBS never grows a running job's allocation, so
+the job body derives scoring workers from the memory request instead: 32 GB runs 12 workers
+rather than 16, keeping the pool under the cgroup. The heaviest measured cell grew to ~40 GB
+near epoch 30; that run asks for 64 GB up front and waits for a node that can satisfy it.
+Nothing here changes the science: the job body calls the same `_david.code.run` entry point,
+with the same single-checkpoint training loop; the worker cap changes epoch time, not scores.
 
 ---
 

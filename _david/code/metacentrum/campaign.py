@@ -50,7 +50,9 @@ TOKEN = {
     "alignment_shape_weight": lambda v: f"s{round(v * 100):02d}",
 }
 
-# Twice the largest measured peak; the table is in tests.py.
+#: The planned grid includes the heaviest cell (~40 GB around epoch 30), so it buys the
+#: slower-to-place 64 GB request. A 32 GB ad-hoc run caps its worker pool instead; pass
+#: `--mem 32` to a batch only when every cell is known to stay below it.
 MEMORY_GB = 64
 
 
@@ -274,7 +276,8 @@ def main(argv: list[str] | None = None) -> int:
         "--mem",
         type=int,
         default=MEMORY_GB,
-        help=f"GB for every run; the default is {MEMORY_GB}, measured -- see MEMORY_GB",
+        help=f"GB for every run; default {MEMORY_GB} because the grid includes the ~40 GB "
+        "cell. `--mem 32` places faster but the job body caps workers to fit it",
     )
     parser.add_argument("--scratch", type=int, default=Job.scratch_gb, help="GB")
     parser.add_argument("--walltime", default=Job.walltime)

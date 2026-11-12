@@ -15,6 +15,12 @@ ENTRY_POINT = Path("_david") / "code" / "run.py"
 SPEC_KEYS = ("name", "args", "source", "revision")
 REQUIRED_ENV = ("PBS_JOBID", "SCRATCHDIR", "STORAGE_DIR", "RUN_SPEC")
 
+#: The heaviest measured cell reached ~40 GB with 16 scoring workers (~2.5 GB each) and was
+#: OOM-killed. The job derives workers from the *memory request* with this budget and a
+#: reserve, so a 32 GB allocation runs 12 workers rather than 16 and stays below its cgroup.
+MEM_GB_PER_WORKER = 2.5
+MEMORY_RESERVE_GB = 2.0
+
 THREAD_ENV = {
     "MPLBACKEND": "Agg",
     "OPENBLAS_NUM_THREADS": "1",
@@ -98,6 +104,20 @@ def job_environment(
     return merged
 
 
+def workers_for(spec: dict, cpus: int) -> int:
+    """Scoring workers that fit the memory request, never more than the allocated cores.
+
+    PBS reserves ``mem`` for the whole job but does not grow it while the job runs. This
+    cap keeps the scoring pool below that reservation: 32 GB -> 12 workers, 64 GB -> all
+    allocated cores. Old specs without ``mem_gb`` keep the previous all-cores behaviour.
+    """
+    memory = spec.get("mem_gb")
+    if not isinstance(memory, (int, float)) or memory <= MEMORY_RESERVE_GB:
+        return cpus
+    fit = int((float(memory) - MEMORY_RESERVE_GB) // MEM_GB_PER_WORKER)
+    return max(1, min(cpus, fit))
+
+
 def run_command(python: Path, output_root: Path, cpus: int, spec: dict) -> list[str]:
     return [
         str(python),
@@ -109,7 +129,7 @@ def run_command(python: Path, output_root: Path, cpus: int, spec: dict) -> list[
         "--set",
         f"output_root={output_root}",
         "--set",
-        f"n_jobs={cpus}",
+        f"n_jobs={workers_for(spec, cpus)}",
         *spec["args"],
     ]
 
@@ -162,7 +182,13 @@ def install_signal_handlers() -> None:
 
 
 def _banner(
-    env: dict[str, str], spec: dict, cpus: int, scratch: Path, release: Path, results: Path
+    env: dict[str, str],
+    spec: dict,
+    cpus: int,
+    workers: int,
+    scratch: Path,
+    release: Path,
+    results: Path,
 ) -> None:
     rows = (
         ("job", env.get("PBS_JOBID", "?")),
@@ -170,6 +196,8 @@ def _banner(
         ("node", os.uname().nodename),
         ("queue", env.get("PBS_QUEUE", "unknown")),
         ("cpus", cpus),
+        ("workers", workers),
+        ("memory", f"{spec.get('mem_gb', '?')} GB"),
         ("scratch", scratch),
         ("release", release),
         ("revision", spec["revision"]),
@@ -196,7 +224,8 @@ def main(argv: list[str] | None = None) -> int:
     output_root, storage_output = scratch / "output", storage / "_david" / "output"
     release_copy, temp_root = scratch / "DrugEx", scratch / "tmp"
     cpus = allocated_cpus(env)
-    _banner(env, spec, cpus, scratch, release, storage_output)
+    workers = workers_for(spec, cpus)
+    _banner(env, spec, cpus, workers, scratch, release, storage_output)
 
     install_signal_handlers()
     status = 1

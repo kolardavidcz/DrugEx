@@ -38,6 +38,15 @@ CPU_FLOOR = "8.0"
 #: OOM kill after the queue wait, so a job refuses a starved core/memory pairing.
 MEM_GB_PER_CORE = 2
 
+#: Default allocation: fast to place (32 GB queues roughly 3x faster than 64 GB on our
+#: account). The job body caps scoring workers to fit it; a run measured above it asks 64.
+DEFAULT_MEM_GB = 32
+
+#: The default and only lane used for training: 24 h routes to ``q_1d``. A training run
+#: needs the whole day; shrinking the walltime to reach a shallower queue truncates it.
+DEFAULT_WALLTIME = "24:00:00"
+DEFAULT_QUEUE = "q_1d"
+
 #: Walltime ceiling (hours) -> execution queue chosen by the ``default`` router. Frontends
 #: cannot submit to an execution queue directly (``q_2h``... are ``from_route_only``), so
 #: the requested walltime is what actually routes the job. Verified on tarkil 2026-11-04.
@@ -78,6 +87,7 @@ REQUIRED = (
     "metacentrum/__init__.py",
     "metacentrum/job.py",
     "metacentrum/monitor.py",
+    "metacentrum/queues.py",
     "metacentrum/pbs_launcher.sh",
 )
 
@@ -110,9 +120,9 @@ class Job:
     name: str
     args: tuple[str, ...] = ()
     ncpus: int = 16
-    mem_gb: int = 64
+    mem_gb: int = DEFAULT_MEM_GB
     scratch_gb: int = 15
-    walltime: str = "24:00:00"
+    walltime: str = DEFAULT_WALLTIME
     queue: str | None = None
 
     def __post_init__(self) -> None:
@@ -278,6 +288,7 @@ def stage_spec(job: Job, revision: str) -> str:
     spec = {
         "name": job.name,
         "args": list(job.args),
+        "mem_gb": job.mem_gb,
         "source": f"{STORAGE}/releases/{revision}",
         "revision": revision,
     }
@@ -532,7 +543,11 @@ def check() -> None:
     print(f"HEAD {revision[:12]} staged: {staged}")
     current = remote(f"readlink {shlex.quote(STORAGE + '/current')} 2>/dev/null || true").strip()
     print("current release:", current or "(none)")
-    print("default lane:", f"24:00:00 -> {routed_queue('24:00:00')} (default router)")
+    print(
+        "default lane:",
+        f"{DEFAULT_WALLTIME} -> {DEFAULT_QUEUE} (default router; the training lane)",
+    )
+    print("queue depths:", "python -m _david.code.metacentrum.queues")
     print(queue_status() or "queue: nothing of yours is queued")
 
 
