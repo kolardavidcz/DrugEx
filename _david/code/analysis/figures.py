@@ -2345,6 +2345,9 @@ def training_diagnostics(
             label="Baseline prior",
             zorder=1,
         )
+    # Panel (B) draws the delivered arm when the run produced one, and the last scored
+    # epoch otherwise -- a run killed before its arms were written still has a figure.
+    win = shown_arm(arms or {}, objectives, PRIMARY_ARM)
     deliv_df = (
         enrich_descriptors(_unique(arms[win]), rocs_col, ref_smi, config)
         if (arms and win and win in arms)
