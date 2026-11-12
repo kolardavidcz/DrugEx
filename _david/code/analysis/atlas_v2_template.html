@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>DrugEx Experiment Tree Atlas — collapse-aware decision trees</title>
+<style>
+  :root {
+    --bg-page:#f8fafc; --bg-surface:#ffffff; --bg-surface-2:#f1f5f9; --bg-surface-3:#e2e8f0;
+    --text-main:#0f172a; --text-muted:#64748b; --text-soft:#94a3b8;
+    --border-subtle:#e2e8f0; --border-strong:#cbd5e1;
+    --brand-blue:#2563eb; --brand-indigo:#4f46e5; --brand-emerald:#10b981; --brand-amber:#f59e0b; --brand-rose:#f43f5e;
+    --v-collapsed:#dc2626; --v-concentrated:#d97706; --v-clean:#16a34a; --v-unlearned:#4f46e5; --v-pilot:#94a3b8; --v-incomplete:#94a3b8;
+    --rank-gold:#f59e0b; --rank-silver:#10b981; --rank-bronze:#0ea5e9;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.05); --shadow-md:0 4px 12px rgba(0,0,0,.08); --shadow-lg:0 12px 28px rgba(0,0,0,.12);
+    --radius:10px;
+  }
+  [data-theme="dark"] {
+    --bg-page:#0b0f17; --bg-surface:#131b26; --bg-surface-2:#1c2736; --bg-surface-3:#27354a;
+    --text-main:#f1f5f9; --text-muted:#94a3b8; --text-soft:#64748b;
+    --border-subtle:#243042; --border-strong:#33435c;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    background:var(--bg-page); color:var(--text-main); line-height:1.45; font-size:13px; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:1760px; margin:0 auto; padding:20px 24px 60px; }
+
+  .hero { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin-bottom:18px;
+    padding-bottom:18px; border-bottom:1px solid var(--border-subtle); flex-wrap:wrap; }
+  .hero h1 { font-size:25px; font-weight:750; letter-spacing:-.02em; display:flex; align-items:center; gap:12px; margin-bottom:6px; }
+  .badge-pill { font-size:11px; font-weight:650; padding:3px 8px; border-radius:999px;
+    background:rgba(37,99,235,.12); color:var(--brand-blue); border:1px solid rgba(37,99,235,.25); }
+  .hero-subtitle { color:var(--text-muted); font-size:13px; max-width:820px; }
+  .hero-kpis { display:flex; gap:12px; flex-wrap:wrap; }
+  .kpi-card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius);
+    padding:10px 14px; min-width:104px; box-shadow:var(--shadow-sm); }
+  .kpi-label { font-size:10px; text-transform:uppercase; font-weight:650; letter-spacing:.05em; color:var(--text-muted); }
+  .kpi-value { font-size:19px; font-weight:750; margin-top:2px; }
+  .kpi-value.red { color:var(--v-collapsed); } .kpi-value.green { color:var(--v-clean); }
+  .kpi-value.amber { color:var(--v-concentrated); } .kpi-value.indigo { color:var(--v-unlearned); }
+
+  .legend-bar { display:flex; align-items:center; gap:18px; background:var(--bg-surface); border:1px solid var(--border-subtle);
+    border-radius:var(--radius); padding:10px 16px; margin-bottom:16px; font-size:12px; box-shadow:var(--shadow-sm); flex-wrap:wrap; }
+  .legend-item { display:inline-flex; align-items:center; gap:7px; font-weight:550; }
+  .legend-dot { display:inline-block; width:11px; height:11px; border-radius:50%; }
+  .legend-swatch { display:inline-block; width:26px; height:5px; border-radius:3px; }
+
+  .toolbar { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius);
+    padding:14px 18px; margin-bottom:20px; box-shadow:var(--shadow-sm); display:flex; flex-direction:column; gap:12px; }
+  .toolbar-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .toolbar-row .spacer { flex:1; }
+  .toolbar h4 { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin-right:6px; }
+  .floor-list { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .floor-chip { display:inline-flex; align-items:center; gap:6px; background:var(--bg-surface-2); border:1px solid var(--border-strong);
+    border-radius:8px; padding:5px 9px; font-size:12px; font-weight:600; }
+  .floor-chip b { color:var(--text-soft); font-size:10px; }
+  .floor-chip button { border:none; background:var(--bg-surface-3); color:var(--text-main); border-radius:5px;
+    width:18px; height:18px; cursor:pointer; font-size:11px; line-height:1; }
+  .floor-chip button:hover { background:var(--brand-blue); color:#fff; }
+  .btn { border:1px solid var(--border-strong); background:var(--bg-surface); color:var(--text-main);
+    border-radius:7px; padding:6px 12px; cursor:pointer; font-weight:600; font-size:12px; }
+  .btn:hover { border-color:var(--brand-blue); color:var(--brand-blue); }
+  .btn.active { background:var(--brand-blue); border-color:var(--brand-blue); color:#fff; }
+  .btn.warn { color:var(--v-collapsed); }
+  .search-box { border:1px solid var(--border-strong); border-radius:7px; padding:6px 10px; font-size:12.5px;
+    background:var(--bg-surface); color:var(--text-main); width:220px; }
+  .verdict-filter { display:inline-flex; gap:5px; flex-wrap:wrap; }
+  .verdict-filter label { display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:600;
+    border:1px solid var(--border-subtle); border-radius:999px; padding:3px 9px; cursor:pointer; user-select:none; }
+  .verdict-filter label.off { opacity:.35; }
+
+  .family-tabs { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+  .constants-card { background:var(--bg-surface-2); border:1px dashed var(--border-strong); border-radius:var(--radius);
+    padding:12px 16px; margin-bottom:14px; font-size:12px; color:var(--text-muted); max-width:900px; }
+  .constants-card b { color:var(--text-main); }
+
+  .tree-wrap { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius);
+    box-shadow:var(--shadow-sm); overflow:hidden; }
+  .tree-viewport { overflow:auto; max-height:78vh; cursor:grab; position:relative; background:
+    radial-gradient(circle at 1px 1px, var(--border-subtle) 1px, transparent 0) 0 0/26px 26px; }
+  .tree-viewport:active { cursor:grabbing; }
+  .tree-canvas { position:relative; transform-origin:0 0; }
+  .tree-canvas svg { position:absolute; left:0; top:0; pointer-events:none; }
+  .nodes-layer { position:absolute; left:0; top:0; }
+
+  .tree-node { position:absolute; background:var(--bg-surface); border:1.5px solid var(--border-strong);
+    border-radius:9px; padding:7px 12px; box-shadow:var(--shadow-sm); min-width:150px; }
+  .tree-node.is-root { background:var(--bg-surface-2); border-width:2px; }
+  .node-floor-label { font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-soft); font-weight:700; }
+  .node-title { font-size:14px; font-weight:750; margin:1px 0; }
+  .node-meta { font-size:11px; color:var(--text-muted); font-weight:550; }
+  .node-bar { display:flex; height:5px; border-radius:3px; overflow:hidden; margin-top:5px; background:var(--bg-surface-3); }
+  .node-bar span { display:block; height:100%; }
+
+  .run-card { position:absolute; width:252px; background:var(--bg-surface); border:1px solid var(--border-strong);
+    border-left-width:4px; border-radius:9px; padding:8px 10px; box-shadow:var(--shadow-sm); cursor:pointer; }
+  .run-card:hover { box-shadow:var(--shadow-md); transform:translateY(-1px); }
+  .run-card.v-collapsed { border-left-color:var(--v-collapsed); }
+  .run-card.v-concentrated { border-left-color:var(--v-concentrated); }
+  .run-card.v-clean { border-left-color:var(--v-clean); }
+  .run-card.v-unlearned { border-left-color:var(--v-unlearned); }
+  .run-card.v-pilot, .run-card.v-incomplete { border-left-color:var(--v-pilot); opacity:.75; }
+  .run-card.dimmed { opacity:.14; }
+  .run-card-top { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:3px; }
+  .run-tag { font-size:9.5px; font-weight:700; color:var(--text-soft); text-transform:uppercase; letter-spacing:.04em; }
+  .badges { display:flex; gap:4px; align-items:center; }
+  .medal { font-size:10px; font-weight:800; border-radius:5px; padding:1px 6px; color:#fff; }
+  .medal.m1 { background:var(--rank-gold); } .medal.m2 { background:var(--rank-silver); } .medal.m3 { background:var(--rank-bronze); }
+  .star { color:var(--rank-gold); font-weight:800; font-size:12px; }
+  .run-name { font-size:12px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .verdict-pill { display:inline-block; font-size:10px; font-weight:700; border-radius:999px; padding:1px 8px; margin:2px 0 5px; }
+  .vp-collapsed { background:rgba(220,38,38,.14); color:var(--v-collapsed); }
+  .vp-concentrated { background:rgba(217,119,6,.14); color:var(--v-concentrated); }
+  .vp-clean { background:rgba(22,163,74,.14); color:var(--v-clean); }
+  .vp-unlearned { background:rgba(79,70,229,.14); color:var(--v-unlearned); }
+  .vp-pilot, .vp-incomplete { background:var(--bg-surface-3); color:var(--text-muted); }
+  .run-metrics { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  .rm { background:var(--bg-surface-2); border-radius:6px; padding:3px 6px; }
+  .rm span { display:block; font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-soft); font-weight:700; }
+  .rm b { font-size:12.5px; font-variant-numeric:tabular-nums; }
+  .rm b.u-collapsed { color:var(--v-collapsed); } .rm b.u-clean { color:var(--v-clean); }
+  .killed-tag { font-size:9.5px; font-weight:700; color:var(--brand-amber); }
+
+  section.view { display:none; } section.view.active { display:block; }
+  .scroll { overflow-x:auto; }
+  table.data { width:100%; border-collapse:collapse; background:var(--bg-surface); font-size:12.5px; border:1px solid var(--border-subtle); }
+  table.data th, table.data td { padding:6px 9px; text-align:left; border-bottom:1px solid var(--border-subtle); white-space:nowrap; }
+  table.data th { background:var(--bg-surface-2); font-weight:650; cursor:pointer; position:sticky; top:0; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+
+  .modal-overlay { position:fixed; inset:0; background:rgba(2,6,23,.55); display:none; z-index:50;
+    align-items:flex-start; justify-content:center; padding:4vh 16px; overflow:auto; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:14px;
+    box-shadow:var(--shadow-lg); max-width:920px; width:100%; padding:22px 26px; }
+  .modal h2 { font-size:17px; overflow-wrap:anywhere; margin-bottom:4px; }
+  .modal .close { float:right; border:none; background:var(--bg-surface-2); border-radius:7px; width:28px; height:28px;
+    cursor:pointer; font-size:14px; color:var(--text-muted); }
+  .modal h3 { font-size:13px; margin:16px 0 6px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+  .modal ul { margin-left:18px; } .modal li { margin:3px 0; }
+  .kv { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:7px; }
+  .kv small { color:var(--text-soft); font-weight:400; }
+  .dim { color:var(--text-soft); font-weight:400; }
+  .space-plot { margin-top:8px; }
+  .kv div { background:var(--bg-surface-2); border-radius:7px; padding:5px 9px; font-size:11.5px; }
+  .kv span { display:block; color:var(--text-soft); font-size:9.5px; text-transform:uppercase; font-weight:700; }
+  .kv b { font-size:12.5px; }
+  .mols { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+  .mol { background:var(--bg-surface-2); border:1px solid var(--border-subtle); border-radius:9px; padding:7px; }
+  .mol svg { width:100%; height:auto; display:block; }
+  .mol .meta { font-size:10.5px; color:var(--text-muted); overflow-wrap:anywhere; }
+  footer { margin-top:22px; color:var(--text-soft); font-size:11.5px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="hero">
+    <div>
+      <h1>Experiment Tree Atlas <span class="badge-pill">collapse-aware</span></h1>
+      <div class="hero-subtitle">Every run as a leaf, every configuration axis as a floor. Edge colour is the
+        collapsed fraction of a branch — follow the red. Click any run for its full evidence; click column
+        headers in the table to sort.</div>
+    </div>
+    <div class="hero-kpis" id="kpis"></div>
+  </div>
+
+  <div class="legend-bar" id="legend"></div>
+
+  <div class="toolbar">
+    <div class="toolbar-row" id="floor-controls"></div>
+    <div class="toolbar-row">
+      <h4>View</h4>
+      <button class="btn" id="btn-lr">left → right</button>
+      <button class="btn" id="btn-td">top ↓ down</button>
+      <div class="spacer"></div>
+      <button class="btn" id="btn-zoom-out">−</button>
+      <button class="btn" id="btn-zoom-reset">reset zoom</button>
+      <button class="btn" id="btn-zoom-in">+</button>
+      <div class="spacer"></div>
+      <h4>Show</h4>
+      <button class="btn active" id="btn-view-tree">Tree</button>
+      <button class="btn" id="btn-view-table">Table</button>
+      <button class="btn" id="btn-export-csv">Export CSV</button>
+    </div>
+    <div class="toolbar-row">
+      <h4>Find</h4>
+      <input class="search-box" id="search" placeholder="search runs, schemes, values…">
+      <h4>Verdicts</h4>
+      <span class="verdict-filter" id="verdict-filter"></span>
+      <div class="spacer"></div>
+      <h4>Presets</h4>
+      <button class="btn" id="btn-preset-exploration">ε first</button>
+      <button class="btn" id="btn-preset-reward">reward first</button>
+      <button class="btn" id="btn-preset-geometry">geometry first</button>
+    </div>
+  </div>
+
+  <section class="view active" id="view-tree">
+    <div class="family-tabs" id="family-tabs"></div>
+    <div class="constants-card" id="constants"></div>
+    <div class="tree-wrap">
+      <div class="tree-viewport" id="viewport">
+        <div class="tree-canvas" id="canvas">
+          <svg id="edges"></svg>
+          <div class="nodes-layer" id="nodes"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-table">
+    <div class="scroll"><table class="data" id="table"></table></div>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+
+<div class="modal-overlay" id="modal-overlay"><div class="modal" id="modal"></div></div>
+
+<script id="atlas-data" type="application/json">__PAYLOAD__</script>
+<script>
+const DATA = JSON.parse(document.getElementById('atlas-data').textContent);
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = (v, d=2) => (v == null || Number.isNaN(v)) ? '—' : Number(v).toFixed(d);
+const VERDICTS = ['collapsed','concentrated','clean','unlearned','pilot','incomplete'];
+const VCOLOR = { collapsed:'#dc2626', concentrated:'#d97706', clean:'#16a34a', unlearned:'#4f46e5', pilot:'#94a3b8', incomplete:'#94a3b8' };
+
+const state = {
+  layerOrder: [...DATA.default_layers],
+  layout: 'lr',
+  family: DATA.families[0],
+  zoom: 1, pan: {x:0, y:0},
+  searchQuery: '',
+  verdictsOn: new Set(VERDICTS),
+  tableKey: 'unique', tableDesc: true,
+};
+
+function init() {
+  renderKPIs(); renderLegend(); renderFloorControls(); renderVerdictFilter(); renderFamilyTabs();
+  renderConstants(); renderTree(); renderTable(); renderFooter(); setupEvents();
+}
+
+function renderKPIs() {
+  const t = DATA.totals;
+  const items = [
+    [t.runs, 'runs', ''],
+    [t.complete, 'complete', 'green'],
+    [t.killed, 'killed · rebuildable', 'amber'],
+    [t.collapsed, 'collapsed', 'red'],
+    [t.concentrated, 'concentrated', 'amber'],
+    [t.clean, 'clean', 'green'],
+    [t.unlearned, 'unlearned', 'indigo'],
+    [t.frontier, 'frontier ★', ''],
+  ];
+  $('kpis').innerHTML = items.map(([v, l, c]) =>
+    `<div class="kpi-card"><div class="kpi-label">${esc(l)}</div><div class="kpi-value ${c}">${v}</div></div>`).join('');
+}
+
+function renderLegend() {
+  $('legend').innerHTML =
+    VERDICTS.map(v => `<span class="legend-item"><span class="legend-dot" style="background:${VCOLOR[v]}"></span>${v}</span>`).join('')
+    + `<span class="legend-item"><span class="legend-swatch" style="background:linear-gradient(90deg,#16a34a,#f59e0b,#dc2626)"></span>edge = collapsed share of branch</span>`
+    + `<span class="legend-item">edge width ∝ runs in branch</span>`
+    + `<span class="legend-item"><span class="medal m1">#1</span> desired among non-collapsed</span>`
+    + `<span class="legend-item"><span class="star">★</span> (desired, unique) frontier</span>`;
+}
+
+function renderFloorControls() {
+  $('floor-controls').innerHTML = '<h4>Floors</h4>' + state.layerOrder.map((layerId, idx) => {
+    const info = DATA.available_layers.find(l => l.id === layerId) || {label: layerId};
+    return `<span class="floor-chip"><b>F${idx+1}</b> ${esc(info.label.replace(/^.*?:\s*/, ''))}`
+      + (idx > 0 ? `<button data-action="up" data-idx="${idx}" title="Move up">↑</button>` : '')
+      + (idx < state.layerOrder.length-1 ? `<button data-action="down" data-idx="${idx}" title="Move down">↓</button>` : '')
+      + `</span>`;
+  }).join('') + `<span style="color:var(--text-soft);font-size:11px;">↓ reorder to change the question</span>`;
+}
+
+function renderVerdictFilter() {
+  $('verdict-filter').innerHTML = VERDICTS.map(v =>
+    `<label class="${state.verdictsOn.has(v) ? '' : 'off'}" data-verdict="${v}">
+       <input type="checkbox" ${state.verdictsOn.has(v) ? 'checked' : ''}> ${v} <b>${DATA.counts[v]||0}</b></label>`).join('');
+}
+
+function renderFamilyTabs() {
+  $('family-tabs').innerHTML = DATA.families.map((fam, i) => {
+    const n = DATA.runs.filter(r => r.family_key === fam.key).length;
+    return `<button class="btn ${fam.key === state.family.key ? 'active' : ''}" data-family="${fam.key}">
+      ${esc(fam.label)} (${n})</button>`;
+  }).join('');
+}
+
+function renderConstants() {
+  $('constants').innerHTML = `<b>${esc(state.family.label)} — pinned constants.</b> ${esc(state.family.constants)}`;
+}
+
+// ----------------------------------------------------------------------------- hierarchy
+function matchesQuery(r, q) {
+  if (!q) return true;
+  const hay = [r.run_id, r.verdict, r.repo, ...Object.values(r.factors || {})].join(' ').toLowerCase();
+  return hay.includes(q);
+}
+function verdictVisible(r) { return state.verdictsOn.has(r.verdict); }
+
+function leafNode(run) {
+  const match = matchesQuery(run, state.searchQuery) && verdictVisible(run);
+  return { type:'leaf', run, id:run.run_id, isSearchMatch:match, hasSearchMatch:match,
+    collapsed: run.verdict === 'collapsed' ? 1 : 0, judged: JUDGED(run) ? 1 : 0,
+    frontier: run.frontier ? 1 : 0, medal: run.rank && run.rank <= 3 ? run.rank : 0 };
+}
+function JUDGED(r) { return r.verdict !== 'pilot' && r.verdict !== 'incomplete'; }
+
+function buildHierarchy(runs, layerIndex = 0) {
+  if (layerIndex >= state.layerOrder.length || runs.length <= 1) return runs.map(leafNode);
+  const layerId = state.layerOrder[layerIndex];
+  const groups = new Map();
+  runs.forEach(r => {
+    const val = r.factors[layerId] || 'other';
+    if (!groups.has(val)) groups.set(val, []);
+    groups.get(val).push(r);
+  });
+  return Array.from(groups.entries()).map(([val, subset]) => {
+    const children = buildHierarchy(subset, layerIndex + 1);
+    const agg = children.reduce((acc, c) => ({
+      runs: acc.runs + (c.runsCount || 1), collapsed: acc.collapsed + (c.collapsed || 0),
+      judged: acc.judged + (c.judged || 0), frontier: acc.frontier + (c.frontier || 0),
+      match: acc.match || c.hasSearchMatch,
+    }), {runs:0, collapsed:0, judged:0, frontier:0, match:false});
+    return { type:'group', factorId:layerId, value:val, children,
+      runsCount: agg.runs, collapsed: agg.collapsed, judged: agg.judged,
+      frontierCount: agg.frontier, hasSearchMatch: agg.match };
+  });
+}
+
+// ----------------------------------------------------------------------------- layout
+const CARD_W = 252, CARD_H = 134, NODE_W = 168, NODE_H = 66;
+function layout(root) {
+  let rows = 0;
+  const place = (node, depth) => {
+    if (node.type === 'leaf') { node.row = rows++; }
+    else { node.children.forEach(c => place(c, depth + 1)); node.row = (node.children[0].row + node.children[node.children.length-1].row) / 2; }
+  };
+  place(root, 0);
+  const cols = state.layerOrder.length + 1;
+  const isLR = state.layout === 'lr';
+  const width = isLR ? cols * (CARD_W + 70) + 60 : rows * (CARD_W + 22) + 60;
+  const height = isLR ? rows * (CARD_H + 16) + 60 : cols * (NODE_H + 96) + 60;
+  const total = rows;
+  const placePx = (node, depth) => {
+    const colX = 40 + depth * (isLR ? CARD_W + 70 : 0);
+    const rowY = 24 + node.row * (isLR ? CARD_H + 16 : CARD_W + 22);
+    if (node.type === 'leaf') {
+      node.w = CARD_W; node.h = CARD_H;
+      node.x = isLR ? colX : rowY; node.y = isLR ? rowY : 40 + depth * (NODE_H + 96);
+    } else {
+      node.w = NODE_W; node.h = NODE_H;
+      node.x = isLR ? colX + (CARD_W - NODE_W) / 2 : rowY + (CARD_W - NODE_W) / 2;
+      node.y = isLR ? rowY + (CARD_H - NODE_H) / 2 : 40 + depth * (NODE_H + 96);
+    }
+    (node.children || []).forEach(c => placePx(c, depth + 1));
+  };
+  placePx(root, 0);
+  return { width, height, total };
+}
+
+// ----------------------------------------------------------------------------- render tree
+function collapseShare(node) { return node.judged ? node.collapsed / node.judged : null; }
+function shareColor(share) {
+  if (share == null) return '#94a3b8';
+  const stops = [[0,'#16a34a'],[.5,'#f59e0b'],[1,'#dc2626']];
+  const t = Math.max(0, Math.min(1, share));
+  const i = t < .5 ? 0 : 1, f = (t - i * .5) / .5;
+  const a = stops[i][1], b = stops[i+1][1];
+  const mix = (x, y) => Math.round(x + (y - x) * f);
+  const hx = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+  const [r1,g1,b1] = hx(a), [r2,g2,b2] = hx(b);
+  return `rgb(${mix(r1,r2)},${mix(g1,g2)},${mix(b1,b2)})`;
+}
+
+function renderTree() {
+  const runs = DATA.runs.filter(r => r.family_key === state.family.key);
+  const nodes = $('nodes'), svg = $('edges');
+  nodes.innerHTML = ''; svg.innerHTML = '';
+  if (!runs.length) { nodes.innerHTML = '<div style="padding:40px;color:var(--text-muted)">No runs in this family.</div>'; return; }
+
+  const children = buildHierarchy(runs, 0);
+  const root = { type:'group', factorId:'root', value: state.family.label, children,
+    runsCount: runs.length, collapsed: children.reduce((s,c)=>s+c.collapsed,0),
+    judged: children.reduce((s,c)=>s+c.judged,0),
+    frontierCount: children.reduce((s,c)=>s+c.frontier,0),
+    hasSearchMatch: children.some(c => c.hasSearchMatch) };
+  const dims = layout(root);
+  const canvas = $('canvas');
+  canvas.style.width = dims.width + 'px'; canvas.style.height = dims.height + 'px';
+  svg.setAttribute('width', dims.width); svg.setAttribute('height', dims.height);
+
+  const frag = document.createDocumentFragment(), svgFrag = document.createDocumentFragment();
+  (function walk(node) {
+    (node.children || []).forEach(child => { drawEdge(svgFrag, node, child); walk(child); });
+    drawNode(frag, node);
+  })(root);
+  svg.appendChild(svgFrag); nodes.appendChild(frag);
+  applyTransform();
+}
+
+function drawEdge(svgContainer, parent, child) {
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const isLR = state.layout === 'lr';
+  let sx, sy, ex, ey;
+  if (isLR) { sx = parent.x + parent.w; sy = parent.y + parent.h / 2; ex = child.x; ey = child.y + child.h / 2; }
+  else { sx = parent.x + parent.w / 2; sy = parent.y + parent.h; ex = child.x + child.w / 2; ey = child.y; }
+  const mx = (sx + ex) / 2;
+  path.setAttribute('d', isLR
+    ? `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ey}, ${ex} ${ey}`
+    : `M ${sx} ${sy} C ${sx} ${(sy+ey)/2}, ${ex} ${(sy+ey)/2}, ${ex} ${ey}`);
+  path.setAttribute('fill', 'none'); path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('vector-effect', 'non-scaling-stroke');
+  const share = collapseShare(child);
+  path.setAttribute('stroke', shareColor(share));
+  path.setAttribute('stroke-width', String(1.2 + 3.6 * Math.sqrt(child.runsCount || 1) / Math.sqrt(DATA.totals.runs)));
+  if (state.searchQuery && !child.hasSearchMatch) { path.setAttribute('opacity', '0.06'); path.setAttribute('stroke-dasharray', '3 3'); }
+  svgContainer.appendChild(path);
+}
+
+function drawNode(container, node) {
+  const el = document.createElement('div');
+  el.style.left = node.x + 'px'; el.style.top = node.y + 'px';
+  el.style.width = node.w + 'px';
+  if (node.type === 'leaf') {
+    const r = node.run, s = r.arms.stop || {};
+    el.className = `run-card v-${r.verdict}` + (node.hasSearchMatch ? '' : ' dimmed');
+    const medal = node.medal ? `<span class="medal m${node.medal}">#${node.medal}</span>` : '';
+    const star = r.frontier ? '<span class="star" title="on the (desired, unique) frontier">★</span>' : '';
+    const killed = r.state !== 'complete' ? `<span class="killed-tag">⚡ killed</span>` : '';
+    const uniq = s.unique_ratio, uniqCls = uniq == null ? '' : uniq < .35 ? 'u-collapsed' : uniq >= .7 ? 'u-clean' : '';
+    const div = ((r.diversity || {}).arms || {}).stop || {};
+    const eff = v => v == null ? '—' : Math.round(v).toLocaleString();
+    el.innerHTML = `
+      <div class="run-card-top"><span class="run-tag">${esc(r.repo)}${r.legacy ? ' · old' : ''}</span>
+        <span class="badges">${killed}${medal}${star}</span></div>
+      <div class="run-name" title="${esc(r.run_id)}">${esc(r.label)}</div>
+      <span class="verdict-pill vp-${r.verdict}">${esc(r.verdict)}</span>
+      <div class="run-metrics">
+        <div class="rm"><span>desired</span><b>${num(s.desired_ratio)}</b></div>
+        <div class="rm"><span>unique</span><b class="${uniqCls}">${num(uniq)}</b></div>
+        <div class="rm"><span>eff. scaffolds</span><b>${eff(div.effective_scaffolds)}</b></div>
+        <div class="rm"><span>ROCS</span><b>${num(s.rocs_median)}</b></div>
+      </div>`;
+    el.addEventListener('click', () => showRunModal(r));
+  } else {
+    el.className = 'tree-node' + (node.factorId === 'root' ? ' is-root' : '')
+      + (state.searchQuery && !node.hasSearchMatch ? ' dimmed' : '');
+    el.style.opacity = state.searchQuery && !node.hasSearchMatch ? '0.2' : '';
+    const layerMeta = DATA.available_layers.find(l => l.id === node.factorId);
+    const share = collapseShare(node);
+    const bar = node.judged ? `<div class="node-bar">
+      <span style="width:${(node.collapsed/node.judged*100)||0}%;background:${VCOLOR.collapsed}"></span>
+      <span style="width:${((node.judged-node.collapsed)/node.judged*100)||0}%;background:${VCOLOR['clean']}"></span></div>` : '';
+    el.innerHTML = `
+      ${node.factorId !== 'root' ? `<div class="node-floor-label">${esc(layerMeta ? layerMeta.label : node.factorId)}</div>` : ''}
+      <div class="node-title">${esc(node.value)}</div>
+      <div class="node-meta">${node.runsCount} run${node.runsCount===1?'':'s'}${node.judged ? ` · ${Math.round(share*100)}% collapsed` : ' · not yet scored'}
+        ${node.frontierCount ? ` · ★${node.frontierCount}` : ''}</div>${bar}`;
+  }
+  container.appendChild(el);
+}
+
+// ----------------------------------------------------------------------------- modal
+function sparkline(run) {
+  const c = run.curve || {}, W = 560, H = 110, m = 30;
+  const series = [['desired', c.desired, '#16a34a'], ['unique', c.unique, '#2563eb']];
+  const n = Math.max(...series.map(([, a]) => (a || []).length), 1);
+  const X = i => m + i / Math.max(n - 1, 1) * (W - m - 8);
+  const Y = v => H - 18 - v * (H - 30);
+  let out = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">`;
+  [0, .5, 1].forEach(y => { out += `<line x1="${m}" y1="${Y(y)}" x2="${W-8}" y2="${Y(y)}" stroke="var(--border-subtle)"/>
+    <text x="${m-6}" y="${Y(y)+4}" text-anchor="end" font-size="10" fill="var(--text-soft)">${y}</text>`; });
+  series.forEach(([, arr, color]) => { if (!arr || !arr.length) return;
+    out += `<polyline points="${arr.map((v, i) => `${X(i)},${Y(v)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2"/>`; });
+  out += `<text x="${W-8}" y="${Y(1)-2}" text-anchor="end" font-size="10" fill="#16a34a">desired</text>
+    <text x="${W-8}" y="${Y(0.94)<Y(1)+14?Y(0)+16:Y(0.94)+0}" text-anchor="end" font-size="10" fill="#2563eb"></text>`;
+  out += `<text x="${W/2}" y="${H-3}" text-anchor="middle" font-size="10" fill="var(--text-soft)">epoch (per-epoch eval draws are small: collapse is only visible in the 5000-molecule arms)</text></svg>`;
+  return out;
+}
+
+// PCA thumbnail of the chemical space: stop (policy) and prior clouds on shared axes.
+function spacePlot(run) {
+  const t = ((run.diversity || {}).thumb);
+  if (!t || !t.stop || !t.prior) return '';
+  const W = 560, H = 250, m = 34;
+  const pts = [...t.stop.x, ...t.prior.x, ...t.stop.y, ...t.prior.y].filter(v => typeof v === 'number');
+  if (pts.length < 4) return '';
+  let x0 = Math.min(...t.stop.x, ...t.prior.x), x1 = Math.max(...t.stop.x, ...t.prior.x);
+  let y0 = Math.min(...t.stop.y, ...t.prior.y), y1 = Math.max(...t.stop.y, ...t.prior.y);
+  const pad = s => (s < 0.05 ? 0.05 : s) * 0.05; x0 -= pad(x1-x0); x1 += pad(x1-x0); y0 -= pad(y1-y0); y1 += pad(y1-y0);
+  const X = v => m + (v - x0) / (x1 - x0) * (W - m - 12);
+  const Y = v => H - 26 - (v - y0) / (y1 - y0) * (H - 40);
+  let out = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">`;
+  out += `<rect x="${m}" y="10" width="${W-m-12}" height="${H-36}" fill="none" stroke="var(--border-subtle)"/>`;
+  const r = 1.6;
+  for (let i = 0; i < t.prior.x.length; i++)
+    out += `<circle cx="${X(t.prior.x[i])}" cy="${Y(t.prior.y[i])}" r="${r}" fill="var(--text-soft)" opacity="0.30"/>`;
+  for (let i = 0; i < t.stop.x.length; i++)
+    out += `<circle cx="${X(t.stop.x[i])}" cy="${Y(t.stop.y[i])}" r="${r+0.3}" fill="${t.stop.desired[i] ? '#16a34a' : '#dc2626'}" opacity="${t.stop.desired[i] ? 0.55 : 0.35}"/>`;
+  out += `<text x="${(m+W-12)/2}" y="${H-12}" text-anchor="middle" font-size="10" fill="var(--text-soft)">PC1 (${num((t.explained||[0])[0]*100,1)}% var.)</text>
+    <text x="12" y="${(H-16)/2}" text-anchor="middle" font-size="10" fill="var(--text-soft)" transform="rotate(-90 12 ${(H-16)/2})">PC2 (${num((t.explained||[0,0])[1]*100,1)}%)</text>
+    <circle cx="${m+14}" cy="16" r="3" fill="var(--text-soft)" opacity="0.5"/><text x="${m+20}" y="19" font-size="10" fill="var(--text-soft)">prior</text>
+    <circle cx="${m+62}" cy="16" r="3" fill="#16a34a"/><text x="${m+68}" y="19" font-size="10" fill="#16a34a">policy·desired</text>
+    <circle cx="${m+152}" cy="16" r="3" fill="#dc2626"/><text x="${m+158}" y="19" font-size="10" fill="#dc2626">policy·not</text></svg>`;
+  return out;
+}
+
+// The chemical-diversity layer: what unique-ratio cannot see (scaffold families, NN clustering, prior echo).
+function diversityBlock(run) {
+  const d = run.diversity;
+  if (!d) return `<h3>Chemical diversity</h3><p class="dim">no cached profile yet (diversity batch still computing)</p>`;
+  const s = (d.arms || {}).stop || {}, p = (d.arms || {}).prior || {}, c = d.cross || {};
+  const fmt = v => v == null ? '—' : num(v);
+  return `
+    <h3>Chemical diversity <small class="dim">stop arm vs prior, unique valid molecules</small></h3>
+    <div class="kv">
+      <div><span>effective molecules</span><b>${s.effective_molecules != null ? Math.round(s.effective_molecules).toLocaleString() : '—'} <small>(prior ${p.effective_molecules != null ? Math.round(p.effective_molecules).toLocaleString() : '—'})</small></b></div>
+      <div><span>effective scaffolds</span><b>${s.effective_scaffolds != null ? Math.round(s.effective_scaffolds).toLocaleString() : '—'} <small>(prior ${p.effective_scaffolds != null ? Math.round(p.effective_scaffolds).toLocaleString() : '—'})</small></b></div>
+      <div><span>internal diversity</span><b>${fmt(s.internal_diversity)} <small>(prior ${fmt(p.internal_diversity)})</small></b></div>
+      <div><span>NN similarity p50</span><b>${fmt(s.nn_sim_p50)} <small>(prior ${fmt(p.nn_sim_p50)})</small></b></div>
+      <div><span>NN similarity p90</span><b>${fmt(s.nn_sim_p90)}</b></div>
+      <div><span>near-dup rate</span><b>${fmt(s.near_dup_rate)} <small>≥${0.90} Tanimoto</small></b></div>
+      <div><span>prior echo rate</span><b>${fmt(c.prior_echo_rate)} <small>≥0.95 to prior</small></b></div>
+      <div><span>novelty vs prior</span><b>${fmt(c.novelty_rate)} <small>&lt;0.60 to any prior mol</small></b></div>
+    </div>
+    ${d.thumb ? `<div class="space-plot">${spacePlot(run)}</div>` : ''}`;
+}
+
+function showRunModal(r) {
+  const s = r.arms.stop || {}, p = r.arms.prior || {};
+  const arms = [['prior','prior.tsv'],['best','final_desired_ratio.tsv'],['stop','final_desired_ratio_at_stop.tsv'],['gmean','final_gmean.tsv']];
+  $('modal').innerHTML = `
+    <button class="close" id="modal-close">✕</button>
+    <h2>${esc(r.run_id)}</h2>
+    <span class="verdict-pill vp-${r.verdict}">${esc(r.verdict)}</span>
+    ${r.frontier ? '<span class="star">★ frontier</span>' : ''}
+    ${r.rank && r.rank <= 3 ? `<span class="medal m${r.rank}">#${r.rank} in family</span>` : ''}
+    <span class="run-tag"> ${esc(r.repo)} · state ${esc(r.state)} · ${r.epochs_run ?? '—'} epochs · ${num(r.hours,1)} h</span>
+    <h3>Why this verdict</h3>
+    <ul>${(r.reasons && r.reasons.length ? r.reasons : ['no reasons recorded']).map(esc).map(x => `<li>${x}</li>`).join('')}</ul>
+    <h3>Configuration</h3>
+    <div class="kv">${Object.entries(r.factors).map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
+    <h3>Final policy (stop arm) vs prior</h3>
+    <div class="kv">
+      <div><span>desired</span><b>${num(s.desired_ratio)} <small>(prior ${num(p.desired_ratio)})</small></b></div>
+      <div><span>unique</span><b>${num(s.unique_ratio)} <small>(prior ${num(p.unique_ratio)})</small></b></div>
+      <div><span>valid</span><b>${num(s.valid_ratio)} <small>(prior ${num(p.valid_ratio)})</small></b></div>
+      <div><span>top-10 share</span><b>${num(s.top10_share)}</b></div>
+      <div><span>ROCS median</span><b>${num(s.rocs_median)} <small>(max ${num(s.rocs_max)})</small></b></div>
+      <div><span>median heavy atoms</span><b>${num((r.chemistry.stop||{}).hac_median,0)} <small>(prior ${num((r.chemistry.prior||{}).hac_median,0)})</small></b></div>
+      <div><span>scaffolds (unique)</span><b>${(r.chemistry.stop||{}).scaffolds ?? '—'}</b></div>
+      <div><span>post-checkpoint decay</span><b>${num(r.postpeak_decay)} <small>(unique best→stop)</small></b></div>
+    </div>
+    ${diversityBlock(r)}
+    <h3>Training curve</h3>${sparkline(r)}
+    ${r.repeats && r.repeats.length ? `<h3>What it collapsed onto</h3><div class="mols">${r.repeats.map(m =>
+      `<div class="mol">${m.svg || ''}<div class="meta"><b>${m.count}× per 5000</b> · ROCS ${num(m.rocs)}<br>${esc(m.smiles)}</div></div>`).join('')}</div>` : ''}
+    ${r.lead && r.lead.svg ? `<h3>Best desired molecule</h3><div class="mols"><div class="mol">${r.lead.svg}
+      <div class="meta"><b>ROCS ${num(r.lead.rocs)}</b><br>${esc(r.lead.smiles)}</div></div></div>` : ''}
+    ${r.missing && r.missing.length ? `<h3>Incomplete</h3><div class="kv"><div><span>missing arms</span><b>${esc(r.missing.join(', '))}</b></div></div>
+      <p style="margin-top:8px"><code>python -m _david.code.score_arms ${esc(r.run_id)}</code></p>` : ''}`;
+  $('modal-overlay').classList.add('open');
+  $('modal-close').onclick = () => $('modal-overlay').classList.remove('open');
+}
+
+// ----------------------------------------------------------------------------- table
+const COLS = [
+  ['run_id','run', r => esc(r.label)],
+  ['verdict','verdict', r => `<span class="verdict-pill vp-${r.verdict}">${r.verdict}</span>`],
+  ['rank','', r => r.rank && r.rank <= 3 ? `<span class="medal m${r.rank}">#${r.rank}</span>` : (r.frontier ? '<span class="star">★</span>' : '')],
+  ['state','state', r => esc(r.state)],
+  ['repo','repo', r => esc(r.repo)],
+  ['reward','scheme', r => esc(r.factors.reward)],
+  ['epsilon','ε', r => esc(r.factors.epsilon)],
+  ['geometry','geometry', r => esc(r.factors.geometry)],
+  ['budget','C', r => esc(r.factors.budget)],
+  ['color','colour', r => esc(r.factors.color)],
+  ['shape_color','S', r => esc(r.factors.shape_color)],
+  ['desired_ratio','desired', r => num((r.arms.stop||{}).desired_ratio), 1],
+  ['unique_ratio','unique', r => num((r.arms.stop||{}).unique_ratio), 1],
+  ['top10_share','top10', r => num((r.arms.stop||{}).top10_share), 1],
+  ['valid_ratio','valid', r => num((r.arms.stop||{}).valid_ratio), 1],
+  ['rocs_median','ROCS', r => num((r.arms.stop||{}).rocs_median), 1],
+  ['epochs_run','epochs', r => r.epochs_run ?? '—', 1],
+  ['hours','hours', r => num(r.hours,1), 1],
+];
+function tval(r, k) {
+  if (k === 'desired_ratio' || k === 'unique_ratio' || k === 'top10_share' || k === 'valid_ratio' || k === 'rocs_median') return (r.arms.stop||{})[k];
+  if (k === 'epochs_run') return r.epochs_run; if (k === 'hours') return r.hours;
+  return r.factors[k] ?? r[k];
+}
+function renderTable() {
+  const rows = [...DATA.runs].sort((a, b) => {
+    const x = tval(a, state.tableKey), y = tval(b, state.tableKey);
+    if (x === y) return a.run_id < b.run_id ? -1 : 1;
+    if (x == null) return 1; if (y == null) return -1;
+    return (x > y ? 1 : -1) * (state.tableDesc ? -1 : 1);
+  });
+  $('table').innerHTML = `<thead><tr>${COLS.map(([k, l]) =>
+    `<th data-k="${k}">${l}${k === state.tableKey ? (state.tableDesc ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr data-run="${esc(r.run_id)}" style="cursor:pointer">${COLS.map(([, , f, n]) =>
+      `<td class="${n ? 'num' : ''}">${f(r)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+}
+
+// ----------------------------------------------------------------------------- events
+function applyTransform() { $('canvas').style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`; }
+function setupEvents() {
+  $('floor-controls').addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    const idx = +btn.dataset.idx, action = btn.dataset.action;
+    const j = action === 'up' ? idx - 1 : idx + 1;
+    [state.layerOrder[idx], state.layerOrder[j]] = [state.layerOrder[j], state.layerOrder[idx]];
+    renderFloorControls(); renderTree();
+  });
+  $('btn-lr').onclick = () => { state.layout = 'lr'; markLayout(); renderTree(); };
+  $('btn-td').onclick = () => { state.layout = 'td'; markLayout(); renderTree(); };
+  const markLayout = () => { $('btn-lr').classList.toggle('active', state.layout === 'lr'); $('btn-td').classList.toggle('active', state.layout === 'td'); };
+  markLayout();
+  $('btn-zoom-in').onclick = () => { state.zoom = Math.min(2.5, state.zoom * 1.2); applyTransform(); };
+  $('btn-zoom-out').onclick = () => { state.zoom = Math.max(.2, state.zoom / 1.2); applyTransform(); };
+  $('btn-zoom-reset').onclick = () => { state.zoom = 1; state.pan = {x:0, y:0}; applyTransform(); };
+  $('btn-view-tree').onclick = () => setView('tree'); $('btn-view-table').onclick = () => setView('table');
+  const setView = v => { $('view-tree').classList.toggle('active', v === 'tree'); $('view-table').classList.toggle('active', v === 'table');
+    $('btn-view-tree').classList.toggle('active', v === 'tree'); $('btn-view-table').classList.toggle('active', v === 'table'); };
+  $('btn-preset-exploration').onclick = () => { state.layerOrder = [...DATA.default_layers]; renderFloorControls(); renderTree(); };
+  $('btn-preset-reward').onclick = () => { state.layerOrder = ['reward','epsilon','geometry','budget','color','shape_color']; renderFloorControls(); renderTree(); };
+  $('btn-preset-geometry').onclick = () => { state.layerOrder = ['geometry','epsilon','reward','budget','color','shape_color']; renderFloorControls(); renderTree(); };
+  let searchTimer = null;
+  $('search').addEventListener('input', e => { clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { state.searchQuery = e.target.value.trim().toLowerCase(); renderTree(); }, 180); });
+  $('verdict-filter').addEventListener('click', e => {
+    const label = e.target.closest('label'); if (!label) return;
+    const v = label.dataset.verdict;
+    if (state.verdictsOn.has(v)) state.verdictsOn.delete(v); else state.verdictsOn.add(v);
+    renderVerdictFilter(); renderTree();
+  });
+  $('family-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-family]'); if (!btn) return;
+    state.family = DATA.families.find(f => f.key === btn.dataset.family);
+    renderFamilyTabs(); renderConstants(); renderTree();
+  });
+  $('table').addEventListener('click', e => {
+    const th = e.target.closest('th'); if (th) { const k = th.dataset.k;
+      state.tableDesc = k === state.tableKey ? !state.tableDesc : true; state.tableKey = k; renderTable(); return; }
+    const tr = e.target.closest('tr[data-run]'); if (!tr) return;
+    const run = DATA.runs.find(r => r.run_id === tr.dataset.run); if (run) showRunModal(run);
+  });
+  $('modal-overlay').addEventListener('click', e => { if (e.target === $('modal-overlay')) $('modal-overlay').classList.remove('open'); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') $('modal-overlay').classList.remove('open'); });
+  // drag to pan
+  const vp = $('viewport'); let drag = null;
+  vp.addEventListener('mousedown', e => { if (e.target.closest('.run-card, .tree-node')) return; drag = {x:e.clientX, y:e.clientY, px:state.pan.x, py:state.pan.y}; });
+  window.addEventListener('mousemove', e => { if (!drag) return;
+    state.pan = {x: drag.px + (e.clientX - drag.x), y: drag.py + (e.clientY - drag.y)}; applyTransform(); });
+  window.addEventListener('mouseup', () => drag = null);
+  $('btn-export-csv').onclick = exportCsv;
+}
+
+function exportCsv() {
+  const head = ['run','verdict','state','repo','scheme','epsilon','geometry','budget','color_ff','shape_weight',
+    'desired','unique','top10','valid','rocs_median','rocs_max','epochs','hours','frontier'];
+  const lines = [head.join(',')].concat(DATA.runs.map(r => {
+    const s = r.arms.stop || {};
+    return [r.run_id, r.verdict, r.state, r.repo, r.factors.reward, r.factors.epsilon, r.factors.geometry,
+      r.factors.budget, r.factors.color, r.factors.shape_color, s.desired_ratio ?? '', s.unique_ratio ?? '',
+      s.top10_share ?? '', s.valid_ratio ?? '', s.rocs_median ?? '', s.rocs_max ?? '',
+      r.epochs_run ?? '', r.hours ?? '', r.frontier ? 1 : 0].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+  }));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'tree_atlas_runs.csv'; a.click();
+}
+
+function renderFooter() {
+  $('footer').innerHTML = `Generated ${esc(DATA.generated)} · ${DATA.totals.runs} runs from ${DATA.roots.map(esc).join(' + ')} ·
+    verdict thresholds and conventions in <code>_david/code/analysis/collapse.py</code> ·
+    the scatter view lives in <code>collapse_atlas.html</code>.`;
+}
+
+init();
+</script>
+</body>
+</html>

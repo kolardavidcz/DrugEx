@@ -46,7 +46,6 @@ CEILING_TOLERANCE = 1e-6
 
 
 def at_ceiling(frame: pd.DataFrame) -> pd.Series:
-    """Per row, whether the candidate recovered a reference pose outright."""
     return frame["combo"] >= 2.0 - CEILING_TOLERANCE
 
 

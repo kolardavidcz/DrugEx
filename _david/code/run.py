@@ -1,9 +1,4 @@
-"""Run the pipeline: ``python -m _david.code.run [--set name=value ...] [--tag name]``.
-
-Stages: reference bank -> prior baseline and thresholds -> RL -> one evaluation arm per
-checkpoint -> figures and report. Everything the run resolved is written to
-``config.json`` in the run directory.
-"""
+"""One reinforcement-learning run: python -m _david.code.run [--set name=value ...] [--tag name]"""
 
 from __future__ import annotations
 
@@ -27,10 +22,10 @@ from drugex import DEFAULT_DEVICE, DEFAULT_GPUS
 from drugex.data.corpus.vocabulary import VocSmiles
 from drugex.training.generators.sequence_rnn import SequenceRNN
 from drugex.training.monitors import FileMonitor
-
 from drugex.training.scorers.parallel import capped_n_jobs
 
 from _david.code.config import PROJECT_ROOT, Config
+from _david.code.provenance import ARTIFACTS, Manifest, describe, digest
 from _david.code.scorers.conformers import (
     FORCE_FIELD,
     RELAXATION_TALLY,
@@ -39,8 +34,6 @@ from _david.code.scorers.conformers import (
     pool_is_healthy,
     use_double_precision_pickling,
 )
-from _david.code.training.explorer import DualCheckpointExplorer
-from _david.code.provenance import ARTIFACTS, Manifest, describe, digest
 from _david.code.scorers.objectives import (
     ROCS_PUBLISHED_MAX,
     build_environment,
@@ -49,15 +42,15 @@ from _david.code.scorers.objectives import (
     mark_desired,
     reward_scheme,
 )
+from _david.code.training.explorer import DualCheckpointExplorer
 
-#: Arms a completed run writes, in reporting order.
-ARMS = ("prior", "desired_ratio", "desired_ratio_at_stop", "gmean")
+FINAL_ARMS = ("desired_ratio", "desired_ratio_at_stop", "gmean")
+ARMS = ("prior", *FINAL_ARMS)
 
 logger = logging.getLogger("_david")
 
 
 def _coerce(field: dataclasses.Field, raw: str):
-    """Turn one ``--set`` value into the type its field is annotated with."""
     annotation = str(field.type)
     if "None" in annotation and raw.lower() in ("none", "null", ""):
         return None
@@ -65,41 +58,33 @@ def _coerce(field: dataclasses.Field, raw: str):
         if raw.lower() not in ("true", "false", "1", "0"):
             raise SystemExit(f"{field.name} is a boolean; got {raw!r}")
         return raw.lower() in ("true", "1")
-    # Checked before the scalar branches: "tuple[float, ...]" contains "float", so a
-    # scalar branch would match first and fail on every value the field can actually take.
     if "tuple" in annotation:
         inner = float if "float" in annotation else int if "int" in annotation else str
         text = raw.strip().strip("()[]")
-        if not text:
-            return ()
-        return tuple(inner(part) for part in text.split(","))
-    if "int" in annotation:
-        return int(raw)
-    if "float" in annotation:
-        return float(raw)
-    if "Path" in annotation:
-        return Path(raw)
+        return tuple(inner(part) for part in text.split(",")) if text else ()
+    for name, cast in (("int", int), ("float", float), ("Path", Path)):
+        if name in annotation:
+            return cast(raw)
     return raw
 
 
 def config_from_args(overrides: list[str]) -> Config:
-    """Build a Config, applying ``name=value`` overrides against the dataclass fields."""
-    by_name = {f.name: f for f in dataclasses.fields(Config)}
+    fields = {field.name: field for field in dataclasses.fields(Config)}
     values = {}
     for item in overrides:
-        if "=" not in item:
-            raise SystemExit(f"--set expects name=value, got {item!r}")
-        name, raw = item.split("=", 1)
+        name, separator, raw = item.partition("=")
         name = name.strip()
-        if name not in by_name:
+        if not separator:
+            raise SystemExit(f"--set expects name=value, got {item!r}")
+        if name not in fields:
             raise SystemExit(
-                f"unknown setting {name!r}. Valid settings: {', '.join(sorted(by_name))}"
+                f"unknown setting {name!r}. Valid settings: {', '.join(sorted(fields))}"
             )
-        values[name] = _coerce(by_name[name], raw.strip())
+        values[name] = _coerce(fields[name], raw.strip())
     return Config(**values)
 
 
-def _seed_everything(seed: int) -> None:
+def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -118,103 +103,60 @@ def _run_directory(cfg: Config, tag: str | None) -> Path:
     return path
 
 
-def _configure_logging(logfile: Path) -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(logfile)],
-        force=True,
-    )
-
-
-def _load(voc: VocSmiles, checkpoint: Path) -> SequenceRNN:
+def load_model(voc: VocSmiles, checkpoint: Path) -> SequenceRNN:
     model = SequenceRNN(voc, device=DEFAULT_DEVICE, use_gpus=DEFAULT_GPUS)
     model.loadStatesFromFile(str(checkpoint))
     return model
 
 
-def _sample(model: SequenceRNN, n: int, batch: int = 500) -> list[str]:
-    """``n`` SMILES, sampled in batches, unfiltered.
-
-    Unfiltered on purpose: DrugEx's ``generate`` would resample until it held n *valid
-    unique* molecules, which makes valid_ratio and unique_ratio 1 by construction and the
-    threshold calibration conditional on validity.
-    """
-    out: list[str] = []
-    while len(out) < n:
-        out.extend(model.sample(min(batch, n - len(out))))
-    return out[:n]
+def sample(model: SequenceRNN, n: int, batch: int = 500) -> list[str]:
+    drawn: list[str] = []
+    while len(drawn) < n:
+        drawn.extend(model.sample(min(batch, n - len(drawn))))
+    return drawn[:n]
 
 
-def _canonical(smiles: list[str]) -> list[str]:
-    """Canonical SMILES per entry, falling back to the input when it will not parse."""
-    out = []
-    for value in smiles:
-        mol = Chem.MolFromSmiles(value) if isinstance(value, str) else None
-        out.append(Chem.MolToSmiles(mol) if mol is not None else (value or ""))
-    return out
-
-
-def _raw_sa(canonical: pd.Series, valid: pd.Series) -> list[float]:
-    """Unmodified synthetic accessibility on [1, 10], lower is better; 0.0 for invalid."""
-    from drugex.training.scorers.properties import FAILURE_VALUES
-    from drugex.training.scorers.sascorer import calculateScore
-
-    out = []
-    for smiles, is_valid in zip(canonical, valid):
-        mol = Chem.MolFromSmiles(smiles) if is_valid == 1 and isinstance(smiles, str) else None
-        if mol is None:
-            out.append(0.0)
-            continue
-        try:
-            out.append(round(float(calculateScore(mol)), 4))
-        except Exception:
-            out.append(FAILURE_VALUES["SA"])
-    return out
-
-
-def _components(env, smiles: list[str]) -> dict[str, list[float]]:
-    """ShapeTanimoto / ColorTanimoto of the winning pose, if the scorer recorded them.
-
-    Diagnostics only: they are columns in the arm table and never objectives, so the
-    reward stays exactly as many objectives as ``env.getScorerKeys()`` reports.
-    """
+def components(env, smiles: list[str]) -> dict[str, list[float]]:
     for scorer in getattr(env, "scorers", []):
         if hasattr(scorer, "component_frame"):
             return scorer.component_frame(smiles)
     return {}
 
 
-def _write_arm(
-    path: Path, scores: pd.DataFrame, smiles: list[str], components: dict | None = None
+def _canonical_and_sa(smiles: list[str], valid: pd.Series) -> tuple[list[str], list[float]]:
+    from drugex.training.scorers.properties import FAILURE_VALUES
+    from drugex.training.scorers.sascorer import calculateScore
+
+    canonical, raw_sa = [], []
+    for value, is_valid in zip(smiles, valid):
+        mol = Chem.MolFromSmiles(value) if isinstance(value, str) else None
+        canonical.append(Chem.MolToSmiles(mol) if mol is not None else (value or ""))
+        if mol is None or is_valid != 1:
+            raw_sa.append(0.0)
+            continue
+        try:
+            raw_sa.append(round(float(calculateScore(mol)), 4))
+        except Exception:
+            raw_sa.append(FAILURE_VALUES["SA"])
+    return canonical, raw_sa
+
+
+def write_arm(
+    path: Path, scores: pd.DataFrame, smiles: list[str], diagnostics: dict | None = None
 ) -> dict:
-    """Write one scored arm as a TSV and return the ratios a thesis table reports."""
     scores = scores.copy()
     scores.insert(0, "SMILES", smiles)
-    # Native computes Desired from the thresholds alone, so an invalid row (every
-    # objective zeroed) is marked desirable whenever a threshold is 0.0. Every arm gets
-    # the same guard the prior arm gets.
-    if "Desired" in scores:
-        scores.loc[scores["Valid"] == 0, "Desired"] = 0
-    for column, values in (components or {}).items():
+    for column, values in (diagnostics or {}).items():
         scores[column] = values
-        # DrugExEnvironment zeroes every objective for an invalid molecule; the
-        # diagnostics follow the same rule so a row always adds up.
-        scores.loc[scores["Valid"] == 0, column] = 0.0
-    # Canonical structure, not the generated spelling: an RNN emits "Oc1ccccc1" and
-    # "c1ccccc1O" as different strings for one molecule, and deduplicating on the raw
-    # string would count it twice in unique_ratio and desired_ratio, and could put the
-    # same molecule in the lead gallery several times. Written to the TSV as well, so
-    # every reader of the arm deduplicates the same way this did.
-    scores["Canonical"] = _canonical(smiles)
-    # Raw SA beside the modified column. ClippedScore(5 -> 3) pins ~68 % of a drug-like
-    # prior at exactly 1.0 (measured: 68.4 % of 950 valid prior molecules), so the reported SA column cannot show whether
-    # training moved synthesizability: 3.2 -> 2.8 is invisible at the ceiling, and every
-    # arm reads "SA 1.0" whether or not anything happened. Diagnostic only -- it is not
-    # an objective and never reaches the reward.
-    scores["SA_raw"] = _raw_sa(scores["Canonical"], scores["Valid"])
+    invalid = scores["Valid"] == 0
+    # An invalid molecule has every objective zeroed, so it clears an all-zero threshold set.
+    for column in ("Desired", *(diagnostics or {})):
+        if column in scores:
+            scores.loc[invalid, column] = 0
+    scores["Canonical"], scores["SA_raw"] = _canonical_and_sa(smiles, scores["Valid"])
     scores.to_csv(path, sep="\t", index=False)
-    valid = scores[scores["Valid"] == 1]
+
+    valid = scores[~invalid]
     unique = valid.drop_duplicates(subset="Canonical")
     ratios = {
         "n": len(scores),
@@ -222,20 +164,15 @@ def _write_arm(
         "unique_ratio": len(unique) / len(scores),
         "desired_ratio": float(unique["Desired"].sum()) / len(scores),
     }
-    logger.info("%s: %s", path.name, {k: round(v, 4) for k, v in ratios.items()})
+    logger.info("%s: %s", path.name, {key: round(value, 4) for key, value in ratios.items()})
     return ratios
 
 
-def _arm_is_complete(path: Path, n: int) -> bool:
-    """A full readable arm, not merely a file left behind by an interrupted writer."""
+def arm_is_complete(path: Path, n: int) -> bool:
     try:
         table = pd.read_csv(path, sep="\t")
     except (OSError, UnicodeError, pd.errors.ParserError, pd.errors.EmptyDataError):
         return False
-    # SA_raw is the last column written, so a row cut short anywhere leaves it empty --
-    # Desired sits fifth of nine and a truncation after it passed unnoticed. SMILES and
-    # Canonical are deliberately not checked: an RNN can emit an empty string, which
-    # round-trips through the TSV as NaN in both and is a real, complete row.
     required = {"SMILES", "Canonical", "Valid", "Desired", "SA_raw"}
     return (
         len(table) == n
@@ -244,14 +181,11 @@ def _arm_is_complete(path: Path, n: int) -> bool:
     )
 
 
-def _serial_run_refusal(cfg: Config) -> str | None:
-    """Why a run asking for several cores must not start when no worker can be created.
+def incomplete_arms(run_dir: Path, n: int) -> list[str]:
+    return [name for name in FINAL_ARMS if not arm_is_complete(run_dir / f"final_{name}.tsv", n)]
 
-    A multi-core run that has to score serially cannot finish: a default run is ~140
-    core-hours, which is nine hours on sixteen cores and six days on one. On the cluster
-    that is a job killed at walltime after burning its whole allocation, so it stops while
-    the run is seconds old instead. A one-core run is serial anyway and continues.
-    """
+
+def serial_run_refusal(cfg: Config) -> str | None:
     workers = capped_n_jobs(cfg.n_jobs if cfg.n_jobs > 0 else (os.cpu_count() or 1))
     if pool_is_healthy() or workers <= 1:
         return None
@@ -278,16 +212,23 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = config_from_args(args.overrides)
     run_dir = _run_directory(cfg, args.tag)
-    _configure_logging(run_dir / "run.log")
-    _seed_everything(cfg.seed)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(run_dir / "run.log")],
+        force=True,
+    )
+    seed_everything(cfg.seed)
     use_double_precision_pickling()
 
-    resolved = {k: str(v) if isinstance(v, Path) else v for k, v in dataclasses.asdict(cfg).items()}
+    resolved = {
+        key: str(value) if isinstance(value, Path) else value
+        for key, value in dataclasses.asdict(cfg).items()
+    }
     logger.info("run directory %s", run_dir)
     logger.info("device %s, gpus %s", DEFAULT_DEVICE, DEFAULT_GPUS)
 
-    # Written before the first expensive stage, so a run killed at walltime is still
-    # identifiable as `running` rather than looking like a finished one.
+    # Before the first expensive stage, so a run killed at walltime reads as `running`.
     manifest = Manifest(
         run_dir / "manifest.json",
         run=run_dir.name,
@@ -297,94 +238,78 @@ def main(argv: list[str] | None = None) -> int:
         device=str(DEFAULT_DEVICE),
         gpus=list(DEFAULT_GPUS) if DEFAULT_GPUS else [],
         provenance=describe(PROJECT_ROOT),
-        # Recorded, because it decides whether this run had 16 cores or one of them.
-        # Probe before the reference bank. A failed probe disables every production
-        # pool, so scoring is deliberately serial rather than entering another unbounded
-        # map with the same broken start method. The probe's own workers are then closed.
         mp_context=check_pool(),
         config=resolved,
     )
-    logger.info(
-        "source %s (dirty=%s)",
-        manifest.data["provenance"]["source"]["revision"],
-        manifest.data["provenance"]["source"]["dirty"],
-    )
+    source = manifest.data["provenance"]["source"]
+    logger.info("source %s (dirty=%s)", source["revision"], source["dirty"])
 
-    refusal = _serial_run_refusal(cfg)
+    refusal = serial_run_refusal(cfg)
     if refusal:
         logger.error("%s", refusal)
-        manifest.finish("failed", error=refusal)
+        manifest.update(state="failed", error=refusal)
         return 2
 
     started = time.monotonic()
     try:
         return _pipeline(cfg, run_dir, resolved, manifest, started)
     except BaseException as error:
-        manifest.finish("failed", error=f"{type(error).__name__}: {error}")
+        manifest.update(state="failed", error=f"{type(error).__name__}: {error}")
         raise
 
 
 def _pipeline(
     cfg: Config, run_dir: Path, resolved: dict, manifest: Manifest, started: float
 ) -> int:
-    """The stages, with the manifest advanced after each one that produces an artifact."""
-    # First, before the reference bank and before 5000 prior molecules are scored: an
-    # unknown scheme name is a typo in a submitted delta, and it must cost a second
-    # rather than the hour it takes to reach the first getRewards call.
+    # Before anything expensive: an unknown scheme name is a typo in a submitted delta.
     scheme = reward_scheme(cfg.scheme)
     references = build_reference(cfg, run_dir / "reference.sdf")
 
     checkpoint, vocabulary = cfg.pretrained()
     voc = VocSmiles.fromFile(str(vocabulary), encode_frags=False)
-    agent = _load(voc, checkpoint)
-    # The mutate prior is a second, independent copy of the same pretrained weights: the
-    # agent is trained, the prior stays frozen as the distribution epsilon-mutation draws
-    # from. Sharing one object would let training change the exploration distribution.
-    prior = _load(voc, checkpoint)
+    agent = load_model(voc, checkpoint)
+    # An independent copy: the agent trains, the prior stays frozen for epsilon-mutation.
+    prior = load_model(voc, checkpoint)
     for parameter in prior.parameters():
         parameter.requires_grad_(False)
     prior.eval()
 
     scorers = build_scorers(cfg, references)
     logger.info("sampling %d molecules from the prior to calibrate thresholds", cfg.n_prior)
-    prior_smiles = _sample(prior, cfg.n_prior)
+    prior_smiles = sample(prior, cfg.n_prior)
     thresholds, prior_scores = calibrate_thresholds(cfg, scorers, prior_smiles)
     env = build_environment(scorers, thresholds, scheme)
+    objectives = env.getScorerKeys()
 
-    resolved["force_field"] = FORCE_FIELD if cfg.minimize else None
-    # Recorded as the class that will actually rank the rewards, not as the short name:
-    # "WeightedSum" in config.json is unambiguous to a reader who has never seen `--scheme`.
-    resolved["reward_scheme"] = type(scheme).__name__
-    # Every objective reaches the reward on [0, 1], so the stored ROCS column is the
-    # published TanimotoCombo divided by this. Recorded rather than assumed: runs made
-    # before the modifier stored the raw [0, 2] value and carry no such field.
-    resolved["rocs_reward_scale"] = ROCS_PUBLISHED_MAX
-    resolved["objectives"] = env.getScorerKeys()
-    resolved["thresholds"] = thresholds
+    resolved.update(
+        force_field=FORCE_FIELD if cfg.minimize else None,
+        reward_scheme=type(scheme).__name__,
+        # The factor the stored ROCS column was divided by, which score_arms converts out of.
+        rocs_reward_scale=ROCS_PUBLISHED_MAX,
+        objectives=objectives,
+        thresholds=thresholds,
+    )
     (run_dir / "config.json").write_text(json.dumps(resolved, indent=2) + "\n")
     manifest.update(
         config=resolved,
-        objectives=env.getScorerKeys(),
-        thresholds=dict(zip(env.getScorerKeys(), thresholds)),
+        objectives=objectives,
+        thresholds=dict(zip(objectives, thresholds)),
         threshold_source="fixed" if cfg.fixed_thresholds else f"p{cfg.threshold_percentile:g}",
         reference_conformers=len(references),
         reference_sha256=digest(run_dir / "reference.sdf"),
-        # The bank decides every score in the run, so what it actually contains is
-        # recorded rather than inferred from the settings: a bank smaller than requested,
-        # or one whose energies are implausible, is visible in the manifest alone.
         reference_energies=[
-            round(float(m.GetDoubleProp("Energy")), 3) for m in references if m.HasProp("Energy")
+            round(float(mol.GetDoubleProp("Energy")), 3)
+            for mol in references
+            if mol.HasProp("Energy")
         ],
     )
 
-    # The prior arm is the pre-training baseline, so it is kept as an arm of its own. Its
-    # Desired column is rewritten against the thresholds it just produced.
     arms = {
-        "prior": _write_arm(
+        "prior": write_arm(
             run_dir / "prior.tsv",
-            mark_desired(prior_scores, env.getScorerKeys(), thresholds),
+            mark_desired(prior_scores, objectives, thresholds),
             prior_smiles,
-            _components(env, prior_smiles),
+            components(env, prior_smiles),
         )
     }
 
@@ -412,16 +337,16 @@ def _pipeline(
     )
     logger.info("training summary: %s", summary)
 
-    # Each arm is written as it completes and guarded on its own: this stage is a quarter
-    # of the compute budget and it runs after training, so a fault here must cost one arm
-    # rather than every table the run exists to produce.
-    for name in ("desired_ratio", "desired_ratio_at_stop", "gmean"):
+    # Guarded per arm: this stage runs after training, so a fault must cost one arm.
+    for name in FINAL_ARMS:
         try:
-            model = _load(voc, run_dir / "models" / f"{name}.pkg")
-            smiles = _sample(model, cfg.n_final)
-            scored = env.getScores(smiles)
-            arms[name] = _write_arm(
-                run_dir / f"final_{name}.tsv", scored, smiles, _components(env, smiles)
+            model = load_model(voc, run_dir / "models" / f"{name}.pkg")
+            smiles = sample(model, cfg.n_final)
+            arms[name] = write_arm(
+                run_dir / f"final_{name}.tsv",
+                env.getScores(smiles),
+                smiles,
+                components(env, smiles),
             )
         except Exception:
             logger.exception(
@@ -437,41 +362,33 @@ def _pipeline(
     manifest.update(
         summary=summary,
         arms=arms,
-        # Three of these reasons drop a conformer in the minimised arm only, so this is
-        # the number behind any claim that the two arms scored the same molecules.
         relaxation=dict(sorted(RELAXATION_TALLY.items())),
-        # Each arm named with the checkpoint it came from and that file's hash, so an arm
-        # can never be silently re-attributed to a different model later.
         checkpoints={
             name: {
                 "file": f"models/{name}.pkg",
                 "sha256": digest(run_dir / "models" / f"{name}.pkg"),
             }
-            for name in ("desired_ratio", "desired_ratio_at_stop", "gmean")
+            for name in FINAL_ARMS
         },
         artifacts={
             name: purpose for name, purpose in ARTIFACTS.items() if (run_dir / name).exists()
         },
     )
 
-    # Imported here, and never allowed to fail the run: by this point every number is on
-    # disk, and `python -m _david.code.analysis <run_dir>` reproduces the figures.
     try:
         from _david.code.analysis.report import analyse
 
         analyse(run_dir)
     except Exception:
-        logger.exception("analysis failed; rerun it with: python -m _david.code.analysis %s", run_dir)
+        logger.exception(
+            "analysis failed; rerun it with: python -m _david.code.analysis %s", run_dir
+        )
 
-    incomplete = [
-        name
-        for name in ARMS
-        if name != "prior" and not _arm_is_complete(run_dir / f"final_{name}.tsv", cfg.n_final)
-    ]
+    incomplete = incomplete_arms(run_dir, cfg.n_final)
     if incomplete:
         logger.error("incomplete final arms: %s", ", ".join(incomplete))
-    manifest.finish(
-        "failed" if incomplete else "complete",
+    manifest.update(
+        state="failed" if incomplete else "complete",
         finished=datetime.now().isoformat(timespec="seconds"),
         elapsed_seconds=round(time.monotonic() - started, 1),
         error="incomplete final arms: " + ", ".join(incomplete) if incomplete else None,

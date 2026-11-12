@@ -42,7 +42,7 @@ from _david.code.conformer.config import METHODS, RANKING_FALLBACK, Method, Stud
 # The scoring seam the pipeline itself uses: best (shape, colour) over every
 # conformer-reference pair, with native's per-molecule guard. Importing it rather than
 # reimplementing it is the point -- the study must measure the pipeline's scorer.
-from _david.code.scorers.rocs import _annotate_color_features, _best_for_molecule
+from _david.code.scorers.rocs import PoseSearch, _annotate_color_features
 
 logger = logging.getLogger(__name__)
 
@@ -121,12 +121,8 @@ def force_field(mol: Chem.Mol, method: Method, cfg: StudyConfig):
 
 
 def _energy(mol: Chem.Mol, method: Method, cfg: StudyConfig) -> float:
-    """Single-point energy, or ``inf`` when the molecule cannot be scored.
-
-    Infinity, never 0.0: the bank sorts ascending on this, and a fabricated zero would
-    make an unparameterisable conformer the global minimum and seed the bank with it.
-    That bug is why the pipeline this study serves was rewritten.
-    """
+    """Single-point energy, or ``inf`` when unscorable. Never 0.0: the bank sorts ascending,
+    so a fabricated zero would seed it with the worst conformer."""
     field = force_field(mol, method, cfg)
     if field is None:
         return math.inf
@@ -221,19 +217,14 @@ def score(
     candidates: list[Chem.Mol], references: list[Chem.Mol], cfg: StudyConfig
 ) -> tuple[float, float, bool]:
     """Best (shape, colour) over every pair, and whether the measurement is real.
-
-    The third value is what a table needs: ``_best_for_molecule`` catches a timeout or a
-    scoring error and returns ``(0.0, 0.0)`` with only a log line, which in a column of
-    numbers cannot be told from a molecule that genuinely scored zero. Two conformers of
-    one molecule never overlay at zero, so an exact zero here is a failure and is recorded
-    as one instead of being averaged into the medians.
-    """
+    ``PoseSearch.best`` returns (0.0, 0.0) on a timeout, and two conformers of one molecule
+    never overlay at zero."""
     if not candidates or not references:
         return 0.0, 0.0, True
-    groups = [list(range(len(references)))]
-    shape, colour = _best_for_molecule(
-        candidates, references, groups, cfg.alignment_shape_weight, True, cfg.color_ff
-    )[0]
+    search = PoseSearch(
+        references, [list(range(len(references)))], cfg.alignment_shape_weight, True, cfg.color_ff
+    )
+    shape, colour = search.best(candidates)[0]
     return float(shape), float(colour), shape + colour <= 0.0
 
 

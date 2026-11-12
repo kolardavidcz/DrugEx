@@ -1,16 +1,7 @@
-"""What happens on the PBS worker node. Entered by ``pbs_launcher.sh``, stdlib only.
+"""The PBS worker node, entered by ``pbs_launcher.sh``: stdlib only, nothing from ``_david``.
 
-It must start before any project import works, so it imports nothing from ``_david``.
-
-The contract, written by ``submit.py`` and read here:
-
-``RELEASE_DIR``  immutable ``git archive`` of one commit on storage, passed by the launcher.
-``RUN_SPEC``     JSON file with ``name``, ``args``, ``source`` and ``revision``.
-``STORAGE_DIR``  persistent tree holding ``.venv`` and ``_david/output``.
-``SCRATCHDIR``   the node's scratch allocation, where the run actually happens.
-
-Partial results are copied back on success, on a traceback, and on the SIGTERM PBS sends
-at walltime, because a 23-hour run that is killed still holds every epoch it finished.
+Results are copied back on success, on a traceback and on SIGTERM, since a killed run still
+holds every epoch it finished.
 """
 
 from __future__ import annotations
@@ -25,45 +16,41 @@ import traceback
 from contextlib import suppress
 from pathlib import Path
 
-#: Proof that a staged release is complete rather than half-extracted.
-ENTRY_POINT = Path("_david") / "code" / "run.py"
+ENTRY_POINT = Path("_david") / "code" / "run.py"  # proof a release is not half-extracted
 
 SPEC_KEYS = ("name", "args", "source", "revision")
 REQUIRED_ENV = ("PBS_JOBID", "SCRATCHDIR", "STORAGE_DIR", "RUN_SPEC")
 
-#: One BLAS/OMP thread per process. The ROCS scorer and the relaxation pool already use
-#: every allocated core, so a library that also threads inside each worker oversubscribes
-#: the node by a factor of ncpus. ``forkserver`` avoids the fork-after-threads deadlock
-#: that wedges a fork-Pool created after torch has started its own threads.
+# One BLAS/OMP thread per process: the scoring pools already use every allocated core.
 THREAD_ENV = {
     "MPLBACKEND": "Agg",
     "OPENBLAS_NUM_THREADS": "1",
     "OMP_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
     "DRUGEX_MP_CONTEXT": "forkserver",
-    # The pose kernel wraps every molecule in molecule_time_limit(mol_timeout()). Without
-    # this the limit is None, so the guard exists but never fires and one pathological
-    # alignment can hold an epoch until the walltime kills the job.
+    # Unset, the pose kernel's per-molecule guard never fires and one alignment holds an epoch.
     "DRUGEX_SCORE_MOL_TIMEOUT": "120",
 }
 
-#: PBS points TMPDIR at /var/tmp/pbs.<jobid> on the root filesystem, which carries a ~1 GB
-#: per-user quota; one conformer batch is larger than that. Temp files go on scratch.
+# PBS points TMPDIR at a root filesystem whose ~1 GB quota one conformer batch exceeds.
 TEMP_ENV_KEYS = ("TMPDIR", "TMP", "TEMP")
 
 
 class JobError(RuntimeError):
-    """A fatal condition, reported as one actionable line instead of a traceback."""
+    """Reported as one line, not a traceback."""
+
+
+class _SignalExit(SystemExit):
+    """Unwind through the copy-back path, then exit 128+signal."""
 
 
 def read_spec(path: Path) -> dict:
-    """Load and validate ``spec.json``. A missing key is a staging bug, not a warning."""
     try:
         spec = json.loads(path.read_text())
-    except FileNotFoundError as exc:
-        raise JobError(f"job spec is gone: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise JobError(f"job spec is not valid JSON: {path} ({exc})") from exc
+    except FileNotFoundError as error:
+        raise JobError(f"job spec is gone: {path}") from error
+    except json.JSONDecodeError as error:
+        raise JobError(f"job spec is not valid JSON: {path} ({error})") from error
     missing = [key for key in SPEC_KEYS if key not in spec]
     if missing:
         raise JobError(f"job spec {path} is missing {', '.join(missing)}")
@@ -72,13 +59,33 @@ def read_spec(path: Path) -> dict:
     return spec
 
 
-def allocated_cpus(env: dict[str, str]) -> int:
-    """Cores PBS actually gave this job, counted from ``PBS_NODEFILE``.
+def staged_job(env: dict[str, str], release_arg: Path | None) -> tuple[dict, Path]:
+    """Validate the PBS contract; returns the spec and the release it names."""
+    missing = [name for name in REQUIRED_ENV if not env.get(name)]
+    if missing:
+        raise JobError(
+            f"missing PBS environment: {', '.join(missing)}. Submit through "
+            "`python -m _david.code.metacentrum.submit submit`."
+        )
+    python = venv_python(Path(env["STORAGE_DIR"]))
+    if not (python.is_file() and os.access(python, os.X_OK)):
+        raise JobError(f"missing validated environment: {python}")
+    spec = read_spec(Path(env["RUN_SPEC"]))
+    declared = Path(spec["source"]).resolve()
+    if release_arg and declared != release_arg:
+        raise JobError(f"spec points at {declared} but the launcher came from {release_arg}")
+    release = release_arg or declared
+    if not (release / ENTRY_POINT).is_file():
+        raise JobError(f"release is incomplete or gone: {release}")
+    return spec, release
 
-    Load-bearing: ``os.cpu_count()`` reports the whole node, so on a shared 64-core
-    machine a 16-core allocation would start 64 scoring workers on 16 cores. ``NCPUS`` has
-    been seen reporting 1 for a multi-core job, so the nodefile is the authority.
-    """
+
+def venv_python(storage: Path) -> Path:
+    return storage / ".venv" / "bin" / "python"
+
+
+def allocated_cpus(env: dict[str, str]) -> int:
+    """Cores PBS gave this job. The nodefile wins: ``NCPUS`` has reported 1 for 16."""
     nodefile = Path(env.get("PBS_NODEFILE", ""))
     if nodefile.is_file():
         lines = [line for line in nodefile.read_text().splitlines() if line.strip()]
@@ -92,13 +99,8 @@ def allocated_cpus(env: dict[str, str]) -> int:
 def job_environment(
     env: dict[str, str], release_copy: Path, temp_root: Path, revision: str | None = None
 ) -> dict[str, str]:
-    """Worker environment: pinned threads, temp on scratch, the scratch release importable."""
-    merged = dict(env)
-    merged.update(THREAD_ENV)
-    # A release is an extracted `git archive` with no .git directory, so the run cannot
-    # discover its own revision. Without this every cluster manifest records
-    # `revision: null` and the provenance that justifies the whole manifest is missing
-    # exactly where it matters most.
+    merged = dict(env) | THREAD_ENV
+    # A release has no .git, so without this every cluster manifest records `revision: null`.
     if revision:
         merged["DRUGEX_SOURCE_REVISION"] = revision
     for key in TEMP_ENV_KEYS:
@@ -109,7 +111,7 @@ def job_environment(
 
 
 def run_command(python: Path, output_root: Path, cpus: int, spec: dict) -> list[str]:
-    """The pipeline invocation. Job-owned settings come first so a delta can override."""
+    """Job-owned settings come first, so a delta can override them."""
     return [
         str(python),
         "-u",
@@ -126,7 +128,6 @@ def run_command(python: Path, output_root: Path, cpus: int, spec: dict) -> list[
 
 
 def free_destination(root: Path, name: str) -> Path:
-    """``root/name``, or the first free ``name_2``, ``name_3`` ... as the run's own rule."""
     candidate, suffix = root / name, 2
     while candidate.exists():
         candidate = root / f"{name}_{suffix}"
@@ -137,15 +138,17 @@ def free_destination(root: Path, name: str) -> Path:
 def copy_results(
     output_root: Path, storage_output: Path, submission: Path | None = None
 ) -> list[Path]:
-    """Copy each run directory from scratch to storage, never merging into an existing one."""
-    copied = []
+    """Scratch to storage, never merging into an existing directory."""
     if not output_root.is_dir():
-        return copied
+        return []
+    directories = sorted(path for path in output_root.iterdir() if path.is_dir())
     if submission and submission.is_file():
-        for run_dir in (p for p in output_root.iterdir() if p.is_dir()):
+        # Inside the run directory: only directories are copied back.
+        for run_dir in directories:
             shutil.copy2(submission, run_dir / "submission.json")
     storage_output.mkdir(parents=True, exist_ok=True)
-    for run_dir in sorted(p for p in output_root.iterdir() if p.is_dir()):
+    copied = []
+    for run_dir in directories:
         destination = free_destination(storage_output, run_dir.name)
         shutil.copytree(run_dir, destination, symlinks=True)
         copied.append(destination)
@@ -153,7 +156,6 @@ def copy_results(
 
 
 def clean_scratch(scratch: Path) -> None:
-    """Free the allocation with PBS's own helper where it exists."""
     cleaner = shutil.which("clean_scratch")
     if cleaner:
         subprocess.run([cleaner], check=False)
@@ -166,10 +168,6 @@ def clean_scratch(scratch: Path) -> None:
                 child.unlink(missing_ok=True)
 
 
-class _SignalExit(SystemExit):
-    """Unwind through the copy-back path, then exit with the shell's 128+signal code."""
-
-
 def install_signal_handlers() -> None:
     def handler(signum: int, _frame) -> None:
         raise _SignalExit(128 + signum)
@@ -178,41 +176,10 @@ def install_signal_handlers() -> None:
         signal.signal(signum, handler)
 
 
-def main(argv: list[str] | None = None) -> int:
-    argv = list(sys.argv[1:] if argv is None else argv)
-    release_arg = Path(argv[1]).resolve() if argv[:1] == ["--release"] and len(argv) > 1 else None
-    env = dict(os.environ)
-
-    try:
-        missing = [name for name in REQUIRED_ENV if not env.get(name)]
-        if missing:
-            raise JobError(
-                f"missing PBS environment: {', '.join(missing)}. Submit through "
-                "`python -m _david.code.submit submit`."
-            )
-        storage = Path(env["STORAGE_DIR"])
-        scratch = Path(env["SCRATCHDIR"])
-        spec_path = Path(env["RUN_SPEC"])
-        python = storage / ".venv" / "bin" / "python"
-        if not (python.is_file() and os.access(python, os.X_OK)):
-            raise JobError(f"missing validated environment: {python}")
-        spec = read_spec(spec_path)
-        release = release_arg or Path(spec["source"]).resolve()
-        if release_arg and Path(spec["source"]).resolve() != release_arg:
-            raise JobError(
-                f"spec points at {spec['source']} but the launcher came from {release_arg}"
-            )
-        if not (release / ENTRY_POINT).is_file():
-            raise JobError(f"release is incomplete or gone: {release}")
-    except JobError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-
-    cpus = allocated_cpus(env)
-    output_root = scratch / "output"
-    storage_output = storage / "_david" / "output"
-    print("================ DrugEx v2 job ================")
-    for key, value in (
+def _banner(
+    env: dict[str, str], spec: dict, cpus: int, scratch: Path, release: Path, results: Path
+) -> None:
+    rows = (
         ("job", env.get("PBS_JOBID", "?")),
         ("name", spec["name"]),
         ("node", os.uname().nodename),
@@ -222,19 +189,33 @@ def main(argv: list[str] | None = None) -> int:
         ("release", release),
         ("revision", spec["revision"]),
         ("deltas", " ".join(spec["args"]) or "(none)"),
-        ("results", storage_output),
-    ):
+        ("results", results),
+    )
+    print("================ DrugEx v2 job ================")
+    for key, value in rows:
         print(f"{key:<9}: {value}")
     print("===============================================")
 
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    release_arg = Path(argv[1]).resolve() if argv[:1] == ["--release"] and len(argv) > 1 else None
+    env = dict(os.environ)
+    try:
+        spec, release = staged_job(env, release_arg)
+    except JobError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    storage, scratch = Path(env["STORAGE_DIR"]), Path(env["SCRATCHDIR"])
+    output_root, storage_output = scratch / "output", storage / "_david" / "output"
+    release_copy, temp_root = scratch / "DrugEx", scratch / "tmp"
+    cpus = allocated_cpus(env)
+    _banner(env, spec, cpus, scratch, release, storage_output)
+
     install_signal_handlers()
-    release_copy = scratch / "DrugEx"
-    temp_root = scratch / "tmp"
     status = 1
-    # Bound before anything that can raise. copytree can fail on a full scratch, and the
-    # `finally` below passes `submission` to copy_results -- an UnboundLocalError there
-    # would replace a clear "no space left on device" with a confusing traceback and skip
-    # both the copy-back and the scratch cleanup.
+    # Bound before anything that can raise, or the `finally` below skips the copy-back.
     submission = None
     try:
         output_root.mkdir(parents=True, exist_ok=True)
@@ -242,21 +223,19 @@ def main(argv: list[str] | None = None) -> int:
         if release_copy.exists():
             shutil.rmtree(release_copy)
         shutil.copytree(release, release_copy, symlinks=True)
-        # Written inside the run directory, not beside it: copy_results only walks
-        # directories, so a file at the output root was deleted with scratch and the
-        # record of what was submitted never reached storage.
-        submission = spec_path
+        submission = Path(env["RUN_SPEC"])
 
         process = subprocess.run(
-            run_command(python, output_root, cpus, spec),
+            run_command(venv_python(storage), output_root, cpus, spec),
             cwd=release_copy,
             env=job_environment(env, release_copy, temp_root, spec.get("revision")),
         )
         # A child killed by a signal reports -N; shells and PBS report 128+N.
-        status = 128 - process.returncode if process.returncode < 0 else process.returncode
-    except _SignalExit as exc:
-        print(f"signalled, copying partial results back (exit {exc.code})", file=sys.stderr)
-        status = int(exc.code or 143)
+        returncode = process.returncode
+        status = 128 - returncode if returncode < 0 else returncode
+    except _SignalExit as error:
+        print(f"signalled, copying partial results back (exit {error.code})", file=sys.stderr)
+        status = int(error.code or 143)
     except Exception:
         traceback.print_exc()
         status = 1
@@ -267,8 +246,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             for destination in copy_results(output_root, storage_output, submission):
                 print(f"results copied to {destination}")
-        except OSError as exc:
-            print(f"result transfer FAILED ({exc}); scratch kept at {scratch}", file=sys.stderr)
+        except OSError as error:
+            print(f"result transfer FAILED ({error}); scratch kept at {scratch}", file=sys.stderr)
             return 1
         clean_scratch(scratch)
     return status

@@ -1,5 +1,3 @@
-"""An explorer that keeps two checkpoints instead of one."""
-
 from __future__ import annotations
 
 import logging
@@ -14,34 +12,26 @@ from drugex.training.monitors import NullMonitor
 logger = logging.getLogger(__name__)
 
 
-def _save_atomically(state, path: Path) -> None:
-    """Write a checkpoint through a temporary file, then rename.
-
-    PBS sends SIGTERM and the job kills the child shortly after, so a save in flight can
-    be cut in half. A truncated .pkg is worse than a missing one: the copy-back presents
-    it as the run's best checkpoint and it fails only when someone loads it.
-    """
+def _save(state, path: Path) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     torch.save(state, temporary)
     temporary.replace(path)
 
 
+def _population(metrics: dict) -> dict[str, float]:
+    """The ratios a checkpoint was taken on, so a collapsed epoch's is visible."""
+    return {
+        "valid_ratio": round(float(metrics.get("valid_ratio", 0.0)), 4),
+        "unique_ratio": round(float(metrics.get("unique_ratio", 0.0)), 4),
+    }
+
+
 class DualCheckpointExplorer(SequenceExplorer):
     """``SequenceExplorer`` tracking ``desired_ratio`` and ``avg_gmean`` independently.
 
-    DrugEx fits one ``criteria`` and yields one checkpoint; these two answer different
-    questions, so three are written:
-
-    - ``desired_ratio.pkg`` -- best ``desired_ratio``, frozen when its patience expires
-      and never rewritten after;
-    - ``desired_ratio_at_stop.pkg`` -- the live policy at that same epoch, up to
-      ``patience`` epochs further trained. Either reading is defensible, so both exist;
-    - ``gmean.pkg`` -- best ``avg_gmean``.
-
-    The run ends only once *both* patience windows expire, so neither criterion cuts the
-    other short. DrugEx's periodic best-state reload is deliberately absent: copying a
-    past checkpoint over the live agent would mean the policy the run ends on is not the
-    one it trained into.
+    Three checkpoints: ``desired_ratio.pkg`` (best, frozen when its patience expires),
+    ``desired_ratio_at_stop.pkg`` (the live policy at that epoch) and ``gmean.pkg``. The run
+    ends only once *both* windows expire, and best-state reload is deliberately absent.
     """
 
     def __init__(
@@ -58,29 +48,46 @@ class DualCheckpointExplorer(SequenceExplorer):
         self.desired_ratio_path = Path(desired_ratio_path)
         self.desired_ratio_at_stop_path = Path(desired_ratio_at_stop_path)
         self.gmean_path = Path(gmean_path)
-        # The policy gradient scores n_samples molecules every epoch and native throws
-        # them away, keeping only the n_eval evaluation arm. That is 10x more scored
-        # molecules discarded than kept, and the scoring -- the expensive part -- has
-        # already happened. For a de novo design project the molecules *are* the output,
-        # so they are appended to disk as they are produced.
+        # Native discards the scored policy-gradient batch, 10x the evaluation arm.
         self.training_samples_path = Path(training_samples_path) if training_samples_path else None
-        # DrugEx hard-wires this arm to n_samples/10 inside its own fit(). This class
-        # replaces fit(), so the size of the arm both criteria are measured on becomes a
-        # setting instead of a constant: desired_ratio over 50 molecules moves in steps of
-        # 2 %, which is most of why it is the noisier of the two criteria.
         self.n_eval = int(n_eval)
 
     def _record_training_samples(self, epoch: int) -> None:
-        """Append this epoch's policy-gradient batch, already scored, to a TSV."""
-        if self.training_samples_path is None:
-            return
         scored = getattr(self.env, "scores", None)
-        if scored is None or not len(scored):
+        if self.training_samples_path is None or scored is None or not len(scored):
             return
         frame = scored.copy()
         frame.insert(0, "Epoch", epoch)
-        header = not self.training_samples_path.exists()
-        frame.to_csv(self.training_samples_path, sep="\t", index=False, mode="a", header=header)
+        frame.to_csv(
+            self.training_samples_path,
+            sep="\t",
+            index=False,
+            mode="a",
+            header=not self.training_samples_path.exists(),
+        )
+
+    def _save_at_stop(self, metrics: dict, population: dict) -> float:
+        population["desired_ratio_at_stop"] = _population(metrics)
+        _save(self.getModel(), self.desired_ratio_at_stop_path)
+        return float(metrics["desired_ratio"])
+
+    def _evaluate(self) -> tuple:
+        """A held-out arm and its metrics: measured, never trained on."""
+        smiles = self.agent.sample(self.n_eval)
+        scores = self.agent.evaluate(
+            smiles, evaluator=self.env, no_multifrag_smiles=self.no_multifrag_smiles
+        )
+        scores["SMILES"] = smiles
+        metrics = self.getNovelMoleculeMetrics(scores)
+        # Over avg_gmean's own denominator, or a dip in validity reads as a fall in shape.
+        for scorer in getattr(self.env, "scorers", []):
+            if hasattr(scorer, "component_frame"):
+                unique = scores[scores["Valid"] == 1].drop_duplicates(subset="SMILES")
+                split = scorer.component_frame(unique["SMILES"].tolist())
+                for column, values in split.items():
+                    metrics[f"avg_{column}"] = float(np.mean(values)) if values else 0.0
+                break
+        return scores, metrics
 
     def fit(
         self,
@@ -93,84 +100,42 @@ class DualCheckpointExplorer(SequenceExplorer):
         criteria=None,
         min_epochs=100,
     ):
-        """Train, tracking both criteria. ``criteria`` and ``reload_interval`` are ignored.
-
-        They stay in the signature only because this overrides ``SequenceExplorer.fit``:
-        this explorer tracks both criteria by construction and never reloads.
-        """
+        """Train, tracking both criteria. ``criteria`` and ``reload_interval`` are ignored."""
         self.monitor = monitor if monitor else NullMonitor()
 
-        # -1.0, not 0.0: desired_ratio is legitimately 0.0 for many early epochs, and a run
-        # must not finish with a checkpoint path that was never written.
+        # -1.0: desired_ratio is legitimately 0.0 early, and each path must be written once.
         best = {"desired_ratio": -1.0, "avg_gmean": -1.0}
         last = {"desired_ratio": 0, "avg_gmean": 0}
         paths = {"desired_ratio": self.desired_ratio_path, "avg_gmean": self.gmean_path}
+        population: dict[str, dict] = {}
         frozen = False
         peak_desired_ratio = -1.0
-        health: dict[str, dict] = {}
 
         for epoch in range(1, epochs + 1):
             smiles, seqs = self.forward()
             train_loss = self.policy_gradient(smiles, seqs, epoch=epoch, epochs=epochs)
-
-            # A held-out arm, drawn fresh from the updated policy: these molecules are
-            # measured, never trained on.
-            eval_smiles = self.agent.sample(self.n_eval)
-            scores = self.agent.evaluate(
-                eval_smiles, evaluator=self.env, no_multifrag_smiles=self.no_multifrag_smiles
-            )
-            scores["SMILES"] = eval_smiles
-
-            metrics = self.getNovelMoleculeMetrics(scores)
+            scores, metrics = self._evaluate()
             metrics["loss_train"] = train_loss
-            # Diagnostics, not criteria: the pose search already computed these, so the
-            # split costs nothing. Neither value is ever compared against a threshold or
-            # used to choose a checkpoint.
-            for scorer in getattr(self.env, "scorers", []):
-                if hasattr(scorer, "component_frame"):
-                    # Valid unique molecules only, exactly the denominator
-                    # getNovelMoleculeMetrics uses for avg_gmean. Averaging over all
-                    # n_eval with invalid molecules forced to 0.0 would make a dip in
-                    # validity look like a fall in shape or colour.
-                    keep = scores.assign(SMILES=eval_smiles)
-                    keep = keep[keep["Valid"] == 1].drop_duplicates(subset="SMILES")
-                    split = scorer.component_frame(keep["SMILES"].tolist())
-                    for column, values in split.items():
-                        metrics[f"avg_{column}"] = float(np.mean(values)) if values else 0.0
-                    break
 
-            # Tracked whether or not the checkpoint is frozen, so a post-freeze peak is
-            # reported rather than silently discarded: the checkpoint stops updating, the
-            # record of what the policy reached does not.
+            # Tracked even once frozen, so a post-freeze peak is still reported.
             peak_desired_ratio = max(peak_desired_ratio, float(metrics["desired_ratio"]))
 
             for criterion in ("desired_ratio", "avg_gmean"):
                 if criterion == "desired_ratio" and frozen:
                     continue
-                if metrics[criterion] > best[criterion]:
-                    # float(), not the numpy scalar pandas hands back: the summary is
-                    # serialized to JSON, where a numpy scalar is not guaranteed to encode.
-                    best[criterion] = float(metrics[criterion])
-                    last[criterion] = epoch
-                    # avg_gmean is averaged over unique valid molecules while the ratios
-                    # divide by n_eval, so an epoch that collapses to one good molecule
-                    # can post a higher avg_gmean than any healthy epoch and take the
-                    # checkpoint. Recording the population it was measured on makes such
-                    # a checkpoint visible instead of plausible.
-                    health[criterion] = {
-                        "valid_ratio": round(float(metrics.get("valid_ratio", 0.0)), 4),
-                        "unique_ratio": round(float(metrics.get("unique_ratio", 0.0)), 4),
-                    }
-                    _save_atomically(self.getModel(), paths[criterion])
+                if metrics[criterion] <= best[criterion]:
+                    continue
+                best[criterion] = float(metrics[criterion])  # JSON cannot take numpy scalars
+                last[criterion] = epoch
+                population[criterion] = _population(metrics)
+                _save(self.getModel(), paths[criterion])
 
             self._record_training_samples(epoch)
 
-            # The base class logs `best_epoch` from these: point them at the criterion the
-            # run actually stops on.
+            # The base class logs `best_epoch` from these: the criterion the run stops on.
             self.best_value = best["avg_gmean"]
             self.last_save = last["avg_gmean"]
             self.logPerformanceAndCompounds(epoch, metrics, scores)
-
             logger.info(
                 "epoch %d/%d: desired_ratio=%.4f (best %.4f @ %d%s) avg_gmean=%.4f "
                 "(best %.4f @ %d) loss=%.4f",
@@ -189,17 +154,8 @@ class DualCheckpointExplorer(SequenceExplorer):
             if epoch < min_epochs:
                 continue
             if not frozen and epoch - last["desired_ratio"] > patience:
-                frozen = True
-                frozen_epoch = epoch
-                # The other reading of "frozen when patience runs out": the policy as it
-                # stands now, patience epochs past its own best. Saved alongside the best
-                # so the choice between the two is a reporting decision, not a rerun.
-                _save_atomically(self.getModel(), self.desired_ratio_at_stop_path)
-                at_stop = float(metrics["desired_ratio"])
-                health["desired_ratio_at_stop"] = {
-                    "valid_ratio": round(float(metrics.get("valid_ratio", 0.0)), 4),
-                    "unique_ratio": round(float(metrics.get("unique_ratio", 0.0)), 4),
-                }
+                frozen, frozen_epoch = True, epoch
+                at_stop = self._save_at_stop(metrics, population)
                 logger.info(
                     "desired_ratio checkpoint frozen at epoch %d (best %.4f @ epoch %d, "
                     "live %.4f); training continues for avg_gmean",
@@ -210,8 +166,8 @@ class DualCheckpointExplorer(SequenceExplorer):
                 )
             if frozen and epoch - last["avg_gmean"] > patience:
                 logger.info(
-                    "stopping at epoch %d: both windows expired (avg_gmean last improved "
-                    "at epoch %d, desired_ratio at %d)",
+                    "stopping at epoch %d: both windows expired (avg_gmean last improved at "
+                    "epoch %d, desired_ratio at %d)",
                     epoch,
                     last["avg_gmean"],
                     last["desired_ratio"],
@@ -219,28 +175,18 @@ class DualCheckpointExplorer(SequenceExplorer):
                 break
 
         if not frozen:
-            # The epoch cap arrived first, so there is no freeze epoch; the policy the run
-            # ended on plays that role, and the at-stop checkpoint must exist either way.
+            # The epoch cap arrived first, so the final policy plays the freeze epoch's part.
             frozen_epoch = epoch
-            at_stop = float(metrics["desired_ratio"])
-            health["desired_ratio_at_stop"] = {
-                "valid_ratio": round(float(metrics.get("valid_ratio", 0.0)), 4),
-                "unique_ratio": round(float(metrics.get("unique_ratio", 0.0)), 4),
-            }
-            _save_atomically(self.getModel(), self.desired_ratio_at_stop_path)
+            at_stop = self._save_at_stop(metrics, population)
             logger.info(
-                "desired_ratio never exhausted its patience window: its checkpoint holds "
-                "the best value seen (%.4f @ epoch %d); at-stop is the final policy",
+                "desired_ratio never exhausted its patience window: its checkpoint holds the "
+                "best value seen (%.4f @ epoch %d); at-stop is the final policy",
                 best["desired_ratio"],
                 last["desired_ratio"],
             )
         self.monitor.close()
         return {
             "epochs_run": epoch,
-            # Named for what it is: the best value seen *before the freeze*, which is the
-            # one the checkpoint holds. `peak_desired_ratio` is the best seen at any point,
-            # so a post-freeze improvement shows up in the report instead of only in
-            # rl_fit.tsv, where it would contradict the summary.
             "best_desired_ratio_before_freeze": best["desired_ratio"],
             "best_desired_ratio_epoch": last["desired_ratio"],
             "peak_desired_ratio_any_epoch": peak_desired_ratio,
@@ -249,5 +195,5 @@ class DualCheckpointExplorer(SequenceExplorer):
             "desired_ratio_at_stop": at_stop,
             "best_avg_gmean": best["avg_gmean"],
             "best_avg_gmean_epoch": last["avg_gmean"],
-            "checkpoint_population": health,
+            "checkpoint_population": population,
         }

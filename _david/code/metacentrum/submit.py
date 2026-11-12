@@ -8,9 +8,8 @@
     cancel <name|id> ...  qdel
     pull                  copy finished runs back into _david/output
 
-One job at a time; the planned sweep lives in ``campaign.py`` and calls into this. A job
-runs ``git archive HEAD``, so uncommitted work does not exist for it and a bug fix
-travels through a commit, never through an edit on storage.
+One job at a time; the planned sweep lives in ``campaign.py`` and calls into this. A job runs
+``git archive HEAD``, so a fix travels through a commit, never through an edit on storage.
 """
 
 from __future__ import annotations
@@ -19,30 +18,45 @@ import argparse
 import json
 import shlex
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from _david.code.config import PROJECT_ROOT, Config
 
-#: ssh alias and account. Never switch aliases: the Kerberos ticket is bound to this one.
-PACKAGE = "_david/code"
-
+# Never switch ssh aliases: the Kerberos ticket is bound to this one.
 HOST = "meta"
 USER = "kolardavidcz"
+PACKAGE = "_david/code"
 
-#: Persistent tree on storage. ``.venv`` (~5.7 GB) lives here and is never deleted.
-STORAGE = f"/storage/brno2/brno2/{USER}/DrugEx"
+STORAGE = f"/storage/brno2/brno2/{USER}/DrugEx"  # holds .venv (~5.7 GB); never deleted
 
-#: Settings the job owns; a delta that set them would fight the copy-back contract.
-#: Settings the job owns. A delta overriding one of these would undo the thing the job
-#: computed it for: n_jobs comes from allocated_cpus (the PBS allocation, not the
-#: node), so `--set n_jobs=-1` would reintroduce the oversubscription it prevents.
+# Settings the job owns: a delta of `n_jobs=-1` would undo the PBS allocation it computed.
 RESERVED = ("output_root", "n_jobs")
 
-#: ``spec=8.0`` keeps the job off the slowest nodes: ROCS is CPU-bound, so a slow node
-#: costs hours. Everything else is the shape of a default CPU ROCS run.
+# Keeps the job off the slowest nodes; ROCS is CPU-bound, so a slow node costs hours.
 CPU_FLOOR = "8.0"
+
+# A file missing from HEAD makes the job fail on the cluster, minutes of queue time later.
+REQUIRED = (
+    "__init__.py",
+    "config.py",
+    "provenance.py",
+    "run.py",
+    "score_arms.py",
+    "scorers/__init__.py",
+    "scorers/conformers.py",
+    "scorers/rocs.py",
+    "scorers/objectives.py",
+    "training/__init__.py",
+    "training/explorer.py",
+    "analysis/__init__.py",
+    "analysis/__main__.py",
+    "analysis/report.py",
+    "analysis/figures.py",
+    "metacentrum/__init__.py",
+    "metacentrum/job.py",
+    "metacentrum/pbs_launcher.sh",
+)
 
 
 @dataclass(frozen=True)
@@ -50,10 +64,7 @@ class Job:
     name: str
     args: tuple[str, ...] = ()
     ncpus: int = 16
-    # 64, not 32: a flat 32 GB OOM-killed 14 runs of the first campaign, several of
-    # them after all 70 epochs had finished. See campaign.MEMORY_GB for the measured
-    # peaks this comes from.
-    mem: int = 64  # GB
+    mem: int = 64  # GB; a flat 32 OOM-killed 14 runs of the first campaign (campaign.MEMORY_GB)
     scratch: int = 15  # GB
     walltime: str = "24:00:00"
     queue: str | None = None  # None routes by walltime, which is the only way that works
@@ -67,7 +78,6 @@ class Job:
 
 
 def _run(command: list[str], stdin: bytes | None = None) -> subprocess.CompletedProcess:
-    """Run a local command, raising with its own stderr rather than a bare exit code."""
     result = subprocess.run(command, input=stdin, capture_output=True)
     if result.returncode != 0:
         output = (result.stderr or result.stdout).decode("utf-8", "replace").strip()
@@ -75,8 +85,12 @@ def _run(command: list[str], stdin: bytes | None = None) -> subprocess.Completed
     return result
 
 
+def _git(*args: str) -> str:
+    return _run(["git", "-C", str(PROJECT_ROOT), *args]).stdout.decode()
+
+
 def remote(command: str, stdin: bytes | None = None) -> str:
-    """Run one command on the cluster, turning an expired ticket into the fix for it."""
+    """One command on the cluster; an expired ticket comes back as the fix for it."""
     result = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", HOST, command], input=stdin, capture_output=True
     )
@@ -91,53 +105,24 @@ def remote(command: str, stdin: bytes | None = None) -> str:
     return result.stdout.decode("utf-8", "replace")
 
 
-#: Everything a job needs to exist inside the release. A file missing from HEAD makes the
-#: job fail on the cluster, minutes of queue time later, with an import error.
-REQUIRED = (
-    "__init__.py",
-    "config.py",
-    "provenance.py",
-    "run.py",
-    "scorers/__init__.py",
-    "scorers/conformers.py",
-    "scorers/rocs.py",
-    "scorers/objectives.py",
-    "training/__init__.py",
-    "training/explorer.py",
-    "analysis/__init__.py",
-    "score_arms.py",
-    "analysis/__main__.py",
-    "analysis/report.py",
-    "analysis/figures.py",
-    "metacentrum/__init__.py",
-    "metacentrum/job.py",
-    "metacentrum/pbs_launcher.sh",
-)
-
-
-def _tracked_at_head() -> set[str]:
-    """Paths under this package that ``git archive HEAD`` would actually contain."""
-    listing = _run(
-        ["git", "-C", str(PROJECT_ROOT), "ls-tree", "-r", "--name-only", "HEAD", "--", PACKAGE]
-    ).stdout.decode()
-    return {line.strip() for line in listing.splitlines() if line.strip()}
-
-
 def validate_deltas(deltas: list[str]) -> None:
-    """Parse the overrides here, so a bad one fails now rather than on the worker node."""
+    """Parsed here, so a bad override fails now and not on the worker node."""
     from _david.code.run import config_from_args
     from _david.code.scorers.objectives import reward_scheme
 
+    # Bare `name=value`: the `--set` is added here, so its own would be doubled.
+    malformed = [delta for delta in deltas if delta.startswith("-") or "=" not in delta]
+    if malformed:
+        raise SystemExit(
+            "deltas are bare NAME=VALUE pairs; the --set is added here. Offending: "
+            + " ".join(malformed)
+        )
     try:
-        # Resolved, not just parsed: `scheme` is a string field, so a typo survives
-        # config_from_args and would surface on the worker node after the queue wait.
+        # Resolved, not just parsed: `scheme` is a string field, so a typo survives parsing.
         reward_scheme(config_from_args(list(deltas)).scheme)
     except SystemExit as error:
         raise SystemExit(f"delta rejected locally, nothing submitted: {error}") from None
     except (ValueError, TypeError) as error:
-        # _coerce raises ValueError on a bad value and Config.__post_init__ on an
-        # impossible combination; neither is a SystemExit, and both would otherwise
-        # surface only on the worker node after the queue wait.
         raise SystemExit(
             f"delta rejected locally, nothing submitted: {type(error).__name__}: {error}"
         ) from None
@@ -146,21 +131,17 @@ def validate_deltas(deltas: list[str]) -> None:
 def head_revision() -> str:
     """HEAD, refusing to stage a release that is not what the working tree holds.
 
-    Two different failures, both of which produce a release that silently lacks the code:
-    a tracked file modified since the commit, and a file never committed at all. The
-    second is the dangerous one -- ``git status --untracked-files=no`` is quiet about it,
-    so an entirely untracked package passes the check and ships an empty release.
+    The dangerous case is an uncommitted file: ``--untracked-files=no`` is quiet about it.
     """
-    dirty = _run(
-        ["git", "-C", str(PROJECT_ROOT), "status", "--porcelain", "--untracked-files=no"]
-    ).stdout.decode()
+    dirty = _git("status", "--porcelain", "--untracked-files=no")
     if dirty:
         raise SystemExit(
             "tracked files are modified. A job runs `git archive HEAD`, so these changes "
             "would not be in it; commit them first:\n" + dirty
         )
 
-    tracked = _tracked_at_head()
+    listing = _git("ls-tree", "-r", "--name-only", "HEAD", "--", PACKAGE)
+    tracked = {line.strip() for line in listing.splitlines() if line.strip()}
     missing = [name for name in REQUIRED if f"{PACKAGE}/{name}" not in tracked]
     if missing:
         raise SystemExit(
@@ -170,9 +151,7 @@ def head_revision() -> str:
             + "\n\ncommit them first."
         )
 
-    # Recursive: the package has subpackages now, and a top-level glob would be silent
-    # about a new untracked module inside one of them -- which is exactly the file that
-    # would be missing from the release.
+    # Recursive: a top-level glob would miss an untracked module inside a subpackage.
     local = {
         str(path.relative_to(PROJECT_ROOT))
         for path in (PROJECT_ROOT / PACKAGE).rglob("*")
@@ -183,20 +162,15 @@ def head_revision() -> str:
     untracked = sorted(local - tracked)
     if untracked:
         print(
-            "warning: these files exist locally but not in HEAD, so they will not be in "
-            "the release:\n  " + "\n  ".join(untracked)
+            "warning: these files exist locally but not in HEAD, so they will not be in the "
+            "release:\n  " + "\n  ".join(untracked)
         )
-    return _run(["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"]).stdout.decode().strip()
+    return _git("rev-parse", "HEAD").strip()
 
 
 def sync(revision: str | None = None) -> str:
-    """Stage ``git archive HEAD`` as ``$STORAGE/releases/<sha>`` and repoint ``current``.
-
-    A release is immutable: nothing is ever written into a tree a job might be running
-    from, so a job always keeps the code it started with. The pretrained checkpoint is
-    rsynced into the release at the same path the local tree holds it, so the staged
-    release is self-contained and ``Config.pretrained()`` resolves without a cluster knob.
-    """
+    """Stage ``git archive HEAD`` as an immutable ``$STORAGE/releases/<sha>``, plus the
+    pretrained checkpoint, and repoint ``current``."""
     revision = revision or head_revision()
     release = f"{STORAGE}/releases/{revision}"
     archive = _run(["git", "-C", str(PROJECT_ROOT), "archive", revision]).stdout
@@ -213,7 +187,6 @@ def sync(revision: str | None = None) -> str:
 
 
 def stage_spec(job: Job, revision: str) -> str:
-    """Upload the spec. It is the record of what the job was actually asked to do."""
     directory = f"{STORAGE}/jobs/{job.name}"
     path = f"{directory}/spec.json"
     spec = {
@@ -228,26 +201,21 @@ def stage_spec(job: Job, revision: str) -> str:
 
 
 def submit(job: Job, revision: str | None = None) -> str:
-    """Stage, upload and queue one job; print what was requested before qsub runs.
-
-    ``revision`` is for a campaign: staging is identical for every job of one sweep, and
-    ``sync`` rsyncs a 150 MB checkpoint, so it is done once and passed in. Omitted, this
-    stages HEAD itself and behaves exactly as a single submission always has.
-    """
+    """Stage, upload and queue one job. A campaign passes ``revision`` in, since staging is
+    identical across a sweep and ``sync`` rsyncs a 150 MB checkpoint."""
     for delta in job.args:
-        for reserved in RESERVED:
-            if delta.startswith(f"{reserved}=") or delta == reserved:
-                raise SystemExit(
-                    f"{reserved} is owned by the job (it is the scratch directory the "
-                    "results are copied back from); drop it from the deltas"
-                )
+        name = delta.split("=", 1)[0]
+        if name in RESERVED:
+            raise SystemExit(
+                f"{name} is owned by the job (it is the scratch directory the results are "
+                "copied back from); drop it from the deltas"
+            )
     revision = revision or sync()
     spec = stage_spec(job, revision)
     release = f"{STORAGE}/releases/{revision}"
     command = ["qsub", "-N", job.name]
     if job.queue:
-        # Only when the user asks. Frontends cannot submit into an execution queue:
-        # q_2h..q_2d are from_route_only, and p2e_1d refuses the host outright.
+        # Only when asked: frontends cannot submit into an execution queue.
         command += ["-q", job.queue]
     command += [
         "-l",
@@ -256,7 +224,7 @@ def submit(job: Job, revision: str | None = None) -> str:
         f"walltime={job.walltime}",
         "-v",
         f"RUN_SPEC={spec},STORAGE_DIR={STORAGE},RELEASE_DIR={release}",
-        f"{release}/_david/code/metacentrum/pbs_launcher.sh",
+        f"{release}/{PACKAGE}/metacentrum/pbs_launcher.sh",
     ]
     print(f"queue    : {job.queue or 'routed by walltime (' + job.walltime + ')'}")
     print(f"resources: {job.resources}, walltime={job.walltime}")
@@ -271,14 +239,17 @@ def check() -> None:
     print(remote("hostname").strip(), "reachable")
     venv = f"{STORAGE}/.venv/bin/python"
     print("storage venv:", remote(f"test -x {venv} && echo present || echo MISSING").strip())
-    revision = _run(["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"]).stdout.decode().strip()
+    revision = _git("rev-parse", "HEAD").strip()
     staged = remote(f"test -d {STORAGE}/releases/{revision} && echo yes || echo no").strip()
     print(f"HEAD {revision[:12]} staged: {staged}")
-    print(remote(f"qstat -u {USER}").strip() or "queue: nothing of yours is queued")
+    print(queue_status() or "queue: nothing of yours is queued")
+
+
+def queue_status() -> str:
+    return remote(f"qstat -u {USER}").strip()
 
 
 def logs(name: str, lines: int, follow: bool) -> None:
-    """PBS stdout of the newest job with that name. ``$HOME`` is where PBS leaves it."""
     path = remote(f"ls -t $HOME/{shlex.quote(name)}.o* 2>/dev/null | head -1").strip()
     if not path:
         raise SystemExit(f"no PBS log for {name!r} yet; `status` shows whether it has started")
@@ -289,14 +260,12 @@ def logs(name: str, lines: int, follow: bool) -> None:
 
 
 def pull(name: str | None) -> None:
-    """Copy finished runs back. MetaCentrum to here only; nothing is pushed into output."""
-    # A run directory is `<YYYYmmdd_HHMM>_<tag>`, so the job name is a suffix, never the
-    # whole name. Matching it as a prefix pattern is what makes `pull --name foo` find
-    # anything at all.
+    """MetaCentrum to here only; nothing is ever pushed into output."""
     destination = PROJECT_ROOT / "_david" / "output"
     destination.mkdir(parents=True, exist_ok=True)
     command = ["rsync", "-az", "--info=progress2"]
     if name:
+        # A run directory is `<YYYYmmdd_HHMM>_<tag>`, so the job name is only a suffix.
         command += ["--include=*/", f"--include=*_{name}/***", "--exclude=*"]
     command += [f"{HOST}:{STORAGE}/_david/output/", f"{destination}/"]
     subprocess.run(command, check=True)
@@ -335,36 +304,24 @@ def main(argv: list[str] | None = None) -> int:
     log.add_argument("-n", "--lines", type=int, default=60)
     log.add_argument("-f", "--follow", action="store_true")
 
-    kill = sub.add_parser("cancel")
-    kill.add_argument("targets", nargs="+")
-
-    get = sub.add_parser("pull")
-    get.add_argument("--name", default=None, help="one run directory instead of all")
+    sub.add_parser("cancel").add_argument("targets", nargs="+")
+    sub.add_parser("pull").add_argument(
+        "--name", default=None, help="one run directory instead of all"
+    )
 
     args = parser.parse_args(argv)
-
     if args.command == "check":
         check()
     elif args.command == "sync":
         sync()
     elif args.command == "status":
-        print(remote(f"qstat -u {USER}").strip() or "nothing of yours is queued")
+        print(queue_status() or "nothing of yours is queued")
     elif args.command == "submit":
-        # Each delta is a bare `name=value`; it is this that adds the `--set` flag. A
-        # delta that already carries one would be forwarded as `--set --set name=value`
-        # and die on the worker node after the queue wait, so reject it here instead.
-        bad = [d for d in args.deltas if d.startswith("-") or "=" not in d]
-        if bad:
-            raise SystemExit(
-                "deltas are bare NAME=VALUE pairs; this adds the --set itself. Offending: "
-                + " ".join(bad)
-            )
         validate_deltas(args.deltas)
-        deltas = [part for delta in args.deltas for part in ("--set", delta)]
         submit(
             Job(
                 name=args.name,
-                args=tuple(deltas),
+                args=tuple(part for delta in args.deltas for part in ("--set", delta)),
                 ncpus=args.ncpus,
                 mem=args.mem,
                 scratch=args.scratch,

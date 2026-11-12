@@ -52,13 +52,8 @@ def dedup_key(frame: pd.DataFrame) -> str:
 
 
 def unique_per_epoch(epochs: pd.DataFrame | None) -> pd.DataFrame:
-    """Valid rows, one per distinct canonical structure *within each epoch*.
-
-    The per-epoch figures state medians and percentiles, and the report says those are
-    over valid unique molecules. Without this they were over valid rows: under the mode
-    collapse these figures exist to detect, the median becomes the score of whichever
-    molecule was drawn most often, which is the one reading that must not be wrong.
-    """
+    """Valid rows, one per distinct canonical structure *within each epoch*. Without the dedup
+    a collapsed epoch's median is the score of whichever molecule was drawn most often."""
     rows = valid(epochs)
     if rows.empty or "Epoch" not in rows.columns:
         return rows
@@ -338,17 +333,14 @@ def enrich_descriptors(
 def scored_points(
     frame: pd.DataFrame, objectives: list[str], config: dict | None = None
 ) -> np.ndarray:
-    """Unique valid molecules of one arm as a finite point cloud in all objectives.
-
-    ROCS is put on published [0, 2] first. Pareto *fronts* would not care -- halving an
-    axis is affine and changes no dominance relation -- but ``dominated_volume`` is a
-    volume, so without this a run from before the reward rescale reports twice the
-    hypervolume of an identical run from after it.
-    """
+    """Unique valid molecules as a point cloud, ROCS on published [0, 2]. Fronts are affine-
+    invariant and would not care; ``dominated_volume`` is a volume and does."""
     u = unique(frame)
     if u.empty or any(o not in u.columns for o in objectives):
         return np.empty((0, len(objectives)), dtype=float)
-    pts = u[objectives].to_numpy(dtype=float)
+    # copy=True: pandas hands back a read-only view of a single-dtype block, and the ROCS
+    # column is rescaled in place below.
+    pts = u[objectives].to_numpy(dtype=float, copy=True)
     if objectives:
         pts[:, 0] = pts[:, 0] * rocs_scale(config)
     return pts[np.all(np.isfinite(pts), axis=1)]
@@ -453,16 +445,8 @@ def _graph_framework(scaffold_smiles: str, core: Chem.Mol) -> str:
 
 
 def rocs_scale(config: dict | None) -> float:
-    """Factor from a run's stored ROCS units to published TanimotoCombo on [0, 2].
-
-    Every objective reaches the reward on [0, 1], so a run made after that change stores
-    the combo halved and records ``rocs_reward_scale``. The 52 runs finished before it
-    stored the raw value and carry no such field, which is exactly what the 1.0 default
-    means. It is read from the run's own config rather than sniffed from the columns,
-    because ``rl_smiles.tsv`` -- every per-epoch figure -- has no shape/colour components
-    to sniff, and a heuristic that silently works on one table and not another is worse
-    than no heuristic at all.
-    """
+    """Factor from a run's stored ROCS units to published TanimotoCombo on [0, 2]. Absent
+    means the run predates the reward rescale and stored it raw."""
     try:
         return float((config or {}).get("rocs_reward_scale", 1.0)) or 1.0
     except (TypeError, ValueError):
@@ -470,15 +454,9 @@ def rocs_scale(config: dict | None) -> float:
 
 
 def scaffold_counts(frame: pd.DataFrame, generic: bool = False) -> pd.Series:
-    """Bemis-Murcko scaffold counts of unique valid molecules, excluding acyclic chains.
-
-    ``generic`` returns the *graph* framework instead -- Bemis and Murcko's second
-    definition, every atom carbon and every bond single. A collapsed run decorates one
-    chemistry with heteroatom swaps, and phenyl -> thiophene -> pyridine mints a new
-    Murcko scaffold each time while the series is unchanged; the graph framework does not
-    move. Measured on this campaign's worst arm the counts are 84 against 51, and on its
-    healthiest 1980 against 879, so the plain count flatters a wide run most.
-    """
+    """Bemis-Murcko scaffold counts of unique valid molecules. ``generic`` returns the graph
+    framework instead -- every atom carbon, every bond single -- which a heteroatom swap does
+    not move: 84 against 51 on this campaign's worst arm."""
     scaffolds = []
     for mol in parse_mols(unique(frame)["SMILES"]):
         try:

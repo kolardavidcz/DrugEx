@@ -146,14 +146,9 @@ def shown_arm(
     wanted: str,
     fallback: bool = True,
 ) -> str | None:
-    """``wanted`` when it holds valid unique molecules, else the measured best arm.
-
-    The fallback keeps a primary figure useful when its checkpoint produced nothing
-    scorable: the figure describes an arm that exists and names it in the title. The
-    ``b`` figures pass ``fallback=False``, because their filename and the report's index
-    both say *desired_ratio*: drawing another arm under that name would re-attribute a
-    whole checkpoint silently, which is worse than having no 01b at all.
-    """
+    """``wanted`` when it holds valid unique molecules, else the measured best. The ``b``
+    figures pass ``fallback=False``: their filename names an arm, so drawing another under it
+    would silently re-attribute a checkpoint."""
     arm = arms.get(wanted)
     if arm is not None and len(arm) and not _unique(arm).empty:
         return wanted
@@ -569,7 +564,6 @@ def multiobjective_tradeoffs(
         y=0.99,
     )
 
-    # Panel A: ROCS vs Raw SA
     if len(b_rocs) > 0 and len(b_sa) > 0:
         _overlay_prior_contours(ax1, b_rocs, b_sa)
     sc1 = ax1.scatter(
@@ -623,7 +617,6 @@ def multiobjective_tradeoffs(
     ax1.grid(True, linestyle=":", alpha=0.4)
     ax1.legend(loc="upper right", fontsize=7.8)
 
-    # Panel B: ROCS vs QED
     if len(b_rocs) > 0 and len(b_qed) > 0:
         _overlay_prior_contours(ax2, b_rocs, b_qed)
     sc2 = ax2.scatter(
@@ -681,7 +674,6 @@ def multiobjective_tradeoffs(
     ax2.grid(True, linestyle=":", alpha=0.4)
     ax2.legend(loc="lower right", fontsize=7.8)
 
-    # Panel C: Raw SA vs QED
     if len(b_sa) > 0 and len(b_qed) > 0:
         _overlay_prior_contours(ax3, b_sa, b_qed)
     sc3 = ax3.scatter(sa, qed, c=rocs, cmap="turbo", alpha=0.65, edgecolors="none", s=28, zorder=3)
@@ -836,7 +828,6 @@ def training_trajectories(
                 zorder=2,
             )
 
-    # Panel A: Training Loss & Exploration Rate
     ax1 = axes[0, 0]
     _mark_events(ax1, is_legend=True)
     if "loss_train" in df.columns:
@@ -870,7 +861,6 @@ def training_trajectories(
     if handles:
         ax1.legend(handles, labels, loc="best", fontsize=8.0)
 
-    # Panel B: Selection Criteria & Quality
     ax2 = axes[0, 1]
     _mark_events(ax2)
     series_specs = [
@@ -909,7 +899,6 @@ def training_trajectories(
     ax2.grid(True, linestyle=":", alpha=0.4)
     ax2.legend(loc="best", fontsize=7.8, ncol=2)
 
-    # Panel C: Objective Mean/Median & Raw Synthesizability
     ax3 = axes[1, 0]
     _mark_events(ax3)
     plotted_objs = False
@@ -995,7 +984,6 @@ def training_trajectories(
     if h3:
         ax3.legend(h3, l3, loc="lower right", fontsize=7.5, ncol=2)
 
-    # Panel D: ROCS Distribution & Stored Shape/Color Split (zero rescoring)
     ax4 = axes[1, 1]
     _mark_events(ax4)
     if rocs_median is not None and not rocs_median.dropna().empty:
@@ -1701,7 +1689,6 @@ def scaffold_diversity(
         y=0.99,
     )
 
-    # Panel A: Scaffold Concentration Curve
     ax1 = fig.add_subplot(grid[0, 0])
     for counts, color, label in [
         (b_counts, "#64748B", f"Baseline Prior ({len(b_counts)} scaffolds, {len(b_graphs)} frameworks)"),
@@ -1741,7 +1728,6 @@ def scaffold_diversity(
         color="#334155",
     )
 
-    # Panel B: Scaffold Novelty Partition
     ax2 = fig.add_subplot(grid[0, 1])
     parts = [
         ("Shared with prior", len(shared), "#94A3B8"),
@@ -1777,7 +1763,6 @@ def scaffold_diversity(
         color="#334155",
     )
 
-    # Panel C: Top-12 Reinforced Scaffolds
     ax3 = fig.add_subplot(grid[0, 2:])
     top = a_counts.head(12)
     scaf_mols = [Chem.MolFromSmiles(s) for s in top.index]
@@ -1798,7 +1783,6 @@ def scaffold_diversity(
         ax3.text(0.5, 0.5, "Insufficient scaffold data", ha="center", va="center")
         ax3.axis("off")
 
-    # Panel D: the widest 12 scaffolds this arm reached
     ax4 = fig.add_subplot(grid[1, :])
     spread = _spread_scaffolds(a_counts, 12)
     spread_mols = [Chem.MolFromSmiles(s) for s in spread]
@@ -2316,7 +2300,6 @@ def training_diagnostics(
                 zorder=1,
             )
 
-    # Panel A: Dominated Hypervolume per Epoch
     ax = axes[0, 0]
     _mark_best(ax)
     ax.plot(
@@ -2365,7 +2348,6 @@ def training_diagnostics(
     ax.grid(True, linestyle=":", alpha=0.4)
     ax.legend(loc="lower right", fontsize=7.4)
 
-    # Panel B: Pareto Front at the Best Delivered Arm (colour = QED)
     ax = axes[0, 1]
     if not prior_en.empty and {"ROCS", "Raw_SA"}.issubset(prior_en.columns):
         p_sub = prior_en[["ROCS", "Raw_SA"]].dropna()
@@ -2426,7 +2408,6 @@ def training_diagnostics(
     ax.grid(True, linestyle=":", alpha=0.4)
     ax.legend(loc="lower left", fontsize=7.2)
 
-    # Panel C: Fidelity to Seed vs Shape Fit
     ax = axes[0, 2]
     if not prior_en.empty and {"SimToSeed", "ROCS"}.issubset(prior_en.columns):
         ps = prior_en[["SimToSeed", "ROCS"]].dropna()
@@ -2507,7 +2488,6 @@ def training_diagnostics(
     ax.grid(True, linestyle=":", alpha=0.4)
     ax.legend(loc="lower right", fontsize=7.0)
 
-    # Panel D: Composition of Each Epoch's Samples
     ax = axes[1, 0]
     ax.stackplot(
         outcome_fractions.index,
@@ -2549,7 +2529,6 @@ def training_diagnostics(
     ax.grid(True, linestyle=":", alpha=0.35)
     ax.legend(loc="lower left", fontsize=6.8, ncol=2)
 
-    # Panel E: Age of the Best Molecule (ROCS & gmean)
     ax = axes[1, 1]
     incumbent = -math.inf
     inc_ep: int | None = None
@@ -2589,7 +2568,6 @@ def training_diagnostics(
     ax.grid(True, linestyle=":", alpha=0.4)
     ax.legend(loc="upper left", fontsize=7.4)
 
-    # Panel F: When the Global Top-k Leads First Appeared (ranked by primary objective ROCS)
     ax = axes[1, 2]
     k = max(5, int(round(0.15 * float(val_df.groupby("Epoch").size().median()))))
     ranked = (

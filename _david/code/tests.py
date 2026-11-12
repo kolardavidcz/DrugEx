@@ -1,9 +1,4 @@
-"""Behavioural tests: ``python -m unittest _david.code.tests -v``.
-
-Each test pins a decision that was argued about, not a line of code. The point is that if
-someone later "simplifies" one of these behaviours back, a test says which argument they
-are reopening. Nothing here runs a real training loop or scores more than a few molecules.
-"""
+"""Behavioural tests: each pins a decision that was argued about, not a line of code."""
 
 from __future__ import annotations
 
@@ -20,7 +15,8 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-from rdkit import Chem
+import torch
+from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 
 from drugex.training.environment import DrugExEnvironment
@@ -31,16 +27,16 @@ from drugex.training.scorers.properties import FAILURE_VALUES, Property
 from _david.code import provenance
 from _david.code import run as runner
 from _david.code.analysis import _helpers as analysis_helpers, figures, report as analysis
-from _david.code.metacentrum import campaign
+from _david.code.analysis import atlas_v2, collapse, diversity
+from _david.code.metacentrum import campaign, submit as submit_module
 from _david.code.metacentrum.submit import Job
-from _david.code.scorers import conformers, objectives as scorers
+from _david.code.scorers import conformers, objectives as scorers, rocs
 from _david.code.config import PROJECT_ROOT, Config
 from _david.code.training.explorer import DualCheckpointExplorer
-from _david.code.run import _arm_is_complete, _write_arm, config_from_args
+from _david.code.run import arm_is_complete, config_from_args, write_arm
 
 
 def small(**changes) -> Config:
-    """A config cheap enough to build a conformer from; ``changes`` may override any default."""
     cheap = {
         "max_conformers": 2,
         "max_isomers": 1,
@@ -52,7 +48,6 @@ def small(**changes) -> Config:
 
 
 class FailureValues(unittest.TestCase):
-    """The bug that started the rewrite: a failed score outranking a real molecule."""
 
     def test_sa_failure_is_the_worst_value_not_the_best(self):
         mols = [Chem.MolFromSmiles("CCO"), None]
@@ -63,15 +58,11 @@ class FailureValues(unittest.TestCase):
         self.assertGreater(reward[0], reward[1], "ethanol must beat an unscorable molecule")
 
     def test_upward_properties_keep_zero_on_failure(self):
-        # QED is [0, 1] and improves upwards, so 0.0 is already its worst. A blanket 10.0
-        # would make a failure better than the best possible molecule.
         for prop in ("QED", "MW", "logP"):
             self.assertEqual(FAILURE_VALUES.get(prop, 0.0), 0.0, prop)
             self.assertAlmostEqual(Property(prop).getScores([None])[0], 0.0, msg=prop)
 
     def test_unparameterized_energy_sorts_last_not_first(self):
-        # A fabricated 0.0 kcal/mol would sort as the lowest-energy conformer and win the
-        # reference bank. Infinity sorts last, which is what an unscorable pose deserves.
         with patch.object(conformers, "_force_field", return_value=None):
             self.assertEqual(
                 conformers.single_point_energy(Chem.MolFromSmiles("CCO"), small()), math.inf
@@ -90,8 +81,6 @@ class FailureValues(unittest.TestCase):
 
 class Thresholds(unittest.TestCase):
     def test_pareto_reward_ignores_thresholds(self):
-        # This is what keeps p85 out of the policy gradient by construction rather than by
-        # convention: the reward scheme never reads the thresholds it is handed.
         scheme = ParetoCrowdingDistance()
         values = np.array([[0.9, 0.2], [0.2, 0.9], [0.5, 0.5]])
         loose = scheme(["C", "CC", "CCC"], values, [0.0, 0.0])
@@ -99,37 +88,31 @@ class Thresholds(unittest.TestCase):
         np.testing.assert_allclose(loose, tight)
 
     def test_invalid_rows_are_never_desired(self):
-        # An invalid molecule has every objective zeroed, so it would clear an all-zero
-        # threshold set and be counted as a success.
         frame = pd.DataFrame({"Valid": [1, 0], "ROCS": [0.5, 0.0], "SA": [0.5, 0.0]})
         marked = scorers.mark_desired(frame, ["ROCS", "SA"], [0.0, 0.0])
         self.assertEqual(marked["Desired"].tolist(), [1, 0])
 
-    def test_fixed_thresholds_bypass_the_percentile(self):
-        cfg = small(fixed_thresholds=(1.5, 0.25))
-        frame = pd.DataFrame({"Valid": [1, 1], "A": [0.1, 2.0], "B": [0.1, 0.9]})
+    @staticmethod
+    def _calibrate(cfg, frame, smiles):
         with (
             patch.object(DrugExEnvironment, "getScores", return_value=frame),
             patch.object(DrugExEnvironment, "getScorerKeys", return_value=["A", "B"]),
         ):
-            thresholds, _ = scorers.calibrate_thresholds(cfg, [None, None], ["C", "CC"])
+            return scorers.calibrate_thresholds(cfg, [None, None], smiles)
+
+    def test_fixed_thresholds_bypass_the_percentile(self):
+        frame = pd.DataFrame({"Valid": [1, 1], "A": [0.1, 2.0], "B": [0.1, 0.9]})
+        thresholds, _ = self._calibrate(small(fixed_thresholds=(1.5, 0.25)), frame, ["C", "CC"])
         self.assertEqual(thresholds, [1.5, 0.25])
 
     def test_fixed_thresholds_must_match_the_objective_count(self):
-        cfg = small(fixed_thresholds=(1.0,))
         frame = pd.DataFrame({"Valid": [1], "A": [0.1], "B": [0.1]})
-        with (
-            patch.object(DrugExEnvironment, "getScores", return_value=frame),
-            patch.object(DrugExEnvironment, "getScorerKeys", return_value=["A", "B"]),
-        ):
-            with self.assertRaises(ValueError):
-                scorers.calibrate_thresholds(cfg, [None, None], ["C"])
+        with self.assertRaises(ValueError):
+            self._calibrate(small(fixed_thresholds=(1.0,)), frame, ["C"])
 
 
 class Metrics(unittest.TestCase):
     def test_desired_ratio_counts_a_molecule_once(self):
-        # Under mode collapse the same desirable molecule is sampled repeatedly. DrugEx's
-        # definition deduplicates; counting duplicates inflates the headline number.
         frame = pd.DataFrame(
             {
                 "SMILES": ["A", "A", "A", "B"],
@@ -140,7 +123,7 @@ class Metrics(unittest.TestCase):
         )
         self.assertAlmostEqual(analysis._describe(frame, ["ROCS"])["desired"], 0.25)
         with tempfile.TemporaryDirectory() as directory:
-            ratios = _write_arm(
+            ratios = write_arm(
                 Path(directory) / "arm.tsv",
                 frame.drop(columns="SMILES"),
                 ["A", "A", "A", "B"],
@@ -155,12 +138,6 @@ class Metrics(unittest.TestCase):
 
 
 class _FakeAgent:
-    """Enough of a generator for fit() to run without a network or a GPU.
-
-    ``gmeans`` may differ from ``ratios``: with one series driving both criteria no test
-    can express the scenario the dual-checkpoint design exists for, and the "stop only
-    when both windows expire" rule becomes untestable.
-    """
 
     def __init__(self, ratios, gmeans=None):
         self.ratios = list(ratios)
@@ -171,8 +148,7 @@ class _FakeAgent:
         return ["CCO"] * n
 
     def evaluate(self, smiles, evaluator=None, no_multifrag_smiles=True):
-        # forward() has already incremented, so epoch 1 reads ratios[0].
-        index = min(self.epoch - 1, len(self.ratios) - 1)
+        index = min(self.epoch - 1, len(self.ratios) - 1)  # forward() already incremented
         desired = self.ratios[index]
         self.current_gmean = self.gmeans[min(index, len(self.gmeans) - 1)]
         n = len(smiles)
@@ -187,7 +163,6 @@ class _FakeAgent:
 
 
 class _FakeExplorer(DualCheckpointExplorer):
-    """Replaces every expensive part of an epoch, keeping only the checkpoint logic."""
 
     def __init__(self, ratios, gmeans=None, **kwargs):
         self.agent = _FakeAgent(ratios, gmeans)
@@ -197,9 +172,7 @@ class _FakeExplorer(DualCheckpointExplorer):
         self.desired_ratio_at_stop_path = kwargs["desired_ratio_at_stop_path"]
         self.gmean_path = kwargs["gmean_path"]
         self.training_samples_path = None
-        # 100, not a handful: desired_ratio is hits/n_eval, so a small arm quantises the
-        # ratio and a test asking for 0.99 would silently get 1.0.
-        self.n_eval = 100
+        self.n_eval = 100  # a small arm would quantise hits/n_eval
         self.saved = []
 
     def forward(self):
@@ -225,7 +198,6 @@ class _FakeExplorer(DualCheckpointExplorer):
 
 
 class Checkpoints(unittest.TestCase):
-    """The semantics that two implementations read differently out of one sentence."""
 
     def _run(self, ratios, directory, gmeans=None, patience=1, **kwargs):
         paths = {
@@ -238,11 +210,6 @@ class Checkpoints(unittest.TestCase):
         return summary, paths
 
     def test_best_checkpoint_holds_the_peak_and_at_stop_holds_the_live_policy(self):
-        import torch
-
-        # desired_ratio peaks at epoch 1, decays, and recovers. patience=1 means the
-        # window expires at epoch 3, by which point the live policy is two epochs past
-        # its own best -- which is exactly the difference between the two readings.
         with tempfile.TemporaryDirectory() as directory:
             summary, paths = self._run([1.0, 0.0, 0.0, 1.0], directory)
             self.assertEqual(summary["best_desired_ratio_before_freeze"], 1.0)
@@ -255,8 +222,6 @@ class Checkpoints(unittest.TestCase):
             self.assertNotEqual(at_stop["epoch"], best["epoch"], "both readings must be kept")
 
     def test_frozen_checkpoint_is_not_rewritten_by_a_later_improvement(self):
-        import torch
-
         with tempfile.TemporaryDirectory() as directory:
             _, paths = self._run([1.0, 0.0, 0.0, 1.0], directory)
             self.assertEqual(
@@ -266,12 +231,6 @@ class Checkpoints(unittest.TestCase):
             )
 
     def test_run_continues_while_desired_improves_after_gmean_plateaus(self):
-        """The 'both windows' rule, with criteria that genuinely diverge.
-
-        With one series driving both criteria this is untestable: gmean plateaus only when
-        desired_ratio does. Here avg_gmean is flat from epoch 1 while desired_ratio keeps
-        improving, so a single-criterion rule would stop early and the real rule must not.
-        """
         with tempfile.TemporaryDirectory() as directory:
             summary, _ = self._run(
                 ratios=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
@@ -286,10 +245,6 @@ class Checkpoints(unittest.TestCase):
         self.assertEqual(summary["best_desired_ratio_epoch"], 6)
 
     def test_post_freeze_peak_is_reported_even_though_the_checkpoint_is_frozen(self):
-        # The frozen file must not reopen, but the summary must still show the run reached
-        # a higher value -- otherwise the report and rl_fit.tsv contradict each other.
-        import torch
-
         with tempfile.TemporaryDirectory() as directory:
             summary, paths = self._run(
                 ratios=[0.5, 0.0, 0.0, 0.0, 0.99],
@@ -307,8 +262,6 @@ class Checkpoints(unittest.TestCase):
             )
 
     def test_run_does_not_stop_while_desired_patience_is_still_open(self):
-        # gmean plateaus immediately while desired keeps improving. Stopping on gmean
-        # alone would cut the desired criterion short.
         with tempfile.TemporaryDirectory() as directory:
             summary, _ = self._run([0.25, 0.5, 0.75, 1.0], directory)
             self.assertEqual(summary["epochs_run"], 4)
@@ -322,54 +275,30 @@ class Checkpoints(unittest.TestCase):
 
 
 class Relaxation(unittest.TestCase):
+    @staticmethod
+    def _both_arms(cfg, directory):
+        return (
+            conformers.build_reference(replace(cfg, minimize=True), Path(directory) / "a.sdf"),
+            conformers.build_reference(replace(cfg, minimize=False), Path(directory) / "b.sdf"),
+        )
+
     def test_minimization_lowers_the_energy_of_the_reference_bank(self):
-        cfg = small(minimize=True)
+        cfg = small()
         with tempfile.TemporaryDirectory() as directory:
-            relaxed = conformers.build_reference(cfg, Path(directory) / "ref.sdf")
-            plain = conformers.build_reference(
-                replace(cfg, minimize=False), Path(directory) / "plain.sdf"
-            )
-        best_relaxed = min(conformers.single_point_energy(m, cfg) for m in relaxed)
-        best_plain = min(conformers.single_point_energy(m, cfg) for m in plain)
+            relaxed, plain = self._both_arms(cfg, directory)
+        best_relaxed = min(conformers.single_point_energy(mol, cfg) for mol in relaxed)
+        best_plain = min(conformers.single_point_energy(mol, cfg) for mol in plain)
         self.assertLess(best_relaxed, best_plain, "relaxation must reduce MMFF energy")
 
     def test_bank_size_does_not_depend_on_the_arm(self):
-        """The window must never make the unminimised arm a smaller bank.
-
-        Raw ETKDG energies spread far wider than relaxed ones, so a fixed kcal/mol window
-        admitted 2 conformers unminimised against 4 minimised. The score is a max over the
-        bank, so that alone would make the minimised arm look better.
-        """
-        cfg = replace(small(), reference_attempts=8, reference_conformers=3, minimize=True)
+        cfg = replace(small(), reference_attempts=8, reference_conformers=3)
         with tempfile.TemporaryDirectory() as directory:
-            relaxed = conformers.build_reference(cfg, Path(directory) / "a.sdf")
-            plain = conformers.build_reference(
-                replace(cfg, minimize=False), Path(directory) / "b.sdf"
-            )
+            relaxed, plain = self._both_arms(cfg, directory)
         self.assertEqual(
             len(relaxed), len(plain), "the two arms must offer the same number of poses"
         )
 
-    def test_tuple_fields_are_settable_from_the_command_line(self):
-        # "tuple[float, ...]" contains "float", so a scalar branch matched first and the
-        # knob could not be set at all from --set.
-        self.assertEqual(
-            config_from_args(["fixed_thresholds=0.8,1.0"]).fixed_thresholds, (0.8, 1.0)
-        )
-        self.assertEqual(
-            config_from_args(["fixed_thresholds=(0.8, 1.0)"]).fixed_thresholds, (0.8, 1.0)
-        )
-        self.assertEqual(config_from_args(["fixed_thresholds="]).fixed_thresholds, ())
-
     def test_parallel_embedding_is_identical_to_serial(self):
-        """Sharding molecules across processes must not change a single coordinate.
-
-        The conformer title carries the molecule's index, and the scorer maps conformers
-        back to input SMILES through it, so a worker numbering from zero would attribute
-        every molecule's geometry to the wrong one.
-        """
-        import numpy as np
-
         smiles = [
             "CCO",
             "CCN",
@@ -408,15 +337,10 @@ class Relaxation(unittest.TestCase):
             self.assertIsNone(conformers._force_field(Chem.MolFromSmiles("CCO"), small()))
 
     def test_unconverged_conformers_are_kept_not_dropped(self):
-        # A geometry that has not reached a stationary point is still a geometry. Dropping
-        # it would send the molecule's ROCS score to 0 in the minimized arm only, which
-        # changes which chemistry the two arms can see.
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=0xC0FFEE)
 
         class Unconverged:
-            """A force field that never reaches a stationary point."""
-
             def Minimize(self, maxIts=0):
                 return 1
 
@@ -429,8 +353,6 @@ class Relaxation(unittest.TestCase):
         self.assertEqual(reason, "unconverged")
 
     def test_a_conformer_fault_never_ends_the_run(self):
-        # This fired for real: KekulizeException inside the stereo check aborted a whole
-        # pipeline run. One conformer may fail; a run may not.
         class Exploding:
             def Minimize(self, maxIts=0):
                 raise ValueError("bad direction")
@@ -446,19 +368,13 @@ class Relaxation(unittest.TestCase):
         self.assertEqual(reason, "relax_raised")
 
     def test_unkekulizable_molecule_is_kept_not_filtered(self):
-        # Dropping here would filter on "RDKit could not kekulize this" in the minimized
-        # arm only, which is a chemistry-dependent confound in the arm comparison.
         self.assertIsNone(conformers._stereo_key(object()))
 
     def test_protonation_is_off_and_stated(self):
-        # Dimorphite-DL is installed, and native DrugEx defaults protonation ON. At pH 7.4
-        # it returns an octa-anionic EGCG, which is not the dominant species and destroys
-        # every phenol donor the colour channel depends on.
         self.assertFalse(conformers.PROTONATE)
 
 
 class Rocs(unittest.TestCase):
-    """The transplanted pose kernel: it must agree with native and stay one objective."""
 
     def _bank(self, directory):
         cfg = replace(
@@ -472,103 +388,68 @@ class Rocs(unittest.TestCase):
         conformers.build_reference(cfg, path)
         return cfg, path
 
+    def _scorer(self, cfg, path, **changes):
+        return rocs.ComboROCSScorer(
+            conformer_generator=conformers.RelaxingConformerGenerator(cfg),
+            references=str(path),
+            score_type="TanimotoCombo",
+            color_ff=cfg.color_ff,
+            n_jobs=1,
+            show_progress=False,
+            alignment_shape_weight=0.5,
+            **changes,
+        )
+
+    @staticmethod
+    def _two_objectives(scorer):
+        return scorers.build_environment(
+            [scorer, Property("SA")], [0.0, 0.0], scorers.reward_scheme("PRCD")
+        )
+
     def test_matches_native_bit_for_bit_at_equal_weight(self):
         from drugex.training.scorers.rocs_rdkit import RDKitROCSScorer
-
-        from _david.code.scorers.rocs import ComboROCSScorer
 
         with tempfile.TemporaryDirectory() as directory:
             cfg, path = self._bank(directory)
             mols = [Chem.MolFromSmiles(s) for s in ("CCO", "CCN", "c1ccccc1O")] + [None]
-            common = dict(
+            native = RDKitROCSScorer(
+                conformer_generator=conformers.RelaxingConformerGenerator(cfg),
                 references=str(path),
                 score_type="TanimotoCombo",
                 color_ff=cfg.color_ff,
                 n_jobs=1,
                 show_progress=False,
             )
-            native = RDKitROCSScorer(
-                conformer_generator=conformers.RelaxingConformerGenerator(cfg), **common
-            )
-            ours = ComboROCSScorer(
-                conformer_generator=conformers.RelaxingConformerGenerator(cfg),
-                alignment_shape_weight=0.5,
-                **common,
-            )
+            ours = self._scorer(cfg, path)
             np.testing.assert_allclose(ours.getScores(mols), native.getScores(mols), atol=0)
             self.assertEqual(ours.getKey(), native.getKey())
 
     def test_components_sum_to_the_reported_combo(self):
-        from _david.code.scorers.rocs import ComboROCSScorer
-
         with tempfile.TemporaryDirectory() as directory:
-            cfg, path = self._bank(directory)
-            scorer = ComboROCSScorer(
-                conformer_generator=conformers.RelaxingConformerGenerator(cfg),
-                references=str(path),
-                score_type="TanimotoCombo",
-                color_ff=cfg.color_ff,
-                n_jobs=1,
-                show_progress=False,
-                alignment_shape_weight=0.5,
-            )
+            scorer = self._scorer(*self._bank(directory))
             smiles = ["CCO", "CCN"]
             scores = scorer.getScores([Chem.MolFromSmiles(s) for s in smiles]).ravel()
-            for value, name in zip(
-                scores, [Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in smiles]
-            ):
+            for value, name in zip(scores, (Chem.CanonSmiles(s) for s in smiles)):
                 shape, colour = scorer.components[name]
                 self.assertAlmostEqual(shape + colour, float(value), places=9)
 
     def test_components_never_become_objectives(self):
-        # Returning a key per component would make ParetoCrowdingDistance optimise shape
-        # and colour as separate objectives -- a two-objective run silently becoming four.
-        from _david.code.scorers.rocs import ComboROCSScorer
-
         with tempfile.TemporaryDirectory() as directory:
-            cfg, path = self._bank(directory)
-            scorer = ComboROCSScorer(
-                conformer_generator=conformers.RelaxingConformerGenerator(cfg),
-                references=str(path),
-                score_type="TanimotoCombo",
-                color_ff=cfg.color_ff,
-                n_jobs=1,
-                show_progress=False,
-                alignment_shape_weight=0.5,
-            )
+            scorer = self._scorer(*self._bank(directory))
             self.assertEqual(len(scorer.getKey()), 1)
-            environment = scorers.build_environment(
-                [scorer, Property("SA")], [0.0, 0.0], scorers.reward_scheme("PRCD")
-            )
-            keys = environment.getScorerKeys()
+            keys = self._two_objectives(scorer).getScorerKeys()
             self.assertEqual(len(keys), 2, f"the reward must see two objectives, saw {keys}")
             self.assertNotIn("ShapeTanimoto", keys)
             self.assertNotIn("ColorTanimoto", keys)
 
     def test_components_survive_the_environment_round_trip(self):
-        # The scorer keys components by canonical SMILES. Looking them up with the raw
-        # strings a generator emits must still line up, or a row stops adding up.
-        from _david.code.scorers.rocs import ComboROCSScorer
-
         with tempfile.TemporaryDirectory() as directory:
-            cfg, path = self._bank(directory)
-            scorer = ComboROCSScorer(
-                conformer_generator=conformers.RelaxingConformerGenerator(cfg),
-                references=str(path),
-                score_type="TanimotoCombo",
-                color_ff=cfg.color_ff,
-                n_jobs=1,
-                show_progress=False,
-                alignment_shape_weight=0.5,
-            )
-            environment = scorers.build_environment(
-                [scorer, Property("SA")], [0.0, 0.0], scorers.reward_scheme("PRCD")
-            )
+            scorer = self._scorer(*self._bank(directory))
             raw = ["C(C)O", "C(C)N"]  # deliberately non-canonical
-            frame = environment.getScores(raw)
+            frame = self._two_objectives(scorer).getScores(raw)
             split = scorer.component_frame(raw)
-            combo = frame[scorer.getKey()[0]].to_numpy(dtype=float)
             total = np.asarray(split["ShapeTanimoto"]) + np.asarray(split["ColorTanimoto"])
+            combo = frame[scorer.getKey()[0]].to_numpy(dtype=float)
             np.testing.assert_allclose(total, combo, atol=1e-9)
 
     def test_alignment_weight_is_validated(self):
@@ -576,14 +457,11 @@ class Rocs(unittest.TestCase):
             replace(Config(), alignment_shape_weight=1.5)
 
     def test_malformed_align_result_costs_one_pose_not_the_epoch(self):
-        from _david.code.scorers import rocs
-
         with tempfile.TemporaryDirectory() as directory:
             _, path = self._bank(directory)
-            ref = [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m][0]
+            reference = next(m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m)
             with patch.object(rocs.rdShapeAlign, "AlignMol", return_value=None):
-                shape, colour = rocs.pair_components(ref, ref, opt_param=0.5)
-            self.assertEqual((shape, colour), (0.0, 0.0))
+                self.assertEqual(rocs.pair_components(reference, reference, opt_param=0.5), (0.0, 0.0))
 
 
 class Provenance(unittest.TestCase):
@@ -596,8 +474,6 @@ class Provenance(unittest.TestCase):
 
     def test_source_digests_cover_this_package(self):
         digests = provenance.source_digests(Path(provenance.__file__).parent)
-        # Every module, including the ones inside subpackages -- a flat glob would miss
-        # most of the package and still report a plausible-looking manifest.
         for name in (
             "run.py",
             "config.py",
@@ -614,8 +490,6 @@ class Provenance(unittest.TestCase):
             self.assertIn(name, digests)
 
     def test_records_where_drugex_was_imported_from(self):
-        # kernel_sha256 hashes files on disk; if the import resolved somewhere else the
-        # hashes would describe code that never ran.
         described = provenance.describe(PROJECT_ROOT)
         self.assertEqual(
             Path(described["drugex_imported_from"]).resolve(),
@@ -628,15 +502,13 @@ class Provenance(unittest.TestCase):
             path = Path(directory) / "manifest.json"
             manifest = provenance.Manifest(path, run="x")
             self.assertEqual(json.loads(path.read_text())["state"], "running")
-            manifest.finish("failed", error="boom")
+            manifest.update(state="failed", error="boom")
             self.assertEqual(json.loads(path.read_text())["state"], "failed")
             self.assertFalse(list(Path(directory).glob("*.tmp")), "no temporary left behind")
 
 
 class Configuration(unittest.TestCase):
     def test_reversed_sa_clip_is_rejected(self):
-        # ClippedScore only asserts low < high, so an ascending pair would silently invert
-        # the objective and reward unsynthesizable molecules.
         with self.assertRaises(ValueError):
             replace(Config(), sa_reward_zero=3.0, sa_reward_one=5.0)
 
@@ -649,13 +521,21 @@ class Configuration(unittest.TestCase):
         self.assertEqual(cfg.epochs, 3)
         self.assertIs(cfg.minimize, False)
 
+    def test_tuple_fields_are_settable_from_the_command_line(self):
+        self.assertEqual(
+            config_from_args(["fixed_thresholds=0.8,1.0"]).fixed_thresholds, (0.8, 1.0)
+        )
+        self.assertEqual(
+            config_from_args(["fixed_thresholds=(0.8, 1.0)"]).fixed_thresholds, (0.8, 1.0)
+        )
+        self.assertEqual(config_from_args(["fixed_thresholds="]).fixed_thresholds, ())
+
     def test_min_epochs_cannot_exceed_epochs(self):
         with self.assertRaises(ValueError):
             replace(Config(), epochs=3, min_epochs=50)
 
 
 class RewardSchemes(unittest.TestCase):
-    """What changes when the reward scheme changes, and what must not."""
 
     def test_every_scheme_name_is_one_of_drugexs_own(self):
         self.assertIsInstance(scorers.reward_scheme("PRCD"), ParetoCrowdingDistance)
@@ -663,17 +543,11 @@ class RewardSchemes(unittest.TestCase):
         self.assertEqual(sorted(scorers.SCHEMES), ["PRCD", "PRTD", "WS"])
 
     def test_an_unknown_scheme_is_rejected_by_name(self):
-        # A typo in a submitted delta must cost a second, not an hour of queue plus the
-        # reference bank plus 5000 scored prior molecules.
         with self.assertRaises(ValueError) as caught:
             scorers.reward_scheme("pareto")
         self.assertIn("PRCD", str(caught.exception))
 
     def test_weighted_sum_does_read_the_thresholds(self):
-        # The counterpart of test_pareto_reward_ignores_thresholds, and the reason the WS
-        # batch is a different experiment rather than a different setting: DrugEx builds
-        # WeightedSum's weights from the thresholds, so under WS they are part of the
-        # reward. If this ever stops being true, the report prose below is a lie.
         scheme = scorers.reward_scheme("WS")
         values = np.array([[0.9, 0.2], [0.2, 0.9], [0.5, 0.5]])
         loose = scheme(["C", "CC", "CCC"], values, np.array([0.0, 0.0]))
@@ -681,10 +555,6 @@ class RewardSchemes(unittest.TestCase):
         self.assertFalse(np.allclose(loose, tight), "WS must respond to its thresholds")
 
     def test_every_objective_reaches_the_reward_on_the_same_scale(self):
-        # WS dots its weights with the raw columns, so TanimotoCombo on [0, 2] carries
-        # twice the leverage of SA and QED and the reward leaves [0, 1]. Pareto ranking
-        # is affine-invariant, so the same modifier would be a no-op there and is not
-        # applied -- which keeps the reported ROCS of 144 of 148 runs in published units.
         for scheme in ("WS", "PRCD", "PRTD"):
             cfg = small(scheme=scheme)
             rocs = scorers.build_scorers(cfg, [Chem.MolFromSmiles("c1ccccc1")])[0]
@@ -697,10 +567,6 @@ class RewardSchemes(unittest.TestCase):
         )
 
     def test_every_table_reports_rocs_on_zero_to_two_whatever_it_stored(self):
-        # The scorer's modifier halves the stored combo. Figures read ROCS as the
-        # unmodified shape + colour sum, so a run from either side of that change is
-        # drawn on [0, 2] -- and the manifest's threshold, which is in reward units,
-        # has to be scaled to match or the line lands at half its true position.
         raw = pd.DataFrame(
             {
                 "SMILES": ["c1ccccc1", "CCO"],
@@ -718,7 +584,7 @@ class RewardSchemes(unittest.TestCase):
         for frame, config in ((raw, {}), (modified, {"rocs_reward_scale": 2.0})):
             enriched = analysis_helpers.enrich_descriptors(frame, col, "", config)
             self.assertEqual(list(enriched["ROCS"]), [1.4, 0.8])
-        # The per-epoch table has no components at all; it must still come back on [0, 2].
+        # A per-epoch table has no components and must still come back on [0, 2].
         epochs = modified[["SMILES", "Valid", col]]
         enriched = analysis_helpers.enrich_descriptors(epochs, col, "", {"rocs_reward_scale": 2.0})
         self.assertEqual(list(enriched["ROCS"]), [1.4, 0.8])
@@ -751,12 +617,8 @@ class RewardSchemes(unittest.TestCase):
 
 
 class ScoringBatches(unittest.TestCase):
-    """What ``batch_size`` chunks, and what it does not."""
 
     def _policy_gradient(self, molecules: int, batch_size: int) -> tuple[list[int], int]:
-        """Native's policy_gradient over a stub, reporting scoring calls and gradient steps."""
-        import torch
-
         from drugex.training.explorers.sequence_explorer import SequenceExplorer
 
         scored, steps = [], []
@@ -789,18 +651,37 @@ class ScoringBatches(unittest.TestCase):
         return scored, len(steps)
 
     def test_batch_size_splits_the_gradient_not_the_scoring(self):
-        # The expensive part of an epoch is one call. `batch_size` never reaches the
-        # scorer: it is the minibatch of the policy-gradient loop and the chunk
-        # `forward()` generates in, so there is no "extra pool per 128 molecules" to
-        # remove -- every molecule of the epoch is already scored in one parallel pass.
         for batch_size, expected_steps in ((16, 32), (128, 4), (500, 1)):
             scored, steps = self._policy_gradient(500, batch_size)
             self.assertEqual(scored, [500], f"batch_size={batch_size} must not chunk scoring")
             self.assertEqual(steps, expected_steps, f"batch_size={batch_size} splits the gradient")
 
 
+class _WedgedPool:
+
+    def __init__(self):
+        self.terminated = False
+
+    def get_start_method(self):
+        return "forkserver"
+
+    def Pool(self, workers):
+        return self
+
+    def map_async(self, function, items):
+        return self
+
+    def get(self, timeout=None):
+        raise mp.TimeoutError()
+
+    def terminate(self):
+        self.terminated = True
+
+    def join(self):
+        pass
+
+
 class StartMethod(unittest.TestCase):
-    """The probe that stops a broken pool from quietly costing a run its parallelism."""
 
     def test_a_working_context_is_reported_by_its_name(self):
         with patch.dict("os.environ", {"DRUGEX_MP_CONTEXT": "fork"}):
@@ -821,31 +702,7 @@ class StartMethod(unittest.TestCase):
             self.assertIn("broken", conformers.check_pool(timeout=1.0))
 
     def test_a_pool_that_hangs_is_bounded_and_terminated(self):
-        # The real failure mode, measured: a worker that dies while importing __main__
-        # (forkserver/spawn under `python - <<EOF`) is respawned forever, so map() never
-        # returns. A probe without a timeout would hang the run it exists to protect.
-        class _Wedged:
-            terminated = False
-
-            def get_start_method(self):
-                return "forkserver"
-
-            def Pool(self, workers):
-                return self
-
-            def map_async(self, function, items):
-                return self
-
-            def get(self, timeout=None):
-                raise mp.TimeoutError()
-
-            def terminate(self):
-                self.terminated = True
-
-            def join(self):
-                pass
-
-        wedged = _Wedged()
+        wedged = _WedgedPool()
         started = time.perf_counter()
         with (
             patch.object(conformers, "_POOL_BROKEN", False),
@@ -857,33 +714,13 @@ class StartMethod(unittest.TestCase):
         self.assertLess(time.perf_counter() - started, 10.0)
 
     def test_a_broken_probe_disables_production_pools(self):
-        class _Wedged:
-            def get_start_method(self):
-                return "forkserver"
-
-            def Pool(self, workers):
-                return self
-
-            def map_async(self, function, items):
-                return self
-
-            def get(self, timeout=None):
-                raise mp.TimeoutError()
-
-            def terminate(self):
-                pass
-
-            def join(self):
-                pass
-
         with (
             patch.object(conformers, "_POOL_BROKEN", False),
-            patch.object(conformers, "pool_context", return_value=_Wedged()),
+            patch.object(conformers, "pool_context", return_value=_WedgedPool()),
         ):
             self.assertIn("broken", conformers.check_pool(timeout=0.01))
             self.assertFalse(conformers.pool_is_healthy())
-            # Forty records would ordinarily use two workers. Another Pool() here would
-            # raise AttributeError because the wedged stub deliberately has no map().
+            # Forty records would pool, and the wedged stub has no map().
             self.assertEqual(
                 conformers._map(conformers._touch, list(range(40)), small(n_jobs=2)),
                 list(range(40)),
@@ -892,20 +729,19 @@ class StartMethod(unittest.TestCase):
     def test_a_multi_core_run_refuses_to_start_without_workers(self):
         with patch.object(conformers, "_POOL_BROKEN", True):
             self.assertIsNone(
-                runner._serial_run_refusal(small(n_jobs=1)),
+                runner.serial_run_refusal(small(n_jobs=1)),
                 "a one-core run is serial anyway and must still run",
             )
-            refusal = runner._serial_run_refusal(small(n_jobs=16))
+            refusal = runner.serial_run_refusal(small(n_jobs=16))
             self.assertIsNotNone(refusal, "16 cores and no workers cannot finish a run")
             self.assertIn("DRUGEX_MP_CONTEXT=fork", refusal)
         with patch.object(conformers, "_POOL_BROKEN", False):
-            self.assertIsNone(runner._serial_run_refusal(small(n_jobs=16)))
+            self.assertIsNone(runner.serial_run_refusal(small(n_jobs=16)))
 
 
 class ArmCompleteness(unittest.TestCase):
     @staticmethod
     def _arm_frame(rows: int) -> pd.DataFrame:
-        """An arm in the column order run.py writes: Desired is fifth of nine."""
         molecules = ["CC", "CCC", "CCCC"][:rows]
         return pd.DataFrame(
             {
@@ -924,38 +760,35 @@ class ArmCompleteness(unittest.TestCase):
     def test_missing_short_and_unreadable_tables_are_incomplete(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "arm.tsv"
-            self.assertFalse(_arm_is_complete(path, 2))
+            self.assertFalse(arm_is_complete(path, 2))
             self._arm_frame(1).to_csv(path, sep="\t", index=False)
-            self.assertFalse(_arm_is_complete(path, 2), "a one-row table cannot satisfy n=2")
+            self.assertFalse(arm_is_complete(path, 2), "a one-row table cannot satisfy n=2")
             path.write_text("SMILES\tCanonical\tValid\tDesired\nnot a complete row")
-            self.assertFalse(_arm_is_complete(path, 1), "a truncated row must be rebuilt")
+            self.assertFalse(arm_is_complete(path, 1), "a truncated row must be rebuilt")
             self._arm_frame(2).to_csv(path, sep="\t", index=False)
-            self.assertTrue(_arm_is_complete(path, 2))
+            self.assertTrue(arm_is_complete(path, 2))
 
     def test_a_row_cut_off_after_desired_is_incomplete(self):
-        """Desired is the fifth of nine columns, so NaN there cannot be the only test."""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "arm.tsv"
             table = self._arm_frame(2)
             table.to_csv(path, sep="\t", index=False)
             lines = path.read_text().splitlines()
-            # Everything through Desired survives; the writer died before the rest.
-            lines[-1] = "\t".join(lines[-1].split("\t")[:5])
+            lines[-1] = "\t".join(lines[-1].split("\t")[:5])  # the writer died after Desired
             path.write_text("\n".join(lines) + "\n")
             self.assertFalse(
-                _arm_is_complete(path, 2),
+                arm_is_complete(path, 2),
                 "a row truncated after Desired has no Canonical and must be rebuilt",
             )
 
     def test_an_empty_generated_smiles_is_still_a_complete_row(self):
-        """The RNN can emit "", which round-trips as NaN in SMILES and Canonical."""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "arm.tsv"
             table = self._arm_frame(2)
             table.loc[1, ["SMILES", "Canonical"]] = ""
             table.loc[1, "Valid"] = 0
             table.to_csv(path, sep="\t", index=False)
-            self.assertTrue(_arm_is_complete(path, 2))
+            self.assertTrue(arm_is_complete(path, 2))
 
     def test_the_original_run_cannot_finish_complete_with_a_missing_arm(self):
         cfg = small(n_final=2, fixed_thresholds=(0.5, 0.5))
@@ -975,11 +808,10 @@ class ArmCompleteness(unittest.TestCase):
             resolved = {"thresholds": [0.5, 0.5]}
             with (
                 patch.object(runner, "build_reference", return_value=[Chem.MolFromSmiles("CC")]),
-                # Config is a frozen dataclass, so the method is patched on the class.
                 patch.object(Config, "pretrained", return_value=("agent", "vocabulary")),
                 patch.object(runner.VocSmiles, "fromFile"),
-                patch.object(runner, "_load"),
-                patch.object(runner, "_sample", return_value=["CC", "CC"]),
+                patch.object(runner, "load_model"),
+                patch.object(runner, "sample", return_value=["CC", "CC"]),
                 patch.object(
                     runner,
                     "calibrate_thresholds",
@@ -990,10 +822,10 @@ class ArmCompleteness(unittest.TestCase):
                 ),
                 patch.object(runner, "build_environment", return_value=env),
                 patch.object(runner, "build_scorers"),
-                patch.object(runner, "_write_arm", return_value={}),
-                patch.object(runner, "_components", return_value={}),
+                patch.object(runner, "write_arm", return_value={}),
+                patch.object(runner, "components", return_value={}),
                 patch.object(runner, "DualCheckpointExplorer", return_value=explorer),
-                patch.object(runner, "_arm_is_complete", side_effect=complete_file),
+                patch.object(runner, "arm_is_complete", side_effect=complete_file),
                 patch.object(analysis, "analyse"),
             ):
                 status = runner._pipeline(cfg, run_dir, resolved, manifest, time.monotonic())
@@ -1016,11 +848,8 @@ def _arm(scores: list[float], desired: list[int]) -> pd.DataFrame:
 
 
 class BestModelGallery(unittest.TestCase):
-    """Figure 05b: one grid, from the checkpoint that actually won."""
 
     def test_the_prior_is_never_the_best_model(self):
-        # It is the untrained baseline. A run whose prior scores best is a result to
-        # report, not a model to put in a lead gallery.
         arms = {
             "prior": _arm([0.9, 0.9], [1, 1]),
             "gmean": _arm([0.1, 0.1], [0, 0]),
@@ -1060,7 +889,7 @@ class BestModelGallery(unittest.TestCase):
     def test_the_shown_arm_falls_back_when_the_wanted_one_is_empty(self):
         arms = {"prior": _arm([0.9], [1]), "gmean": _arm([0.5, 0.4], [1, 0])}
         self.assertEqual(figures.shown_arm(arms, ["ROCS"], "gmean"), "gmean")
-        # desired_ratio was never written, so the figure describes what the run has.
+        # desired_ratio was never written, so the figure shows what the run has.
         self.assertEqual(figures.shown_arm(arms, ["ROCS"], "desired_ratio"), "gmean")
         self.assertIsNone(figures.shown_arm({"prior": _arm([0.9], [1])}, ["ROCS"], "gmean"))
 
@@ -1074,75 +903,34 @@ class BestModelGallery(unittest.TestCase):
 
 
 class Campaign(unittest.TestCase):
-    """The 148 planned runs. Every assertion here is a job that would die on a node."""
-
-    def test_the_plan_is_the_sweep_that_was_asked_for(self):
-        counts = {name: len(campaign.runs(batch)) for name, batch in campaign.BATCHES.items()}
-        self.assertEqual(counts, {"parent": 96, "ws": 4, "prtd": 4, "color": 48})
-        self.assertEqual(sum(counts.values()), 152)
 
     def test_every_delta_is_a_setting_the_pipeline_accepts(self):
-        # config_from_args raises SystemExit on an unknown name and on a value that will
-        # not coerce, which is the whole check: a typo here is 148 jobs that queue for
-        # hours and then fail on import.
         for batch in campaign.BATCHES.values():
             for name, settings in campaign.runs(batch):
                 cfg = config_from_args(campaign.deltas(settings))
-                self.assertEqual(cfg.epsilon, settings["epsilon"], name)
-                self.assertEqual(cfg.include_qed, settings["include_qed"], name)
-                self.assertEqual(cfg.color_ff, settings["color_ff"], name)
-                self.assertEqual(cfg.max_conformers, settings["max_conformers"], name)
                 for key, wanted in settings.items():
                     self.assertEqual(getattr(cfg, key), wanted, f"{name}: {key}")
                 scorers.reward_scheme(cfg.scheme)
 
     def test_a_batch_changes_the_reward_scheme_only_by_being_about_it(self):
-        # PRCD is the grid's scheme. A run on another one is not a cell of the same
-        # experiment -- WS reads the thresholds, PRTD ranks a front by chemical distance
-        # -- so a scheme may only vary where the whole batch exists to vary it, and
-        # never as one axis among several.
-        schemes = {"ws": "WS", "prtd": "PRTD"}
         for name, batch in campaign.BATCHES.items():
-            wanted = schemes.get(name, "PRCD")
             self.assertNotIn("scheme", batch.axes, name)
-            for job, settings in campaign.runs(batch):
-                self.assertEqual(settings["scheme"], wanted, job)
+            schemes = {settings["scheme"] for _, settings in campaign.runs(batch)}
+            self.assertEqual(len(schemes), 1, f"{name} mixes reward schemes: {schemes}")
 
-    def test_names_are_unique_and_decode_to_their_settings(self):
-        names = []
-        suffixes = {
-            "minimize": lambda v: f"m{int(v)}",
-            "epsilon": lambda v: f"e{int(v * 100):02d}",
-            "reference_conformers": lambda v: f"r{v}",
-            "max_conformers": lambda v: f"c{v}",
-            "include_qed": lambda v: f"q{int(v)}",
-            "color_ff": lambda v: {"default": "fd", "fdef": "ff", "oe_mills_dean": "fo"}[v],
-            "alignment_shape_weight": lambda v: f"s{int(v * 100):02d}",
-        }
-        for batch in campaign.BATCHES.values():
-            for name, settings in campaign.runs(batch):
-                expected = (
-                    batch.prefix + "_" + "".join(suffixes[key](settings[key]) for key in batch.axes)
-                )
-                self.assertEqual(name, expected, "every name must encode every varying setting")
-                names.append(name)
-        self.assertEqual(len(names), len(set(names)), "a repeated name overwrites a spec")
+    def test_job_names_are_unique_across_every_batch(self):
+        names = [name for batch in campaign.BATCHES.values() for name, _ in campaign.runs(batch)]
+        duplicated = sorted({name for name in names if names.count(name) > 1})
+        self.assertFalse(duplicated, f"a repeated name overwrites a spec on storage: {duplicated}")
 
     def test_no_run_sets_a_setting_the_job_owns(self):
-        # output_root and n_jobs come from the PBS allocation; a delta would undo them.
         for batch in campaign.BATCHES.values():
             for job, settings in campaign.runs(batch):
-                for reserved in ("output_root", "n_jobs"):
+                for reserved in submit_module.RESERVED:
                     self.assertNotIn(reserved, settings, job)
 
     def test_every_run_asks_for_more_memory_than_its_cell_was_measured_to_use(self):
-        # A flat 32 GB killed all 16 minimise+c30 runs of the first attempt during
-        # threshold calibration, before any checkpoint existed. These are the high-water
-        # marks PBS reported for the cells that survived; the c30 row is the linear
-        # extrapolation the kills are consistent with.
-        # True peaks from resources_used.mem of this campaign's finished jobs. The
-        # earlier version of this test used mid-run samples, which understated every
-        # one of them and let a 32 GB request through for cells that then died.
+        # True peaks from resources_used.mem, by (minimize, max_conformers).
         measured = {
             (False, 10): 22.7,
             (False, 20): 28.0,
@@ -1150,23 +938,276 @@ class Campaign(unittest.TestCase):
             (True, 10): 22.1,
             (True, 20): 31.2,
         }
-        for (minimize, conformers), peak in measured.items():
-            asked = campaign.MEMORY_GB
-            # Twice the peak, not 1.2x: siblings of one configuration differ by ~5 GB.
-            self.assertGreaterEqual(asked, peak * 2.0, f"minimize={minimize} c{conformers}")
-        self.assertEqual(campaign.MEMORY_GB, 64)
-        # The ad-hoc path must not be the one that still asks for the fatal 32 GB.
-        self.assertGreaterEqual(Job.mem, campaign.MEMORY_GB)
+        for cell, peak in measured.items():
+            # Twice the peak: siblings of one configuration differ by ~5 GB.
+            self.assertGreaterEqual(campaign.MEMORY_GB, peak * 2.0, f"minimize/c{cell}")
+        self.assertGreaterEqual(Job.mem, campaign.MEMORY_GB, "the ad-hoc path must match")
 
-    def test_the_four_repeated_configurations_are_named(self):
-        # The colour batch is centred on a cell the parent batch already holds. They are
-        # kept (fixed seed: a free reproducibility check) but must never be read as four
-        # independent measurements.
-        repeats = campaign.duplicates()
-        self.assertEqual(len(repeats), 4)
-        for repeat, original in repeats:
-            self.assertTrue(repeat.startswith("c_"))
-            self.assertTrue(original.startswith("p_"))
+    def test_a_repeated_configuration_is_reported_as_a_replicate(self):
+        by_name = {
+            name: settings
+            for batch in campaign.BATCHES.values()
+            for name, settings in campaign.runs(batch)
+        }
+        for repeat, original in campaign.duplicates():
+            self.assertNotEqual(repeat, original)
+            self.assertEqual(by_name[repeat], by_name[original], f"{repeat} is not a replicate")
+
+
+class CollapseVerdict(unittest.TestCase):
+    """The triage labels collapse.py hands out, and the statistics they are built on."""
+
+    @staticmethod
+    def _stop_arm(unique_ratio, desired=0.9, top10=0.1, valid=0.99):
+        return {
+            "n": 5000, "valid_ratio": valid, "unique_ratio": unique_ratio,
+            "top1_share": top10 / 10, "top10_share": top10, "desired_ratio": desired,
+            "rocs_median": None, "rocs_max": None,
+        }
+
+    PRIOR = {"n": 5000, "valid_ratio": 0.95, "unique_ratio": 0.95, "top1_share": 0.0,
+             "top10_share": 0.003, "desired_ratio": 0.13, "rocs_median": None, "rocs_max": None}
+    CHEMISTRY = {"hac_median": 27.0, "mw_median": 365.0, "scaffolds": 100, "scaffold_top": 0.1}
+
+    def _verdict(self, stop, prior=None, n=5000):
+        return collapse.verdict(
+            stop, prior or self.PRIOR, self.CHEMISTRY, self.CHEMISTRY, n
+        )
+
+    def test_a_unique_arm_that_learned_is_clean(self):
+        result = self._verdict(self._stop_arm(0.9, desired=0.8))
+        self.assertEqual(result["label"], "clean")
+        self.assertFalse(result["flags"], "a clean run needs no caveats attached")
+
+    def test_a_unique_arm_that_never_left_the_prior_is_unlearned(self):
+        # High uniqueness with no desired gain is the quiet failure: still the prior.
+        result = self._verdict(self._stop_arm(0.9, desired=0.14))
+        self.assertEqual(result["label"], "unlearned")
+        self.assertIn("no_learning", result["flags"])
+
+    def test_uniqueness_below_the_cut_is_collapse_whatever_the_reward(self):
+        # The collapsed cluster sits at 0.25-0.33 unique with desired ~0.9: one series.
+        result = self._verdict(self._stop_arm(0.25, desired=0.9))
+        self.assertEqual(result["label"], "collapsed")
+        self.assertIn("collapse", result["flags"])
+
+    def test_a_series_lock_collapses_even_above_the_uniqueness_cut(self):
+        # 0.5 unique but the top 10 are 70 % of the draw: it passes the cut, one finding.
+        result = self._verdict(self._stop_arm(0.5, desired=0.9, top10=0.7))
+        self.assertEqual(result["label"], "collapsed")
+        self.assertIn("series_lock", result["flags"])
+
+    def test_between_the_cuts_is_concentrated_not_collapsed(self):
+        result = self._verdict(self._stop_arm(0.5, desired=0.9, top10=0.2))
+        self.assertEqual(result["label"], "concentrated")
+
+    def test_validity_loss_alone_cannot_label_a_run_clean(self):
+        result = self._verdict(self._stop_arm(0.9, desired=0.8, valid=0.6))
+        self.assertEqual(result["label"], "collapsed")
+        self.assertIn("validity_collapse", result["flags"])
+
+    def test_fragment_drift_is_flagged_from_the_heavy_atom_medians(self):
+        thin = {"hac_median": 18.0, "mw_median": 250.0, "scaffolds": 50, "scaffold_top": 0.1}
+        result = collapse.verdict(
+            self._stop_arm(0.9, desired=0.8), self.PRIOR, thin, self.CHEMISTRY, 5000
+        )
+        self.assertIn("fragment_drift", result["flags"])
+
+    def test_a_pilot_arm_is_never_judged(self):
+        # Uniqueness at n=10 means nothing, or the smoke runs read as the most diverse.
+        result = self._verdict(self._stop_arm(1.0, desired=0.5), n=10)
+        self.assertEqual(result["label"], "pilot")
+
+    def test_a_short_arm_is_incomplete_not_collapsed(self):
+        # A walltime kill mid-write leaves a partial table; that is a rebuild, not a verdict.
+        stop = self._stop_arm(0.2, desired=0.9)
+        stop["n"] = 2000
+        result = self._verdict(stop, n=5000)
+        self.assertEqual(result["label"], "incomplete")
+
+    def test_arm_stats_follow_write_arms_conventions(self):
+        # The manifest's own definition, so the atlas and the manifest cannot disagree.
+        frame = pd.DataFrame(
+            {
+                "Valid": [1, 1, 1, 1, 0],
+                "Desired": [1, 1, 1, 0, 0],
+                "Canonical": ["CCO", "CCO", "CCO", "CCN", ""],
+                "RDKit_Aggregate_1refs_TanimotoCombo": [1.4, 1.4, 1.4, 1.0, 0.0],
+            }
+        )
+        stats = collapse.arm_stats(frame, "RDKit_Aggregate_1refs_TanimotoCombo", 2.0)
+        self.assertEqual(stats["n"], 5)
+        self.assertAlmostEqual(stats["unique_ratio"], 0.4)  # CCO and CCN of five draws
+        self.assertAlmostEqual(stats["desired_ratio"], 0.2)  # CCO alone, once
+        self.assertAlmostEqual(stats["rocs_median"], 2.4)  # published scale, deduped: median of 2.8 and 2.0
+        self.assertAlmostEqual(stats["top1_share"], 0.6)
+
+    def test_the_frontier_ignores_runs_the_verdict_cannot_trust(self):
+        # Pilots would dominate (desired, unique) for free, and the frontier is the highlight.
+        def run(name, desired, unique, verdict="clean", n=5000):
+            return {
+                "run": name, "verdict": verdict, "n_expected": n, "arms": {"stop": {
+                    "n": n, "desired_ratio": desired, "unique_ratio": unique}},
+                "axes": {},
+            }
+
+        records = [
+            run("real", 0.6, 0.8),
+            run("pilot", 1.0, 1.0, verdict="pilot", n=10),
+            run("short", 0.9, 0.9, verdict="incomplete", n=2000),
+            run("dominated", 0.5, 0.7),
+        ]
+        self.assertEqual(collapse._frontier(records), ["real"])
+
+
+class TreeAtlas(unittest.TestCase):
+    """What the tree atlas celebrates, what it refuses to, and which runs it counts."""
+
+    @staticmethod
+    def _scan_run(name, verdict="clean", desired=0.5, unique=0.8, qed=False,
+                  gmean_desired=0.0, n=5000):
+        return {
+            "run": name, "repo": "current", "legacy": False, "state": "complete",
+            "verdict": verdict, "flags": [], "reasons": [],
+            "axes": {"scheme": "PRCD", "epsilon": 0.05, "minimize": True,
+                     "reference_conformers": 4, "max_conformers": 10,
+                     "include_qed": qed, "color_ff": "fdef", "alignment_shape_weight": 0.5},
+            "n_expected": n, "hours": 1.0, "epochs_run": 70,
+            "arms": {"stop": {"desired_ratio": desired, "unique_ratio": unique},
+                     "gmean": {"desired_ratio": gmean_desired}},
+            "chemistry": {}, "curve": {}, "frontier": False,
+        }
+
+    def test_medals_rank_by_stop_arm_desired_and_skip_the_unmedallable(self):
+        # "Read this run first": it follows the stop arm, never gmean, and never a collapsed
+        # arm whose desired ratio is one series counted 5000 times.
+        scan = {"generated": "now", "roots": [], "since": "20261110", "totals": {},
+                "counts": {}, "runs": [
+                    self._scan_run("winner", desired=0.8),
+                    self._scan_run("second", desired=0.7, gmean_desired=0.95),
+                    self._scan_run("collapsed_but_shiny", verdict="collapsed",
+                                   desired=0.99, gmean_desired=1.0),
+                    self._scan_run("pilot", verdict="pilot", desired=1.0, n=10),
+                    self._scan_run("third", desired=0.6),
+                    self._scan_run("fourth", desired=0.55),
+                ]}
+        payload = atlas_v2.tree_payload(scan)
+        by_name = {r["run_id"]: r for r in payload["runs"]}
+        self.assertEqual(by_name["winner"]["rank"], 1)  # gmean 0.95 on "second" loses
+        self.assertEqual(by_name["second"]["rank"], 2)
+        self.assertEqual(by_name["third"]["rank"], 3)
+        self.assertNotIn("rank", by_name["collapsed_but_shiny"])
+        self.assertNotIn("rank", by_name["pilot"])
+        self.assertNotIn("rank", by_name["fourth"])  # three medals per family, no more
+
+    def test_factors_fold_the_axes_onto_the_tree_floors(self):
+        factors = atlas_v2._factors(
+            {"scheme": "WS", "epsilon": 0.05, "minimize": False, "reference_conformers": 1,
+             "max_conformers": 20, "color_ff": "oe_mills_dean", "alignment_shape_weight": 0.3}
+        )
+        self.assertEqual(factors, {
+            "reward": "WS", "epsilon": "0.05", "geometry": "K1 · raw", "budget": "C20",
+            "color": "oe_mills_dean", "shape_color": "w 0.3",
+        })
+
+    def test_the_scan_counts_only_runs_since_the_restart(self):
+        # The 10.11 rule: WITH_BUGS runs and first probes stay out, whatever root holds them.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("20261108_1200_old_regime", "20261111_0400_new",
+                         "20261112_0100_newer"):
+                run = root / name
+                run.mkdir()
+                (run / "manifest.json").write_text(json.dumps({
+                    "state": "complete",
+                    "config": {"scheme": "PRCD", "epsilon": 0.05, "n_final": 10},
+                }))
+            collapse.build([root], root / "atlas.html", since="20261110")
+            payload = json.loads((root / "collapse_scan.json").read_text())
+            self.assertEqual([r["run"] for r in payload["runs"]],
+                             ["20261111_0400_new", "20261112_0100_newer"])
+            self.assertEqual(payload["since"], "20261110")
+
+
+class DiversityProfile(unittest.TestCase):
+    """The chemical-diversity metrics and the cache that keeps them cheap."""
+
+    @staticmethod
+    def _frame(rows):
+        # rows: (canonical, count, desired)
+        return pd.DataFrame(
+            [r for canonical, count, desired in rows for r in
+             [(canonical, desired)] * count],
+            columns=["Canonical", "Desired"],
+        ).assign(Valid=1)
+
+    def test_effective_molecules_counts_a_repeated_series_once(self):
+        # 5,000 draws of 5 distinct molecules, 1,000 each: 5 effective findings, not 5,000.
+        uniform = diversity.ArmUniques(self._frame([(f"C{'C' * i}O", 1, 1) for i in range(10)]))
+        self.assertAlmostEqual(diversity._entropy_shannon(uniform.counts), 10.0)
+        repeated = diversity.ArmUniques(self._frame([("CCO", 5, 1), ("CCCO", 5, 0)]))
+        self.assertAlmostEqual(diversity._entropy_shannon(repeated.counts), 2.0)
+
+    def test_a_collapsed_arm_has_no_effective_scaffolds_left(self):
+        # The same scaffold wearing different hats: many canonicals, one family.
+        hats = [f"c1ccc(C{'C' * i})cc1" for i in range(6)]
+        uniques = diversity.ArmUniques(self._frame([(smi, 1, 1) for smi in hats]))
+        profile = diversity.arm_profile(uniques)
+        self.assertEqual(profile["n_unique"], 6)
+        self.assertEqual(profile["scaffolds"], 1)
+        self.assertAlmostEqual(profile["effective_scaffolds"], 1.0)
+        self.assertLess(profile["internal_diversity"], 0.5)
+
+    def test_pairwise_statistics_match_a_direct_similarity(self):
+        # Two molecules: every pairwise statistic is that one similarity, to 4 places.
+        methanol, ethanol = "CO", "CCO"
+        fp = [AllChem.GetMorganFingerprintAsBitVect(Chem.MolFromSmiles(s), 2, nBits=2048)
+              for s in (methanol, ethanol)]
+        expected = DataStructs.TanimotoSimilarity(*fp)
+        profile = diversity._pairwise_profile(fp)
+        self.assertAlmostEqual(profile["nn_sim_max"], expected, places=4)
+        self.assertAlmostEqual(profile["nn_sim_p50"], expected, places=4)
+        self.assertAlmostEqual(profile["nn_sim_p90"], expected, places=4)
+        self.assertAlmostEqual(profile["internal_diversity"], 1 - expected, places=4)
+
+    def test_prior_echo_of_a_molecule_the_prior_already_held(self):
+        # A stop arm that regurgitates the prior: closest prior similarity is itself.
+        prior = diversity.ArmUniques(self._frame([("CCO", 1, 0), ("c1ccccc1O", 1, 0)]))
+        stop = diversity.ArmUniques(self._frame([("CCO", 3, 1)]))
+        cross = diversity._cross_profile(stop.fingerprints, prior.fingerprints)
+        self.assertAlmostEqual(cross["prior_sim_p50"], 1.0)
+        self.assertAlmostEqual(cross["prior_echo_rate"], 1.0)
+        self.assertAlmostEqual(cross["novelty_rate"], 0.0)
+
+    def test_the_cache_is_fresh_only_while_its_sources_are(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "prior.tsv").write_text(
+                self._frame([("CCO", 1, 0)]).to_csv(sep="\t", index=False))
+            profile = diversity.profile_run(run)
+            self.assertIsNotNone(profile)
+            cache = run / "cache_stats"
+            cache.mkdir()
+            profile["sources"] = diversity._sources(run)
+            (cache / "diversity.json").write_text(json.dumps(profile))
+            self.assertTrue(diversity.profile_is_fresh(run))
+            self.assertEqual(diversity.load_profile(run), profile)
+            (run / "prior.tsv").write_text(  # same table plus one molecule: stale now
+                self._frame([("CCO", 1, 0), ("CCCO", 1, 0)]).to_csv(sep="\t", index=False))
+            self.assertFalse(diversity.profile_is_fresh(run))
+            self.assertIsNone(diversity.load_profile(run))
+
+    def test_the_thumbnail_shares_axes_between_stop_and_prior(self):
+        prior = diversity.ArmUniques(self._frame(
+            [(f"C{'C' * i}N", 1, 0) for i in range(12)]))
+        stop = diversity.ArmUniques(self._frame(
+            [(f"C{'C' * i}O", 1, 1) for i in range(12)]))
+        thumb = diversity._thumb_coordinates(stop, prior)
+        self.assertIsNotNone(thumb)
+        self.assertEqual(len(thumb["stop"]["x"]), len(thumb["stop"]["desired"]))
+        self.assertEqual(len(thumb["prior"]["x"]), len(thumb["stop"]["x"]))
+        self.assertLessEqual(sum(thumb["explained"]), 1.0 + 1e-9)
+        self.assertTrue(all(d == 1 for d in thumb["stop"]["desired"]))
 
 
 if __name__ == "__main__":

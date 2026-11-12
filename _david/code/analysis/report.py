@@ -116,12 +116,8 @@ TABLES = (
 
 
 def _artifacts(run_dir: Path, written: list[Path]) -> str:
-    """Link every file this run produced, each labelled by what is in it.
-
-    Built from the figures that were actually written rather than from the list this
-    module hopes for, so a figure that failed is absent from the index instead of being
-    linked as a file that is not there.
-    """
+    """Link every file this run produced. Built from the figures actually written, so one that
+    failed is absent rather than linked as a file that is not there."""
     lines = [f"- [{figures_module.caption(path)}](figures/{path.name})" for path in written]
     lines += [
         f"- [{name}]({name}) -- {what}" for name, what in TABLES if (run_dir / name).is_file()
@@ -130,11 +126,8 @@ def _artifacts(run_dir: Path, written: list[Path]) -> str:
 
 
 def top_molecules(arm: pd.DataFrame, objectives: list[str]) -> pd.DataFrame:
-    """The best unique molecules of one arm by its first objective, for the report table.
-
-    Drawing them is figure 05's job; this only selects, so the table and the gallery can
-    never disagree about which molecules are "best".
-    """
+    """The best unique molecules of one arm. Selects only -- figure 05 draws -- so the table
+    and the gallery cannot disagree."""
     return (
         _valid(arm)
         .drop_duplicates(subset=_dedup_key(_valid(arm)))
@@ -180,13 +173,9 @@ def _describe(arm: pd.DataFrame, objectives: list[str], scale: float = 1.0) -> d
 
 
 def _threshold_source(objective: str, config: dict, from_reference: list[str]) -> str:
-    """Where this objective's threshold came from, named in the table itself.
-
-    Order matters and mirrors ``calibrate_thresholds``: fixed thresholds short-circuit
-    before anything else is consulted, so testing ``from_reference`` first would label a
-    hand-set threshold "reference" and the report would state a provenance the run never
-    used.
-    """
+    """Where this objective's threshold came from. Order mirrors ``calibrate_thresholds``:
+    fixed short-circuits, so testing ``from_reference`` first would label a hand-set threshold
+    "reference"."""
     if config.get("fixed_thresholds"):
         return "fixed"
     if objective in from_reference:

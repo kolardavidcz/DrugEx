@@ -1,24 +1,9 @@
-"""The shape/colour scorer: one pose search, three numbers, one objective.
-
-Native computes ShapeTanimoto and ColorTanimoto in the same pose loop and throws one
-away, so reading all three through native costs three pose searches -- the dominant cost
-of a run. This subclass owns the loop and records both components of the winning pose for
-free. It also separates ``AlignMol``'s ``opt_param`` (what the pose optimiser maximises)
-from ``score_type`` (what is reported), which native ties together; the reported score
-stays shape + colour on [0, 2] whatever the alignment objective, so runs stay comparable.
-
-The components are diagnostics, never objectives: ``getKey`` returns one key, so a
-two-objective run cannot silently become a four-objective one. A test pins the count.
-
-Only ``_score_sequential`` is overridden -- conformer generation, de-duplication, name
-parsing and reference grouping stay native.
-"""
-
 from __future__ import annotations
 
 import logging
 import multiprocessing
 import os
+from dataclasses import dataclass
 
 import numpy as np
 from rdkit import Chem
@@ -43,8 +28,7 @@ from _david.code.scorers.conformers import pool_is_healthy
 
 logger = logging.getLogger(__name__)
 
-#: Set in each pool worker by :func:`_worker_init`.
-_WORKER: dict = {}
+NO_OVERLAY = (0.0, 0.0)
 
 
 def pair_components(
@@ -55,31 +39,22 @@ def pair_components(
     use_colors: bool = True,
     color_ff: str = "fdef",
 ) -> tuple[float, float]:
-    """Best overlay of ``query`` on ``reference``: the winning pose's (shape, colour).
-
-    The search is native's, reproduced: canonicalise both molecules into their inertial
-    frame, then start the probe from each of four proper axis-sign assignments, over every
-    (query conformer x reference conformer) pair, and keep the pose with the best
-    ``shape + colour``. Winner is chosen on the combo regardless of ``opt_param``, so the
-    alignment objective moves the pose without moving the definition of "best".
-    """
+    """The winner is chosen on shape + colour whatever ``opt_param`` is."""
     if query is None or reference is None:
-        return 0.0, 0.0
+        return NO_OVERLAY
     if query.GetNumConformers() == 0 or reference.GetNumConformers() == 0:
-        return 0.0, 0.0
+        return NO_OVERLAY
 
     if use_colors and color_ff != "default":
-        if not query.HasProp("PUBCHEM_PHARMACOPHORE_FEATURES"):
-            _annotate_color_features(query, color_ff=color_ff)
-        if not reference.HasProp("PUBCHEM_PHARMACOPHORE_FEATURES"):
-            _annotate_color_features(reference, color_ff=color_ff)
+        for mol in (query, reference):
+            if not mol.HasProp("PUBCHEM_PHARMACOPHORE_FEATURES"):
+                _annotate_color_features(mol, color_ff=color_ff)
 
     reference_canonical = Chem.Mol(reference)
     for conformer in reference.GetConformers():
         _canonicalize_conformer_inplace(reference_canonical, conformer.GetId())
 
-    best = (0.0, 0.0)
-    best_total = 0.0
+    best, best_total = NO_OVERLAY, 0.0
     for query_conformer in query.GetConformers():
         probe_canonical = Chem.Mol(query)
         _canonicalize_conformer_inplace(probe_canonical, query_conformer.GetId())
@@ -97,83 +72,63 @@ def pair_components(
                     )
                 except (RuntimeError, ValueError):
                     continue
-                # Native guards the shape of the return before unpacking; a malformed
-                # result must cost this one pose, not the epoch.
                 if not isinstance(result, (list, tuple)) or len(result) < 2:
                     continue
                 shape, colour = float(result[0]), float(result[1])
-                total = shape + colour
-                if total > best_total:
-                    best_total = total
-                    best = (shape, colour)
+                if shape + colour > best_total:
+                    best, best_total = (shape, colour), shape + colour
     return best
 
 
-def _worker_init(references, groups, opt_param, use_colors, color_ff) -> None:
-    _WORKER.update(
-        references=references,
-        groups=groups,
-        opt_param=opt_param,
-        use_colors=use_colors,
-        color_ff=color_ff,
-    )
+@dataclass(frozen=True)
+class PoseSearch:
+    references: list[Chem.Mol]
+    groups: list[list[int]]
+    opt_param: float
+    use_colors: bool = True
+    color_ff: str = "fdef"
 
+    def best(self, conformers: list[Chem.Mol]) -> list[tuple[float, float]]:
+        try:
+            with molecule_time_limit(mol_timeout()):
+                return [self._best_of_group(conformers, indices) for indices in self.groups]
+        except (ScoreTimeout, RuntimeError, ValueError, AttributeError, TypeError) as error:
+            logger.warning("scoring failed for one molecule (%s); scored 0.0", error)
+            return [NO_OVERLAY for _ in self.groups]
 
-def _best_for_molecule(conformers, references, groups, opt_param, use_colors, color_ff):
-    """Per reference group, the best (shape, colour) over every conformer-reference pair.
-
-    Guarded exactly as native's worker is: a per-molecule time limit (so
-    ``DRUGEX_SCORE_MOL_TIMEOUT`` keeps meaning something, since the manifest records it as
-    an active knob) and a catch-all. Without both, one pathological molecule aborts the
-    whole ``pool.map``, forces a sequential rescore of the entire batch, and takes the run
-    with it. A molecule that cannot be scored is worst, not fatal.
-    """
-    try:
-        with molecule_time_limit(mol_timeout()):
-            return _best_for_molecule_unguarded(
-                conformers, references, groups, opt_param, use_colors, color_ff
-            )
-    except (ScoreTimeout, RuntimeError, ValueError, AttributeError, TypeError) as error:
-        logger.warning("scoring failed for one molecule (%s); scored 0.0", error)
-        return [(0.0, 0.0) for _ in groups]
-
-
-def _best_for_molecule_unguarded(conformers, references, groups, opt_param, use_colors, color_ff):
-    out = []
-    for indices in groups:
-        best = (0.0, 0.0)
+    def _best_of_group(self, conformers, indices) -> tuple[float, float]:
+        best = NO_OVERLAY
         for conformer in conformers:
             for index in indices:
-                shape, colour = pair_components(
+                found = pair_components(
                     conformer,
-                    references[index],
-                    opt_param=opt_param,
-                    use_colors=use_colors,
-                    color_ff=color_ff,
+                    self.references[index],
+                    opt_param=self.opt_param,
+                    use_colors=self.use_colors,
+                    color_ff=self.color_ff,
                 )
-                if shape + colour > best[0] + best[1]:
-                    best = (shape, colour)
-        out.append(best)
-    return out
+                if sum(found) > sum(best):
+                    best = found
+        return best
 
 
-def _worker_score(args):
-    mol_id, conformers = args
-    return mol_id, _best_for_molecule(
-        conformers,
-        _WORKER["references"],
-        _WORKER["groups"],
-        _WORKER["opt_param"],
-        _WORKER["use_colors"],
-        _WORKER["color_ff"],
-    )
+_SEARCH: PoseSearch | None = None
+
+
+def _worker_init(search: PoseSearch) -> None:
+    global _SEARCH
+    _SEARCH = search
+
+
+def _worker_score(task: tuple[int, list[Chem.Mol]]):
+    mol_id, conformers = task
+    return mol_id, _SEARCH.best(conformers)
 
 
 class ComboROCSScorer(RDKitROCSScorer):
     """``RDKitROCSScorer`` with a configurable alignment objective and recorded components.
 
-    ``alignment_shape_weight`` is ``AlignMol``'s ``opt_param``. After each ``getScores``,
-    ``components`` maps SMILES to the winning pose's ``(shape, colour)``.
+    The components stay diagnostics: ``getKey`` returns one key.
     """
 
     def __init__(self, *args, alignment_shape_weight: float = 0.5, **kwargs):
@@ -185,125 +140,67 @@ class ComboROCSScorer(RDKitROCSScorer):
         self.alignment_shape_weight = float(alignment_shape_weight)
         self.components: dict[str, tuple[float, float]] = {}
         self._by_mol_id: dict[int, tuple[float, float]] = {}
-        # The parent dispatches to its own multiprocessing path unless n_jobs == 1, and
-        # that path calls native's worker, not this class -- the components would come
-        # back empty and the alignment weight would be silently ignored. Keep the real
-        # worker count here and pin the parent to its sequential branch, which is the one
-        # that calls `_score_sequential`; the pooling happens inside that override.
+        # The parent's own pool would call native's worker, not this class.
         self.workers = self.n_jobs
         self.n_jobs = 1
 
     def _score_sequential(self, unique_count, conformers_by_mol, num_groups) -> np.ndarray:
-        """Native's signature, our loop: records components and parallelises itself."""
         self._by_mol_id = {}
+        search = PoseSearch(
+            self.reference_mols,
+            self.group_to_indices,
+            self.alignment_shape_weight,
+            self.use_colors,
+            self.color_ff,
+        )
         tasks = [(mol_id, conformers_by_mol.get(mol_id, [])) for mol_id in range(unique_count)]
         workers = capped_n_jobs(self.workers if self.workers > 0 else (os.cpu_count() or 1))
 
-        results: list[tuple[int, list[tuple[float, float]]]]
-        if (
+        results = None
+        if not (
             workers <= 1
             or unique_count < 8
             or multiprocessing.current_process().daemon
             or not pool_is_healthy()
         ):
-            results = [
-                (
-                    mol_id,
-                    _best_for_molecule(
-                        conformers,
-                        self.reference_mols,
-                        self.group_to_indices,
-                        self.alignment_shape_weight,
-                        self.use_colors,
-                        self.color_ff,
-                    ),
-                )
-                for mol_id, conformers in tasks
-            ]
-        else:
             try:
-                with pool_context().Pool(
-                    workers,
-                    initializer=_worker_init,
-                    initargs=(
-                        self.reference_mols,
-                        self.group_to_indices,
-                        self.alignment_shape_weight,
-                        self.use_colors,
-                        self.color_ff,
-                    ),
-                ) as pool:
+                with pool_context().Pool(workers, _worker_init, (search,)) as pool:
                     results = pool.map(_worker_score, tasks)
             except Exception as error:
-                # Native falls back to sequential on pool failure rather than scoring zero.
                 logger.warning("parallel ROCS failed (%s); rescoring sequentially", error)
-                results = [
-                    (
-                        mol_id,
-                        _best_for_molecule(
-                            conformers,
-                            self.reference_mols,
-                            self.group_to_indices,
-                            self.alignment_shape_weight,
-                            self.use_colors,
-                            self.color_ff,
-                        ),
-                    )
-                    for mol_id, conformers in tasks
-                ]
+        if results is None:
+            results = [(mol_id, search.best(conformers)) for mol_id, conformers in tasks]
 
         scores = np.zeros((unique_count, num_groups))
         for mol_id, groups in results:
             for group_index, (shape, colour) in enumerate(groups):
-                scores[mol_id, group_index] = self._reported(shape, colour)
-            # The components belong to the first group; this experiment has exactly one.
-            self._by_mol_id[mol_id] = groups[0] if groups else (0.0, 0.0)
+                scores[mol_id, group_index] = shape + colour
+            self._by_mol_id[mol_id] = groups[0] if groups else NO_OVERLAY
         return scores
 
-    def _reported(self, shape: float, colour: float) -> float:
-        """The objective column: always ``shape + colour``.
-
-        The winning pose is chosen on ``shape + colour`` (``pair_components``), so
-        reporting a single component here would return that component *of the
-        combo-optimal pose*, not the best achievable value of it -- a quietly different
-        number. Shape and colour are published as diagnostics instead, where they belong
-        to the pose that was actually selected.
-        """
-        return shape + colour
-
     def getScores(self, mols, frags=None) -> np.ndarray:
-        # Cleared here, not only inside _score_sequential: the parent returns early when
-        # the conformer file is missing or unreadable, and that path never reaches the
-        # override. The previous batch's components would then be mapped onto this
-        # batch's SMILES -- a transient filesystem fault turning into plausible
-        # diagnostics for molecules that were never scored.
+        # Also here: the parent returns early on a missing conformer file, and stale
+        # components would then map onto this batch.
         self._by_mol_id = {}
         self.components = {}
         scores = super().getScores(mols, frags)
-        # Map components back onto SMILES using native's own de-duplication, so the keys
-        # match what the caller passed in. String work only; no rescoring.
         unique, _ = self._deduplicate_smiles(self._convert_to_smiles(mols))
         self.components = {
-            smiles: self._by_mol_id.get(index, (0.0, 0.0)) for index, smiles in enumerate(unique)
+            smiles: self._by_mol_id.get(index, NO_OVERLAY) for index, smiles in enumerate(unique)
         }
         return scores
 
     def component_frame(self, smiles: list[str]) -> dict[str, list[float]]:
-        """``{"ShapeTanimoto": [...], "ColorTanimoto": [...]}`` aligned with ``smiles``.
-
-        Components are keyed by the canonical SMILES native produced while scoring, so a
-        caller holding the generator's raw output has to be canonicalised to match --
-        otherwise a non-canonical string silently misses and reads as 0.0, which looks
-        like a terrible score rather than a lookup failure.
-        """
-        shape, colour = [], []
+        """Both components aligned with ``smiles``; an unknown one reads as 0.0."""
+        found = []
         for value in smiles:
-            found = self.components.get(value)
-            if found is None and isinstance(value, str):
+            pair = self.components.get(value)
+            if pair is None and isinstance(value, str):
                 mol = Chem.MolFromSmiles(value)
                 if mol is not None:
-                    found = self.components.get(Chem.MolToSmiles(mol))
-            s, c = found if found is not None else (0.0, 0.0)
-            shape.append(s)
-            colour.append(c)
-        return {"ShapeTanimoto": shape, "ColorTanimoto": colour}
+                    pair = self.components.get(Chem.MolToSmiles(mol))
+            found.append(pair or NO_OVERLAY)
+        return {
+            "ShapeTanimoto": [shape for shape, _ in found],
+            "ColorTanimoto": [colour for _, colour in found],
+        }
