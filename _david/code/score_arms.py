@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 
 from drugex.data.corpus.vocabulary import VocSmiles
@@ -81,10 +81,9 @@ def rebuild(run_dir: Path, force: bool = False, only: tuple[str, ...] = (),
     recorded = json.loads((run_dir / "config.json").read_text())
     cfg = config_from_run(run_dir)
     if n_jobs is not None:
-        # A shared node splits its cores between concurrent rebuilds; the run's own
-        # config would have every rebuild believe it owns the whole node. The override
-        # lives in memory only: the recorded config stays what the run trained with.
-        cfg.n_jobs = n_jobs
+        # In memory only: a shared node splits its cores between concurrent rebuilds, but
+        # the recorded config stays what the run trained with. Config is frozen.
+        cfg = replace(cfg, n_jobs=n_jobs)
     reference = run_dir / "reference.sdf"
     if not reference.is_file():
         raise SystemExit(

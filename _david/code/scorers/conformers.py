@@ -263,7 +263,7 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
         }
 
     def _embed(self, smiles_list, out_dir) -> Path:
-        """Embed the batch across molecules instead of one molecule at a time."""
+        """Embed across molecules, not one at a time."""
         workers = _workers(self.cfg)
         wanted = [smiles for smiles in smiles_list if smiles]
         if (

@@ -19,7 +19,6 @@ def _save(state, path: Path) -> None:
 
 
 def _population(metrics: dict) -> dict[str, float]:
-    """The ratios a checkpoint was taken on, so a collapsed epoch's is visible."""
     return {
         "valid_ratio": round(float(metrics.get("valid_ratio", 0.0)), 4),
         "unique_ratio": round(float(metrics.get("unique_ratio", 0.0)), 4),
@@ -72,7 +71,6 @@ class DualCheckpointExplorer(SequenceExplorer):
         return float(metrics["desired_ratio"])
 
     def _evaluate(self) -> tuple:
-        """A held-out arm and its metrics: measured, never trained on."""
         smiles = self.agent.sample(self.n_eval)
         scores = self.agent.evaluate(
             smiles, evaluator=self.env, no_multifrag_smiles=self.no_multifrag_smiles
@@ -100,7 +98,7 @@ class DualCheckpointExplorer(SequenceExplorer):
         criteria=None,
         min_epochs=100,
     ):
-        """Train, tracking both criteria. ``criteria`` and ``reload_interval`` are ignored."""
+        """``criteria`` and ``reload_interval`` are ignored."""
         self.monitor = monitor if monitor else NullMonitor()
 
         # -1.0: desired_ratio is legitimately 0.0 early, and each path must be written once.
@@ -132,7 +130,7 @@ class DualCheckpointExplorer(SequenceExplorer):
 
             self._record_training_samples(epoch)
 
-            # The base class logs `best_epoch` from these: the criterion the run stops on.
+            # The base class logs `best_epoch` from these.
             self.best_value = best["avg_gmean"]
             self.last_save = last["avg_gmean"]
             self.logPerformanceAndCompounds(epoch, metrics, scores)
@@ -175,7 +173,7 @@ class DualCheckpointExplorer(SequenceExplorer):
                 break
 
         if not frozen:
-            # The epoch cap arrived first, so the final policy plays the freeze epoch's part.
+            # The epoch cap arrived first, so the final policy plays that part.
             frozen_epoch = epoch
             at_stop = self._save_at_stop(metrics, population)
             logger.info(

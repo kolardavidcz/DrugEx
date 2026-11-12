@@ -179,8 +179,7 @@ class ComboROCSScorer(RDKitROCSScorer):
         return scores
 
     def getScores(self, mols, frags=None) -> np.ndarray:
-        # Also here: the parent returns early on a missing conformer file, and stale
-        # components would then map onto this batch.
+        # Also here: the parent returns early on a missing conformer file.
         self._by_mol_id = {}
         self.components = {}
         scores = super().getScores(mols, frags)
@@ -191,7 +190,6 @@ class ComboROCSScorer(RDKitROCSScorer):
         return scores
 
     def component_frame(self, smiles: list[str]) -> dict[str, list[float]]:
-        """Both components aligned with ``smiles``; an unknown one reads as 0.0."""
         found = []
         for value in smiles:
             pair = self.components.get(value)

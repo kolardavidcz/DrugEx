@@ -1,9 +1,3 @@
-"""The PBS worker node, entered by ``pbs_launcher.sh``: stdlib only, nothing from ``_david``.
-
-Results are copied back on success, on a traceback and on SIGTERM, since a killed run still
-holds every epoch it finished.
-"""
-
 from __future__ import annotations
 
 import json
@@ -16,32 +10,29 @@ import traceback
 from contextlib import suppress
 from pathlib import Path
 
-ENTRY_POINT = Path("_david") / "code" / "run.py"  # proof a release is not half-extracted
+ENTRY_POINT = Path("_david") / "code" / "run.py"
 
 SPEC_KEYS = ("name", "args", "source", "revision")
 REQUIRED_ENV = ("PBS_JOBID", "SCRATCHDIR", "STORAGE_DIR", "RUN_SPEC")
 
-# One BLAS/OMP thread per process: the scoring pools already use every allocated core.
 THREAD_ENV = {
     "MPLBACKEND": "Agg",
     "OPENBLAS_NUM_THREADS": "1",
     "OMP_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
     "DRUGEX_MP_CONTEXT": "forkserver",
-    # Unset, the pose kernel's per-molecule guard never fires and one alignment holds an epoch.
     "DRUGEX_SCORE_MOL_TIMEOUT": "120",
 }
 
-# PBS points TMPDIR at a root filesystem whose ~1 GB quota one conformer batch exceeds.
 TEMP_ENV_KEYS = ("TMPDIR", "TMP", "TEMP")
 
 
 class JobError(RuntimeError):
-    """Reported as one line, not a traceback."""
+    pass
 
 
 class _SignalExit(SystemExit):
-    """Unwind through the copy-back path, then exit 128+signal."""
+    pass
 
 
 def read_spec(path: Path) -> dict:
@@ -60,7 +51,6 @@ def read_spec(path: Path) -> dict:
 
 
 def staged_job(env: dict[str, str], release_arg: Path | None) -> tuple[dict, Path]:
-    """Validate the PBS contract; returns the spec and the release it names."""
     missing = [name for name in REQUIRED_ENV if not env.get(name)]
     if missing:
         raise JobError(
@@ -85,7 +75,6 @@ def venv_python(storage: Path) -> Path:
 
 
 def allocated_cpus(env: dict[str, str]) -> int:
-    """Cores PBS gave this job. The nodefile wins: ``NCPUS`` has reported 1 for 16."""
     nodefile = Path(env.get("PBS_NODEFILE", ""))
     if nodefile.is_file():
         lines = [line for line in nodefile.read_text().splitlines() if line.strip()]
@@ -100,7 +89,6 @@ def job_environment(
     env: dict[str, str], release_copy: Path, temp_root: Path, revision: str | None = None
 ) -> dict[str, str]:
     merged = dict(env) | THREAD_ENV
-    # A release has no .git, so without this every cluster manifest records `revision: null`.
     if revision:
         merged["DRUGEX_SOURCE_REVISION"] = revision
     for key in TEMP_ENV_KEYS:
@@ -111,7 +99,6 @@ def job_environment(
 
 
 def run_command(python: Path, output_root: Path, cpus: int, spec: dict) -> list[str]:
-    """Job-owned settings come first, so a delta can override them."""
     return [
         str(python),
         "-u",
@@ -138,12 +125,10 @@ def free_destination(root: Path, name: str) -> Path:
 def copy_results(
     output_root: Path, storage_output: Path, submission: Path | None = None
 ) -> list[Path]:
-    """Scratch to storage, never merging into an existing directory."""
     if not output_root.is_dir():
         return []
     directories = sorted(path for path in output_root.iterdir() if path.is_dir())
     if submission and submission.is_file():
-        # Inside the run directory: only directories are copied back.
         for run_dir in directories:
             shutil.copy2(submission, run_dir / "submission.json")
     storage_output.mkdir(parents=True, exist_ok=True)
@@ -215,7 +200,6 @@ def main(argv: list[str] | None = None) -> int:
 
     install_signal_handlers()
     status = 1
-    # Bound before anything that can raise, or the `finally` below skips the copy-back.
     submission = None
     try:
         output_root.mkdir(parents=True, exist_ok=True)
@@ -230,7 +214,6 @@ def main(argv: list[str] | None = None) -> int:
             cwd=release_copy,
             env=job_environment(env, release_copy, temp_root, spec.get("revision")),
         )
-        # A child killed by a signal reports -N; shells and PBS report 128+N.
         returncode = process.returncode
         status = 128 - returncode if returncode < 0 else returncode
     except _SignalExit as error:
@@ -240,7 +223,6 @@ def main(argv: list[str] | None = None) -> int:
         traceback.print_exc()
         status = 1
     finally:
-        # A second signal during the transfer must not interrupt the only copy of the data.
         for signum in (signal.SIGTERM, signal.SIGINT):
             signal.signal(signum, signal.SIG_IGN)
         try:

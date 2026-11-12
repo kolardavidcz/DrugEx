@@ -23,20 +23,12 @@ from pathlib import Path
 
 from _david.code.config import PROJECT_ROOT, Config
 
-# Never switch ssh aliases: the Kerberos ticket is bound to this one.
 HOST = "meta"
 USER = "kolardavidcz"
 PACKAGE = "_david/code"
-
-STORAGE = f"/storage/brno2/brno2/{USER}/DrugEx"  # holds .venv (~5.7 GB); never deleted
-
-# Settings the job owns: a delta of `n_jobs=-1` would undo the PBS allocation it computed.
+STORAGE = f"/storage/brno2/brno2/{USER}/DrugEx"
 RESERVED = ("output_root", "n_jobs")
-
-# Keeps the job off the slowest nodes; ROCS is CPU-bound, so a slow node costs hours.
 CPU_FLOOR = "8.0"
-
-# A file missing from HEAD makes the job fail on the cluster, minutes of queue time later.
 REQUIRED = (
     "__init__.py",
     "config.py",
@@ -64,10 +56,10 @@ class Job:
     name: str
     args: tuple[str, ...] = ()
     ncpus: int = 16
-    mem: int = 64  # GB; a flat 32 OOM-killed 14 runs of the first campaign (campaign.MEMORY_GB)
-    scratch: int = 15  # GB
+    mem_gb: int = 64
+    scratch_gb: int = 15
     walltime: str = "24:00:00"
-    queue: str | None = None  # None routes by walltime, which is the only way that works
+    queue: str | None = None
 
     @property
     def resources(self) -> str:
