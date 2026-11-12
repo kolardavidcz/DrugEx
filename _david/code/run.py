@@ -142,9 +142,30 @@ def _canonical_and_sa(smiles: list[str], valid: pd.Series) -> tuple[list[str], l
     return canonical, raw_sa
 
 
+#: Where an arm's molecules came from. ``prior`` is the unmodified prior draw, ``run`` an
+#: arm written by the training job itself, ``rebuilt`` an arm re-sampled from a checkpoint
+#: after a kill. A rebuilt arm is the same policy on a different draw, so a reader must be
+#: able to tell the two apart without trusting prose.
+ARM_ORIGINS = ("prior", "run", "rebuilt")
+
+
 def write_arm(
-    path: Path, scores: pd.DataFrame, smiles: list[str], diagnostics: dict | None = None
+    path: Path,
+    scores: pd.DataFrame,
+    smiles: list[str],
+    diagnostics: dict | None = None,
+    *,
+    origin: str = "run",
+    seed: int | None = None,
 ) -> dict:
+    """Write one arm and return the ratios recorded for it in the manifest.
+
+    Besides the ratios, an arm records ``origin`` (see ``ARM_ORIGINS``), the ``seed`` its
+    draw used, and ``sampled`` -- whether the molecules were drawn from a checkpoint now.
+    Those three are what distinguish an in-run arm from a rebuild of the same policy.
+    """
+    if origin not in ARM_ORIGINS:
+        raise ValueError(f"origin is one of {', '.join(ARM_ORIGINS)}, not {origin!r}")
     scores = scores.copy()
     scores.insert(0, "SMILES", smiles)
     for column, values in (diagnostics or {}).items():
@@ -164,8 +185,17 @@ def write_arm(
         "valid_ratio": len(valid) / len(scores),
         "unique_ratio": len(unique) / len(scores),
         "desired_ratio": float(unique["Desired"].sum()) / len(scores),
+        "origin": origin,
+        "seed": seed,
+        "sampled": origin != "prior",
     }
-    logger.info("%s: %s", path.name, {key: round(value, 4) for key, value in ratios.items()})
+    # Only the numeric part: a manifest entry now also carries strings and a bool.
+    numeric = {
+        key: round(value, 4) if isinstance(value, float) else value
+        for key, value in ratios.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    logger.info("%s: %s", path.name, numeric)
     return ratios
 
 
@@ -182,8 +212,38 @@ def arm_is_complete(path: Path, n: int) -> bool:
     )
 
 
+def recorded_arm_size(run_dir: Path, name: str) -> int | None:
+    """The ``n`` the run recorded for this arm, if the manifest carries one.
+
+    ``arm_is_complete`` compares a table against an expected size. Reading that size from
+    today's ``config.json`` would make every existing arm "incomplete" the day ``n_final``
+    changes, and a rebuild would then replace a finished arm with a different draw. A
+    recorded per-arm ``n`` pins the arm to the size it was written at.
+    """
+    try:
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    arm = (manifest.get("arms") or {}).get(name)
+    if not isinstance(arm, dict):
+        return None
+    size = arm.get("n")
+    return size if isinstance(size, int) and size > 0 else None
+
+
 def incomplete_arms(run_dir: Path, n: int) -> list[str]:
-    return [name for name in FINAL_ARMS if not arm_is_complete(run_dir / f"final_{name}.tsv", n)]
+    """Arms whose table is missing, truncated or the wrong size.
+
+    ``n`` is the fallback: an arm written before sizes were recorded has no entry to read,
+    so it is judged against the size the caller expects.
+    """
+    return [
+        name
+        for name in FINAL_ARMS
+        if not arm_is_complete(
+            run_dir / f"final_{name}.tsv", recorded_arm_size(run_dir, name) or n
+        )
+    ]
 
 
 def serial_run_refusal(cfg: Config) -> str | None:
@@ -311,6 +371,8 @@ def _pipeline(
             mark_desired(prior_scores, objectives, thresholds),
             prior_smiles,
             components(env, prior_smiles),
+            origin="prior",
+            seed=cfg.seed,
         )
     }
 
@@ -346,6 +408,8 @@ def _pipeline(
                 env.getScores(smiles),
                 smiles,
                 components(env, smiles),
+                origin="run",
+                seed=cfg.seed,
             )
         except Exception:
             logger.exception(

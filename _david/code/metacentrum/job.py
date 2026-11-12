@@ -19,11 +19,19 @@ REQUIRED_ENV = ("PBS_JOBID", "SCRATCHDIR", "STORAGE_DIR", "RUN_SPEC")
 #: this key existed still means what it meant.
 MODES = ("train", "rebuild")
 
-#: The heaviest measured cell reached ~40 GB with 16 scoring workers (~2.5 GB each) and was
-#: OOM-killed. The job derives workers from the *memory request* with this budget and a
-#: reserve, so a 32 GB allocation runs 12 workers rather than 16 and stays below its cgroup.
-MEM_GB_PER_WORKER = 2.5
+#: Memory a scoring worker keeps alive scales with the conformers it embeds per molecule.
+#: Fitted from the PBS peaks of finished jobs (``memreport``): 10 conformers needed
+#: 1.0 GB/worker, 20 needed 2.0, 30 needed 2.8. The margin covers molecule-size variation
+#: inside a bucket; the reserve is the parent process. A job with no recorded shape is
+#: budgeted as ``DEFAULT_MAX_CONFORMERS``.
+MEM_GB_PER_CONFORMER = 0.1
+MEMORY_SAFETY = 1.15
+MEM_GB_PER_WORKER_FLOOR = 1.0
 MEMORY_RESERVE_GB = 2.0
+#: ``Config.max_conformers`` default. Duplicated on purpose: importing ``Config`` would
+#: pull torch into every job body, including a rebuild that only scores molecules. The test
+#: suite asserts the two stay in step.
+DEFAULT_MAX_CONFORMERS = 20
 
 THREAD_ENV = {
     "MPLBACKEND": "Agg",
@@ -115,18 +123,60 @@ def job_environment(
     return merged
 
 
-def workers_for(spec: dict, cpus: int) -> int:
+def _delta(spec: dict, name: str) -> str | None:
+    """The value a spec overrides ``name`` with, if it does (last one wins, as in ``--set``)."""
+    value = None
+    for argument in spec.get("args") or []:
+        key, separator, raw = str(argument).partition("=")
+        if separator and key == name and raw:
+            value = raw
+    return value
+
+
+def spec_max_conformers(spec: dict) -> int:
+    """The conformer budget a train spec asks for, or the default it inherits."""
+    raw = _delta(spec, "max_conformers")
+    if raw is None:
+        return DEFAULT_MAX_CONFORMERS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_MAX_CONFORMERS
+
+
+def gb_per_worker(conformers: int) -> float:
+    """Memory to budget per scoring worker for this conformer count."""
+    return (
+        max(MEM_GB_PER_WORKER_FLOOR, MEM_GB_PER_CONFORMER * conformers) * MEMORY_SAFETY
+    )
+
+
+def workers_for(spec: dict, cpus: int, *, conformers: int | None = None) -> int:
     """Scoring workers that fit the memory request, never more than the allocated cores.
 
     PBS reserves ``mem`` for the whole job but does not grow it while the job runs. This
-    cap keeps the scoring pool below that reservation: 32 GB -> 12 workers, 64 GB -> all
-    allocated cores. Old specs without ``mem_gb`` keep the previous all-cores behaviour.
+    cap keeps the scoring pool below that reservation: the budget per worker follows the
+    conformer count of the run, so a 30-conformer job gets fewer workers than a 10-conformer
+    one out of the same 32 GB. ``conformers`` overrides the spec, because a rebuild job
+    replays a run whose shape is recorded in that run's own ``config.json``. Old specs
+    without ``mem_gb`` keep the previous all-cores behaviour.
     """
     memory = spec.get("mem_gb")
     if not isinstance(memory, (int, float)) or memory <= MEMORY_RESERVE_GB:
         return cpus
-    fit = int((float(memory) - MEMORY_RESERVE_GB) // MEM_GB_PER_WORKER)
+    budget = gb_per_worker(conformers or spec_max_conformers(spec))
+    fit = int((float(memory) - MEMORY_RESERVE_GB) // budget)
     return max(1, min(cpus, fit))
+
+
+def run_max_conformers(storage_output: Path, run: str) -> int | None:
+    """The conformer count a run recorded, for sizing the pool that rebuilds its arm."""
+    try:
+        config = json.loads((storage_output / run / "config.json").read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    value = config.get("max_conformers")
+    return value if isinstance(value, int) and value > 0 else None
 
 
 def commands_for(
@@ -135,22 +185,29 @@ def commands_for(
     """One argv per unit of work: a train job has one, a rebuild has one per run.
 
     A rebuild reads the run directory where it lives on storage and writes the missing arm
-    back into it, so a killed job leaves the run unchanged rather than half-copied.
+    back into it, so a killed job leaves the run unchanged rather than half-copied. Each
+    rebuilt run gets the worker count its own conformer budget allows, because one PBS job
+    carries runs of different shapes.
     """
-    workers = workers_for(spec, cpus)
     if spec.get("mode") == "rebuild":
-        return [
-            [
-                str(python),
-                "-u",
-                "-m",
-                "_david.code.reconstruct.score_arms",
-                str(storage_output / run),
-                "--n-jobs",
-                str(workers),
-            ]
-            for run in spec["runs"]
-        ]
+        commands = []
+        for run in spec["runs"]:
+            workers = workers_for(
+                spec, cpus, conformers=run_max_conformers(storage_output, run)
+            )
+            commands.append(
+                [
+                    str(python),
+                    "-u",
+                    "-m",
+                    "_david.code.reconstruct.score_arms",
+                    str(storage_output / run),
+                    "--n-jobs",
+                    str(workers),
+                ]
+            )
+        return commands
+    workers = workers_for(spec, cpus)
     return [
         [
             str(python),
@@ -166,6 +223,18 @@ def commands_for(
             *spec["args"],
         ]
     ]
+
+
+def workers_label(spec: dict, storage_output: Path, cpus: int) -> str:
+    """One number for a train job; a range for a rebuild, whose runs differ in shape."""
+    if spec.get("mode") != "rebuild":
+        return str(workers_for(spec, cpus))
+    counts = [
+        workers_for(spec, cpus, conformers=run_max_conformers(storage_output, run))
+        for run in spec["runs"]
+    ]
+    low, high = min(counts), max(counts)
+    return str(low) if low == high else f"{low}..{high} per run"
 
 
 def free_destination(root: Path, name: str) -> Path:
@@ -245,7 +314,9 @@ def _banner(
     print("================ DrugEx v2 job ================")
     for key, value in rows:
         print(f"{key:<9}: {value}")
-    print("===============================================")
+    # Flushed: stdout is buffered while logging writes to stderr, so without this the
+    # banner appears after the first setup lines in a PBS log.
+    print("===============================================", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -262,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     output_root, storage_output = scratch / "output", storage / "_david" / "output"
     release_copy, temp_root = scratch / "DrugEx", scratch / "tmp"
     cpus = allocated_cpus(env)
-    workers = workers_for(spec, cpus)
+    workers = workers_label(spec, storage_output, cpus)
     _banner(env, spec, cpus, workers, scratch, release, storage_output)
 
     install_signal_handlers()

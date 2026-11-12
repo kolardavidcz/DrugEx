@@ -140,6 +140,12 @@ hard gate at the ceiling — the report now says which of the two every threshol
   manifest, because "both arms scored the same molecules" is a claim that needs a number.
 - **Every scored training molecule.** The policy-gradient batch is 10x larger than the evaluation
   arm and was thrown away each epoch; it is now appended to `training_samples.tsv`.
+- **Where each arm came from.** A manifest arm entry now carries `origin` (`prior` | `run` |
+  `rebuilt`), the `seed` of its draw and `sampled`, alongside `n` and the ratios. A rebuilt arm is
+  the same policy on a different draw, so it is recognisable after the fact instead of only in a
+  log line — and `incomplete_arms` prefers that recorded `n` over today's `n_final`, so changing
+  the configured arm size cannot silently mark every finished arm "incomplete" and rebuild it onto
+  a different draw.
 
 ## 8. Deliberately absent
 
@@ -190,9 +196,15 @@ watching (`q_4h` probes, `q_1d` training, `q_2d` long runs).
 
 The default job is 16 cores, **32 GB**, 24 h, which routes to **`q_1d`**; 32 GB places
 roughly 3× faster than 64 GB on our account. PBS never grows a running job's allocation, so
-the job body derives scoring workers from the memory request instead: 32 GB runs 12 workers
-rather than 16, keeping the pool under the cgroup. The heaviest measured cell grew to ~40 GB
-near epoch 30; that run asks for 64 GB up front and waits for a node that can satisfy it.
+the job body derives the scoring-worker count from the memory request and the run's
+conformer budget: a worker is budgeted `0.1 GB per conformer × 1.15 + 2 GB reserve`, so
+32 GB runs 13 workers at the default 20 conformers and 8 at 30. That replaces a single
+constant fitted from one observation: `submit memreport` reads `resources_used.mem` of
+finished jobs and fits the coefficient from them, which is where the per-conformer shape
+came from (40 jobs measured: 1.0 GB per worker at 10 conformers, 2.0 at 20, 2.83 at 30;
+33 jobs had been killed at their cgroup by the old one-number cap). A rebuild sizes each
+run from its own `config.json`, since one job carries runs of different shapes. The
+per-run worker count is recorded in the spec, so a later rebudget cannot rewrite history.
 Nothing here changes the science: the job body calls the same `_david.code.run` entry point,
 with the same single-checkpoint training loop; the worker cap changes epoch time, not scores.
 

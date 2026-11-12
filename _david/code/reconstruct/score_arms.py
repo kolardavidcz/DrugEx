@@ -127,6 +127,8 @@ def rebuild(run_dir: Path, force: bool = False, only: tuple[str, ...] = (),
             env.getScores(smiles),
             smiles,
             components(env, smiles),
+            origin="rebuilt",
+            seed=cfg.seed,
         )
 
     if rebuilt:

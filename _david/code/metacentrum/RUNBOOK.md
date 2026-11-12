@@ -152,23 +152,43 @@ scoring and conformer generation are CPU-bound; the RNN itself is tiny, so this 
 scientifically relevant shape.
 
 **Why 32 GB and not 64:** a 32 GB request places on far more nodes and, on our account,
-has queued roughly **3× faster** than 64 GB. The trade is headroom: the heaviest measured
-cell grew to about **40 GB around epoch 30** at 16 workers. The job body therefore derives
-the scoring-worker count from the memory request:
+has queued roughly **3× faster** than 64 GB. The trade is headroom, and the job body buys
+it by deriving the scoring-worker count from the memory request **and the conformer budget
+of the run**, because that is what a worker holds:
 
-| `--mem` | scoring workers (16 cores requested) | what fits |
-| ---: | ---: | :--- |
-| 32 GB | 12 | default; keeps the pool below 32 GB |
-| 64 GB | 16 (all cores) | the heavy/minimised cells with ~40 GB peaks |
-| 128 GB | 16 at 32 cores | wide runs with many workers |
+| shape | measured peak per worker | budget in `job.py` | workers in 32 GB |
+| :--- | ---: | ---: | ---: |
+| 10 conformers | 1.01 GB | 1.15 GB | 26 (capped by cores) |
+| 20 conformers (default) | 2.00 GB | 2.30 GB | 13 |
+| 30 conformers | 2.83 GB | 3.45 GB | 8 |
 
-That cap changes epoch time, never a score. It is automatic — do not pass a worker flag.
+The budget is `0.1 GB per conformer × 1.15 safety + 2 GB reserve`, fitted from
+`memreport` over 40 finished jobs. The safety margin covers molecule-size variation inside a
+bucket; the reserve is the parent process. A spec with no recorded shape is budgeted as the
+config default (20 conformers). The cap changes epoch time, never a score, and it is
+automatic — do not pass a worker flag. For a rebuild, each run is sized from its **own**
+`config.json`, because one PBS job carries runs of different shapes.
+
 `Job` still refuses a pairing below ~2 GB per core (`16 cores` → at least `32 GB`), because
 raising cores without memory is an OOM kill after the queue wait.
 
+**Check the model against reality, do not trust it.** Every finished job's request and peak
+are in PBS, so after a batch:
+
+```bash
+$PY -m _david.code.metacentrum.submit memreport --last 40
+$PY -m _david.code.metacentrum.submit memreport --last 200 --json
+```
+
+It prints, per job, request vs peak GB, peak per worker, the budget that shape got and a
+verdict (`ok`, `tight`, `over its budget`, `OOM (killed at the request)`, `never started`),
+then a per-conformer table with the worst measured value against the budget. If a measured
+shape exceeds its budget it says which coefficient to raise. This is how `MEM_GB_PER_CONFORMER`
+was fitted: 33 jobs had been killed at their cgroup, 32 finished above 85 % of their request.
+
 **Occasional extra memory.** PBS reserves the memory you request for the whole run and does
 not grow it mid-job; there is no "start at 32 and wait for 64". If a run is known to grow
-past 32 GB (the minimised 20-conformer cell is the one we measured), ask for 64 up front:
+past its request (a 50-conformer cell, or a new reference bank), ask for 64 up front:
 
 ```bash
 $PY -m _david.code.metacentrum.submit submit --name heavy --mem 64
@@ -367,12 +387,15 @@ $PY -m _david.code.metacentrum.submit rebuild --runs 20261111_0444_w_e05q0 20261
 
 Stale means: `manifest.json` and `models/` exist, `final_desired_ratio_at_stop.tsv` does
 not. Each PBS job takes a contiguous slice of those runs and loops over them, so one run
-failing does not lose the rest. Resources are the usual ones, and the worker count is
-derived from `--mem` exactly as for training (`workers_for`).
+failing does not lose the rest. Resources are the usual ones, and each run is sized from its
+own `config.json`: `workers_for` reads that run's `max_conformers`, so a 30-conformer run in
+the slice gets fewer workers than a 10-conformer one out of the same `--mem`. The banner
+then prints a range, e.g. `workers: 8..16 per run`.
 
 **What it writes.** Only into the existing run directory on storage: the missing
-`final_*.tsv`, `manifest.json` (state becomes `complete`, `arms_rebuilt` names the arm), and
-the re-rendered `report.md` + figures. Nothing is copied to scratch first, so a kill leaves
+`final_*.tsv`, `manifest.json` (state becomes `complete`, `arms_rebuilt` names the arm, and
+the arm entry records `origin: rebuilt` with its `n`, `seed` and `sampled`), and the
+re-rendered `report.md` + figures. Nothing is copied to scratch first, so a kill leaves
 the run as it was. A run whose arm is already complete is skipped in seconds, which makes
 `--all` safe to repeat.
 

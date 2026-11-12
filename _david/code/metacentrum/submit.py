@@ -5,6 +5,7 @@
     submit --name <name>      stage, upload the spec, qsub  [-- name=value ...]
     rebuild [--all|--runs …]  complete the arms of runs a walltime kill left unfinished
     status                    the user's queue, from long-format qstat
+    memreport [--last N]      requested vs peak memory of finished jobs
     watch [-i 60]             live epochs of running jobs, read on the login node
     logs <name> [-f]          the PBS stdout of the job, not merely of its name
     cancel <name|id> ...      qdel, resolving names through qselect
@@ -27,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from _david.code.config import PROJECT_ROOT, Config
+from _david.code.metacentrum.job import workers_for
 
 HOST = "meta"
 USER = "kolardavidcz"
@@ -40,7 +42,8 @@ CPU_FLOOR = "8.0"
 MEM_GB_PER_CORE = 2
 
 #: Default allocation: fast to place (32 GB queues roughly 3x faster than 64 GB on our
-#: account). The job body caps scoring workers to fit it; a run measured above it asks 64.
+#: account). The job body caps scoring workers to fit it, honouring the conformer budget;
+#: a shape measured above it asks for 64 up front (see ``memreport``).
 DEFAULT_MEM_GB = 32
 
 #: The default and only lane used for training: 24 h routes to ``q_1d``. A training run
@@ -321,6 +324,12 @@ def stage_spec(job: Job, revision: str) -> str:
         "source": f"{STORAGE}/releases/{revision}",
         "revision": revision,
     }
+    if job.mode == "train":
+        # Recorded, not inferred later: memreport divides a job's peak by the pool it ran,
+        # and after a rebudget a recalculated count would no longer be the one it used.
+        spec["workers"] = workers_for(
+            {"mem_gb": job.mem_gb, "args": list(job.args)}, job.ncpus
+        )
     payload = json.dumps(spec, indent=2).encode()
     remote(f"mkdir -p {shlex.quote(directory)} && cat > {shlex.quote(path)}", stdin=payload)
     return path
@@ -607,8 +616,8 @@ def _resource_flags(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=Job.mem_gb,
         help=f"GB; default {Job.mem_gb}, which places ~3x faster than 64 GB. The job "
-        "derives its scoring workers from this number, so a smaller request only makes "
-        "epochs slower",
+        "derives its scoring workers from this number and the run's conformer budget, so "
+        "a smaller request only makes epochs slower",
     )
     parser.add_argument("--scratch", type=int, default=Job.scratch_gb, help="GB")
     parser.add_argument(
@@ -713,6 +722,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("sync")
     sub.add_parser("status")
 
+    memory = sub.add_parser(
+        "memreport",
+        help="requested vs peak memory of finished jobs, against the worker budget",
+    )
+    memory.add_argument(
+        "--last", type=int, default=20, help="how many finished jobs to read (default 20)"
+    )
+    memory.add_argument("--json", action="store_true", help="machine-readable output")
+
     run = sub.add_parser("submit", help="stage a release and queue one job")
     run.add_argument("--name", required=True, help="PBS job name and the run's tag")
     _resource_flags(run)
@@ -768,6 +786,10 @@ def main(argv: list[str] | None = None) -> int:
         sync()
     elif args.command == "status":
         print(queue_status() or "nothing of yours is queued")
+    elif args.command == "memreport":
+        from _david.code.metacentrum import memreport
+
+        print(memreport.report(args.last, args.json))
     elif args.command == "rebuild":
         return rebuild_runs(args)
     elif args.command == "submit":

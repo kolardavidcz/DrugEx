@@ -16,6 +16,7 @@ deltas, resource sizing, monitoring, failure triage and the checklist before say
 | [`campaign.py`](campaign.py) | The planned sweep: batches of full-factorial runs, planning by default. |
 | [`monitor.py`](monitor.py) | Read-only live epoch monitor, run on a login node (stdlib only). |
 | [`queues.py`](queues.py) | Queue depth for `q_4h`, `q_1d`, `q_2d`; `q_1d` is the training default. |
+| [`memreport.py`](memreport.py) | Requested vs peak memory of finished jobs, against the worker budget; `submit memreport`. |
 | [`pbs_launcher.sh`](pbs_launcher.sh) | PBS entry point: checks the environment and `exec`s the job body. No logic. |
 | [`job.py`](job.py) | The job body: release copy, scratch run directory, invocation, copy-back, signals. |
 | [`rebuild_arms.sh`](rebuild_arms.sh) | Rebuild only the stop arm of runs whose earlier artifacts are incomplete. |

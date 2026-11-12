@@ -30,12 +30,19 @@ from _david.code.analysis import atlas_v2, collapse, diversity
 from _david.code.config import PROJECT_ROOT, SCHEMES, Config
 from _david.code.metacentrum import campaign, monitor, queues, submit as submit_module
 from _david.code.metacentrum import job as job_module
+from _david.code.metacentrum import memreport
 from _david.code.metacentrum.submit import Job
 from _david.code.reconstruct import provenance
 from _david.code.scorers import conformers, objectives as scorers, rocs
 from _david.code.scorers import utils as scorer_utils
 from _david.code.training import StopCheckpointExplorer
-from _david.code.run import arm_is_complete, config_from_args, write_arm
+from _david.code.run import (
+    arm_is_complete,
+    config_from_args,
+    incomplete_arms,
+    recorded_arm_size,
+    write_arm,
+)
 
 
 def small(**changes) -> Config:
@@ -868,6 +875,47 @@ class ArmCompleteness(unittest.TestCase):
             table.to_csv(path, sep="\t", index=False)
             self.assertTrue(arm_is_complete(path, 2))
 
+    def test_an_arm_records_where_its_molecules_came_from(self):
+        frame = self._arm_frame(2).drop(columns="SMILES")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "arm.tsv"
+            rebuilt = write_arm(path, frame, ["CC", "CCC"], origin="rebuilt", seed=42)
+            self.assertEqual(rebuilt["origin"], "rebuilt")
+            self.assertEqual(rebuilt["seed"], 42)
+            self.assertTrue(rebuilt["sampled"], "a rebuild samples a checkpoint")
+            prior = write_arm(path, frame, ["CC", "CCC"], origin="prior", seed=42)
+            self.assertEqual(prior["origin"], "prior")
+            self.assertFalse(prior["sampled"], "the prior arm is not a checkpoint draw")
+            with self.assertRaises(ValueError, msg="an origin names a known kind of arm"):
+                write_arm(path, frame, ["CC", "CCC"], origin="guessed")
+
+    def test_a_recorded_arm_size_survives_a_change_of_n_final(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            self._arm_frame(2).to_csv(
+                run_dir / "final_desired_ratio_at_stop.tsv", sep="\t", index=False
+            )
+            self.assertEqual(
+                incomplete_arms(run_dir, 5000),
+                ["desired_ratio_at_stop"],
+                "without a recorded size the arm is judged against today's n_final",
+            )
+            (run_dir / "manifest.json").write_text(
+                json.dumps({"arms": {"desired_ratio_at_stop": {"n": 2}}})
+            )
+            self.assertEqual(recorded_arm_size(run_dir, "desired_ratio_at_stop"), 2)
+            self.assertEqual(
+                incomplete_arms(run_dir, 5000),
+                [],
+                "a recorded n pins the arm to the size it was written at",
+            )
+            # The recorded size is not a way to bless a damaged table.
+            table = pd.read_csv(run_dir / "final_desired_ratio_at_stop.tsv", sep="\t")
+            table.iloc[:1].to_csv(
+                run_dir / "final_desired_ratio_at_stop.tsv", sep="\t", index=False
+            )
+            self.assertEqual(incomplete_arms(run_dir, 5000), ["desired_ratio_at_stop"])
+
     def test_the_original_run_cannot_finish_complete_with_a_missing_arm(self):
         cfg = small(n_final=2, fixed_thresholds=(0.5, 0.5))
         env = types.SimpleNamespace(
@@ -1049,26 +1097,34 @@ class MetaCentrumJobs(unittest.TestCase):
         )
         self.assertEqual(len(submit_module.slices(runs, 99)), len(runs), "one job per run")
 
-    def test_a_rebuild_argv_carries_the_run_and_the_memory_capped_workers(self):
-        spec = {
-            "name": "rebuild_1",
-            "mode": "rebuild",
-            "runs": ["run_a", "run_b"],
-            "args": [],
-            "mem_gb": 32,
-            "revision": "abc",
-        }
-        commands = job_module.commands_for(
-            Path("/storage/.venv/bin/python"),
-            Path("/scratch/output"),
-            Path("/storage/_david/output"),
-            16,
-            spec,
-        )
+    def test_a_rebuild_argv_carries_each_runs_own_conformer_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Path(directory)
+            for run, conformers in (("run_a", 30), ("run_b", 10)):
+                (storage / run).mkdir()
+                (storage / run / "config.json").write_text(
+                    json.dumps({"max_conformers": conformers})
+                )
+            spec = {
+                "name": "rebuild_1",
+                "mode": "rebuild",
+                "runs": ["run_a", "run_b"],
+                "args": [],
+                "mem_gb": 32,
+                "revision": "abc",
+            }
+            commands = job_module.commands_for(
+                Path("/storage/.venv/bin/python"),
+                Path("/scratch/output"),
+                storage,
+                16,
+                spec,
+            )
         self.assertEqual(len(commands), 2)
         self.assertIn("_david.code.reconstruct.score_arms", commands[0])
-        self.assertEqual(commands[1][-3], "/storage/_david/output/run_b")
-        self.assertEqual(commands[1][-1], "12", "32 GB caps the pool at 12 workers")
+        self.assertEqual(commands[1][-3], f"{storage}/run_b")
+        self.assertEqual(commands[0][-1], "8", "30 conformers: 8 workers in 32 GB")
+        self.assertEqual(commands[1][-1], "16", "10 conformers fit all 16 cores")
 
     def test_a_train_spec_without_mode_still_trains(self):
         spec = {"name": "probe", "args": ["--set", "epochs=3"], "revision": "abc"}
@@ -1142,12 +1198,51 @@ Job Id: 25256880.pbs-m1.metacentrum.cz
         self.assertEqual(probe["state"], "running")
 
     def test_a_32gb_request_caps_the_scoring_pool_below_the_oom_killer(self):
-        # The heaviest cell reached ~40 GB at 16 workers; 12 keeps it under 32 GB.
-        self.assertEqual(job_module.workers_for({"mem_gb": 32}, 16), 12)
+        # The measurement (memreport) says a worker needs 0.1 GB per conformer x 1.15;
+        # at the default 20 conformers that is 2.3 GB, so 32 GB runs 13 workers.
+        self.assertEqual(job_module.workers_for({"mem_gb": 32}, 16), 13)
         self.assertEqual(job_module.workers_for({"mem_gb": 64}, 16), 16)
         self.assertEqual(job_module.workers_for({"mem_gb": 32}, 8), 8)
         self.assertEqual(job_module.workers_for({}, 16), 16, "old specs stay all-cores")
         self.assertEqual(job_module.workers_for({"mem_gb": 4}, 16), 1)
+
+    def test_the_worker_budget_follows_the_conformer_count(self):
+        def workers(conformers: int, memory: int) -> int:
+            return job_module.workers_for(
+                {"mem_gb": memory}, 32, conformers=conformers
+            )
+
+        # 30 conformers measured 2.8 GB/worker, 10 measured 1.0: the same 32 GB must not
+        # run the same pool for both.
+        self.assertEqual(workers(10, 32), 26, "10 conformers: 1.15 GB per worker")
+        self.assertEqual(workers(20, 32), 13, "20 conformers: 2.3 GB per worker")
+        self.assertEqual(workers(30, 32), 8, "30 conformers: 3.45 GB per worker")
+        self.assertEqual(workers(30, 64), 17, "64 GB allows more, not all, cores")
+        self.assertAlmostEqual(job_module.gb_per_worker(30), 3.45)
+        self.assertAlmostEqual(job_module.gb_per_worker(10), 1.15)
+
+    def test_a_spec_delta_sets_the_conformer_budget_and_the_last_one_wins(self):
+        spec = {"mem_gb": 32, "args": ["--set", "max_conformers=30"]}
+        self.assertEqual(job_module.spec_max_conformers(spec), 30)
+        self.assertEqual(job_module.workers_for(spec, 16), 8)
+        spec["args"] += ["--set", "max_conformers=10"]
+        self.assertEqual(job_module.spec_max_conformers(spec), 10)
+        self.assertEqual(
+            job_module.spec_max_conformers({"args": []}),
+            job_module.DEFAULT_MAX_CONFORMERS,
+        )
+        self.assertEqual(
+            job_module.spec_max_conformers({"args": ["--set", "max_conformers=lots"]}),
+            job_module.DEFAULT_MAX_CONFORMERS,
+            "an unparseable delta must not crash a job body",
+        )
+
+    def test_the_duplicated_conformer_default_matches_the_config(self):
+        self.assertEqual(
+            Config().max_conformers,
+            job_module.DEFAULT_MAX_CONFORMERS,
+            "job.py must not import Config (torch), so the test guards the duplicate",
+        )
 
     def test_the_queue_script_watches_only_the_three_useful_lanes(self):
         self.assertEqual(queues.QUEUES, ("q_4h", "q_1d", "q_2d"))
@@ -1171,6 +1266,159 @@ Queue: q_2d
         self.assertEqual(depth["q_1d"].max_walltime, "24:00:00")
         self.assertAlmostEqual(depth["q_2d"].pressure, 4986 / 267)
         self.assertEqual(depth["q_1d"].total, 5454)
+
+
+class MemoryReport(unittest.TestCase):
+    """The worker budget in ``job.py`` is checked against what PBS measured, not trusted."""
+
+    #: Three finished jobs in the exact shape ``qstat -x -f`` prints: one killed at its
+    #: cgroup, one healthy 30-conformer job, one 20-conformer job that nearly filled 32 GB.
+    QSTAT = """Job Id: 25435602.pbs-m1.metacentrum.cz
+    Job_Name = p_m1e10r4c30q0
+    resources_used.mem = 33554432kb
+    resources_used.ncpus = 16
+    resources_used.walltime = 15:37:05
+    job_state = F
+    Resource_List.mem = 32gb
+    Resource_List.ncpus = 16
+    Resource_List.walltime = 24:00:00
+    Exit_status = 137
+Job Id: 25446304.pbs-m1.metacentrum.cz
+    Job_Name = p_m1e00r1c30q1
+    resources_used.mem = 38676060kb
+    resources_used.ncpus = 16
+    resources_used.walltime = 08:46:40
+    job_state = F
+    Resource_List.mem = 64gb
+    Resource_List.ncpus = 16
+    Resource_List.walltime = 48:00:00
+    Exit_status = 0
+Job Id: 25446500.pbs-m1.metacentrum.cz
+    Job_Name = p_m1e10r1c20q0
+    resources_used.mem = 31641600kb
+    resources_used.ncpus = 16
+    resources_used.walltime = 07:10:00
+    job_state = F
+    Resource_List.mem = 32gb
+    Resource_List.ncpus = 16
+    Resource_List.walltime = 24:00:00
+    Exit_status = 0
+"""
+
+    #: Old specs carry no ``workers``, so the pool is the allocated core count.
+    SPECS = """### p_m1e10r4c30q0/spec.json
+{"name": "p_m1e10r4c30q0", "args": ["--set", "max_conformers=30"], "mem_gb": 32, "source": "/rel", "revision": "abc"}
+### p_m1e00r1c30q1/spec.json
+{"name": "p_m1e00r1c30q1", "args": ["--set", "max_conformers=30"], "mem_gb": 64, "source": "/rel", "revision": "abc"}
+### p_m1e10r1c20q0/spec.json
+{"name": "p_m1e10r1c20q0", "args": [], "mem_gb": 32, "source": "/rel", "revision": "abc"}
+### gone/spec.json
+{not json
+"""
+
+    def _rows(self):
+        jobs = submit_module.parse_qstat_full(self.QSTAT)
+        return memreport.finished_from_jobs(jobs, memreport.specs_from_stream(self.SPECS))
+
+    def test_both_pbs_memory_spellings_are_gigabytes(self):
+        self.assertEqual(memreport.parse_mem("32gb"), 32.0)
+        self.assertEqual(memreport.parse_mem("33554432kb"), 32.0)
+        self.assertEqual(memreport.parse_mem("512mb"), 0.5)
+        self.assertEqual(memreport.parse_mem("1024b"), 1024 / 1024**3)
+        for empty in ("", "  ", "nonsense", "32 goats", None):
+            self.assertIsNone(memreport.parse_mem(empty), empty)
+
+    def test_an_exit_137_at_the_request_is_an_oom_kill_not_a_tight_fit(self):
+        oom, healthy, tight = self._rows()
+        self.assertEqual(oom.exit_status, 137)
+        self.assertEqual(oom.verdict, "OOM (killed at the request)")
+        self.assertAlmostEqual(oom.requested_gb, 32.0)
+        self.assertAlmostEqual(oom.peak_gb, 32.0)
+        self.assertAlmostEqual(oom.fill, 1.0)
+        self.assertEqual(oom.conformers, 30)
+        self.assertEqual(oom.workers, 16, "an old spec ran every allocated core")
+        self.assertAlmostEqual(oom.per_worker_gb, 2.0)
+        self.assertAlmostEqual(healthy.per_worker_gb, 38676060 / 1024**2 / 16, places=6)
+        self.assertEqual(healthy.verdict, "ok")
+        self.assertEqual(tight.verdict, "tight", "94% of the request has no headroom")
+
+    def test_a_job_without_a_staged_spec_reports_no_workers_rather_than_guessing(self):
+        jobs = submit_module.parse_qstat_full(self.QSTAT)
+        rows = memreport.finished_from_jobs(jobs, {})
+        self.assertEqual([row.workers for row in rows], [None, None, None])
+        self.assertEqual([row.conformers for row in rows], [None, None, None])
+        self.assertIsNone(rows[0].per_worker_gb)
+        self.assertIsNone(rows[0].budget_gb)
+
+    def test_a_rebuild_spec_measures_fill_but_not_the_budget(self):
+        jobs = submit_module.parse_qstat_full(self.QSTAT)
+        specs = {"p_m1e00r1c30q1": {"mode": "rebuild", "args": [], "mem_gb": 64}}
+        row = memreport.finished_from_jobs(jobs, specs)[1]
+        self.assertIsNone(row.workers, "a rebuild spans runs of different shapes")
+        self.assertIsNone(row.conformers)
+        self.assertIsNone(row.per_worker_gb)
+        self.assertIsNotNone(row.fill)
+
+    def test_the_summary_calibrates_the_budget_from_the_worst_measured_job(self):
+        stats = memreport.summary(self._rows())
+        self.assertEqual(
+            stats["measured"], 2, "the OOM job's peak is truncated by its cgroup"
+        )
+        self.assertEqual(stats["oom"], ["p_m1e10r4c30q0"])
+        self.assertAlmostEqual(
+            stats["per_conformer"]["30"]["worst_gb_per_worker"], 38676060 / 1024**2 / 16
+        )
+        self.assertAlmostEqual(
+            stats["per_conformer"]["20"]["worst_gb_per_worker"],
+            31641600 / 1024**2 / 16,
+            places=6,
+        )
+        self.assertEqual(
+            stats["suggested_gb_per_conformer"],
+            job_module.MEM_GB_PER_CONFORMER,
+            "a measurement below the budget must not lower it",
+        )
+
+    def test_a_measurement_above_the_budget_raises_the_coefficient(self):
+        heavy = memreport.Finished(
+            job_id="1.pbs",
+            name="heavy",
+            state="F",
+            exit_status=0,
+            requested_gb=128.0,
+            peak_gb=80.0,
+            ncpus=16,
+            workers=16,
+            conformers=40,
+        )
+        self.assertEqual(heavy.verdict, "over its budget")
+        stats = memreport.summary([heavy])
+        self.assertEqual(stats["over_budget"], ["heavy"])
+        self.assertAlmostEqual(stats["suggested_gb_per_conformer"], 0.13)
+
+    def test_the_reported_pool_matches_what_the_cap_would_choose(self):
+        spec = {"mem_gb": 32, "args": ["--set", "max_conformers=30"]}
+        row = memreport.Finished(
+            job_id="1.pbs",
+            name="p_m1e10r4c30q0",
+            state="F",
+            exit_status=0,
+            requested_gb=32.0,
+            peak_gb=20.0,
+            ncpus=16,
+            workers=job_module.workers_for(spec, 16),
+            conformers=job_module.spec_max_conformers(spec),
+        )
+        self.assertEqual(row.workers, 8)
+        self.assertLessEqual(row.per_worker_gb, row.budget_gb)
+
+    def test_the_table_and_summary_name_the_verdict(self):
+        rows = self._rows()
+        text = f"{memreport._table(rows)}\n\n{memreport._summary_text(memreport.summary(rows))}"
+        self.assertIn("OOM (killed at the request)", text)
+        self.assertIn("needs a larger --mem", text)
+        self.assertIn("25435602", text)
+        self.assertIn("conf", text, "the per-shape table is what the budget is read from")
 
 
 class Campaign(unittest.TestCase):
