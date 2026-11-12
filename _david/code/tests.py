@@ -1,5 +1,3 @@
-"""Behavioural tests: each pins a decision that was argued about, not a line of code."""
-
 from __future__ import annotations
 
 import json
@@ -584,7 +582,6 @@ class RewardSchemes(unittest.TestCase):
         for frame, config in ((raw, {}), (modified, {"rocs_reward_scale": 2.0})):
             enriched = analysis_helpers.enrich_descriptors(frame, col, "", config)
             self.assertEqual(list(enriched["ROCS"]), [1.4, 0.8])
-        # A per-epoch table has no components and must still come back on [0, 2].
         epochs = modified[["SMILES", "Valid", col]]
         enriched = analysis_helpers.enrich_descriptors(epochs, col, "", {"rocs_reward_scale": 2.0})
         self.assertEqual(list(enriched["ROCS"]), [1.4, 0.8])
@@ -720,7 +717,6 @@ class StartMethod(unittest.TestCase):
         ):
             self.assertIn("broken", conformers.check_pool(timeout=0.01))
             self.assertFalse(conformers.pool_is_healthy())
-            # Forty records would pool, and the wedged stub has no map().
             self.assertEqual(
                 conformers._map(conformers._touch, list(range(40)), small(n_jobs=2)),
                 list(range(40)),
@@ -889,7 +885,6 @@ class BestModelGallery(unittest.TestCase):
     def test_the_shown_arm_falls_back_when_the_wanted_one_is_empty(self):
         arms = {"prior": _arm([0.9], [1]), "gmean": _arm([0.5, 0.4], [1, 0])}
         self.assertEqual(figures.shown_arm(arms, ["ROCS"], "gmean"), "gmean")
-        # desired_ratio was never written, so the figure shows what the run has.
         self.assertEqual(figures.shown_arm(arms, ["ROCS"], "desired_ratio"), "gmean")
         self.assertIsNone(figures.shown_arm({"prior": _arm([0.9], [1])}, ["ROCS"], "gmean"))
 
@@ -930,7 +925,6 @@ class Campaign(unittest.TestCase):
                     self.assertNotIn(reserved, settings, job)
 
     def test_every_run_asks_for_more_memory_than_its_cell_was_measured_to_use(self):
-        # True peaks from resources_used.mem, by (minimize, max_conformers).
         measured = {
             (False, 10): 22.7,
             (False, 20): 28.0,
@@ -939,7 +933,6 @@ class Campaign(unittest.TestCase):
             (True, 20): 31.2,
         }
         for cell, peak in measured.items():
-            # Twice the peak: siblings of one configuration differ by ~5 GB.
             self.assertGreaterEqual(campaign.MEMORY_GB, peak * 2.0, f"minimize/c{cell}")
         self.assertGreaterEqual(Job.mem_gb, campaign.MEMORY_GB, "the ad-hoc path must match")
 
@@ -980,19 +973,16 @@ class CollapseVerdict(unittest.TestCase):
         self.assertFalse(result["flags"], "a clean run needs no caveats attached")
 
     def test_a_unique_arm_that_never_left_the_prior_is_unlearned(self):
-        # High uniqueness with no desired gain is the quiet failure: still the prior.
         result = self._verdict(self._stop_arm(0.9, desired=0.14))
         self.assertEqual(result["label"], "unlearned")
         self.assertIn("no_learning", result["flags"])
 
     def test_uniqueness_below_the_cut_is_collapse_whatever_the_reward(self):
-        # The collapsed cluster sits at 0.25-0.33 unique with desired ~0.9: one series.
         result = self._verdict(self._stop_arm(0.25, desired=0.9))
         self.assertEqual(result["label"], "collapsed")
         self.assertIn("collapse", result["flags"])
 
     def test_a_series_lock_collapses_even_above_the_uniqueness_cut(self):
-        # 0.5 unique but the top 10 are 70 % of the draw: it passes the cut, one finding.
         result = self._verdict(self._stop_arm(0.5, desired=0.9, top10=0.7))
         self.assertEqual(result["label"], "collapsed")
         self.assertIn("series_lock", result["flags"])
@@ -1014,19 +1004,16 @@ class CollapseVerdict(unittest.TestCase):
         self.assertIn("fragment_drift", result["flags"])
 
     def test_a_pilot_arm_is_never_judged(self):
-        # Uniqueness at n=10 means nothing, or the smoke runs read as the most diverse.
         result = self._verdict(self._stop_arm(1.0, desired=0.5), n=10)
         self.assertEqual(result["label"], "pilot")
 
     def test_a_short_arm_is_incomplete_not_collapsed(self):
-        # A walltime kill mid-write leaves a partial table; that is a rebuild, not a verdict.
         stop = self._stop_arm(0.2, desired=0.9)
         stop["n"] = 2000
         result = self._verdict(stop, n=5000)
         self.assertEqual(result["label"], "incomplete")
 
     def test_arm_stats_follow_write_arms_conventions(self):
-        # The manifest's own definition, so the atlas and the manifest cannot disagree.
         frame = pd.DataFrame(
             {
                 "Valid": [1, 1, 1, 1, 0],
@@ -1043,7 +1030,6 @@ class CollapseVerdict(unittest.TestCase):
         self.assertAlmostEqual(stats["top1_share"], 0.6)
 
     def test_the_frontier_ignores_runs_the_verdict_cannot_trust(self):
-        # Pilots would dominate (desired, unique) for free, and the frontier is the highlight.
         def run(name, desired, unique, verdict="clean", n=5000):
             return {
                 "run": name, "verdict": verdict, "n_expected": n, "arms": {"stop": {
@@ -1079,8 +1065,6 @@ class TreeAtlas(unittest.TestCase):
         }
 
     def test_medals_rank_by_stop_arm_desired_and_skip_the_unmedallable(self):
-        # "Read this run first": it follows the stop arm, never gmean, and never a collapsed
-        # arm whose desired ratio is one series counted 5000 times.
         scan = {"generated": "now", "roots": [], "since": "20261110", "totals": {},
                 "counts": {}, "runs": [
                     self._scan_run("winner", desired=0.8),
@@ -1111,7 +1095,6 @@ class TreeAtlas(unittest.TestCase):
         })
 
     def test_the_scan_counts_only_runs_since_the_restart(self):
-        # The 10.11 rule: WITH_BUGS runs and first probes stay out, whatever root holds them.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for name in ("20261108_1200_old_regime", "20261111_0400_new",
@@ -1134,7 +1117,6 @@ class DiversityProfile(unittest.TestCase):
 
     @staticmethod
     def _frame(rows):
-        # rows: (canonical, count, desired)
         return pd.DataFrame(
             [r for canonical, count, desired in rows for r in
              [(canonical, desired)] * count],
@@ -1142,14 +1124,12 @@ class DiversityProfile(unittest.TestCase):
         ).assign(Valid=1)
 
     def test_effective_molecules_counts_a_repeated_series_once(self):
-        # 5,000 draws of 5 distinct molecules, 1,000 each: 5 effective findings, not 5,000.
         uniform = diversity.ArmUniques(self._frame([(f"C{'C' * i}O", 1, 1) for i in range(10)]))
         self.assertAlmostEqual(diversity._entropy_shannon(uniform.counts), 10.0)
         repeated = diversity.ArmUniques(self._frame([("CCO", 5, 1), ("CCCO", 5, 0)]))
         self.assertAlmostEqual(diversity._entropy_shannon(repeated.counts), 2.0)
 
     def test_a_collapsed_arm_has_no_effective_scaffolds_left(self):
-        # The same scaffold wearing different hats: many canonicals, one family.
         hats = [f"c1ccc(C{'C' * i})cc1" for i in range(6)]
         uniques = diversity.ArmUniques(self._frame([(smi, 1, 1) for smi in hats]))
         profile = diversity.arm_profile(uniques)
@@ -1159,7 +1139,6 @@ class DiversityProfile(unittest.TestCase):
         self.assertLess(profile["internal_diversity"], 0.5)
 
     def test_pairwise_statistics_match_a_direct_similarity(self):
-        # Two molecules: every pairwise statistic is that one similarity, to 4 places.
         methanol, ethanol = "CO", "CCO"
         fp = [AllChem.GetMorganFingerprintAsBitVect(Chem.MolFromSmiles(s), 2, nBits=2048)
               for s in (methanol, ethanol)]
@@ -1171,7 +1150,6 @@ class DiversityProfile(unittest.TestCase):
         self.assertAlmostEqual(profile["internal_diversity"], 1 - expected, places=4)
 
     def test_prior_echo_of_a_molecule_the_prior_already_held(self):
-        # A stop arm that regurgitates the prior: closest prior similarity is itself.
         prior = diversity.ArmUniques(self._frame([("CCO", 1, 0), ("c1ccccc1O", 1, 0)]))
         stop = diversity.ArmUniques(self._frame([("CCO", 3, 1)]))
         cross = diversity._cross_profile(stop.fingerprints, prior.fingerprints)

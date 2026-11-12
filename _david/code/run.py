@@ -149,7 +149,6 @@ def write_arm(
     for column, values in (diagnostics or {}).items():
         scores[column] = values
     invalid = scores["Valid"] == 0
-    # An invalid molecule has every objective zeroed, so it clears an all-zero threshold set.
     for column in ("Desired", *(diagnostics or {})):
         if column in scores:
             scores.loc[invalid, column] = 0
@@ -228,7 +227,6 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("run directory %s", run_dir)
     logger.info("device %s, gpus %s", DEFAULT_DEVICE, DEFAULT_GPUS)
 
-    # Before the first expensive stage, so a run killed at walltime reads as `running`.
     manifest = Manifest(
         run_dir / "manifest.json",
         run=run_dir.name,
@@ -261,14 +259,12 @@ def main(argv: list[str] | None = None) -> int:
 def _pipeline(
     cfg: Config, run_dir: Path, resolved: dict, manifest: Manifest, started: float
 ) -> int:
-    # Before anything expensive: an unknown scheme name is a typo in a submitted delta.
-    scheme = reward_scheme(cfg.scheme)
+    scheme = reward_scheme(cfg.scheme)  # before anything expensive
     references = build_reference(cfg, run_dir / "reference.sdf")
 
     checkpoint, vocabulary = cfg.pretrained()
     voc = VocSmiles.fromFile(str(vocabulary), encode_frags=False)
     agent = load_model(voc, checkpoint)
-    # An independent copy: the agent trains, the prior stays frozen for epsilon-mutation.
     prior = load_model(voc, checkpoint)
     for parameter in prior.parameters():
         parameter.requires_grad_(False)
@@ -284,8 +280,7 @@ def _pipeline(
     resolved.update(
         force_field=FORCE_FIELD if cfg.minimize else None,
         reward_scheme=type(scheme).__name__,
-        # The factor the stored ROCS column was divided by, which score_arms converts out of.
-        rocs_reward_scale=ROCS_PUBLISHED_MAX,
+        rocs_reward_scale=ROCS_PUBLISHED_MAX,  # score_arms converts out of it
         objectives=objectives,
         thresholds=thresholds,
     )
@@ -337,7 +332,6 @@ def _pipeline(
     )
     logger.info("training summary: %s", summary)
 
-    # Guarded per arm: this stage runs after training, so a fault must cost one arm.
     for name in FINAL_ARMS:
         try:
             model = load_model(voc, run_dir / "models" / f"{name}.pkg")

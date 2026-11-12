@@ -39,7 +39,6 @@ def pair_components(
     use_colors: bool = True,
     color_ff: str = "fdef",
 ) -> tuple[float, float]:
-    """The winner is chosen on shape + colour whatever ``opt_param`` is."""
     if query is None or reference is None:
         return NO_OVERLAY
     if query.GetNumConformers() == 0 or reference.GetNumConformers() == 0:
@@ -126,11 +125,6 @@ def _worker_score(task: tuple[int, list[Chem.Mol]]):
 
 
 class ComboROCSScorer(RDKitROCSScorer):
-    """``RDKitROCSScorer`` with a configurable alignment objective and recorded components.
-
-    The components stay diagnostics: ``getKey`` returns one key.
-    """
-
     def __init__(self, *args, alignment_shape_weight: float = 0.5, **kwargs):
         super().__init__(*args, **kwargs)
         if not 0.0 <= alignment_shape_weight <= 1.0:
@@ -140,8 +134,7 @@ class ComboROCSScorer(RDKitROCSScorer):
         self.alignment_shape_weight = float(alignment_shape_weight)
         self.components: dict[str, tuple[float, float]] = {}
         self._by_mol_id: dict[int, tuple[float, float]] = {}
-        # The parent's own pool would call native's worker, not this class.
-        self.workers = self.n_jobs
+        self.workers = self.n_jobs  # the parent's own pool would call native's worker
         self.n_jobs = 1
 
     def _score_sequential(self, unique_count, conformers_by_mol, num_groups) -> np.ndarray:
@@ -179,8 +172,7 @@ class ComboROCSScorer(RDKitROCSScorer):
         return scores
 
     def getScores(self, mols, frags=None) -> np.ndarray:
-        # Also here: the parent returns early on a missing conformer file.
-        self._by_mol_id = {}
+        self._by_mol_id = {}  # also here: the parent can return before the override
         self.components = {}
         scores = super().getScores(mols, frags)
         unique, _ = self._deduplicate_smiles(self._convert_to_smiles(mols))

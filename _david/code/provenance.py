@@ -117,9 +117,6 @@ def describe(root: Path) -> dict[str, object]:
 
 
 class Manifest:
-    """A run's state on disk, rewritten whole after every stage."""
-
-
     def __init__(self, path: Path, **fields: object) -> None:
         self.path = path
         self.data: dict[str, object] = {"state": "running", **fields}
@@ -127,7 +124,6 @@ class Manifest:
 
     def update(self, **fields: object) -> None:
         self.data.update(fields)
-        # Through a temporary file: a half-written manifest would read as a finished run.
-        temporary = self.path.with_suffix(".json.tmp")
+        temporary = self.path.with_suffix(".json.tmp")  # a half-written one reads as finished
         temporary.write_text(json.dumps(self.data, indent=2, default=str) + "\n")
         temporary.replace(self.path)

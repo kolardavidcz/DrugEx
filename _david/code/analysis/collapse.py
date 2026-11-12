@@ -460,6 +460,28 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
     judged = arms.get("stop") or {"n": 0}
     result = verdict(judged, arms.get("prior") or {"n": 0}, stop_chemistry, prior_chemistry, n_expected)
 
+    # The chemical layer rides along from its own per-run cache (fresh-checked against
+    # the arm tables); lazy import: diversity reads this module's _read_table at load.
+    diversity_summary: dict[str, Any] = {}
+    try:
+        from _david.code.analysis.diversity import load_profile
+
+        profile = load_profile(run)
+    except Exception:  # a missing cache is not a scan failure
+        profile = None
+    if profile:
+        stop_div = (profile.get("arms") or {}).get("stop") or {}
+        prior_div = (profile.get("arms") or {}).get("prior") or {}
+        cross = profile.get("cross") or {}
+        diversity_summary = {
+            "effective_scaffolds": stop_div.get("effective_scaffolds"),
+            "prior_effective_scaffolds": prior_div.get("effective_scaffolds"),
+            "internal_diversity": stop_div.get("internal_diversity"),
+            "nn_sim_p50": stop_div.get("nn_sim_p50"),
+            "novelty_rate": cross.get("novelty_rate"),
+            "prior_echo_rate": cross.get("prior_echo_rate"),
+        }
+
     hac = stop_chemistry.get("hac_median")
     hac_prior = prior_chemistry.get("hac_median")
     curve = _training_curve(run, legacy)
@@ -480,6 +502,7 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
         "n_expected": n_expected,
         "arms": arms,
         "chemistry": {"stop": stop_chemistry, "prior": prior_chemistry},
+        "diversity": diversity_summary,
         "hac_drift": round(hac - hac_prior, 1) if hac and hac_prior else None,
         "postpeak_decay": round(arms["best"]["unique_ratio"] - arms["stop"]["unique_ratio"], 4)
         if arms.get("best") and arms.get("stop") and arms["best"]["unique_ratio"] is not None
@@ -763,6 +786,13 @@ const COLS = [
   ['color_ff', 'colour', r => esc(r.axes.color_ff)],
   ['alignment_shape_weight', 'w', r => num(r.axes.alignment_shape_weight, 1)],
   ['unique_ratio', 'unique', r => num(stopOf(r).unique_ratio), 1],
+  ['eff_scaffolds', 'eff.scaf', r => {
+    const v = (r.diversity || {}).effective_scaffolds;
+    // Unique-ratio is not chemical breadth: red when the arm holds < 100 effective
+    // scaffold families, whatever the verdict says.
+    return v == null ? '—' : `<span style="${v < 100 ? 'color:#dc2626;font-weight:700' : ''}">${Math.round(v).toLocaleString()}</span>`;
+  }, 1],
+  ['nn_sim_p50', 'NN p50', r => num((r.diversity || {}).nn_sim_p50), 1],
   ['top10_share', 'top10', r => num(stopOf(r).top10_share), 1],
   ['desired_ratio', 'desired', r => num(stopOf(r).desired_ratio), 1],
   ['valid_ratio', 'valid', r => num(stopOf(r).valid_ratio), 1],
@@ -776,6 +806,8 @@ const COLS = [
 let key = 'unique_ratio', desc = false;
 const fmt = (r, k) => {
   if (k === 'unique_ratio') return stopOf(r).unique_ratio;
+  if (k === 'eff_scaffolds') return (r.diversity || {}).effective_scaffolds;
+  if (k === 'nn_sim_p50') return (r.diversity || {}).nn_sim_p50;
   if (k === 'desired_ratio') return stopOf(r).desired_ratio;
   if (k === 'top10_share') return stopOf(r).top10_share;
   if (k === 'valid_ratio') return stopOf(r).valid_ratio;

@@ -70,9 +70,8 @@ class Config:
             raise ValueError("n_samples, n_eval and epochs must be positive")
         if self.min_epochs > self.epochs:
             raise ValueError("min_epochs cannot exceed epochs")
-        # Lower SA is better, so the modifier must descend.
         if self.sa_reward_one >= self.sa_reward_zero:
-            raise ValueError("sa_reward_one must be below sa_reward_zero")
+            raise ValueError("sa_reward_one must be below sa_reward_zero: lower SA is better")
 
     def pretrained(self) -> tuple[Path, Path]:
         base = PROJECT_ROOT / "tutorial/data/models/pretrained/smiles-rnn/Papyrus05.5_smiles_rnn_PT"

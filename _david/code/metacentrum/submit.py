@@ -82,7 +82,6 @@ def _git(*args: str) -> str:
 
 
 def remote(command: str, stdin: bytes | None = None) -> str:
-    """An expired ticket comes back as the fix for it."""
     result = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", HOST, command], input=stdin, capture_output=True
     )
@@ -98,7 +97,6 @@ def remote(command: str, stdin: bytes | None = None) -> str:
 
 
 def validate_deltas(deltas: list[str]) -> None:
-    """Parsed here, so a bad override fails now and not after the queue wait."""
     from _david.code.run import config_from_args
     from _david.code.scorers.objectives import reward_scheme
 
@@ -119,7 +117,6 @@ def validate_deltas(deltas: list[str]) -> None:
 
 
 def head_revision() -> str:
-    """HEAD, refusing to stage a release that is not what the working tree holds."""
     dirty = _git("status", "--porcelain", "--untracked-files=no")
     if dirty:
         raise SystemExit(
@@ -155,7 +152,6 @@ def head_revision() -> str:
 
 
 def sync(revision: str | None = None) -> str:
-    """Stage an immutable ``$STORAGE/releases/<sha>`` and repoint ``current``."""
     revision = revision or head_revision()
     release = f"{STORAGE}/releases/{revision}"
     archive = _run(["git", "-C", str(PROJECT_ROOT), "archive", revision]).stdout
@@ -186,7 +182,6 @@ def stage_spec(job: Job, revision: str) -> str:
 
 
 def submit(job: Job, revision: str | None = None) -> str:
-    """Stage, upload and queue one job; a campaign stages once and passes ``revision`` in."""
     for delta in job.args:
         name = delta.split("=", 1)[0]
         if name in RESERVED:
@@ -218,7 +213,6 @@ def submit(job: Job, revision: str | None = None) -> str:
 
 
 def check() -> None:
-    """Everything a submission depends on, in the order it would fail."""
     print(remote("hostname").strip(), "reachable")
     venv = f"{STORAGE}/.venv/bin/python"
     print("storage venv:", remote(f"test -x {venv} && echo present || echo MISSING").strip())
@@ -243,12 +237,10 @@ def logs(name: str, lines: int, follow: bool) -> None:
 
 
 def pull(name: str | None) -> None:
-    """MetaCentrum to here only; nothing is pushed the other way."""
     destination = PROJECT_ROOT / "_david" / "output"
     destination.mkdir(parents=True, exist_ok=True)
     command = ["rsync", "-az", "--info=progress2"]
     if name:
-        # A run directory is `<YYYYmmdd_HHMM>_<tag>`: the job name is only a suffix.
         command += ["--include=*/", f"--include=*_{name}/***", "--exclude=*"]
     command += [f"{HOST}:{STORAGE}/_david/output/", f"{destination}/"]
     subprocess.run(command, check=True)
