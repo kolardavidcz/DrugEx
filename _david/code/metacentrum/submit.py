@@ -579,7 +579,14 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("submit", help="stage a release and queue one job")
     run.add_argument("--name", required=True, help="PBS job name and the run's tag")
     run.add_argument("--ncpus", type=int, default=Job.ncpus)
-    run.add_argument("--mem", type=int, default=Job.mem_gb, help="GB")
+    run.add_argument(
+        "--mem",
+        type=int,
+        default=Job.mem_gb,
+        help=f"GB; default {Job.mem_gb}, which places ~3x faster than 64 GB. The job "
+        "derives its scoring workers from this number, so a smaller request only makes "
+        "epochs slower",
+    )
     run.add_argument("--scratch", type=int, default=Job.scratch_gb, help="GB")
     run.add_argument(
         "--walltime",
