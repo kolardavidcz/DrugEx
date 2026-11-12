@@ -12,7 +12,7 @@ deltas, resource sizing, monitoring, failure triage and the checklist before say
 | Path | Role |
 | :--- | :--- |
 | [`RUNBOOK.md`](RUNBOOK.md) | The tutorial: recipes, queue routing, failure triage, checklist. |
-| [`submit.py`](submit.py) | The CLI: `check · sync · submit · status · watch · logs · cancel · pull`. |
+| [`submit.py`](submit.py) | The CLI: `check · sync · submit · rebuild · status · watch · logs · cancel · pull`. |
 | [`campaign.py`](campaign.py) | The planned sweep: batches of full-factorial runs, planning by default. |
 | [`monitor.py`](monitor.py) | Read-only live epoch monitor, run on a login node (stdlib only). |
 | [`queues.py`](queues.py) | Queue depth for `q_4h`, `q_1d`, `q_2d`; `q_1d` is the training default. |

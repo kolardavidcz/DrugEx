@@ -3,6 +3,7 @@
     check                     ssh, the storage venv, the staged release, the queue
     sync                      stage HEAD on storage without submitting
     submit --name <name>      stage, upload the spec, qsub  [-- name=value ...]
+    rebuild [--all|--runs …]  complete the arms of runs a walltime kill left unfinished
     status                    the user's queue, from long-format qstat
     watch [-i 60]             live epochs of running jobs, read on the login node
     logs <name> [-f]          the PBS stdout of the job, not merely of its name
@@ -62,6 +63,13 @@ QUEUE_ROUTING: tuple[tuple[int, str], ...] = (
 
 _WALLTIME_RE = re.compile(r"^(\d{1,3}):([0-5]\d):([0-5]\d)$")
 _NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
+
+#: A run directory: ``YYYYmmdd_HHMM_<tag>``, so it may start with a digit and may not carry
+#: a path separator. Named apart from ``_NAME_RE`` because a job name cannot start with one.
+_RUN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+
+#: What a job body does: start a run, or complete arms a killed run never wrote.
+MODES = ("train", "rebuild")
 
 #: Files the job body imports. A release missing one of these fails only after the queue
 #: wait, so `head_revision` checks them before anything is staged.
@@ -124,6 +132,11 @@ class Job:
     scratch_gb: int = 15
     walltime: str = DEFAULT_WALLTIME
     queue: str | None = None
+    #: ``train`` starts a new run from ``Config``; ``rebuild`` completes the arms of runs
+    #: that already exist on storage, from their own recorded config.
+    mode: str = "train"
+    #: Run directories a ``rebuild`` job completes, in order. Ignored by ``train``.
+    runs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not _NAME_RE.fullmatch(self.name):
@@ -131,6 +144,20 @@ class Job:
                 f"Invalid job name {self.name!r}: letters, digits, '_' or '-', starting "
                 "with a letter, at most 64 characters. It also becomes the run tag."
             )
+        if self.mode not in MODES:
+            raise ValueError(f"mode is one of {', '.join(MODES)}, not {self.mode!r}")
+        if self.mode == "rebuild":
+            if not self.runs:
+                raise ValueError("a rebuild job needs at least one run directory")
+            for run in self.runs:
+                if not _RUN_RE.fullmatch(run):
+                    raise ValueError(f"invalid run directory name {run!r}")
+            if self.args:
+                # A rebuild is scored with the run's own recorded config; a delta here would
+                # quietly change the yardstick and make the rebuilt arm incomparable.
+                raise ValueError("a rebuild takes no deltas: it replays the run's config")
+        elif self.runs:
+            raise ValueError("runs only apply to mode='rebuild'")
         if min(self.ncpus, self.mem_gb, self.scratch_gb) < 1:
             raise ValueError("PBS resources must be positive")
         needed = MEM_GB_PER_CORE * self.ncpus
@@ -287,6 +314,8 @@ def stage_spec(job: Job, revision: str) -> str:
     path = f"{directory}/spec.json"
     spec = {
         "name": job.name,
+        "mode": job.mode,
+        "runs": list(job.runs),
         "args": list(job.args),
         "mem_gb": job.mem_gb,
         "source": f"{STORAGE}/releases/{revision}",
@@ -340,7 +369,10 @@ def submit(job: Job, revision: str | None = None, no_sync: bool = False) -> str:
     ]
     print(f"queue    : {job.queue_label}")
     print(f"resources: {job.resources}, walltime={job.walltime}")
-    print(f"deltas   : {' '.join(job.args) or '(none)'}")
+    if job.mode == "rebuild":
+        print(f"rebuild  : {len(job.runs)} run(s) -> {' '.join(job.runs)}")
+    else:
+        print(f"deltas   : {' '.join(job.args) or '(none)'}")
     job_id = remote(shlex.join(command)).strip()
     print(f"\nsubmitted {job.name}: {job_id}")
     return job_id
@@ -567,6 +599,111 @@ def watch(interval: int, lines: int, job: str | None) -> None:
     raise SystemExit(subprocess.run([*ssh, HOST, command]).returncode)
 
 
+def _resource_flags(parser: argparse.ArgumentParser) -> None:
+    """Flags a PBS job reads the same way whether it trains or rebuilds."""
+    parser.add_argument("--ncpus", type=int, default=Job.ncpus)
+    parser.add_argument(
+        "--mem",
+        type=int,
+        default=Job.mem_gb,
+        help=f"GB; default {Job.mem_gb}, which places ~3x faster than 64 GB. The job "
+        "derives its scoring workers from this number, so a smaller request only makes "
+        "epochs slower",
+    )
+    parser.add_argument("--scratch", type=int, default=Job.scratch_gb, help="GB")
+    parser.add_argument(
+        "--walltime",
+        default=Job.walltime,
+        help="compute budget, not a queue knob: it is what routes the queue",
+    )
+    parser.add_argument("--queue", default=None, help="only when you know you need one")
+    parser.add_argument(
+        "--revision",
+        default=None,
+        help="stage this commit instead of HEAD (a rerun of a known-good release)",
+    )
+    parser.add_argument(
+        "--no-sync",
+        action="store_true",
+        help="use --revision exactly as staged; never archive or upload",
+    )
+
+
+def stale_runs() -> list[str]:
+    """Runs on storage that hold checkpoints but never wrote a stop arm.
+
+    That shape means the walltime killed the job during final scoring, which is the one
+    failure a rebuild fixes: the policy is in ``models/``, only the arm table is missing.
+    """
+    script = (
+        f"cd {shlex.quote(STORAGE + '/_david/output')} 2>/dev/null || exit 0\n"
+        'for d in */; do d=${d%/}; '
+        '[ -f "$d/manifest.json" ] && [ -d "$d/models" ] || continue; '
+        '[ -f "$d/final_desired_ratio_at_stop.tsv" ] && continue; '
+        'echo "$d"; done'
+    )
+    return [line.strip() for line in remote(script).splitlines() if line.strip()]
+
+
+def slices(items: list[str], jobs: int) -> list[tuple[str, ...]]:
+    """``jobs`` contiguous groups of nearly equal size; never more groups than items."""
+    jobs = max(1, min(jobs, len(items)))
+    base, extra = divmod(len(items), jobs)
+    groups, start = [], 0
+    for index in range(jobs):
+        size = base + (1 if index < extra else 0)
+        groups.append(tuple(items[start : start + size]))
+        start += size
+    return groups
+
+
+def rebuild_runs(args: argparse.Namespace) -> int:
+    """Plan, then queue, rebuild jobs for runs that never wrote their stop arm."""
+    runs = list(args.runs)
+    if args.all:
+        if runs:
+            raise SystemExit("--all and --runs are alternatives")
+        runs = stale_runs()
+    if not runs:
+        print("every run on storage has its stop arm; nothing to rebuild")
+        return 0
+    validate_resources(args.ncpus, args.mem, args.scratch, args.walltime, args.queue)
+    groups = slices(runs, args.jobs)
+    print(
+        f"{len(runs)} run(s) missing a stop arm -> {len(groups)} job(s), "
+        f"{args.ncpus} cpus / {args.mem} GB / {args.walltime} each"
+    )
+    for index, group in enumerate(groups, 1):
+        print(f"  {args.prefix}{index:<3} {len(group):>2} run(s)  {' '.join(group)}")
+    if args.dry_run:
+        print("\nnothing submitted. Drop --dry-run to queue these.")
+        return 0
+
+    if args.no_sync:
+        if not args.revision:
+            raise SystemExit("--no-sync needs --revision: it never guesses which release")
+        revision = args.revision
+    else:
+        revision = sync(args.revision)
+    for index, group in enumerate(groups, 1):
+        submit(
+            Job(
+                name=f"{args.prefix}{index}",
+                mode="rebuild",
+                runs=group,
+                ncpus=args.ncpus,
+                mem_gb=args.mem,
+                scratch_gb=args.scratch,
+                walltime=args.walltime,
+                queue=args.queue,
+            ),
+            revision=revision,
+            no_sync=True,  # staged once, above: every job of the batch uses that release
+        )
+    print(f"\nqueued {len(groups)} rebuild job(s) over {len(runs)} run(s)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -578,38 +715,34 @@ def main(argv: list[str] | None = None) -> int:
 
     run = sub.add_parser("submit", help="stage a release and queue one job")
     run.add_argument("--name", required=True, help="PBS job name and the run's tag")
-    run.add_argument("--ncpus", type=int, default=Job.ncpus)
-    run.add_argument(
-        "--mem",
-        type=int,
-        default=Job.mem_gb,
-        help=f"GB; default {Job.mem_gb}, which places ~3x faster than 64 GB. The job "
-        "derives its scoring workers from this number, so a smaller request only makes "
-        "epochs slower",
-    )
-    run.add_argument("--scratch", type=int, default=Job.scratch_gb, help="GB")
-    run.add_argument(
-        "--walltime",
-        default=Job.walltime,
-        help="compute budget, not a queue knob: it is what routes the queue",
-    )
-    run.add_argument("--queue", default=None, help="only when you know you need one")
-    run.add_argument(
-        "--revision",
-        default=None,
-        help="stage this commit instead of HEAD (a rerun of a known-good release)",
-    )
-    run.add_argument(
-        "--no-sync",
-        action="store_true",
-        help="use --revision exactly as staged; never archive or upload",
-    )
+    _resource_flags(run)
     run.add_argument(
         "deltas",
         nargs="*",
         metavar="NAME=VALUE",
         help="Config overrides, each forwarded as `--set NAME=VALUE`",
     )
+
+    rebuild = sub.add_parser(
+        "rebuild",
+        help="complete the arms of runs a walltime kill left unfinished",
+    )
+    rebuild.add_argument(
+        "--all", action="store_true", help="every stale run on storage (needs check)"
+    )
+    rebuild.add_argument(
+        "--runs", nargs="*", default=[], metavar="RUN", help="run directories to rebuild"
+    )
+    rebuild.add_argument(
+        "--jobs", type=int, default=4, help="how many PBS jobs to spread the runs over"
+    )
+    rebuild.add_argument(
+        "--prefix", default="rebuild_", help="job names are <prefix><n> (default rebuild_)"
+    )
+    rebuild.add_argument(
+        "--dry-run", action="store_true", help="print the grouping, then stop"
+    )
+    _resource_flags(rebuild)
 
     status = sub.add_parser("watch", help="live epochs of running jobs")
     status.add_argument("-i", "--interval", type=int, default=0, help="refresh every N seconds")
@@ -635,6 +768,8 @@ def main(argv: list[str] | None = None) -> int:
         sync()
     elif args.command == "status":
         print(queue_status() or "nothing of yours is queued")
+    elif args.command == "rebuild":
+        return rebuild_runs(args)
     elif args.command == "submit":
         validate_deltas(args.deltas)
         validate_resources(

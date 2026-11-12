@@ -248,7 +248,7 @@ def launch(
                 job = Job(name=name, args=args, **resources)
             except ValueError as error:
                 raise SystemExit(f"invalid job {name}: {error}") from None
-            submit(job, revision=revision)
+            submit(job, revision=revision, no_sync=True)
             done += 1
     finally:
         # A qsub failing halfway leaves real jobs queued; the count allows a resume.

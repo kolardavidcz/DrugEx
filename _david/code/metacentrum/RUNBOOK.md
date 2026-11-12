@@ -352,7 +352,39 @@ same settings.
 
 ---
 
-## 7. Failure triage
+## 7. Completing a killed run: `submit rebuild`
+
+A walltime kill during final scoring leaves a run with valid checkpoints and no arm table.
+`RL fit` cannot resume, but the policy is on disk: the arm can be rebuilt from
+`models/<arm>.pkg` with the run's **own** `config.json`. That is the only honest way to
+finish such a run, and it is what `rebuild` does.
+
+```bash
+$PY -m _david.code.metacentrum.submit rebuild --all --jobs 4 --dry-run   # who is stale?
+$PY -m _david.code.metacentrum.submit rebuild --all --jobs 4             # queue it
+$PY -m _david.code.metacentrum.submit rebuild --runs 20261111_0444_w_e05q0 20261111_0530_c_e05fos20q0
+```
+
+Stale means: `manifest.json` and `models/` exist, `final_desired_ratio_at_stop.tsv` does
+not. Each PBS job takes a contiguous slice of those runs and loops over them, so one run
+failing does not lose the rest. Resources are the usual ones, and the worker count is
+derived from `--mem` exactly as for training (`workers_for`).
+
+**What it writes.** Only into the existing run directory on storage: the missing
+`final_*.tsv`, `manifest.json` (state becomes `complete`, `arms_rebuilt` names the arm), and
+the re-rendered `report.md` + figures. Nothing is copied to scratch first, so a kill leaves
+the run as it was. A run whose arm is already complete is skipped in seconds, which makes
+`--all` safe to repeat.
+
+**What it does not do.** It does not retrain, does not re-sample a different checkpoint, and
+does not change the run's recorded config (deltas are refused). The rebuilt arm is the same
+policy sampled on a different draw than the original would have used — the manifest says so.
+Afterwards `pull` the run dirs back and re-run the analysis; the atlas reads the stop arm,
+so those runs join the comparison table.
+
+---
+
+## 8. Failure triage
 
 | Symptom | Cause and fix |
 | :--- | :--- |
@@ -376,7 +408,7 @@ leaves a shutdown trace after the real cause.
 
 ---
 
-## 8. What the job actually does
+## 9. What the job actually does
 
 1. `sync` runs `git archive <revision>` locally, unpacks it to
    `$STORAGE/releases/<sha>/`, repoints `$STORAGE/current`, and rsyncs the pretrained
@@ -391,7 +423,9 @@ leaves a shutdown trace after the real cause.
    `$STORAGE/.venv/bin/python $RELEASE_DIR/_david/code/metacentrum/job.py --release …`.
 4. `job.py` validates the spec, copies the release into `$SCRATCHDIR/DrugEx`, creates the run
    directory under `$SCRATCHDIR/output`, pins thread pools, and runs
-   `python -u -m _david.code.run --tag <name> --set output_root=… --set n_jobs=<cpus> <deltas>`.
+   `python -u -m _david.code.run --tag <name> --set output_root=… --set n_jobs=<workers> <deltas>`.
+   A `rebuild` spec instead runs `python -u -m _david.code.reconstruct.score_arms
+   $STORAGE/_david/output/<run> --n-jobs <workers>` once per run, in place.
    Temp files go to `$SCRATCHDIR/tmp`, never to home storage.
 5. A `finally` block copies the run directory to `$STORAGE/_david/output/<run-id>` on
    success, failure, `SIGTERM` and `SIGINT`, then cleans scratch. A failed transfer keeps
@@ -402,7 +436,7 @@ vocabulary come from the staged release; and partial results survive a walltime 
 
 ---
 
-## 9. Checklist before saying "submitted"
+## 10. Checklist before saying "submitted"
 
 - [ ] `git status --porcelain --untracked-files=no` is empty (or `sync` would have passed).
 - [ ] The submission block showed the intended release, queue, resources and deltas — and

@@ -1027,6 +1027,75 @@ class MetaCentrumJobs(unittest.TestCase):
                 Job(name=name, ncpus=16, mem_gb=campaign.MEMORY_GB)
                 self.assertRegex(name, submit_module._NAME_RE)
 
+    def test_a_rebuild_job_names_runs_and_takes_no_deltas(self):
+        job = Job(name="rebuild_1", mode="rebuild", runs=("20261111_0444_w_e05q0",))
+        self.assertEqual(job.mode, "rebuild")
+        with self.assertRaises(ValueError, msg="no runs"):
+            Job(name="rebuild_1", mode="rebuild")
+        with self.assertRaises(ValueError, msg="a delta would change the yardstick"):
+            Job(name="rebuild_1", mode="rebuild", runs=("run_a",), args=("--set", "epsilon=0.1"))
+        with self.assertRaises(ValueError, msg="runs belong to a rebuild"):
+            Job(name="train_1", runs=("run_a",))
+        with self.assertRaises(ValueError, msg="unknown mode"):
+            Job(name="probe", mode="rescore")
+        with self.assertRaises(ValueError, msg="a run name is also a path segment"):
+            Job(name="rebuild_1", mode="rebuild", runs=("../escape",))
+
+    def test_runs_are_split_into_nearly_equal_contiguous_groups(self):
+        runs = [f"run_{index}" for index in range(7)]
+        self.assertEqual(
+            submit_module.slices(runs, 3),
+            [("run_0", "run_1", "run_2"), ("run_3", "run_4"), ("run_5", "run_6")],
+        )
+        self.assertEqual(len(submit_module.slices(runs, 99)), len(runs), "one job per run")
+
+    def test_a_rebuild_argv_carries_the_run_and_the_memory_capped_workers(self):
+        spec = {
+            "name": "rebuild_1",
+            "mode": "rebuild",
+            "runs": ["run_a", "run_b"],
+            "args": [],
+            "mem_gb": 32,
+            "revision": "abc",
+        }
+        commands = job_module.commands_for(
+            Path("/storage/.venv/bin/python"),
+            Path("/scratch/output"),
+            Path("/storage/_david/output"),
+            16,
+            spec,
+        )
+        self.assertEqual(len(commands), 2)
+        self.assertIn("_david.code.reconstruct.score_arms", commands[0])
+        self.assertEqual(commands[1][-3], "/storage/_david/output/run_b")
+        self.assertEqual(commands[1][-1], "12", "32 GB caps the pool at 12 workers")
+
+    def test_a_train_spec_without_mode_still_trains(self):
+        spec = {"name": "probe", "args": ["--set", "epochs=3"], "revision": "abc"}
+        commands = job_module.commands_for(
+            Path("/storage/.venv/bin/python"),
+            Path("/scratch/output"),
+            Path("/storage/_david/output"),
+            16,
+            spec,
+        )
+        self.assertEqual(len(commands), 1)
+        self.assertIn("_david.code.run", commands[0])
+        self.assertIn("n_jobs=16", commands[0])
+
+    def test_a_rebuild_spec_without_runs_is_refused_before_scoring(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "spec.json"
+            base = {"name": "rebuild_1", "args": [], "source": "/rel", "revision": "abc"}
+            path.write_text(json.dumps(base | {"mode": "rebuild"}))
+            with self.assertRaises(job_module.JobError):
+                job_module.read_spec(path)
+            path.write_text(json.dumps(base | {"mode": "rebuild", "runs": ["run_a"]}))
+            self.assertEqual(job_module.read_spec(path)["runs"], ["run_a"])
+            path.write_text(json.dumps(base | {"mode": "teleport"}))
+            with self.assertRaises(job_module.JobError):
+                job_module.read_spec(path)
+
     def test_long_format_qstat_keeps_long_names_and_resolvable_nodes(self):
         text = """Job Id: 25256877.pbs-m1.metacentrum.cz
     Job_Name = ws_e05_noqed

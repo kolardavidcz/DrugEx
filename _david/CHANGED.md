@@ -196,6 +196,14 @@ near epoch 30; that run asks for 64 GB up front and waits for a node that can sa
 Nothing here changes the science: the job body calls the same `_david.code.run` entry point,
 with the same single-checkpoint training loop; the worker cap changes epoch time, not scores.
 
+A killed run leaves a policy in `models/` and no arm table. `submit rebuild --all` completes
+those arms on storage with `_david.code.reconstruct.score_arms`, which replays the run's own
+`config.json` and refuses deltas, so a rebuilt arm is scored on the yardstick the run
+originally used. It writes only into the existing run directory (arm, manifest state,
+re-rendered report), skips runs whose arm is already complete, and prints the grouping before
+it queues anything. This replaces the hand-qsubbed `rebuild_arms.sh`, whose hardcoded run
+list died on 38 of 38 runs with `FrozenInstanceError` before the rewrite fixed it.
+
 ---
 
 ### How this is meant to stay true

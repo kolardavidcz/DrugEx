@@ -15,6 +15,10 @@ ENTRY_POINT = Path("_david") / "code" / "run.py"
 SPEC_KEYS = ("name", "args", "source", "revision")
 REQUIRED_ENV = ("PBS_JOBID", "SCRATCHDIR", "STORAGE_DIR", "RUN_SPEC")
 
+#: What a spec may ask the job to run. ``train`` is the default so a spec written before
+#: this key existed still means what it meant.
+MODES = ("train", "rebuild")
+
 #: The heaviest measured cell reached ~40 GB with 16 scoring workers (~2.5 GB each) and was
 #: OOM-killed. The job derives workers from the *memory request* with this budget and a
 #: reserve, so a 32 GB allocation runs 12 workers rather than 16 and stays below its cgroup.
@@ -53,6 +57,13 @@ def read_spec(path: Path) -> dict:
         raise JobError(f"job spec {path} is missing {', '.join(missing)}")
     if not isinstance(spec["args"], list) or not all(isinstance(a, str) for a in spec["args"]):
         raise JobError(f"job spec {path} has a non-list 'args'")
+    spec.setdefault("mode", "train")
+    if spec["mode"] not in MODES:
+        raise JobError(f"job spec {path} has mode {spec['mode']!r}, not one of {MODES}")
+    if spec["mode"] == "rebuild":
+        runs = spec.get("runs")
+        if not isinstance(runs, list) or not runs or not all(isinstance(r, str) for r in runs):
+            raise JobError(f"job spec {path} is a rebuild with no run directories")
     return spec
 
 
@@ -118,19 +129,42 @@ def workers_for(spec: dict, cpus: int) -> int:
     return max(1, min(cpus, fit))
 
 
-def run_command(python: Path, output_root: Path, cpus: int, spec: dict) -> list[str]:
+def commands_for(
+    python: Path, output_root: Path, storage_output: Path, cpus: int, spec: dict
+) -> list[list[str]]:
+    """One argv per unit of work: a train job has one, a rebuild has one per run.
+
+    A rebuild reads the run directory where it lives on storage and writes the missing arm
+    back into it, so a killed job leaves the run unchanged rather than half-copied.
+    """
+    workers = workers_for(spec, cpus)
+    if spec.get("mode") == "rebuild":
+        return [
+            [
+                str(python),
+                "-u",
+                "-m",
+                "_david.code.reconstruct.score_arms",
+                str(storage_output / run),
+                "--n-jobs",
+                str(workers),
+            ]
+            for run in spec["runs"]
+        ]
     return [
-        str(python),
-        "-u",
-        "-m",
-        "_david.code.run",
-        "--tag",
-        spec["name"],
-        "--set",
-        f"output_root={output_root}",
-        "--set",
-        f"n_jobs={workers_for(spec, cpus)}",
-        *spec["args"],
+        [
+            str(python),
+            "-u",
+            "-m",
+            "_david.code.run",
+            "--tag",
+            spec["name"],
+            "--set",
+            f"output_root={output_root}",
+            "--set",
+            f"n_jobs={workers}",
+            *spec["args"],
+        ]
     ]
 
 
@@ -190,9 +224,10 @@ def _banner(
     release: Path,
     results: Path,
 ) -> None:
-    rows = (
+    rows = [
         ("job", env.get("PBS_JOBID", "?")),
         ("name", spec["name"]),
+        ("mode", spec.get("mode", "train")),
         ("node", os.uname().nodename),
         ("queue", env.get("PBS_QUEUE", "unknown")),
         ("cpus", cpus),
@@ -201,9 +236,12 @@ def _banner(
         ("scratch", scratch),
         ("release", release),
         ("revision", spec["revision"]),
-        ("deltas", " ".join(spec["args"]) or "(none)"),
-        ("results", results),
-    )
+    ]
+    if spec.get("mode") == "rebuild":
+        rows.append(("runs", f"{len(spec['runs'])}: {' '.join(spec['runs'])}"))
+    else:
+        rows.append(("deltas", " ".join(spec["args"]) or "(none)"))
+        rows.append(("results", results))
     print("================ DrugEx v2 job ================")
     for key, value in rows:
         print(f"{key:<9}: {value}")
@@ -238,13 +276,24 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copytree(release, release_copy, symlinks=True)
         submission = Path(env["RUN_SPEC"])
 
-        process = subprocess.run(
-            run_command(venv_python(storage), output_root, cpus, spec),
-            cwd=release_copy,
-            env=job_environment(env, release_copy, temp_root, spec.get("revision")),
+        commands = commands_for(
+            venv_python(storage), output_root, storage_output, cpus, spec
         )
-        returncode = process.returncode
-        status = 128 - returncode if returncode < 0 else returncode
+        env_for_job = job_environment(env, release_copy, temp_root, spec.get("revision"))
+        status, failed = 0, []
+        for command in commands:
+            # One unit of work failing does not discard the ones after it: a rebuild job
+            # carries several independent runs, and each is useful on its own.
+            process = subprocess.run(command, cwd=release_copy, env=env_for_job)
+            returncode = process.returncode
+            code = 128 - returncode if returncode < 0 else returncode
+            if code:
+                unit = command[-1] if spec.get("mode") == "rebuild" else spec["name"]
+                failed.append((unit, code))
+                print(f"FAILED ({code}): {' '.join(command)}", file=sys.stderr)
+            status = status or code
+        if failed:
+            print(f"{len(failed)} of {len(commands)} unit(s) failed: {failed}", file=sys.stderr)
     except _SignalExit as error:
         print(f"signalled, copying partial results back (exit {error.code})", file=sys.stderr)
         status = int(error.code or 143)
