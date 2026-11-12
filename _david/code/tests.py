@@ -941,7 +941,7 @@ class Campaign(unittest.TestCase):
         for cell, peak in measured.items():
             # Twice the peak: siblings of one configuration differ by ~5 GB.
             self.assertGreaterEqual(campaign.MEMORY_GB, peak * 2.0, f"minimize/c{cell}")
-        self.assertGreaterEqual(Job.mem, campaign.MEMORY_GB, "the ad-hoc path must match")
+        self.assertGreaterEqual(Job.mem_gb, campaign.MEMORY_GB, "the ad-hoc path must match")
 
     def test_a_repeated_configuration_is_reported_as_a_replicate(self):
         by_name = {

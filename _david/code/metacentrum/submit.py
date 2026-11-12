@@ -64,8 +64,8 @@ class Job:
     @property
     def resources(self) -> str:
         return (
-            f"select=1:ncpus={self.ncpus}:mem={self.mem}gb:"
-            f"scratch_local={self.scratch}gb:spec={CPU_FLOOR}"
+            f"select=1:ncpus={self.ncpus}:mem={self.mem_gb}gb:"
+            f"scratch_local={self.scratch_gb}gb:spec={CPU_FLOOR}"
         )
 
 
@@ -82,7 +82,7 @@ def _git(*args: str) -> str:
 
 
 def remote(command: str, stdin: bytes | None = None) -> str:
-    """One command on the cluster; an expired ticket comes back as the fix for it."""
+    """An expired ticket comes back as the fix for it."""
     result = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", HOST, command], input=stdin, capture_output=True
     )
@@ -98,11 +98,10 @@ def remote(command: str, stdin: bytes | None = None) -> str:
 
 
 def validate_deltas(deltas: list[str]) -> None:
-    """Parsed here, so a bad override fails now and not on the worker node."""
+    """Parsed here, so a bad override fails now and not after the queue wait."""
     from _david.code.run import config_from_args
     from _david.code.scorers.objectives import reward_scheme
 
-    # Bare `name=value`: the `--set` is added here, so its own would be doubled.
     malformed = [delta for delta in deltas if delta.startswith("-") or "=" not in delta]
     if malformed:
         raise SystemExit(
@@ -110,8 +109,7 @@ def validate_deltas(deltas: list[str]) -> None:
             + " ".join(malformed)
         )
     try:
-        # Resolved, not just parsed: `scheme` is a string field, so a typo survives parsing.
-        reward_scheme(config_from_args(list(deltas)).scheme)
+        reward_scheme(config_from_args(list(deltas)).scheme)  # a string field: parsing is not enough
     except SystemExit as error:
         raise SystemExit(f"delta rejected locally, nothing submitted: {error}") from None
     except (ValueError, TypeError) as error:
@@ -121,10 +119,7 @@ def validate_deltas(deltas: list[str]) -> None:
 
 
 def head_revision() -> str:
-    """HEAD, refusing to stage a release that is not what the working tree holds.
-
-    The dangerous case is an uncommitted file: ``--untracked-files=no`` is quiet about it.
-    """
+    """HEAD, refusing to stage a release that is not what the working tree holds."""
     dirty = _git("status", "--porcelain", "--untracked-files=no")
     if dirty:
         raise SystemExit(
@@ -143,7 +138,6 @@ def head_revision() -> str:
             + "\n\ncommit them first."
         )
 
-    # Recursive: a top-level glob would miss an untracked module inside a subpackage.
     local = {
         str(path.relative_to(PROJECT_ROOT))
         for path in (PROJECT_ROOT / PACKAGE).rglob("*")
@@ -161,8 +155,7 @@ def head_revision() -> str:
 
 
 def sync(revision: str | None = None) -> str:
-    """Stage ``git archive HEAD`` as an immutable ``$STORAGE/releases/<sha>``, plus the
-    pretrained checkpoint, and repoint ``current``."""
+    """Stage an immutable ``$STORAGE/releases/<sha>`` and repoint ``current``."""
     revision = revision or head_revision()
     release = f"{STORAGE}/releases/{revision}"
     archive = _run(["git", "-C", str(PROJECT_ROOT), "archive", revision]).stdout
@@ -193,8 +186,7 @@ def stage_spec(job: Job, revision: str) -> str:
 
 
 def submit(job: Job, revision: str | None = None) -> str:
-    """Stage, upload and queue one job. A campaign passes ``revision`` in, since staging is
-    identical across a sweep and ``sync`` rsyncs a 150 MB checkpoint."""
+    """Stage, upload and queue one job; a campaign stages once and passes ``revision`` in."""
     for delta in job.args:
         name = delta.split("=", 1)[0]
         if name in RESERVED:
@@ -207,8 +199,7 @@ def submit(job: Job, revision: str | None = None) -> str:
     release = f"{STORAGE}/releases/{revision}"
     command = ["qsub", "-N", job.name]
     if job.queue:
-        # Only when asked: frontends cannot submit into an execution queue.
-        command += ["-q", job.queue]
+        command += ["-q", job.queue]  # frontends cannot submit into an execution queue
     command += [
         "-l",
         job.resources,
@@ -252,12 +243,12 @@ def logs(name: str, lines: int, follow: bool) -> None:
 
 
 def pull(name: str | None) -> None:
-    """MetaCentrum to here only; nothing is ever pushed into output."""
+    """MetaCentrum to here only; nothing is pushed the other way."""
     destination = PROJECT_ROOT / "_david" / "output"
     destination.mkdir(parents=True, exist_ok=True)
     command = ["rsync", "-az", "--info=progress2"]
     if name:
-        # A run directory is `<YYYYmmdd_HHMM>_<tag>`, so the job name is only a suffix.
+        # A run directory is `<YYYYmmdd_HHMM>_<tag>`: the job name is only a suffix.
         command += ["--include=*/", f"--include=*_{name}/***", "--exclude=*"]
     command += [f"{HOST}:{STORAGE}/_david/output/", f"{destination}/"]
     subprocess.run(command, check=True)
@@ -276,8 +267,8 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("submit", help="stage HEAD and queue one job")
     run.add_argument("--name", required=True, help="PBS job name and the run's tag")
     run.add_argument("--ncpus", type=int, default=Job.ncpus)
-    run.add_argument("--mem", type=int, default=Job.mem, help="GB")
-    run.add_argument("--scratch", type=int, default=Job.scratch, help="GB")
+    run.add_argument("--mem", type=int, default=Job.mem_gb, help="GB")
+    run.add_argument("--scratch", type=int, default=Job.scratch_gb, help="GB")
     run.add_argument(
         "--walltime",
         default=Job.walltime,
@@ -315,8 +306,8 @@ def main(argv: list[str] | None = None) -> int:
                 name=args.name,
                 args=tuple(part for delta in args.deltas for part in ("--set", delta)),
                 ncpus=args.ncpus,
-                mem=args.mem,
-                scratch=args.scratch,
+                mem_gb=args.mem,
+                scratch_gb=args.scratch,
                 walltime=args.walltime,
                 queue=args.queue,
             )

@@ -20,8 +20,7 @@ from dataclasses import dataclass, field
 
 from _david.code.metacentrum.submit import STORAGE, Job, remote, submit, sync, validate_deltas
 
-# Each is an axis some *other* batch varies, so a spec states the whole experiment rather
-# than inherit half of it from whatever config.py defaulted to.
+# Each is an axis some *other* batch varies, so a spec states the whole experiment.
 COMMON: dict[str, object] = {
     "scheme": "PRCD",
     "minimize": True,
@@ -31,8 +30,8 @@ COMMON: dict[str, object] = {
     "alignment_shape_weight": 0.5,
 }
 
-# qstat shows the name and nothing else, so it carries every axis the batch varies; floats
-# become hundredths (e05 = 0.05) because a dot in a PBS job name asks for trouble.
+# qstat shows the name and nothing else; floats become hundredths because a dot in a PBS
+# job name asks for trouble.
 TOKEN = {
     "minimize": lambda v: "m1" if v else "m0",
     "epsilon": lambda v: f"e{round(v * 100):02d}",
@@ -43,14 +42,13 @@ TOKEN = {
     "alignment_shape_weight": lambda v: f"s{round(v * 100):02d}",
 }
 
-# Twice the largest measured peak, and one number for every cell because siblings of one
-# configuration differ by ~5 GB. A flat 32 GB killed 13 runs; the table is in tests.py.
+# Twice the largest measured peak; the table is in tests.py.
 MEMORY_GB = 64
 
 
 @dataclass(frozen=True)
 class Batch:
-    """One full factorial. ``axes`` is ordered: it fixes both the name and the order."""
+    """One full factorial; ``axes`` is ordered and fixes the job names."""
 
     prefix: str
     axes: dict[str, tuple]
@@ -113,7 +111,7 @@ BATCHES: dict[str, Batch] = {
 
 
 def runs(batch: Batch) -> list[tuple[str, dict]]:
-    """One batch as ``(job name, settings)`` pairs, in a fixed order."""
+    """One batch as ``(job name, settings)`` pairs."""
     plan = []
     for values in itertools.product(*batch.axes.values()):
         chosen = dict(zip(batch.axes, values))
@@ -127,7 +125,7 @@ def deltas(settings: dict) -> list[str]:
 
 
 def duplicates() -> list[tuple[str, str]]:
-    """Runs repeating an earlier batch's settings: free replicates, but never independent."""
+    """Runs repeating an earlier batch's settings: replicates, never independent."""
     seen: dict[tuple, str] = {}
     repeats = []
     for batch in BATCHES.values():
@@ -168,7 +166,6 @@ def launch(
     """Validate every delta, stage HEAD once, then queue the runs."""
     for _, settings in planned:
         validate_deltas(deltas(settings))
-    # Re-running a batch to fill the gaps left by a few failures is the normal way to use it.
     repeats = sorted(already_submitted() & {name for name, _ in planned}) if not again else []
     if repeats:
         print(f"\nskipping {len(repeats)} already submitted: {' '.join(repeats[:8])}")
@@ -188,7 +185,7 @@ def launch(
             submit(Job(name=name, args=args, **resources), revision=revision)
             done += 1
     finally:
-        # A qsub failing halfway leaves real jobs queued; the count is what allows a resume.
+        # A qsub failing halfway leaves real jobs queued; the count allows a resume.
         print(f"\nsubmitted {done} of {len(chosen)} ({len(chosen) - done} not queued)")
 
 
@@ -215,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         default=MEMORY_GB,
         help=f"GB for every run; the default is {MEMORY_GB}, measured -- see MEMORY_GB",
     )
-    parser.add_argument("--scratch", type=int, default=Job.scratch, help="GB")
+    parser.add_argument("--scratch", type=int, default=Job.scratch_gb, help="GB")
     parser.add_argument("--walltime", default=Job.walltime)
     parser.add_argument("--queue", default=None)
     args = parser.parse_args(argv)
@@ -238,8 +235,8 @@ def main(argv: list[str] | None = None) -> int:
         planned,
         {
             "ncpus": args.ncpus,
-            "mem": args.mem,
-            "scratch": args.scratch,
+            "mem_gb": args.mem,
+            "scratch_gb": args.scratch,
             "walltime": args.walltime,
             "queue": args.queue,
         },

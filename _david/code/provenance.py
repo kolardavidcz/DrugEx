@@ -9,7 +9,6 @@ import subprocess
 from importlib import import_module
 from pathlib import Path
 
-# Hashed per run, so an edit to DrugEx shows up in the manifest, not in the results.
 KERNEL_FILES = (
     "drugex/training/scorers/rocs_rdkit.py",
     "drugex/training/scorers/conformer_generators.py",
@@ -81,8 +80,7 @@ def _git(root: Path, *args: str) -> str | None:
 
 
 def source_revision(root: Path) -> dict[str, object]:
-    # A cluster release has no .git, so it declares its revision through the environment.
-    declared = os.environ.get("DRUGEX_SOURCE_REVISION")
+    declared = os.environ.get("DRUGEX_SOURCE_REVISION")  # a release has no .git
     if declared:
         return {"revision": declared, "source": "DRUGEX_SOURCE_REVISION", "dirty": None}
     revision = _git(root, "rev-parse", "HEAD")
@@ -120,6 +118,7 @@ def describe(root: Path) -> dict[str, object]:
 
 class Manifest:
     """A run's state on disk, rewritten whole after every stage."""
+
 
     def __init__(self, path: Path, **fields: object) -> None:
         self.path = path
