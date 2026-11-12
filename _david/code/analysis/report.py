@@ -21,6 +21,8 @@ from _david.code.analysis._helpers import rocs_scale
 logger = logging.getLogger(__name__)
 
 #: Arms in the order they are reported: the baseline first, then what training produced.
+#: Old runs wrote three checkpoints; new runs write only the policy at stop, and the
+#: missing files are simply skipped.
 ARM_FILES = (
     ("prior", "prior.tsv"),
     ("desired_ratio", "final_desired_ratio.tsv"),
@@ -90,13 +92,13 @@ def _pairs(mapping: dict, key_header: str, value_header: str = "value") -> str:
 #: Every table a run writes, and what it holds. Order is the order of the index.
 TABLES = (
     ("prior.tsv", "the pretrained prior, scored -- the baseline every figure compares against"),
-    ("final_desired_ratio.tsv", "the `desired_ratio` checkpoint's final arm, scored"),
     (
         "final_desired_ratio_at_stop.tsv",
-        "the live policy at the freeze epoch, scored -- the same epochs, a different state",
+        "the live policy at the epoch training stopped, scored -- the arm a run delivers",
     ),
-    ("final_gmean.tsv", "the `avg_gmean` checkpoint's final arm, scored"),
-    ("rl_fit.tsv", "one row per epoch: the metrics the stop condition and the checkpoints read"),
+    ("final_desired_ratio.tsv", "the best `desired_ratio` epoch of a legacy run, scored"),
+    ("final_gmean.tsv", "the best `avg_gmean` epoch of a legacy run, scored"),
+    ("rl_fit.tsv", "one row per epoch: the metrics the stop condition reads"),
     ("rl_smiles.tsv", "the held-out evaluation sample of every epoch, scored"),
     (
         "training_samples.tsv",
@@ -431,7 +433,7 @@ def analyse(run_dir: Path) -> Path:
         f"(n_final = {config.get('n_final', '?')}). `desired_ratio` counts unique desired "
         "molecules over the sample size, and the unique count saturates while the "
         "denominator does not, so the same policy scores higher on the smaller arm. These "
-        "numbers select checkpoints; the arm table is what the run reports.",
+        "numbers decide when training stops; the arm table is what the run reports.",
         "",
         _pairs(summary, "metric") if summary else "_no training summary recorded_",
         "",
@@ -459,7 +461,7 @@ def analyse(run_dir: Path) -> Path:
         "library collapsing onto one core; `de_novo` is the share of an arm's scaffolds "
         "the prior never produced, so a run that re-finds the prior's own chemistry "
         "scores well on the first two columns and poorly on the last. It is `n/a` for the "
-        "prior, which is the baseline it is measured against. Figures 07 and 07b draw this table.",
+        "prior, which is the baseline it is measured against. Figure 07 draws this table.",
         "",
         _table(figures_module.scaffold_rows(arms), "arm"),
         "",
@@ -470,15 +472,11 @@ def analyse(run_dir: Path) -> Path:
         f"## best molecules, by {objectives[0]}",
         "",
         (
-            f"Every figure describes the **{shown}** checkpoint unless its name says "
-            "otherwise; the `b` figures (`01b`, `05b`, `07b`) repeat the same drawing for "
-            "the `desired_ratio` checkpoint, which is frozen the first time its patience "
-            "window expires. The two lead galleries are the exception: "
-            "`05_lead_structures_gallery.png` draws the **final policy** "
-            f"(`{figures_module.FINAL_ARM}`), because what a run would ship is the model "
-            "it ended on and not the best epoch either criterion kept, and "
-            "`05b_lead_structures_gallery_desired_ratio.png` draws `desired_ratio`. Both "
-            "show one molecule per chemotype: a card marked *(analogue)* means the arm "
+            f"Every figure describes the **{shown}** arm unless its name says otherwise: the "
+            "live policy at the epoch training stopped, which is the model a run would ship "
+            "and the only checkpoint a new run writes. The lead gallery draws that same arm, "
+            "because what a run delivers is the model it ended on, not its best epoch. It "
+            "shows one molecule per chemotype: a card marked *(analogue)* means the arm "
             "had no further distinct scaffold to show, which is itself the finding."
             if (shown := figures_module.shown_arm(arms, objectives, figures_module.PRIMARY_ARM))
             else "No trained arm was scored, so there is no checkpoint to draw."

@@ -52,16 +52,13 @@ TOP_N = 12
 TOP_3D = 5
 
 CAPTIONS = {
-    "01": "property diagnostic dashboard, prior vs the gmean checkpoint",
-    "01b": "property diagnostic dashboard, prior vs the desired_ratio checkpoint",
+    "01": "property diagnostic dashboard, prior vs the policy at stop",
     "02": "multi-objective trade-offs, step-wise skylines and Pareto leads",
     "03": "reinforcement learning dynamics and convergence diagnostics",
     "04": "longitudinal per-epoch property trajectories (median, IQR, p95, seed reference)",
-    "05": "prioritized leads vs best-ROCS hits of the gmean checkpoint: aligned 2D topology",
-    "05b": "the same gallery for the desired_ratio checkpoint",
+    "05": "prioritized leads vs best-ROCS hits of the policy at stop: aligned 2D topology",
     "06": "objective conflict and property coupling (Spearman rho: prior, reinforced, delta)",
-    "07": "Bemis-Murcko scaffold space of the gmean checkpoint: concentration, novelty, dominant cores",
-    "07b": "the same scaffold space for the desired_ratio checkpoint",
+    "07": "Bemis-Murcko scaffold space of the policy at stop: concentration, novelty, dominant cores",
     "08": "3D superposition: the reference seed against prioritized de novo leads",
     "09": "training diagnostics: hypervolume, Pareto front, population path, sample composition, lead age",
 }
@@ -115,12 +112,9 @@ def caption(path: Path) -> str:
     return f"{number} - {label}"
 
 
-#: The arm every primary figure describes, and the arm its "b" counterpart describes.
-#: gmean is the criterion the run trains to the end on, so it is the default; the
-#: desired_ratio checkpoint is frozen the first time its patience window expires, which
-#: makes it the one comparison worth drawing beside it rather than a third of each figure.
-PRIMARY_ARM = "gmean"
-SECONDARY_ARM = "desired_ratio"
+#: The arm every figure describes: the live policy at the epoch training stopped. It is the
+#: one model a run would ship, and the only checkpoint a new run writes.
+PRIMARY_ARM = "desired_ratio_at_stop"
 #: Two lead cards are the same chemotype when they share a Murcko scaffold or their ECFP4
 #: Tanimoto reaches this. A collapsed arm ranks hundreds of near-identical analogues at
 #: the top, so a gallery that only de-duplicates exact SMILES shows one molecule five
@@ -133,10 +127,8 @@ LEAD_SIMILARITY_CEILING = 0.7
 #: Rows of progressively more distinct molecules drawn under the lead row in figure 05.
 SPREAD_ROWS = 2
 
-#: The policy training actually ended on, as opposed to the best epoch either criterion
-#: checkpointed. The lead galleries draw this one: a card of the molecules a *selected*
-#: checkpoint produced answers "what is the best this run ever did", which is not the
-#: question a lead gallery is read for. The final policy is the one that would be shipped.
+#: The policy training actually ended on. Kept as a separate name because the galleries and
+#: figures that draw "the delivered model" should read the same constant as the run wrote.
 FINAL_ARM = "desired_ratio_at_stop"
 
 
@@ -224,7 +216,7 @@ def _plot_kde(
 
 
 # --------------------------------------------------------------------------------------
-# 01 / 01b -- Hierarchical 3x3 Property Diagnostic Dashboard
+# 01 -- Hierarchical 3x3 Property Diagnostic Dashboard
 # --------------------------------------------------------------------------------------
 
 
@@ -404,8 +396,8 @@ def before_after_distributions(
 ) -> Path | None:
     """The 3x3 property dashboard, prior against one trained arm.
 
-    One function for 01 and 01b: they differ only in which checkpoint the prior is
-    compared with, and keeping two copies of the grid is how the two drifted apart.
+    ``arm`` names the checkpoint the prior is compared with; the run writes one, but this
+    stays parametric so an archived run's other arms can still be drawn.
     """
     win = shown_arm(arms, objectives, arm, fallback=arm == PRIMARY_ARM)
     if win is None:
@@ -886,7 +878,7 @@ def training_trajectories(
                 zorder=4 if is_crit else 3,
             )
     ax2.set_title(
-        "(B) Dual Checkpoint Criteria & Sample Quality (on n_eval)", fontsize=11, fontweight="bold"
+        "(B) Stop Criterion & Sample Quality (on n_eval)", fontsize=11, fontweight="bold"
     )
     ax2.set_xlabel("Epoch")
     drawn = [
@@ -1060,7 +1052,7 @@ def training_trajectories(
 
 
 # --------------------------------------------------------------------------------------
-# 05 / 05b -- Aligned 2D Lead Structure Cards (Target Seed + Row 1 Desired + Row 2 ROCS)
+# 05 -- Aligned 2D Lead Structure Cards (Target Seed + Row 1 Desired + Row 2 ROCS)
 # --------------------------------------------------------------------------------------
 
 
@@ -2204,17 +2196,9 @@ def training_diagnostics(
         return None
 
     ep_nums = np.array(sorted(val_df["Epoch"].unique()), dtype=int)
-    # The arm this figure delivers, resolved here because the "best checkpoint" marker
-    # below has to agree with it.
-    win = shown_arm(arms or {}, objectives, PRIMARY_ARM)
-    # The epoch of that arm, not whichever criterion peaked first: marking the
-    # desired_ratio epoch on a figure whose delivered arm is gmean points at a
-    # checkpoint that produced none of the molecules shown.
-    best_epoch = (
-        summary.get("best_avg_gmean_epoch")
-        if win == "gmean"
-        else summary.get("best_desired_ratio_epoch")
-    ) or summary.get("best_avg_gmean_epoch")
+    # The epoch training stopped on, which is when the delivered checkpoint was written.
+    # A best-epoch marker would point at a state that produced none of these molecules.
+    best_epoch = summary.get("desired_ratio_freeze_epoch")
 
     # (A) Hypervolume per epoch and cumulative in actual objective space
     hv_epoch: list[float] = []
@@ -2296,7 +2280,7 @@ def training_diagnostics(
                 color="#7C3AED",
                 linewidth=1.4,
                 linestyle="-.",
-                label=f"Best checkpoint (ep {best_epoch})",
+                label=f"Stop checkpoint (ep {best_epoch})",
                 zorder=1,
             )
 
@@ -2477,7 +2461,7 @@ def training_diagnostics(
                 color="#7C3AED",
                 edgecolor="white",
                 linewidth=0.8,
-                label=f"Best checkpoint (ep {best_epoch})",
+                label=f"Stop checkpoint (ep {best_epoch})",
                 zorder=5,
             )
         plt.colorbar(ep_sc, ax=ax, label="Epoch", fraction=0.046, pad=0.02)
@@ -2611,7 +2595,7 @@ def training_diagnostics(
                 edgecolor="white",
                 linewidth=0.8,
                 zorder=5,
-                label=f"Best checkpoint (ep {best_epoch})",
+                label=f"Stop checkpoint (ep {best_epoch})",
             )
             ax.text(
                 0.02,
@@ -2676,10 +2660,10 @@ def render_all(
                 config = {}
 
     prior = arms.get("prior")
-    # Numbered contiguously, in reading order: the two distribution dashboards, the
-    # trade-offs, the two training views, the two lead galleries, the coupling matrix,
-    # the two scaffold views, the 3D overlay and the diagnostics. A "b" figure is its
-    # primary repeated on the desired_ratio checkpoint, never a different drawing.
+    # Numbered contiguously, in reading order: the distribution dashboard, the trade-offs,
+    # the two training views, the lead gallery, the coupling matrix, the scaffold view, the
+    # 3D overlay and the diagnostics. One trained arm exists per new run, so there is no
+    # "b" counterpart to draw it twice.
     jobs = [
         (
             "01",
@@ -2692,19 +2676,6 @@ def render_all(
                 reference=reference,
                 arm=PRIMARY_ARM,
                 name="01_before_after_distributions",
-            ),
-        ),
-        (
-            "01b",
-            lambda: before_after_distributions(
-                arms,
-                objectives,
-                thresholds,
-                out,
-                config=config,
-                reference=reference,
-                arm=SECONDARY_ARM,
-                name="01b_before_after_distributions_desired_ratio",
             ),
         ),
         (
@@ -2744,19 +2715,6 @@ def render_all(
             ),
         ),
         (
-            "05b",
-            lambda: lead_structures_gallery(
-                arms,
-                objectives,
-                out,
-                config=config,
-                reference=reference,
-                arm=SECONDARY_ARM,
-                name="05b_lead_structures_gallery_desired_ratio",
-                fallback=False,
-            ),
-        ),
-        (
             "06",
             lambda: objective_conflict_correlations(
                 arms, objectives, out, config=config, reference=reference
@@ -2771,17 +2729,6 @@ def render_all(
                 reference=reference,
                 arm=PRIMARY_ARM,
                 name="07_bemis_murcko_scaffold_diversity",
-            ),
-        ),
-        (
-            "07b",
-            lambda: scaffold_diversity(
-                arms,
-                out,
-                config=config,
-                reference=reference,
-                arm=SECONDARY_ARM,
-                name="07b_bemis_murcko_scaffold_diversity_desired_ratio",
             ),
         ),
         (

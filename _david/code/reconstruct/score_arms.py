@@ -1,4 +1,4 @@
-"""Rebuild a run's final arms from its checkpoints: python -m _david.code.score_arms <run>
+"""Rebuild a run's final arms from its checkpoints: python -m _david.code.reconstruct.score_arms <run>
 
 A walltime kill after training leaves valid checkpoints and no arm tables, and fit() cannot
 resume. Everything comes from the run's own config.json and models/*.pkg, so a rebuilt arm is
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from drugex.data.corpus.vocabulary import VocSmiles
 
-from _david.code.config import Config
+from _david.code.config import ROCS_PUBLISHED_MAX, Config
 from _david.code.run import (
     FINAL_ARMS,
     components,
@@ -26,13 +26,12 @@ from _david.code.run import (
     serial_run_refusal,
     write_arm,
 )
-from _david.code.scorers.conformers import check_pool, use_double_precision_pickling
 from _david.code.scorers.objectives import (
-    ROCS_PUBLISHED_MAX,
     build_environment,
     build_scorers,
     reward_scheme,
 )
+from _david.code.scorers.utils import check_pool, use_double_precision_pickling
 
 logger = logging.getLogger(__name__)
 

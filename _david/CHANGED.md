@@ -98,20 +98,23 @@ fixed in code, not configurable — the arms are "relaxed" and "not relaxed", ne
 different force field" — and a molecule MMFF cannot parameterize keeps its embedded geometry and
 is tallied as `unparameterized`.
 
-## 5. The training loop keeps both criteria and never rewinds
+## 5. The training loop has one criterion and one checkpoint
 
 **Previously:** native `Explorer.fit` with a single `--criteria`
 (`training/pipeline.py:604-616`), writing `SequenceRNN_reinforced.pkg` (best by that one
 criterion) and `SequenceRNN_reinforced_final_epoch.pkg`. `reload_interval` was configurable and
 disabled by passing `epochs + 1`.
 
-**Now:** `training/explorer.py` tracks `desired_ratio` and `avg_gmean` independently and writes
-three checkpoints — the best `desired_ratio` before its own patience expires, the live policy **at**
-that freeze epoch, and the best `avg_gmean`. The run stops only when both patience windows have
-expired, so neither criterion cuts the other short. Periodic best-state reload is not implemented
-at all: copying a past checkpoint back over the live agent would mean the policy a run ends on is
-not the policy it trained into. Each checkpoint also records the valid and unique ratios of the
-epoch that produced it, so a checkpoint taken on a collapsed epoch is visible instead of plausible.
+**Now:** `training.py`'s `StopCheckpointExplorer` trains on `desired_ratio` and writes exactly one
+checkpoint, `desired_ratio_at_stop.pkg`, from the live policy at the epoch training ended — either
+when the patience window expired or when the epoch cap arrived. There is no best-epoch checkpoint
+and no second criterion: a run delivers the policy it actually ended on, and saving a different
+state invites reading a score that none of the delivered molecules produced. The summary records
+the best value and its epoch for diagnosis, the peak seen, whether patience fired, the value at
+stop, and the valid/unique ratios of the population that produced the checkpoint. Periodic
+best-state reload is not implemented at all: copying a past checkpoint back over the live agent
+would mean the policy a run ends on is not the policy it trained into. The old dual-checkpoint
+explorer is archived unchanged in `archive/explorer.py`, so runs it produced remain readable.
 
 ## 6. Thresholds, and what they are allowed to touch
 

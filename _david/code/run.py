@@ -24,27 +24,28 @@ from drugex.training.generators.sequence_rnn import SequenceRNN
 from drugex.training.monitors import FileMonitor
 from drugex.training.scorers.parallel import capped_n_jobs
 
-from _david.code.config import PROJECT_ROOT, Config
-from _david.code.provenance import ARTIFACTS, Manifest, describe, digest
+from _david.code.config import PROJECT_ROOT, ROCS_PUBLISHED_MAX, Config
+from _david.code.reconstruct.provenance import ARTIFACTS, Manifest, describe, digest
 from _david.code.scorers.conformers import (
     FORCE_FIELD,
     RELAXATION_TALLY,
     build_reference,
-    check_pool,
-    pool_is_healthy,
-    use_double_precision_pickling,
 )
 from _david.code.scorers.objectives import (
-    ROCS_PUBLISHED_MAX,
     build_environment,
     build_scorers,
     calibrate_thresholds,
     mark_desired,
     reward_scheme,
 )
-from _david.code.training.explorer import DualCheckpointExplorer
+from _david.code.scorers.utils import (
+    check_pool,
+    pool_is_healthy,
+    use_double_precision_pickling,
+)
+from _david.code.training import StopCheckpointExplorer
 
-FINAL_ARMS = ("desired_ratio", "desired_ratio_at_stop", "gmean")
+FINAL_ARMS = ("desired_ratio_at_stop",)
 ARMS = ("prior", *FINAL_ARMS)
 
 logger = logging.getLogger("_david")
@@ -313,7 +314,7 @@ def _pipeline(
         )
     }
 
-    explorer = DualCheckpointExplorer(
+    explorer = StopCheckpointExplorer(
         agent=agent,
         env=env,
         mutate=prior,
@@ -323,9 +324,7 @@ def _pipeline(
         n_samples=cfg.n_samples,
         device=DEFAULT_DEVICE,
         use_gpus=DEFAULT_GPUS,
-        desired_ratio_path=run_dir / "models" / "desired_ratio.pkg",
-        desired_ratio_at_stop_path=run_dir / "models" / "desired_ratio_at_stop.pkg",
-        gmean_path=run_dir / "models" / "gmean.pkg",
+        checkpoint_path=run_dir / "models" / "desired_ratio_at_stop.pkg",
         training_samples_path=run_dir / "training_samples.tsv",
         n_eval=cfg.n_eval,
     )
@@ -351,7 +350,7 @@ def _pipeline(
         except Exception:
             logger.exception(
                 "arm %s failed; the others continue. Rebuild it later with: "
-                "python -m _david.code.score_arms %s",
+                "python -m _david.code.reconstruct.score_arms %s",
                 name,
                 run_dir,
             )

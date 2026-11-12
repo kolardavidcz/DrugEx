@@ -2,8 +2,9 @@
 # Hand-qsubbed triage rebuild: stop arms for the runs a walltime kill left unfinished.
 #
 # The collapse verdict reads only final_desired_ratio_at_stop.tsv, so one rebuilt arm
-# upgrades an unfinished run from 'incomplete' to a real verdict. gmean stays missing --
-# it is passive evidence. Two rebuilds share the node: 16 scoring workers each.
+# upgrades an unfinished run from 'incomplete' to a real verdict. New runs write no other
+# checkpoint; legacy gmean arms stay missing -- they are passive evidence.
+# Two rebuilds share the node: 16 scoring workers each.
 #
 # qsub from the release root (submit.py syncs this file with the tree):
 #   qsub -N rebuild_arms -l select=1:ncpus=32:mem=64gb:spec=8.0 \
@@ -65,7 +66,7 @@ RUNS=(
 rebuild_one() {
   local run="$1"
   echo "[$(date +%H:%M:%S)] start $run"
-  timeout 7200 "$PYTHON" -m _david.code.score_arms "$OUTPUT/$run" \
+  timeout 7200 "$PYTHON" -m _david.code.reconstruct.score_arms "$OUTPUT/$run" \
     --only desired_ratio_at_stop --n-jobs 16 \
     > "$LOGS/$run.log" 2>&1 \
     && echo "[$(date +%H:%M:%S)] done  $run" \

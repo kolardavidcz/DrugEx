@@ -21,11 +21,12 @@ LIBRARIES = (
     ("numpy", "numpy", "__version__"),
     ("pandas", "pandas", "__version__"),
 )
+#: The hashed package is ``_david/code``, not this subpackage. A digest that covered only
+#: ``reconstruct/`` would miss every change that can alter a score.
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = {
     "prior.tsv": "Scored pre-training baseline",
-    "final_desired_ratio.tsv": "Samples from the best desired-ratio checkpoint",
-    "final_desired_ratio_at_stop.tsv": "Samples from the policy at the freeze epoch",
-    "final_gmean.tsv": "Samples from the best geometric-mean checkpoint",
+    "final_desired_ratio_at_stop.tsv": "Samples from the policy at the epoch training stopped",
     "rl_fit.tsv": "Per-epoch training diagnostics",
     "training_samples.tsv": "Scored policy-gradient samples by epoch",
     "rl_smiles.tsv": "Scored held-out evaluation samples by epoch",
@@ -110,7 +111,7 @@ def describe(root: Path) -> dict[str, object]:
         "kernel_sha256": kernel_fingerprint(root),
         "drugex_imported_from": imported_drugex(),
         "kernel_hashed_from": str(root),
-        "source_sha256": source_digests(Path(__file__).parent),
+        "source_sha256": source_digests(PACKAGE_ROOT),
         "determinism": "Seeded RNGs; deterministic GPU kernels are not enforced",
         "environment": {name: os.environ.get(name) for name in TRACKED_ENV},
     }

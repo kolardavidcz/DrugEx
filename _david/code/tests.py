@@ -24,15 +24,16 @@ from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
 from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import FAILURE_VALUES, Property
 
-from _david.code import provenance
 from _david.code import run as runner
 from _david.code.analysis import _helpers as analysis_helpers, figures, report as analysis
 from _david.code.analysis import atlas_v2, collapse, diversity
+from _david.code.config import PROJECT_ROOT, SCHEMES, Config
 from _david.code.metacentrum import campaign, submit as submit_module
 from _david.code.metacentrum.submit import Job
+from _david.code.reconstruct import provenance
 from _david.code.scorers import conformers, objectives as scorers, rocs
-from _david.code.config import PROJECT_ROOT, Config
-from _david.code.training.explorer import DualCheckpointExplorer
+from _david.code.scorers import utils as scorer_utils
+from _david.code.training import StopCheckpointExplorer
 from _david.code.run import arm_is_complete, config_from_args, write_arm
 
 
@@ -139,9 +140,8 @@ class Metrics(unittest.TestCase):
 
 class _FakeAgent:
 
-    def __init__(self, ratios, gmeans=None):
+    def __init__(self, ratios):
         self.ratios = list(ratios)
-        self.gmeans = list(gmeans) if gmeans is not None else list(ratios)
         self.epoch = 0
 
     def sample(self, n):
@@ -150,7 +150,6 @@ class _FakeAgent:
     def evaluate(self, smiles, evaluator=None, no_multifrag_smiles=True):
         index = min(self.epoch - 1, len(self.ratios) - 1)  # forward() already incremented
         desired = self.ratios[index]
-        self.current_gmean = self.gmeans[min(index, len(self.gmeans) - 1)]
         n = len(smiles)
         hits = int(round(desired * n))
         return pd.DataFrame(
@@ -162,18 +161,16 @@ class _FakeAgent:
         )
 
 
-class _FakeExplorer(DualCheckpointExplorer):
+class _FakeExplorer(StopCheckpointExplorer):
 
-    def __init__(self, ratios, gmeans=None, **kwargs):
-        self.agent = _FakeAgent(ratios, gmeans)
+    def __init__(self, ratios, **kwargs):
+        self.agent = _FakeAgent(ratios)
         self.env = None
         self.no_multifrag_smiles = True
-        self.desired_ratio_path = kwargs["desired_ratio_path"]
-        self.desired_ratio_at_stop_path = kwargs["desired_ratio_at_stop_path"]
-        self.gmean_path = kwargs["gmean_path"]
+        self.checkpoint_path = kwargs["checkpoint_path"]
         self.training_samples_path = None
         self.n_eval = 100  # a small arm would quantise hits/n_eval
-        self.saved = []
+        self.monitor = None
 
     def forward(self):
         self.agent.epoch += 1
@@ -183,10 +180,9 @@ class _FakeExplorer(DualCheckpointExplorer):
         return 1.0
 
     def getNovelMoleculeMetrics(self, scores):
-        desired = float(scores["Desired"].mean())
         return {
-            "desired_ratio": desired,
-            "avg_gmean": float(self.agent.current_gmean),
+            "desired_ratio": float(scores["Desired"].mean()),
+            "avg_gmean": 0.5,
             "valid_ratio": 1.0,
         }
 
@@ -199,79 +195,68 @@ class _FakeExplorer(DualCheckpointExplorer):
 
 class Checkpoints(unittest.TestCase):
 
-    def _run(self, ratios, directory, gmeans=None, patience=1, **kwargs):
-        paths = {
-            "desired_ratio_path": Path(directory) / "best.pkg",
-            "desired_ratio_at_stop_path": Path(directory) / "at_stop.pkg",
-            "gmean_path": Path(directory) / "gmean.pkg",
-        }
-        explorer = _FakeExplorer(ratios, gmeans, **paths)
+    def _run(self, ratios, directory, patience=1, **kwargs):
+        path = Path(directory) / "at_stop.pkg"
+        explorer = _FakeExplorer(ratios, checkpoint_path=path)
         summary = explorer.fit(epochs=len(ratios), patience=patience, min_epochs=1, **kwargs)
-        return summary, paths
+        return summary, path
 
-    def test_best_checkpoint_holds_the_peak_and_at_stop_holds_the_live_policy(self):
+    def test_the_checkpoint_is_the_policy_at_stop_not_the_best_epoch(self):
         with tempfile.TemporaryDirectory() as directory:
-            summary, paths = self._run([1.0, 0.0, 0.0, 1.0], directory)
-            self.assertEqual(summary["best_desired_ratio_before_freeze"], 1.0)
+            summary, path = self._run([1.0, 0.0, 0.0, 0.0], directory)
+            self.assertEqual(summary["best_desired_ratio"], 1.0)
             self.assertEqual(summary["best_desired_ratio_epoch"], 1)
             self.assertTrue(summary["desired_ratio_frozen"])
             self.assertGreater(summary["desired_ratio_freeze_epoch"], 1)
-            best = torch.load(paths["desired_ratio_path"], weights_only=False)
-            at_stop = torch.load(paths["desired_ratio_at_stop_path"], weights_only=False)
-            self.assertEqual(best["epoch"], 1, "the best checkpoint must be the peak epoch")
-            self.assertNotEqual(at_stop["epoch"], best["epoch"], "both readings must be kept")
-
-    def test_frozen_checkpoint_is_not_rewritten_by_a_later_improvement(self):
-        with tempfile.TemporaryDirectory() as directory:
-            _, paths = self._run([1.0, 0.0, 0.0, 1.0], directory)
+            saved = torch.load(path, weights_only=False)
             self.assertEqual(
-                torch.load(paths["desired_ratio_path"], weights_only=False)["epoch"],
-                1,
-                "epoch 4 matched the peak and must not have reopened the frozen file",
+                saved["epoch"],
+                summary["desired_ratio_freeze_epoch"],
+                "the shipped checkpoint must be the epoch training stopped on",
             )
+            self.assertNotEqual(saved["epoch"], 1, "there is no best-epoch checkpoint any more")
 
-    def test_run_continues_while_desired_improves_after_gmean_plateaus(self):
+    def test_a_single_checkpoint_is_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, path = self._run([0.25, 0.5, 0.75, 1.0], directory)
+            self.assertEqual(sorted(p.name for p in Path(directory).iterdir()), [path.name])
+
+    def test_the_epoch_cap_keeps_the_live_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            summary, path = self._run([0.25, 0.5, 0.75, 1.0], directory)
+            self.assertFalse(summary["desired_ratio_frozen"])
+            self.assertEqual(summary["desired_ratio_freeze_epoch"], 4)
+            self.assertEqual(summary["epochs_run"], 4)
+            self.assertEqual(summary["desired_ratio_at_stop"], 1.0)
+            self.assertEqual(torch.load(path, weights_only=False)["epoch"], 4)
+
+    def test_a_plateau_ends_the_run_and_reports_the_live_value(self):
         with tempfile.TemporaryDirectory() as directory:
             summary, _ = self._run(
-                ratios=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-                gmeans=[0.9] * 6,  # best at epoch 1, never improves again
-                directory=directory,
+                [0.9, 0.1, 0.1, 0.1, 0.1, 0.1],
+                directory,
                 patience=2,
             )
-        self.assertEqual(summary["best_avg_gmean_epoch"], 1)
-        self.assertEqual(
-            summary["epochs_run"], 6, "a plateaued gmean must not cut the desired window short"
-        )
-        self.assertEqual(summary["best_desired_ratio_epoch"], 6)
+        self.assertTrue(summary["desired_ratio_frozen"])
+        self.assertEqual(summary["best_desired_ratio"], 0.9)
+        self.assertEqual(summary["best_desired_ratio_epoch"], 1)
+        self.assertEqual(summary["desired_ratio_at_stop"], 0.1)
+        self.assertEqual(summary["epochs_run"], 4, "stop after patience + one epoch")
 
-    def test_post_freeze_peak_is_reported_even_though_the_checkpoint_is_frozen(self):
+    def test_min_epochs_holds_the_run_open(self):
         with tempfile.TemporaryDirectory() as directory:
-            summary, paths = self._run(
-                ratios=[0.5, 0.0, 0.0, 0.0, 0.99],
-                gmeans=[0.1, 0.2, 0.3, 0.4, 0.5],
-                directory=directory,
-                patience=1,
-            )
-            self.assertTrue(summary["desired_ratio_frozen"])
-            self.assertEqual(summary["best_desired_ratio_before_freeze"], 0.5)
-            self.assertAlmostEqual(summary["peak_desired_ratio_any_epoch"], 0.99)
-            self.assertEqual(
-                torch.load(paths["desired_ratio_path"], weights_only=False)["epoch"],
-                1,
-                "the frozen checkpoint must still hold the pre-freeze best",
-            )
+            path = Path(directory) / "at_stop.pkg"
+            explorer = _FakeExplorer([0.0] * 6, checkpoint_path=path)
+            summary = explorer.fit(epochs=6, patience=1, min_epochs=4)
+        self.assertEqual(summary["epochs_run"], 4)
+        self.assertTrue(summary["desired_ratio_frozen"])
 
-    def test_run_does_not_stop_while_desired_patience_is_still_open(self):
+    def test_the_summary_has_no_best_epoch_checkpoint_key(self):
         with tempfile.TemporaryDirectory() as directory:
-            summary, _ = self._run([0.25, 0.5, 0.75, 1.0], directory)
-            self.assertEqual(summary["epochs_run"], 4)
-            self.assertEqual(summary["best_desired_ratio_epoch"], 4)
-
-    def test_at_stop_checkpoint_exists_even_when_patience_never_expires(self):
-        with tempfile.TemporaryDirectory() as directory:
-            summary, paths = self._run([0.25, 0.5, 0.75, 1.0], directory)
-            self.assertFalse(summary["desired_ratio_frozen"])
-            self.assertTrue(paths["desired_ratio_at_stop_path"].is_file())
+            summary, _ = self._run([0.5, 0.5, 0.5], directory, patience=5)
+        for gone in ("best_avg_gmean", "best_avg_gmean_epoch", "best_desired_ratio_before_freeze"):
+            self.assertNotIn(gone, summary)
+        self.assertEqual(set(summary["checkpoint_population"]), {"desired_ratio_at_stop"})
 
 
 class Relaxation(unittest.TestCase):
@@ -317,7 +302,7 @@ class Relaxation(unittest.TestCase):
                 generator = conformers.RelaxingConformerGenerator(replace(cfg, n_jobs=n_jobs))
                 path = Path(generator.genConformers(smiles, directory))
                 out = {}
-                for mol in conformers._read(path):
+                for mol in scorer_utils.read_sdf(path):
                     out.setdefault(mol.GetProp("_Name"), []).append(
                         mol.GetConformer().GetPositions()
                     )
@@ -348,7 +333,7 @@ class Relaxation(unittest.TestCase):
                 return 12.5
 
         with patch.object(conformers, "_force_field", return_value=Unconverged()):
-            out, reason = conformers._relax((mol, small(minimize=True)))
+            out, reason = conformers._relax((mol, small(minimize=True), False))
         self.assertIsNotNone(out, "an unconverged conformer must survive")
         self.assertEqual(reason, "unconverged")
 
@@ -363,7 +348,7 @@ class Relaxation(unittest.TestCase):
         mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
         AllChem.EmbedMolecule(mol, randomSeed=0xC0FFEE)
         with patch.object(conformers, "_force_field", return_value=Exploding()):
-            out, reason = conformers._relax((mol, small()))
+            out, reason = conformers._relax((mol, small(), False))
         self.assertIsNotNone(out, "the molecule must survive a per-conformer fault")
         self.assertEqual(reason, "relax_raised")
 
@@ -372,6 +357,93 @@ class Relaxation(unittest.TestCase):
 
     def test_protonation_is_off_and_stated(self):
         self.assertFalse(conformers.PROTONATE)
+
+    @staticmethod
+    def _conformer():
+        mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
+        AllChem.EmbedMolecule(mol, randomSeed=0xC0FFEE)
+        return mol
+
+    def test_a_reference_conformer_that_changed_stereo_is_dropped(self):
+        class Relaxed:
+            def Minimize(self, maxIts=0):
+                return 0
+
+            def CalcEnergy(self):
+                return 1.0
+
+        with (
+            patch.object(conformers, "_force_field", return_value=Relaxed()),
+            patch.object(conformers, "_stereo_key", side_effect=["before", "after"]),
+        ):
+            kept, reason = conformers._relax((self._conformer(), small(), True))
+        self.assertIsNone(kept)
+        self.assertEqual(reason, "stereo_changed")
+
+    def test_a_candidate_conformer_that_changed_stereo_is_kept(self):
+        class Relaxed:
+            def Minimize(self, maxIts=0):
+                return 0
+
+            def CalcEnergy(self):
+                return 1.0
+
+        with (
+            patch.object(conformers, "_force_field", return_value=Relaxed()),
+            patch.object(conformers, "_stereo_key", side_effect=["before", "after"]),
+        ):
+            kept, reason = conformers._relax((self._conformer(), small(), False))
+        self.assertIsNotNone(kept)
+        self.assertEqual(reason, "stereo_changed")
+
+    def test_uncheckable_stereo_is_fatal_only_for_a_reference(self):
+        class Relaxed:
+            def Minimize(self, maxIts=0):
+                return 0
+
+            def CalcEnergy(self):
+                return 1.0
+
+        with (
+            patch.object(conformers, "_force_field", return_value=Relaxed()),
+            patch.object(conformers, "_stereo_key", return_value=None),
+        ):
+            self.assertEqual(
+                conformers._relax((self._conformer(), small(), True))[1], "stereo_uncheckable"
+            )
+            kept, reason = conformers._relax((self._conformer(), small(), False))
+        self.assertIsNotNone(kept)
+        self.assertEqual(reason, "stereo_uncheckable")
+
+    def test_a_reference_bank_holds_exactly_the_supplied_stereoisomer(self):
+        cfg = replace(
+            small(),
+            reference_smiles="C[C@H](O)CC",
+            reference_attempts=4,
+            reference_conformers=2,
+            minimize=False,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            bank = conformers.build_reference(cfg, Path(directory) / "ref.sdf")
+        expected = conformers._smiles_stereo_key(cfg.reference_smiles)
+        self.assertTrue(bank)
+        self.assertEqual({conformers._stereo_key(mol) for mol in bank}, {expected})
+
+    def test_a_reference_bank_refuses_to_ship_another_stereoisomer(self):
+        cfg = replace(
+            small(),
+            reference_smiles="C[C@H](O)CC",
+            reference_attempts=2,
+            reference_conformers=1,
+            minimize=False,
+        )
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(conformers, "_smiles_stereo_key", return_value="expected"),
+            patch.object(conformers, "_stereo_key", return_value="unexpected"),
+            self.assertRaises(RuntimeError),
+        ):
+            conformers.build_reference(cfg, Path(directory) / "ref.sdf")
 
 
 class Rocs(unittest.TestCase):
@@ -473,15 +545,18 @@ class Provenance(unittest.TestCase):
             self.assertEqual(len(value), 64, name)
 
     def test_source_digests_cover_this_package(self):
-        digests = provenance.source_digests(Path(provenance.__file__).parent)
+        digests = provenance.source_digests(provenance.PACKAGE_ROOT)
         for name in (
             "run.py",
             "config.py",
-            "provenance.py",
+            "training.py",
+            "reconstruct/provenance.py",
+            "reconstruct/score_arms.py",
             "scorers/objectives.py",
             "scorers/conformers.py",
+            "scorers/utils.py",
             "scorers/rocs.py",
-            "training/explorer.py",
+            "archive/explorer.py",
             "analysis/report.py",
             "analysis/figures.py",
             "metacentrum/job.py",
@@ -540,7 +615,7 @@ class RewardSchemes(unittest.TestCase):
     def test_every_scheme_name_is_one_of_drugexs_own(self):
         self.assertIsInstance(scorers.reward_scheme("PRCD"), ParetoCrowdingDistance)
         self.assertIsInstance(scorers.reward_scheme("WS"), WeightedSum)
-        self.assertEqual(sorted(scorers.SCHEMES), ["PRCD", "PRTD", "WS"])
+        self.assertEqual(sorted(SCHEMES), ["PRCD", "PRTD", "WS"])
 
     def test_an_unknown_scheme_is_rejected_by_name(self):
         with self.assertRaises(ValueError) as caught:
@@ -685,7 +760,7 @@ class StartMethod(unittest.TestCase):
 
     def test_a_working_context_is_reported_by_its_name(self):
         with patch.dict("os.environ", {"DRUGEX_MP_CONTEXT": "fork"}):
-            self.assertEqual(conformers.check_pool(timeout=30.0), "fork")
+            self.assertEqual(scorer_utils.check_pool(timeout=30.0), "fork")
 
     def test_a_pool_that_cannot_be_created_is_reported_not_raised(self):
         class _Dead:
@@ -696,38 +771,38 @@ class StartMethod(unittest.TestCase):
                 raise OSError(24, "Too many open files")
 
         with (
-            patch.object(conformers, "_POOL_BROKEN", False),
-            patch.object(conformers, "pool_context", return_value=_Dead()),
+            patch.object(scorer_utils, "_POOL_BROKEN", False),
+            patch.object(scorer_utils, "pool_context", return_value=_Dead()),
         ):
-            self.assertIn("broken", conformers.check_pool(timeout=1.0))
+            self.assertIn("broken", scorer_utils.check_pool(timeout=1.0))
 
     def test_a_pool_that_hangs_is_bounded_and_terminated(self):
         wedged = _WedgedPool()
         started = time.perf_counter()
         with (
-            patch.object(conformers, "_POOL_BROKEN", False),
-            patch.object(conformers, "pool_context", return_value=wedged),
+            patch.object(scorer_utils, "_POOL_BROKEN", False),
+            patch.object(scorer_utils, "pool_context", return_value=wedged),
         ):
-            result = conformers.check_pool(timeout=0.2)
+            result = scorer_utils.check_pool(timeout=0.2)
         self.assertIn("broken", result)
         self.assertTrue(wedged.terminated, "a wedged pool must be terminated, not left running")
         self.assertLess(time.perf_counter() - started, 10.0)
 
     def test_a_broken_probe_disables_production_pools(self):
         with (
-            patch.object(conformers, "_POOL_BROKEN", False),
-            patch.object(conformers, "pool_context", return_value=_WedgedPool()),
+            patch.object(scorer_utils, "_POOL_BROKEN", False),
+            patch.object(scorer_utils, "pool_context", return_value=_WedgedPool()),
         ):
-            self.assertIn("broken", conformers.check_pool(timeout=0.01))
-            self.assertFalse(conformers.pool_is_healthy())
+            self.assertIn("broken", scorer_utils.check_pool(timeout=0.01))
+            self.assertFalse(scorer_utils.pool_is_healthy())
             # Forty records would pool, and the wedged stub has no map().
             self.assertEqual(
-                conformers._map(conformers._touch, list(range(40)), small(n_jobs=2)),
+                scorer_utils.map_tasks(scorer_utils._touch, list(range(40)), small(n_jobs=2)),
                 list(range(40)),
             )
 
     def test_a_multi_core_run_refuses_to_start_without_workers(self):
-        with patch.object(conformers, "_POOL_BROKEN", True):
+        with patch.object(scorer_utils, "_POOL_BROKEN", True):
             self.assertIsNone(
                 runner.serial_run_refusal(small(n_jobs=1)),
                 "a one-core run is serial anyway and must still run",
@@ -735,7 +810,7 @@ class StartMethod(unittest.TestCase):
             refusal = runner.serial_run_refusal(small(n_jobs=16))
             self.assertIsNotNone(refusal, "16 cores and no workers cannot finish a run")
             self.assertIn("DRUGEX_MP_CONTEXT=fork", refusal)
-        with patch.object(conformers, "_POOL_BROKEN", False):
+        with patch.object(scorer_utils, "_POOL_BROKEN", False):
             self.assertIsNone(runner.serial_run_refusal(small(n_jobs=16)))
 
 
@@ -800,7 +875,7 @@ class ArmCompleteness(unittest.TestCase):
         explorer.fit.return_value = {"epochs_run": 1}
 
         def complete_file(path, n):
-            return path.name != "final_gmean.tsv"
+            return path.name != "final_desired_ratio_at_stop.tsv"
 
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
@@ -824,14 +899,14 @@ class ArmCompleteness(unittest.TestCase):
                 patch.object(runner, "build_scorers"),
                 patch.object(runner, "write_arm", return_value={}),
                 patch.object(runner, "components", return_value={}),
-                patch.object(runner, "DualCheckpointExplorer", return_value=explorer),
+                patch.object(runner, "StopCheckpointExplorer", return_value=explorer),
                 patch.object(runner, "arm_is_complete", side_effect=complete_file),
                 patch.object(analysis, "analyse"),
             ):
                 status = runner._pipeline(cfg, run_dir, resolved, manifest, time.monotonic())
             self.assertEqual(status, 1)
             self.assertEqual(manifest.data["state"], "failed")
-            self.assertIn("gmean", manifest.data["error"])
+            self.assertIn("desired_ratio_at_stop", manifest.data["error"])
 
 
 def _arm(scores: list[float], desired: list[int]) -> pd.DataFrame:
@@ -878,7 +953,7 @@ class BestModelGallery(unittest.TestCase):
             out = Path(directory)
             primary = figures.lead_structures_gallery(arms, ["ROCS"], out, name="05_gallery")
             secondary = figures.lead_structures_gallery(
-                arms, ["ROCS"], out, arm=figures.SECONDARY_ARM, name="05b_gallery"
+                arms, ["ROCS"], out, arm="desired_ratio", name="05b_gallery"
             )
             for path in (primary, secondary):
                 self.assertIsNotNone(path)

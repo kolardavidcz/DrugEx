@@ -4,8 +4,27 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from drugex.training.rewards import (
+    ParetoCrowdingDistance,
+    ParetoTanimotoDistance,
+    WeightedSum,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EGCG = "C1[C@H]([C@H](OC2=CC(=CC(=C21)O)O)C3=CC(=C(C(=C3)O)O)O)OC(=O)C4=CC(=C(C(=C4)O)O)O"
+
+#: DrugEx reward schemes, by the short name a run records. Pareto ignores the thresholds it
+#: is handed; WS builds its weights from them.
+SCHEMES = {
+    "PRCD": ParetoCrowdingDistance,
+    "PRTD": ParetoTanimotoDistance,
+    "WS": WeightedSum,
+}
+#: ROCS's published TanimotoCombo range is [0, 2]; rewards are clipped onto [0, 1].
+ROCS_PUBLISHED_MAX = 2.0
+#: Objectives scored from the molecule alone, so a reference value can stand in for a prior
+#: percentile. ROCS needs a conformer bank and cannot be compared to one molecule.
+MOLECULE_LEVEL = ("SA", "QED")
 
 
 @dataclass(frozen=True)
@@ -15,7 +34,7 @@ class Config:
     # reinforcement learning
     epochs: int = 70  # hard cap; patience normally ends the run first
     patience: int = 20  # epochs without improvement before a criterion is done
-    min_epochs: int = 40  # neither criterion may freeze or stop below this epoch
+    min_epochs: int = 40  # training may not stop below this epoch
     n_samples: int = 1000  # molecules generated and scored per epoch for the policy gradient
     n_eval: int = 100  # held-out molecules scored each epoch to measure the stop condition
     batch_size: int = 128  # ^[64, 128] molecules per policy-gradient step

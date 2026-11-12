@@ -7,28 +7,15 @@ import pandas as pd
 from rdkit import Chem
 
 from drugex.training.environment import DrugExEnvironment
-from drugex.training.rewards import (
-    ParetoCrowdingDistance,
-    ParetoTanimotoDistance,
-    WeightedSum,
-)
+from drugex.training.rewards import ParetoCrowdingDistance
 from drugex.training.scorers.modifiers import ClippedScore
 from drugex.training.scorers.properties import Property
 
-from _david.code.config import Config
+from _david.code.config import MOLECULE_LEVEL, ROCS_PUBLISHED_MAX, SCHEMES, Config
 from _david.code.scorers.conformers import RelaxingConformerGenerator
 from _david.code.scorers.rocs import ComboROCSScorer
 
 logger = logging.getLogger(__name__)
-
-# Pareto ignores the thresholds it is handed; WS builds its weights from them.
-SCHEMES = {
-    "PRCD": ParetoCrowdingDistance,
-    "PRTD": ParetoTanimotoDistance,
-    "WS": WeightedSum,
-}
-ROCS_PUBLISHED_MAX = 2.0
-MOLECULE_LEVEL = ("SA", "QED")
 
 
 def reward_scheme(name: str):
