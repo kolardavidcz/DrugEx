@@ -18,7 +18,15 @@ import argparse
 import itertools
 from dataclasses import dataclass, field
 
-from _david.code.metacentrum.submit import STORAGE, Job, remote, submit, sync, validate_deltas
+from _david.code.metacentrum.submit import (
+    STORAGE,
+    Job,
+    remote,
+    submit,
+    sync,
+    validate_deltas,
+    validate_resources,
+)
 
 # Each is an axis some *other* batch varies, so a spec states the whole experiment.
 COMMON: dict[str, object] = {
@@ -234,7 +242,11 @@ def launch(
     try:
         for name, settings in chosen:
             args = tuple(part for delta in deltas(settings) for part in ("--set", delta))
-            submit(Job(name=name, args=args, **resources), revision=revision)
+            try:
+                job = Job(name=name, args=args, **resources)
+            except ValueError as error:
+                raise SystemExit(f"invalid job {name}: {error}") from None
+            submit(job, revision=revision)
             done += 1
     finally:
         # A qsub failing halfway leaves real jobs queued; the count allows a resume.
@@ -268,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--walltime", default=Job.walltime)
     parser.add_argument("--queue", default=None)
     args = parser.parse_args(argv)
+    validate_resources(args.ncpus, args.mem, args.scratch, args.walltime, args.queue)
 
     planned = show(list(BATCHES) if args.batch == "all" else [args.batch], args.mem)
     hours = int(args.walltime.split(":")[0])

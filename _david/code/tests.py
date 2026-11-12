@@ -28,7 +28,7 @@ from _david.code import run as runner
 from _david.code.analysis import _helpers as analysis_helpers, figures, report as analysis
 from _david.code.analysis import atlas_v2, collapse, diversity
 from _david.code.config import PROJECT_ROOT, SCHEMES, Config
-from _david.code.metacentrum import campaign, submit as submit_module
+from _david.code.metacentrum import campaign, monitor, submit as submit_module
 from _david.code.metacentrum.submit import Job
 from _david.code.reconstruct import provenance
 from _david.code.scorers import conformers, objectives as scorers, rocs
@@ -561,6 +561,7 @@ class Provenance(unittest.TestCase):
             "analysis/figures.py",
             "metacentrum/job.py",
             "metacentrum/submit.py",
+            "metacentrum/monitor.py",
         ):
             self.assertIn(name, digests)
 
@@ -977,6 +978,99 @@ class BestModelGallery(unittest.TestCase):
         self.assertIsNone(figures.best_arm({"desired_ratio": invalid}, ["ROCS"]))
 
 
+class MetaCentrumJobs(unittest.TestCase):
+    """What the adapter refuses locally, before a queue wait can hide the mistake."""
+
+    def test_a_walltime_is_hh_mm_ss(self):
+        self.assertEqual(submit_module.walltime_seconds("24:00:00"), 86400)
+        self.assertEqual(submit_module.walltime_seconds("01:02:03"), 3723)
+        for bad in ("24", "24:00", "24:60:00", "1d", "-01:00:00"):
+            with self.assertRaises(ValueError, msg=bad):
+                submit_module.walltime_seconds(bad)
+
+    def test_the_walltime_routes_the_queue(self):
+        self.assertEqual(submit_module.routed_queue("02:00:00"), "q_2h")
+        self.assertEqual(submit_module.routed_queue("24:00:00"), "q_1d")
+        self.assertEqual(submit_module.routed_queue("48:00:00"), "q_2d")
+        with self.assertRaises(ValueError):
+            submit_module.routed_queue("400:00:00")
+        with self.assertRaises(ValueError):
+            Job(name="probe", walltime="400:00:00")
+        Job(name="probe", walltime="400:00:00", queue="special")
+
+    def test_the_expected_queue_is_printed_not_guessed(self):
+        self.assertEqual(
+            Job(name="probe", walltime="24:00:00").queue_label, "q_1d (default router)"
+        )
+        self.assertEqual(
+            Job(name="probe", walltime="24:00:00", queue="gpu_long").queue_label, "gpu_long"
+        )
+
+    def test_a_job_name_is_a_pbs_name_and_a_run_tag(self):
+        Job(name="egcg_gold-2")
+        for bad in ("1leading_digit", "has.dot", "has space", "x" * 65, ""):
+            with self.assertRaises(ValueError, msg=bad):
+                Job(name=bad)
+
+    def test_cores_cannot_be_raised_without_memory(self):
+        Job(name="probe", ncpus=16, mem_gb=32)
+        with self.assertRaises(ValueError):
+            Job(name="probe", ncpus=16, mem_gb=31)
+        with self.assertRaises(ValueError):
+            Job(name="probe", ncpus=32, mem_gb=63)
+
+    def test_every_campaign_run_is_a_legal_job_at_the_planned_memory(self):
+        for batch in campaign.BATCHES.values():
+            for name, _ in campaign.runs(batch):
+                Job(name=name, ncpus=16, mem_gb=campaign.MEMORY_GB)
+                self.assertRegex(name, submit_module._NAME_RE)
+
+    def test_long_format_qstat_keeps_long_names_and_resolvable_nodes(self):
+        text = """Job Id: 25256877.pbs-m1.metacentrum.cz
+    Job_Name = ws_e05_noqed
+    job_state = R
+    queue = q_1d
+    exec_host2 = eluo1-2.hw.elixir-czech.cz:15002/4*4
+    resources_used.walltime = 01:02:03
+    Resource_List.walltime = 24:00:00
+
+Job Id: 25256880.pbs-m1.metacentrum.cz
+    Job_Name = p_m1e10r4c10q0
+    job_state = Q
+    queue = q_1d
+"""
+        jobs = submit_module.parse_qstat_full(text)
+        self.assertEqual([job.name for job in jobs], ["ws_e05_noqed", "p_m1e10r4c10q0"])
+        running = jobs[0]
+        self.assertEqual(running.short_id, "25256877")
+        self.assertTrue(running.running)
+        self.assertEqual(running.node, "eluo1-2.hw.elixir-czech.cz")
+        self.assertEqual(running.elapsed, "01:02:03")
+        self.assertFalse(jobs[1].running)
+        self.assertEqual(jobs[1].node, "")
+
+    def test_the_monitor_reads_the_epoch_table_by_its_sentinel_frames(self):
+        text = (
+            "SCRATCH=/scratch/job_1\n"
+            "RUN=/scratch/job_1/output/20261112_1200_probe/\n"
+            "COUNT=3\n"
+            "HEADER<<@@@DRUGEX@@@\n"
+            "Epoch\tDesired\n"
+            "@@@DRUGEX@@@\n"
+            "ROWS<<@@@DRUGEX@@@\n"
+            "1\t0.2\n"
+            "2\t0.3\n"
+            "@@@DRUGEX@@@\n"
+            "EPOCHS=70\n"
+            "STATE=running\n"
+        )
+        probe = monitor.parse_probe(text)
+        self.assertEqual(probe["header"], ["Epoch\tDesired"])
+        self.assertEqual(probe["rows"], ["1\t0.2", "2\t0.3"])
+        self.assertEqual(probe["epochs"], "70")
+        self.assertEqual(probe["state"], "running")
+
+
 class Campaign(unittest.TestCase):
 
     def test_every_delta_is_a_setting_the_pipeline_accepts(self):
@@ -1203,6 +1297,66 @@ class TreeAtlas(unittest.TestCase):
                              ["20261111_0400_new", "20261112_0100_newer"])
             self.assertEqual(payload["since"], "20261110")
 
+    def test_the_scanner_writes_scan_data_and_no_retired_v1_atlas(self):
+        # The tree atlas owns the HTML; a scan must leave json/tsv behind and nothing else,
+        # whatever argv the old callers still pass as their output anchor.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "20261112_0200_nofrills"
+            run.mkdir()
+            (run / "manifest.json").write_text(json.dumps({
+                "state": "complete", "config": {"scheme": "PRCD", "n_final": 4},
+            }))
+            collapse.build([root], root / "collapse_atlas.html", since="20261110")
+            self.assertTrue((root / "collapse_scan.json").is_file())
+            self.assertTrue((root / "collapse_scan.tsv").is_file())
+            self.assertFalse((root / "collapse_atlas.html").exists(),
+                             "the v1 atlas is retired; atlas_v2 renders the tree atlas")
+
+    def test_the_scan_carries_hierarchical_diversity_and_effective_desired_yield(self):
+        # Judged on the stop arm only: the EDY is the stop arm's desired fraction times its
+        # effective scaffold families, normalised by the expected draw count.
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "20261112_0300_hier"
+            run.mkdir()
+            columns = ["SMILES", "Canonical", "Valid", "Desired", "SA_raw"]
+            pd.DataFrame({
+                "SMILES": ["CCO", "CCN"], "Canonical": ["CCO", "CCN"],
+                "Valid": [1, 1], "Desired": [0, 0], "SA_raw": [1.0, 1.0],
+            }).to_csv(run / "prior.tsv", sep="\t", index=False, columns=columns)
+            pd.DataFrame({
+                "SMILES": ["c1ccccc1C", "c1ccncc1C", "C1CCCCC1C", "CCO"],
+                "Canonical": ["c1ccccc1C", "c1ccncc1C", "C1CCCCC1C", "CCO"],
+                "Valid": [1, 1, 1, 1], "Desired": [1, 1, 0, 0], "SA_raw": [1.0] * 4,
+            }).to_csv(run / "final_desired_ratio_at_stop.tsv", sep="\t", index=False,
+                      columns=columns)
+            (run / "manifest.json").write_text(json.dumps({
+                "state": "complete", "config": {"scheme": "PRCD", "n_final": 4},
+            }))
+            profile = {
+                "version": diversity.DIVERSITY_VERSION,
+                "arms": {
+                    "prior": {},
+                    "stop": {
+                        "effective_scaffolds": 3.0,
+                        "scaffold_internal_diversity": 0.4,
+                        "sidechain_internal_diversity": 0.7,
+                        "scaffold_entropy_ratio": 0.6,
+                    },
+                },
+                "sources": diversity._sources(run),
+            }
+            (run / "cache_stats").mkdir()
+            (run / "cache_stats" / "diversity.json").write_text(json.dumps(profile))
+            record = collapse.scan_run(run, legacy=False)
+            levelled = record["diversity"]
+            self.assertEqual(levelled["scaffold_internal_diversity"], 0.4)
+            self.assertEqual(levelled["sidechain_internal_diversity"], 0.7)
+            self.assertEqual(levelled["scaffold_entropy_ratio"], 0.6)
+            # Stop arm: 2 desired of 4 draws, 3.0 effective scaffolds -> 0.5 * 3 / 4.
+            self.assertAlmostEqual(record["arms"]["stop"]["desired_ratio"], 0.5)
+            self.assertAlmostEqual(levelled["effective_desired_yield"], 0.375)
+
 
 class DiversityProfile(unittest.TestCase):
     """The chemical-diversity metrics and the cache that keeps them cheap."""
@@ -1283,6 +1437,55 @@ class DiversityProfile(unittest.TestCase):
         self.assertEqual(len(thumb["prior"]["x"]), len(thumb["stop"]["x"]))
         self.assertLessEqual(sum(thumb["explained"]), 1.0 + 1e-9)
         self.assertTrue(all(d == 1 for d in thumb["stop"]["desired"]))
+
+    def test_scaffold_diversity_is_blind_to_decoration(self):
+        # One benzene scaffold, five different side chains: the molecules differ and the
+        # whole-molecule layer says so, but the arm holds a single scaffold family.
+        hats = [f"c1ccc(C{'C' * i})cc1" for i in range(1, 6)]
+        profile = diversity.arm_profile(
+            diversity.ArmUniques(self._frame([(smi, 1, 1) for smi in hats]))
+        )
+        self.assertEqual(profile["scaffolds"], 1)
+        self.assertEqual(profile["scaffold_internal_diversity"], 0.0)
+        self.assertGreater(profile["internal_diversity"], 0.0)
+        self.assertGreater(profile["sidechain_internal_diversity"], 0.0)
+
+    def test_sidechain_diversity_is_blind_to_the_scaffold(self):
+        # The mirror case: four ring systems wearing the same ethyl decoration. Breadth in
+        # the scaffolds, none in the side chains — the layers must disagree by design.
+        skeletons = ["c1ccccc1CC", "c1ccncc1CC", "c1ccc2ccccc2c1CC", "C1CCCCC1CC"]
+        profile = diversity.arm_profile(
+            diversity.ArmUniques(self._frame([(smi, 1, 1) for smi in skeletons]))
+        )
+        self.assertEqual(profile["scaffolds"], len(skeletons))
+        self.assertGreater(profile["scaffold_internal_diversity"], 0.0)
+        self.assertEqual(profile["sidechain_internal_diversity"], 0.0)
+
+    def test_scaffold_entropy_ratio_is_scaffold_breadth_per_effective_molecule(self):
+        # Ten uniform draws over one scaffold: 10 effective molecules, 1 effective family.
+        hats = [f"c1ccc(C{'C' * i})cc1" for i in range(1, 11)]
+        profile = diversity.arm_profile(
+            diversity.ArmUniques(self._frame([(smi, 1, 1) for smi in hats]))
+        )
+        self.assertAlmostEqual(profile["effective_molecules"], 10.0)
+        self.assertAlmostEqual(profile["effective_scaffolds"], 1.0)
+        self.assertAlmostEqual(profile["scaffold_entropy_ratio"], 0.1)
+
+    def test_effective_desired_yield_prices_reward_in_scaffold_families(self):
+        # Same desired fraction (0.4), same draw count (5): the arm with five scaffold
+        # families yields five times the distinct desired chemistry of the one with one.
+        hats = [f"c1ccc(C{'C' * i})cc1" for i in range(1, 6)]
+        skeletons = ["c1ccccc1CC", "c1ccncc1CC", "c1ccc2ccccc2c1CC", "C1CCCCC1CC", "c1ccoc1CC"]
+        flags = [1, 1, 0, 0, 0]
+        one_family = diversity.arm_profile(diversity.ArmUniques(
+            self._frame([(smi, 1, flag) for smi, flag in zip(hats, flags)])))
+        five_families = diversity.arm_profile(diversity.ArmUniques(
+            self._frame([(smi, 1, flag) for smi, flag in zip(skeletons, flags)])))
+        self.assertAlmostEqual(one_family["effective_desired_yield"], 0.4 / 5)
+        self.assertAlmostEqual(
+            five_families["effective_desired_yield"],
+            5 * one_family["effective_desired_yield"],
+        )
 
 
 if __name__ == "__main__":

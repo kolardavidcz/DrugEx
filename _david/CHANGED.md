@@ -165,6 +165,29 @@ no longer visible in it. This tree makes **exactly one** native change, `FAILURE
 `drugex/training/scorers/properties.py` (§2), which is documented at the definition, in the commit
 message, and pinned by a test.
 
+## 11. MetaCentrum is a staged release, not a remote checkout
+
+A job runs `git archive <revision>` from the local commit, unpacks it under
+`$STORAGE/releases/<sha>/`, and copies it into scratch before running. Remote edits cannot
+change an experiment, and an uncommitted local edit cannot leak into one: `submit` refuses a
+dirty tracked tree. The release carries the pretrained checkpoint and vocabulary it was
+staged with; results are copied back on success, failure, `SIGTERM` and `SIGINT`.
+
+The CLI carries **only deltas** — bare `NAME=VALUE` pairs naming a field of `Config` — so the
+defaults have one home and a submission cannot restate them inconsistently. Resource
+validation happens locally: a job name must be a legal PBS name and run tag, cores and memory
+must respect the measured ~2 GB per scoring worker, and the walltime must be `HH:MM:SS`,
+because these are exactly the mistakes that otherwise surface after the queue wait. Queue
+choice is not a knob: the requested walltime routes through the `default` router, and the
+helpful queue label is printed before `qsub`.
+
+The planned sweep is `campaign.py`: a full factorial per batch over declared axes, validated
+as a whole before the first `qsub`, staged once per batch, skipping specs that already exist
+on storage. `RUNBOOK.md` is the operator contract; `monitor.py` reads the live `rl_fit.tsv`
+from a running job's scratch directory and warns when the ETA exceeds the walltime or an
+epoch has not appeared for 30 minutes. Nothing here changes the science: the job body calls
+the same `_david.code.run` entry point, with the same single-checkpoint training loop.
+
 ---
 
 ### How this is meant to stay true

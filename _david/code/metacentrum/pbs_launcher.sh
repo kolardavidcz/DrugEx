@@ -9,7 +9,7 @@
 #
 # The #PBS lines are fallbacks for a hand-run qsub; submit.py passes the real resources.
 #PBS -N drugex_v2
-#PBS -l select=1:ncpus=16:mem=32gb:scratch_local=15gb:spec=8.0
+#PBS -l select=1:ncpus=16:mem=64gb:scratch_local=15gb:spec=8.0
 #PBS -l walltime=24:00:00
 #PBS -j oe
 
