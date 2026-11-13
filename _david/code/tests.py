@@ -9,7 +9,9 @@ import tempfile
 import time
 import types
 import unittest
+from contextlib import redirect_stdout
 from dataclasses import replace
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1244,7 +1246,7 @@ Job Id: 25256880.pbs-m1.metacentrum.cz
             "job.py must not import Config (torch), so the test guards the duplicate",
         )
 
-    def test_the_table_puts_the_live_epoch_beside_the_job(self):
+    def test_the_table_is_the_six_columns_that_get_read(self):
         jobs = [
             monitor.Job(
                 job_id="1.pbs", short_id="1", name="wcm_e20fdq0", state="R", queue="q_1d",
@@ -1269,34 +1271,81 @@ Job Id: 25256880.pbs-m1.metacentrum.cz
             {"id": "2", "state": "Q"},
         ]
         rows = monitor.table_rows(jobs, reports)
-        self.assertIn("EPOCH", rows[0])
-        self.assertIn("wcm_e20fdq0", rows[1])
-        self.assertIn("12/70", rows[1], "the epoch is what makes the table worth printing")
-        self.assertIn("16c/32G", rows[1], "the request explains an OOM before it happens")
-        self.assertIn("17m", rows[1], "the rate turns the epoch into an ETA")
-        self.assertIn("adan5", rows[1])
-        self.assertIn("Not Running", rows[2], "a queued job says why it is queued")
-        self.assertNotIn("/70", rows[2], "a queued job has no epoch to report")
-        names = [row.split()[3] for row in rows[1:]]
+        self.assertEqual(
+            rows[0].split(),
+            ["NAME", "QUEUE", "ELAPSED", "EPOCH", "RATE", "ETA"],
+            "six columns, and no seventh: the table is read at a glance",
+        )
+        self.assertEqual(
+            rows[1].split(),
+            ["wcm_e20fdq0", "q_1d", "3:19:12", "12/70", "17m", "16:02:48"],
+        )
+        self.assertEqual(rows[2].split(), ["rebuild_1", "q_1d", "?", "-", "-", "-"])
+        names = [row.split()[0] for row in rows[1:]]
         self.assertEqual(names, ["wcm_e20fdq0", "rebuild_1"], "running before queued")
 
-    def test_the_table_flags_an_eta_that_cannot_fit_and_a_stale_epoch(self):
+    def test_the_table_says_why_a_job_is_queued_without_a_column_for_it(self):
+        jobs = [
+            monitor.Job(
+                job_id="2.pbs", short_id="2", name="rebuild_1", state="Q", queue="q_1d",
+                node="unknown", elapsed=None, limit=86400,
+                comment="Not Running: Insufficient amount of resource: ncpus",
+            )
+        ]
+        printed = StringIO()
+        with redirect_stdout(printed):
+            monitor.print_table(jobs, [{"id": "2", "state": "Q"}])
+        self.assertIn("queued rebuild_1: Not Running", printed.getvalue())
+
+    def test_the_eta_is_marked_when_it_overruns_the_walltime(self):
         job = monitor.Job(
             job_id="1.pbs", short_id="1", name="wsu_e10c30q0", state="R", queue="q_1d",
             node="alfrid5", elapsed=3600, limit=86400, ncpus=16, memory_gb=32,
         )
-        overrun = monitor.job_table_note(
-            job,
-            {"epochs_done": 3, "epochs_target": 70, "eta_s": 90000.0, "last_epoch_age_s": 60.0},
+        self.assertEqual(monitor._eta_cell(job, {"eta_s": 90000.0}), "!25:00:00")
+        self.assertEqual(monitor._eta_cell(job, {"eta_s": 600.0}), "10:00")
+        self.assertEqual(monitor._eta_cell(job, {}), "-", "no epoch, no estimate")
+
+    def test_the_setup_before_epoch_one_is_taken_out_of_the_rate(self):
+        job = monitor.Job(
+            job_id="1.pbs", short_id="1", name="w_e00q1", state="R", queue="q_1d",
+            node="adan5", elapsed=3600, limit=86400,
         )
-        self.assertIn("ETA>wall", overrun)
-        stale = monitor.job_table_note(
-            job,
-            {"epochs_done": 3, "epochs_target": 70, "eta_s": 10.0, "last_epoch_age_s": 2600.0},
+        # The run started 3600 s ago, so it began at 96400; prior.tsv landed 600 s in.
+        self.assertEqual(monitor.head_seconds(job, "97000", 100000.0), 600.0)
+        self.assertIsNone(monitor.head_seconds(job, "", 100000.0), "no prior.tsv yet")
+
+    def test_the_eta_counts_the_arms_that_run_after_the_last_epoch(self):
+        self.assertEqual(monitor.tail_seconds(5000), 36 * 60)
+        self.assertEqual(monitor.tail_seconds(1000), 36 * 60 / 5, "the tail re-scores n_final")
+        self.assertEqual(monitor.tail_seconds(None), 36 * 60, "unknown n_final: assume the default")
+
+    def test_the_eta_leaves_out_the_setup_and_keeps_the_tail(self):
+        job = monitor.Job(
+            job_id="1.pbs", short_id="1", name="w_e00q1", state="R", queue="q_1d",
+            node="adan5", elapsed=3600, limit=86400,
         )
-        self.assertIn("stale 43m", stale)
-        starting = monitor.job_table_note(job, {"state": "R"})
-        self.assertIn("no epoch yet", starting)
+        now = 100_000.0
+        probe = {
+            "rows": ["10\t0.5"],
+            "header": ["Epoch"],
+            "count": "11",
+            "mtime": str(now - 60),
+            "epochs": "70",
+            "prior": str(now - 3600 + 600),
+            "final": "5000",
+        }
+        with (
+            patch.object(monitor.time, "time", return_value=now),
+            patch.object(monitor, "probe_node", return_value=probe),
+        ):
+            report = monitor.job_report(job, 5)
+        self.assertAlmostEqual(report["sec_per_epoch"], 300.0, msg="(3600 - 600) s over 10 epochs")
+        self.assertAlmostEqual(
+            report["eta_s"],
+            60 * 300.0 + 36 * 60.0,
+            msg="60 epochs left, plus the three arms and the figures",
+        )
 
     def test_a_pbs_memory_request_is_read_as_whole_gigabytes(self):
         self.assertEqual(monitor._memory_gb("32gb"), 32)

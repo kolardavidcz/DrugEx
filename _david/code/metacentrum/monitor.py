@@ -187,6 +187,11 @@ if [ -f "$M" ]; then
     echo "EPOCHS=$(grep -m1 '"epochs"' "$M" | tr -dc '0-9')"
     echo "STATE=$(grep -m1 '"state"' "$M" | cut -d'"' -f4)"
 fi
+# Prior sampling ends when prior.tsv is written, which is the boundary between the
+# fixed cost before epoch 1 and the per-epoch work. config.json gives n_final, which
+# sizes the post-training tail.
+echo "PRIOR=$(stat -c %Y "${{R}}"prior.tsv 2>/dev/null)"
+echo "FINAL=$(grep -m1 '"n_final"' "${{R}}"config.json 2>/dev/null | tr -dc '0-9')"
 """
     return parse_probe(run(["ssh", *SSH_OPTS, node, script]))
 
@@ -249,6 +254,37 @@ def pbs_log_tail(name: str, lines: int, short_id: str | None = None) -> tuple[st
     return path, "".join(tail).rstrip()
 
 
+#: What happens after the epoch loop: three 5000-molecule arms (best-epoch, at-stop,
+#: gmean) and then the figures. Measured over 132 finished runs: median 36 min, p10 24,
+#: p90 68 -- and flat across 10/20/30 conformers, because the arms are what they are.
+TAIL_MINUTES = 36.0
+TAIL_REFERENCE_N = 5000
+
+
+def tail_seconds(n_final: int | None) -> float:
+    """The work a run still owes after its last epoch, sized by what it re-scores."""
+    if not isinstance(n_final, int) or n_final <= 0:
+        return TAIL_MINUTES * 60.0
+    return TAIL_MINUTES * 60.0 * n_final / TAIL_REFERENCE_N
+
+
+def head_seconds(job: Job, prior_mtime: object, now: float) -> float | None:
+    """How much of ``elapsed`` was spent before epoch 1 rather than in it.
+
+    ``prior.tsv`` is written when the prior sampling finishes, immediately before the
+    loop starts, and the run starts at ``now - elapsed``. Leaving that setup cost inside
+    the per-epoch rate (median 55 min, so a full epoch's worth at 10 conformers) makes
+    every early ETA several times too large, and it keeps decaying for the whole run.
+    """
+    if not job.elapsed:
+        return None
+    try:
+        written = float(str(prior_mtime))
+    except (TypeError, ValueError):
+        return None
+    return max(written - (now - job.elapsed), 0.0)
+
+
 def job_report(job: Job, lines: int) -> dict[str, object]:
     probe = probe_node(job.node, job.short_id, lines) if job.state == "R" else {}
     now = time.time()
@@ -282,11 +318,19 @@ def job_report(job: Job, lines: int) -> dict[str, object]:
         target_epochs = int(target) if target.isdigit() else None
         report["epochs_target"] = target_epochs
         report["manifest_state"] = probe.get("state", "")
+        report["n_final"] = _as_int(probe.get("final"))
+        head = head_seconds(job, probe.get("prior"), now)
+        report["head_s"] = head
         if job.elapsed and done:
-            per_epoch = job.elapsed / done
+            working = job.elapsed - head if head is not None else job.elapsed
+            per_epoch = max(working, 0.0) / done
             report["sec_per_epoch"] = per_epoch
-            if target_epochs:
-                report["eta_s"] = max(target_epochs - done, 0) * per_epoch
+            # One epoch is not a rate: the setup it sits next to is several times its
+            # length, so an ETA from it is either 60 h or 36 min depending on rounding.
+            if target_epochs and done >= 2:
+                report["eta_s"] = max(target_epochs - done, 0) * per_epoch + tail_seconds(
+                    report["n_final"]
+                )
     elif job.state == "R":
         path, tail = pbs_log_tail(job.name, PBS_LOG_LINES, job.short_id)
         report["pbs_log"] = path
@@ -312,9 +356,7 @@ def probe_all(jobs: list[Job], lines: int = 0) -> list[dict[str, object]]:
         with concurrent.futures.ThreadPoolExecutor(max_workers=PROBE_WORKERS) as pool:
             futures = {job.short_id: pool.submit(job_report, job, lines) for job in running}
             probes = {key: future.result() for key, future in futures.items()}
-    return [
-        probes[job.short_id] if job.state == "R" else job_report(job, lines) for job in jobs
-    ]
+    return [probes[job.short_id] if job.state == "R" else job_report(job, lines) for job in jobs]
 
 
 def _rate(seconds: object) -> str:
@@ -332,40 +374,32 @@ def _epoch_cell(report: dict[str, object]) -> str:
     return f"{done}/{report.get('epochs_target') or '?'}"
 
 
-def job_table_note(job: Job, report: dict[str, object]) -> str:
-    """Why the row is worth a second look: not running, late, or over its walltime."""
-    if job.state != "R":
-        return job.comment or job.state
-    notes = []
+def _eta_cell(job: Job, report: dict[str, object]) -> str:
+    """Time left, marked ``!`` when it cannot fit in what remains of the walltime.
+
+    The mark is one character wide on purpose: a ``NOTE`` column costs more width than
+    the whole rest of the table and is empty on most rows.
+    """
     eta, elapsed, limit = report.get("eta_s"), job.elapsed, job.limit
-    if isinstance(eta, (int, float)) and elapsed and limit and eta > limit - elapsed:
-        notes.append("ETA>wall")
-    age = report.get("last_epoch_age_s")
-    if isinstance(age, (int, float)) and age > STALE_EPOCH_SECONDS:
-        notes.append(f"stale {age / 60:.0f}m")
-    if not isinstance(report.get("epochs_done"), int):
-        notes.append("no epoch yet")
-    return ", ".join(notes)
+    if not isinstance(eta, (int, float)):
+        return "-"
+    if elapsed and limit and eta > limit - elapsed:
+        return f"!{human_seconds(eta)}"
+    return human_seconds(eta)
 
 
 def table_rows(jobs: list[Job], reports: list[dict[str, object]]) -> list[str]:
-    """The table: what each job is, where it runs, how far it got and how long is left."""
+    """One row per job: what it is, how far it got, how fast, and how long is left."""
     by_id = {report["id"]: report for report in reports}
     ordered = sorted(jobs, key=lambda job: (job.state != "R", job.name))
     width = max([len(job.name) for job in ordered] + [4])
-    rows = [
-        f"{'JOB':<10} {'ST':<2} {'QUEUE':<6} {'NAME':<{width}} {'ELAPSED/LIMIT':<15} "
-        f"{'EPOCH':>7} {'RATE':>5} {'ETA':>8} {'RES':>9} {'NODE':<15} NOTE"
-    ]
+    rows = [f"{'NAME':<{width}} {'QUEUE':<6} {'ELAPSED':>10} {'EPOCH':>7} {'RATE':>5} {'ETA':>10}"]
     for job in ordered:
         report = by_id.get(job.short_id, {})
-        elapsed = f"{human_seconds(job.elapsed)}/{human_seconds(job.limit)}"
-        request = f"{job.ncpus or '?'}c/{job.memory_gb or '?'}G"
         rows.append(
-            f"{job.short_id:<10} {job.state:<2} {job.queue:<6} {job.name:<{width}} "
-            f"{elapsed:<15} {_epoch_cell(report):>7} {_rate(report.get('sec_per_epoch')):>5} "
-            f"{human_seconds(report.get('eta_s')):>8} {request:>9} "
-            f"{job.node[:15]:<15} {job_table_note(job, report)}"
+            f"{job.name:<{width}} {job.queue:<6} {human_seconds(job.elapsed):>10} "
+            f"{_epoch_cell(report):>7} {_rate(report.get('sec_per_epoch')):>5} "
+            f"{_eta_cell(job, report):>10}"
         )
     return rows
 
@@ -382,10 +416,34 @@ def print_table(jobs: list[Job], reports: list[dict[str, object]]) -> None:
     print()
     for row in table_rows(jobs, reports):
         print(f" {row}")
-    reporting = sum(isinstance(r.get("epochs_done"), int) for r in reports if r.get("state") == "R")
-    cores = sum(job.ncpus or 0 for job in jobs if job.state == "R")
+
+    by_id = {report["id"]: report for report in reports}
+    overrun = [
+        job.name
+        for job in jobs
+        if job.state == "R" and _eta_cell(job, by_id[job.short_id]).startswith("!")
+    ]
+    stale = [
+        f"{job.name} {by_id[job.short_id]['last_epoch_age_s'] / 60:.0f}m"
+        for job in jobs
+        if job.state == "R"
+        and isinstance(by_id[job.short_id].get("last_epoch_age_s"), (int, float))
+        and by_id[job.short_id]["last_epoch_age_s"] > STALE_EPOCH_SECONDS
+    ]
+    queued = [f"{job.name}: {job.comment}" for job in jobs if job.state != "R" and job.comment]
+
     print()
-    print(f" {reporting} running job(s) report an epoch; {cores} cores allocated")
+    if overrun:
+        print(f" ! ETA overruns the walltime left ({len(overrun)}): {', '.join(overrun)}")
+    if stale:
+        print(f" no new epoch for 30+ min: {', '.join(stale)}")
+    for line in queued:
+        print(f" queued {line}")
+    if any(isinstance(by_id[job.short_id].get("eta_s"), (int, float)) for job in jobs):
+        print(
+            f" ETA = epochs left at RATE, plus the {TAIL_MINUTES:.0f} min tail "
+            f"(3 arms at n_final={TAIL_REFERENCE_N} and the figures)"
+        )
 
 
 def print_human(jobs: list[Job], reports: list[dict[str, object]]) -> None:

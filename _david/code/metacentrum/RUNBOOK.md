@@ -276,18 +276,39 @@ short table shifts columns with long job names. It prints state (`R` running, `Q
 `H` held), queue, elapsed/limit, job id and name.
 
 `table` is the one-screen answer to "what is running and how far is it": one row per job with
-the **live epoch**, the rate it is advancing at, the ETA against its walltime, and the cores /
-memory it was given. The note column is where the two failures of a 32 GB request surface
-before the cgroup does it for you — `ETA>wall` (the epoch rate cannot reach 70 inside 24 h) and
-`stale Nm` (no new epoch for 30+ min). A queued job shows its `comment` instead, which is
-usually `Not Running: Insufficient amount of resource: ncpus`. It probes every running job's
-scratch directory, eight SSH round trips at a time, so it takes seconds rather than a minute.
+its full name, queue, elapsed time, the **live epoch**, the rate it is advancing at, and the
+time it still needs.
 
 ```text
- JOB        ST QUEUE  NAME         ELAPSED/LIMIT     EPOCH  RATE      ETA      RES NODE    NOTE
- 25480639   R  q_1d   wso_e00c20q0 3:09:18/24:00:00    8/70   24m 24:27:04 16c/32G adan5   ETA>wall
- 25495921   Q  q_1d   rebuild_1    ?/24:00:00            -     -        ? 16c/32G unknown Not Running: …
+ METACENTRUM  2026-11-13 02:44:37   74 running, 0 queued
+
+ NAME           QUEUE     ELAPSED   EPOCH  RATE        ETA
+ p_m1e00r4c30q1 q_2d     17:42:21   70/70   15m      36:00
+ wsu_e10c30q1   q_1d      2:44:58    8/70   14m   15:30:13
+ rebuild_1      q_1d      2:04:15       -     -          -
+
+ ! ETA overruns the walltime left (1): wsu_e10c30q0
+ ETA = epochs left at RATE, plus the 36 min tail (3 arms at n_final=5000 and the figures)
 ```
+
+`RATE` is minutes per epoch **with the setup taken out**: `prior.tsv` is written when the
+prior sampling ends and the loop begins, so `(elapsed - that moment) / epochs` is the cost of
+an epoch rather than the cost of an epoch averaged with a 55 min calibration.
+
+`ETA` is `(epochs left) x RATE` **plus the tail**, because a run is not done at epoch 70: it
+still scores three 5000-molecule arms (best-epoch, at-stop, gmean) and draws the figures.
+Measured over 132 finished runs that tail is a median 36 min — and it is where runs die. Of
+the local runs that reached epoch 70, 35 have no at-stop arm; 20 of them stopped within a
+second of logging the training summary, before the first arm wrote anything. An ETA that
+ended at `0:00` on epoch 70 was telling you the job was finished at the exact moment it was
+being killed. `!` means the ETA does not fit in what is left of the walltime.
+
+Everything else that used to deserve a column is a line below the table: the jobs the `!`
+belongs to, any job with no new epoch for 30+ min, and the `comment` of each queued job
+(usually `Not Running: Insufficient amount of resource: ncpus`). It probes every running job's
+scratch directory, eight SSH round trips at a time, so it takes seconds rather than a minute,
+and it streams the local `monitor.py` to the login node so the columns are the ones in your
+working tree.
 
 `watch` runs `monitor.py` on the login node. It finds each running job's scratch directory on
 its worker, reads `rl_fit.tsv`, and prints the last epochs with a per-epoch rate, an ETA
