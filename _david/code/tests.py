@@ -1244,6 +1244,80 @@ Job Id: 25256880.pbs-m1.metacentrum.cz
             "job.py must not import Config (torch), so the test guards the duplicate",
         )
 
+    def test_the_table_puts_the_live_epoch_beside_the_job(self):
+        jobs = [
+            monitor.Job(
+                job_id="1.pbs", short_id="1", name="wcm_e20fdq0", state="R", queue="q_1d",
+                node="adan5", elapsed=11952, limit=86400, ncpus=16, memory_gb=32,
+            ),
+            monitor.Job(
+                job_id="2.pbs", short_id="2", name="rebuild_1", state="Q", queue="q_1d",
+                node="unknown", elapsed=None, limit=86400, ncpus=16, memory_gb=32,
+                comment="Not Running: Insufficient amount of resource: ncpus",
+            ),
+        ]
+        reports = [
+            {
+                "id": "1",
+                "state": "R",
+                "epochs_done": 12,
+                "epochs_target": 70,
+                "sec_per_epoch": 996.0,
+                "eta_s": 57768.0,
+                "last_epoch_age_s": 300.0,
+            },
+            {"id": "2", "state": "Q"},
+        ]
+        rows = monitor.table_rows(jobs, reports)
+        self.assertIn("EPOCH", rows[0])
+        self.assertIn("wcm_e20fdq0", rows[1])
+        self.assertIn("12/70", rows[1], "the epoch is what makes the table worth printing")
+        self.assertIn("16c/32G", rows[1], "the request explains an OOM before it happens")
+        self.assertIn("17m", rows[1], "the rate turns the epoch into an ETA")
+        self.assertIn("adan5", rows[1])
+        self.assertIn("Not Running", rows[2], "a queued job says why it is queued")
+        self.assertNotIn("/70", rows[2], "a queued job has no epoch to report")
+        names = [row.split()[3] for row in rows[1:]]
+        self.assertEqual(names, ["wcm_e20fdq0", "rebuild_1"], "running before queued")
+
+    def test_the_table_flags_an_eta_that_cannot_fit_and_a_stale_epoch(self):
+        job = monitor.Job(
+            job_id="1.pbs", short_id="1", name="wsu_e10c30q0", state="R", queue="q_1d",
+            node="alfrid5", elapsed=3600, limit=86400, ncpus=16, memory_gb=32,
+        )
+        overrun = monitor.job_table_note(
+            job,
+            {"epochs_done": 3, "epochs_target": 70, "eta_s": 90000.0, "last_epoch_age_s": 60.0},
+        )
+        self.assertIn("ETA>wall", overrun)
+        stale = monitor.job_table_note(
+            job,
+            {"epochs_done": 3, "epochs_target": 70, "eta_s": 10.0, "last_epoch_age_s": 2600.0},
+        )
+        self.assertIn("stale 43m", stale)
+        starting = monitor.job_table_note(job, {"state": "R"})
+        self.assertIn("no epoch yet", starting)
+
+    def test_a_pbs_memory_request_is_read_as_whole_gigabytes(self):
+        self.assertEqual(monitor._memory_gb("32gb"), 32)
+        self.assertEqual(monitor._memory_gb(" 64gb"), 64)
+        self.assertIsNone(monitor._memory_gb(""))
+
+    def test_the_table_command_streams_the_local_monitor(self):
+        with patch.object(submit_module.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            with self.assertRaises(SystemExit):
+                submit_module.table("rebuild_1")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[0], "ssh", "the table is read on the login node")
+        self.assertIn("--table", argv[-1])
+        self.assertIn("rebuild_1", argv[-1])
+        self.assertIn(
+            b"--table",
+            run.call_args.kwargs["input"],
+            "the script travels over stdin, so no sync is needed to see the new columns",
+        )
+
     def test_the_queue_script_watches_only_the_three_useful_lanes(self):
         self.assertEqual(queues.QUEUES, ("q_4h", "q_1d", "q_2d"))
         self.assertIn("NOT for training", queues.ROLE["q_4h"])

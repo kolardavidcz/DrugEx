@@ -268,6 +268,7 @@ tree is the older experiment.
 
 ```bash
 $PY -m _david.code.metacentrum.submit status
+$PY -m _david.code.metacentrum.submit table
 $PY -m _david.code.metacentrum.submit watch
 $PY -m _david.code.metacentrum.submit watch -i 60 --job egcg_probe
 $PY -m _david.code.metacentrum.submit logs egcg_probe -f
@@ -276,6 +277,20 @@ $PY -m _david.code.metacentrum.submit logs egcg_probe -f
 `status` reads **long-format `qstat -f`**, resolving ids through `qselect` first, because the
 short table shifts columns with long job names. It prints state (`R` running, `Q` queued,
 `H` held), queue, elapsed/limit, job id and name.
+
+`table` is the one-screen answer to "what is running and how far is it": one row per job with
+the **live epoch**, the rate it is advancing at, the ETA against its walltime, and the cores /
+memory it was given. The note column is where the two failures of a 32 GB request surface
+before the cgroup does it for you — `ETA>wall` (the epoch rate cannot reach 70 inside 24 h) and
+`stale Nm` (no new epoch for 30+ min). A queued job shows its `comment` instead, which is
+usually `Not Running: Insufficient amount of resource: ncpus`. It probes every running job's
+scratch directory, eight SSH round trips at a time, so it takes seconds rather than a minute.
+
+```text
+ JOB        ST QUEUE  NAME         ELAPSED/LIMIT     EPOCH  RATE      ETA      RES NODE    NOTE
+ 25480639   R  q_1d   wso_e00c20q0 3:09:18/24:00:00    8/70   24m 24:27:04 16c/32G adan5   ETA>wall
+ 25495921   Q  q_1d   rebuild_1    ?/24:00:00            -     -        ? 16c/32G unknown Not Running: …
+```
 
 `watch` runs `monitor.py` on the login node. It finds each running job's scratch directory on
 its worker, reads `rl_fit.tsv`, and prints the last epochs with a per-epoch rate, an ETA

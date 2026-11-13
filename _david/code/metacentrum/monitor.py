@@ -19,6 +19,7 @@ half-synced, so it never imports the DrugEx package.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import glob
 import json
 import os
@@ -56,6 +57,9 @@ class Job:
     elapsed: int | None
     limit: int | None
     comment: str = ""
+    #: The request, in the units the table prints: cores and whole GB.
+    ncpus: int | None = None
+    memory_gb: int | None = None
 
 
 def parse_walltime(value: str) -> int | None:
@@ -105,9 +109,24 @@ def parse_qstat_full(text: str) -> list[Job]:
                 elapsed=parse_walltime(fields.get("resources_used.walltime", "")),
                 limit=parse_walltime(fields.get("Resource_List.walltime", "")),
                 comment=fields.get("comment", ""),
+                ncpus=_as_int(fields.get("Resource_List.ncpus") or fields.get("NCPUS")),
+                memory_gb=_memory_gb(fields.get("Resource_List.mem", "")),
             )
         )
     return jobs
+
+
+def _as_int(value: str | None) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _memory_gb(value: str) -> int | None:
+    """``'32gb'`` -> 32. Every job in this pipeline requests whole gigabytes."""
+    match = re.match(r"\s*(\d+(?:\.\d+)?)", value or "")
+    return int(float(match.group(1))) if match else None
 
 
 def _node_name(fields: dict[str, str]) -> str:
@@ -276,6 +295,99 @@ def job_report(job: Job, lines: int) -> dict[str, object]:
     return report
 
 
+# --------------------------------------------------------------------------- #
+# the one-shot table
+# --------------------------------------------------------------------------- #
+
+#: Each probe is an SSH round trip to a different worker; they are independent, so a
+#: 25-job table runs them side by side instead of taking a minute.
+PROBE_WORKERS = 8
+
+
+def probe_all(jobs: list[Job], lines: int = 0) -> list[dict[str, object]]:
+    """One report per job, probing the running ones concurrently."""
+    running = [job for job in jobs if job.state == "R"]
+    probes: dict[str, dict[str, object]] = {}
+    if running:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=PROBE_WORKERS) as pool:
+            futures = {job.short_id: pool.submit(job_report, job, lines) for job in running}
+            probes = {key: future.result() for key, future in futures.items()}
+    return [
+        probes[job.short_id] if job.state == "R" else job_report(job, lines) for job in jobs
+    ]
+
+
+def _rate(seconds: object) -> str:
+    """Minutes per epoch, because a PBS board is read in minutes, not seconds."""
+    if not isinstance(seconds, (int, float)) or seconds <= 0:
+        return "-"
+    minutes = seconds / 60
+    return f"{minutes:.0f}m" if minutes < 100 else f"{minutes / 60:.1f}h"
+
+
+def _epoch_cell(report: dict[str, object]) -> str:
+    done = report.get("epochs_done")
+    if not isinstance(done, int):
+        return "-"
+    return f"{done}/{report.get('epochs_target') or '?'}"
+
+
+def job_table_note(job: Job, report: dict[str, object]) -> str:
+    """Why the row is worth a second look: not running, late, or over its walltime."""
+    if job.state != "R":
+        return job.comment or job.state
+    notes = []
+    eta, elapsed, limit = report.get("eta_s"), job.elapsed, job.limit
+    if isinstance(eta, (int, float)) and elapsed and limit and eta > limit - elapsed:
+        notes.append("ETA>wall")
+    age = report.get("last_epoch_age_s")
+    if isinstance(age, (int, float)) and age > STALE_EPOCH_SECONDS:
+        notes.append(f"stale {age / 60:.0f}m")
+    if not isinstance(report.get("epochs_done"), int):
+        notes.append("no epoch yet")
+    return ", ".join(notes)
+
+
+def table_rows(jobs: list[Job], reports: list[dict[str, object]]) -> list[str]:
+    """The table: what each job is, where it runs, how far it got and how long is left."""
+    by_id = {report["id"]: report for report in reports}
+    ordered = sorted(jobs, key=lambda job: (job.state != "R", job.name))
+    width = max([len(job.name) for job in ordered] + [4])
+    rows = [
+        f"{'JOB':<10} {'ST':<2} {'QUEUE':<6} {'NAME':<{width}} {'ELAPSED/LIMIT':<15} "
+        f"{'EPOCH':>7} {'RATE':>5} {'ETA':>8} {'RES':>9} {'NODE':<15} NOTE"
+    ]
+    for job in ordered:
+        report = by_id.get(job.short_id, {})
+        elapsed = f"{human_seconds(job.elapsed)}/{human_seconds(job.limit)}"
+        request = f"{job.ncpus or '?'}c/{job.memory_gb or '?'}G"
+        rows.append(
+            f"{job.short_id:<10} {job.state:<2} {job.queue:<6} {job.name:<{width}} "
+            f"{elapsed:<15} {_epoch_cell(report):>7} {_rate(report.get('sec_per_epoch')):>5} "
+            f"{human_seconds(report.get('eta_s')):>8} {request:>9} "
+            f"{job.node[:15]:<15} {job_table_note(job, report)}"
+        )
+    return rows
+
+
+def print_table(jobs: list[Job], reports: list[dict[str, object]]) -> None:
+    print(
+        f" METACENTRUM  {time.strftime('%Y-%m-%d %H:%M:%S')}   "
+        f"{sum(job.state == 'R' for job in jobs)} running, "
+        f"{sum(job.state != 'R' for job in jobs)} queued"
+    )
+    if not jobs:
+        print("\n nothing of yours is queued or running")
+        return
+    print()
+    for row in table_rows(jobs, reports):
+        print(f" {row}")
+    reporting = sum(isinstance(r.get("epochs_done"), int) for r in reports if r.get("state") == "R")
+    cores = sum(job.ncpus or 0 for job in jobs if job.state == "R")
+    print()
+    print(f" {reporting} running job(s) report an epoch; {cores} cores allocated")
+
+
 def print_human(jobs: list[Job], reports: list[dict[str, object]]) -> None:
     print("=" * 78)
     print(f" METACENTRUM LIVE MONITOR   {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -361,6 +473,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--watch", type=int, default=0, help="refresh every N seconds")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument(
+        "--table",
+        action="store_true",
+        help="one row per job: state, queue, elapsed, live epoch, rate, ETA, request, node",
+    )
     args = parser.parse_args(argv)
 
     if shutil.which("qstat") is None:
@@ -376,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.job:
                 wanted = args.job.split(".")[0]
                 jobs = [job for job in jobs if job.short_id == wanted or job.name == args.job]
-            reports = [job_report(job, args.lines) for job in jobs]
+            reports = probe_all(jobs, args.lines)
 
             if args.json:
                 print(
@@ -392,7 +509,10 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 if args.watch and sys.stdout.isatty():
                     print("\033[2J\033[H", end="")
-                print_human(jobs, reports)
+                if args.table:
+                    print_table(jobs, reports)
+                else:
+                    print_human(jobs, reports)
 
             if not args.watch:
                 return 0

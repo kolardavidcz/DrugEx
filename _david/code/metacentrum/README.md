@@ -14,7 +14,7 @@ deltas, resource sizing, monitoring, failure triage and the checklist before say
 | [`RUNBOOK.md`](RUNBOOK.md) | The tutorial: recipes, queue routing, failure triage, checklist. |
 | [`submit.py`](submit.py) | The CLI: `check · sync · submit · rebuild · status · watch · logs · cancel · pull`. |
 | [`campaign.py`](campaign.py) | The planned sweep: batches of full-factorial runs, planning by default. |
-| [`monitor.py`](monitor.py) | Read-only live epoch monitor, run on a login node (stdlib only). |
+| [`monitor.py`](monitor.py) | Read-only live epoch monitor, run on a login node (stdlib only); `submit table` is its one-row-per-job mode. |
 | [`queues.py`](queues.py) | Queue depth for `q_4h`, `q_1d`, `q_2d`; `q_1d` is the training default. |
 | [`memreport.py`](memreport.py) | Requested vs peak memory of finished jobs, against the worker budget; `submit memreport`. |
 | [`pbs_launcher.sh`](pbs_launcher.sh) | PBS entry point: checks the environment and `exec`s the job body. No logic. |

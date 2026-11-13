@@ -6,6 +6,7 @@
     rebuild [--all|--runs …]  complete the arms of runs a walltime kill left unfinished
     status                    the user's queue, from long-format qstat
     memreport [--last N]      requested vs peak memory of finished jobs
+    table                     one row per job, with the epoch it is on
     watch [-i 60]             live epochs of running jobs, read on the login node
     logs <name> [-f]          the PBS stdout of the job, not merely of its name
     cancel <name|id> ...      qdel, resolving names through qselect
@@ -594,17 +595,41 @@ def check() -> None:
 
 def watch(interval: int, lines: int, job: str | None) -> None:
     """Run the read-only monitor on the login node, where qstat and node ssh exist."""
-    script = f"{STORAGE}/current/{PACKAGE}/metacentrum/monitor.py"
-    python = f"{STORAGE}/.venv/bin/python"
-    arguments = [python, script, "--user", USER, "--lines", str(lines)]
+    arguments = ["--lines", str(lines)]
     if job:
         arguments += ["--job", job]
     if interval:
         arguments += ["--watch", str(interval)]
-    command = " ".join(shlex.quote(part) for part in arguments)
-    ssh = ["ssh"]
-    if interval:
-        ssh.append("-t")
+    _monitor(arguments, interactive=bool(interval))
+
+
+def table(job: str | None) -> None:
+    """One row per job, with the epoch it is on: ``submit table``.
+
+    The local ``monitor.py`` is streamed over stdin rather than read from
+    ``$STORAGE/current``: a one-shot view must show the code you are reading, and after a
+    commit the staged release is older than the tree (``sync`` even refuses while the tree
+    is dirty). ``watch`` keeps using the staged copy, because a live loop should survive a
+    broken local tree.
+    """
+    arguments = ["--table"]
+    if job:
+        arguments += ["--job", job]
+    script = (PROJECT_ROOT / PACKAGE / "metacentrum" / "monitor.py").read_bytes()
+    command = " ".join(
+        shlex.quote(part)
+        for part in [f"{STORAGE}/.venv/bin/python", "-", "--user", USER, *arguments]
+    )
+    raise SystemExit(subprocess.run(["ssh", HOST, command], input=script).returncode)
+
+
+def _monitor(arguments: list[str], interactive: bool = False) -> None:
+    script = f"{STORAGE}/current/{PACKAGE}/metacentrum/monitor.py"
+    python = f"{STORAGE}/.venv/bin/python"
+    command = " ".join(
+        shlex.quote(part) for part in [python, script, "--user", USER, *arguments]
+    )
+    ssh = ["ssh", "-t"] if interactive else ["ssh"]
     raise SystemExit(subprocess.run([*ssh, HOST, command]).returncode)
 
 
@@ -767,6 +792,12 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("-n", "--lines", type=int, default=5, help="epoch rows per job")
     status.add_argument("--job", default=None, help="only this job id or name")
 
+    board = sub.add_parser(
+        "table",
+        help="one row per job: state, queue, elapsed, live epoch, rate, ETA, request, node",
+    )
+    board.add_argument("--job", default=None, help="only this job id or name")
+
     log = sub.add_parser("logs")
     log.add_argument("name")
     log.add_argument("-n", "--lines", type=int, default=60)
@@ -812,6 +843,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif args.command == "watch":
         watch(args.interval, args.lines, args.job)
+    elif args.command == "table":
+        table(args.job)
     elif args.command == "logs":
         logs(args.name, args.lines, args.follow)
     elif args.command == "cancel":
