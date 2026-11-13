@@ -24,15 +24,13 @@ deltas, resource sizing, monitoring, failure triage and the checklist before say
 ## Quick reference
 
 ```bash
-PY="$HOME/.local/share/venvs/global/bin/python"
-
-$PY -m _david.code.metacentrum.submit check
-$PY -m _david.code.metacentrum.queues
-$PY -m _david.code.metacentrum.submit submit --name egcg_probe epochs=20
-$PY -m _david.code.metacentrum.submit status
-$PY -m _david.code.metacentrum.submit watch
-$PY -m _david.code.metacentrum.submit logs egcg_probe -f
-$PY -m _david.code.metacentrum.submit pull --name egcg_probe
+python -m _david.code.metacentrum.submit check
+python -m _david.code.metacentrum.queues
+python -m _david.code.metacentrum.submit submit --name egcg_probe epochs=20
+python -m _david.code.metacentrum.submit status
+python -m _david.code.metacentrum.submit watch
+python -m _david.code.metacentrum.submit logs egcg_probe -f
+python -m _david.code.metacentrum.submit pull --name egcg_probe
 ```
 
 Deltas are bare `NAME=VALUE` pairs naming a field of `_david/code/config.py::Config`. Nothing

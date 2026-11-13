@@ -28,18 +28,15 @@ it; the PBS side is a small launcher plus `job.py`, and neither changes per run.
    training. 32 GB places roughly 3× faster than 64 GB; the job body caps scoring workers to
    fit it. Ask for 64 GB only for the heavy cell that grows past ~40 GB.
 
-`PY` below means the local project interpreter:
-
-```bash
-PY="$HOME/.local/share/venvs/global/bin/python"
-```
+`python` below is the project interpreter (the venv that has `drugex` importable), run from
+the repository root.
 
 ---
 
 ## 1. First contact
 
 ```bash
-$PY -m _david.code.metacentrum.submit check
+python -m _david.code.metacentrum.submit check
 ```
 
 It prints, in the order things fail:
@@ -78,8 +75,8 @@ The storage layout is fixed:
 ### 2a. The minimal command
 
 ```bash
-$PY -m _david.code.metacentrum.submit submit --name egcg_probe
-$PY -m _david.code.metacentrum.submit submit --name egcg_probe epochs=20 include_qed=false
+python -m _david.code.metacentrum.submit submit --name egcg_probe
+python -m _david.code.metacentrum.submit submit --name egcg_probe epochs=20 include_qed=false
 ```
 
 Deltas are **bare `NAME=VALUE` pairs**, not pipeline flags. Each one becomes
@@ -176,8 +173,8 @@ raising cores without memory is an OOM kill after the queue wait.
 are in PBS, so after a batch:
 
 ```bash
-$PY -m _david.code.metacentrum.submit memreport --last 40
-$PY -m _david.code.metacentrum.submit memreport --last 200 --json
+python -m _david.code.metacentrum.submit memreport --last 40
+python -m _david.code.metacentrum.submit memreport --last 200 --json
 ```
 
 It prints, per job, request vs peak GB, peak per worker, the budget that shape got and a
@@ -191,8 +188,8 @@ not grow it mid-job; there is no "start at 32 and wait for 64". If a run is know
 past its request (a 50-conformer cell, or a new reference bank), ask for 64 up front:
 
 ```bash
-$PY -m _david.code.metacentrum.submit submit --name heavy --mem 64
-$PY -m _david.code.metacentrum.submit submit --name wide --ncpus 32 --mem 128
+python -m _david.code.metacentrum.submit submit --name heavy --mem 64
+python -m _david.code.metacentrum.submit submit --name wide --ncpus 32 --mem 128
 ```
 
 That job waits longer for a node that can satisfy 64 GB, but it is not killed at 32. This is
@@ -226,8 +223,8 @@ not need one.
 ### 2d. How deep is the queue?
 
 ```bash
-$PY -m _david.code.metacentrum.queues
-$PY -m _david.code.metacentrum.queues --json
+python -m _david.code.metacentrum.queues
+python -m _david.code.metacentrum.queues --json
 ```
 
 It reads `qstat -Qf` and shows only the three lanes that matter (example snapshot from
@@ -251,10 +248,10 @@ Every submission normally stages HEAD. Two flags make that explicit:
 
 ```bash
 # stage and run an older commit
-$PY -m _david.code.metacentrum.submit submit --name rerun --revision <sha>
+python -m _david.code.metacentrum.submit submit --name rerun --revision <sha>
 
 # use a release that is already on storage; never archive or upload
-$PY -m _david.code.metacentrum.submit submit --name rerun --revision <sha> --no-sync
+python -m _david.code.metacentrum.submit submit --name rerun --revision <sha> --no-sync
 ```
 
 `--revision` without `--no-sync` still stages that commit (safe, idempotent). `--no-sync`
@@ -267,11 +264,11 @@ tree is the older experiment.
 ## 3. While it runs
 
 ```bash
-$PY -m _david.code.metacentrum.submit status
-$PY -m _david.code.metacentrum.submit table
-$PY -m _david.code.metacentrum.submit watch
-$PY -m _david.code.metacentrum.submit watch -i 60 --job egcg_probe
-$PY -m _david.code.metacentrum.submit logs egcg_probe -f
+python -m _david.code.metacentrum.submit status
+python -m _david.code.metacentrum.submit table
+python -m _david.code.metacentrum.submit watch
+python -m _david.code.metacentrum.submit watch -i 60 --job egcg_probe
+python -m _david.code.metacentrum.submit logs egcg_probe -f
 ```
 
 `status` reads **long-format `qstat -f`**, resolving ids through `qselect` first, because the
@@ -314,8 +311,8 @@ just because the name was reused; if a live job has not written its log yet, it 
 ## 4. Finishing
 
 ```bash
-$PY -m _david.code.metacentrum.submit pull                    # every run
-$PY -m _david.code.metacentrum.submit pull --name egcg_probe  # one run tag
+python -m _david.code.metacentrum.submit pull                    # every run
+python -m _david.code.metacentrum.submit pull --name egcg_probe  # one run tag
 ```
 
 A job copies its run directory back on success, failure, `SIGTERM` (walltime) and `SIGINT`,
@@ -349,8 +346,8 @@ step, not something `pull` does.
 ## 5. Cancelling
 
 ```bash
-$PY -m _david.code.metacentrum.submit cancel egcg_probe          # all jobs with that name
-$PY -m _david.code.metacentrum.submit cancel 25256877            # by id (full id is fine)
+python -m _david.code.metacentrum.submit cancel egcg_probe          # all jobs with that name
+python -m _david.code.metacentrum.submit cancel 25256877            # by id (full id is fine)
 ```
 
 Names are resolved through `qselect -N`; a name with no queued job is reported, not silently
@@ -365,9 +362,9 @@ nothing else; every setting another batch varies is pinned in `COMMON`, so a spe
 whole experiment.
 
 ```bash
-$PY -m _david.code.metacentrum.campaign                 # plan every batch, submit nothing
-$PY -m _david.code.metacentrum.campaign parent          # plan one batch
-$PY -m _david.code.metacentrum.campaign parent --limit 2 --submit
+python -m _david.code.metacentrum.campaign                 # plan every batch, submit nothing
+python -m _david.code.metacentrum.campaign parent          # plan one batch
+python -m _david.code.metacentrum.campaign parent --limit 2 --submit
 ```
 
 Planning prints each run's name, memory and deltas, plus a worst-case core-hour count,
@@ -395,9 +392,9 @@ A walltime kill during final scoring leaves a run with valid checkpoints and no 
 finish such a run, and it is what `rebuild` does.
 
 ```bash
-$PY -m _david.code.metacentrum.submit rebuild --all --jobs 4 --dry-run   # who is stale?
-$PY -m _david.code.metacentrum.submit rebuild --all --jobs 4             # queue it
-$PY -m _david.code.metacentrum.submit rebuild --runs 20261111_0444_w_e05q0 20261111_0530_c_e05fos20q0
+python -m _david.code.metacentrum.submit rebuild --all --jobs 4 --dry-run   # who is stale?
+python -m _david.code.metacentrum.submit rebuild --all --jobs 4             # queue it
+python -m _david.code.metacentrum.submit rebuild --runs 20261111_0444_w_e05q0 20261111_0530_c_e05fos20q0
 ```
 
 Stale means: `manifest.json` and `models/` exist, `final_desired_ratio_at_stop.tsv` does
