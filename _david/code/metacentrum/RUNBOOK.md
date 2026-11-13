@@ -166,6 +166,18 @@ config default (20 conformers). The cap changes epoch time, never a score, and i
 automatic — do not pass a worker flag. For a rebuild, each run is sized from its **own**
 `config.json`, because one PBS job carries runs of different shapes.
 
+**The worker cap is not what bounds the peak.** The scorers generate every conformer of the
+batch in the parent process before the pool runs, so a job's peak follows
+`n_final × max_conformers` and barely moves with the pool size. Six rebuild jobs of the same
+30 arms peaked at exactly 32.0 GB whether they ran 13 or 16 workers, and five were killed;
+that is a property of the batch, not of the pool. `_david.code.scorers.utils.score_in_chunks`
+therefore scores an arm in slices of 500 molecules (`SCORE_CHUNK`), which puts a 5000 × 20
+arm at ~3 GB instead of ~32 GB. Slicing does not change a score — each molecule is embedded
+in its own `EmbedMultipleConfs` call under a fixed `params.randomSeed`, so its conformers do
+not depend on where it sat in the batch, and a test pins whole-batch and sliced arms to be
+bit-identical. A 64 GB request is still the right answer for a *known* heavy shape (a
+50-conformer bank); chunking is what makes 32 GB enough for the default one.
+
 `Job` still refuses a pairing below ~2 GB per core (`16 cores` → at least `32 GB`), because
 raising cores without memory is an OOM kill after the queue wait.
 

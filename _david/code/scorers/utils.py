@@ -16,6 +16,8 @@ from pathlib import Path
 
 from rdkit import Chem
 
+import pandas as pd
+
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.parallel import capped_n_jobs, pool_context
 
@@ -24,6 +26,44 @@ from _david.code.config import Config
 logger = logging.getLogger(__name__)
 
 _POOL_BROKEN = False
+
+#: Molecules per scoring call. The scorers embed every conformer of the batch in the parent
+#: process before the pool runs, so a job's peak follows ``len(smiles) x max_conformers``
+#: and barely moves with the pool size (measured: 16/32/45 GB at 10/20/30 conformers for a
+#: 5000-molecule arm, and six jobs that all hit exactly 32 GB at 13 and at 16 workers). A
+#: 5000-molecule arm at 20 conformers therefore needs ~32 GB however many workers it has,
+#: which is what killed 23 jobs at their cgroup. Slicing bounds the parent to one chunk:
+#: 500 x 20 conformers is ~3 GB, so the same arm finishes inside 32 GB.
+SCORE_CHUNK = 500
+
+
+def components(env, smiles: list[str]) -> dict[str, list[float]]:
+    """Per-molecule shape/colour of the winning pose, when the environment records them."""
+    for scorer in getattr(env, "scorers", []):
+        if hasattr(scorer, "component_frame"):
+            return scorer.component_frame(smiles)
+    return {}
+
+
+def score_in_chunks(env, smiles: list[str], *, chunk: int = SCORE_CHUNK):
+    """Score ``smiles`` in slices; the scores are the same, the peak is the slice's.
+
+    Returns the concatenated frame in the caller's order and the merged shape/colour
+    diagnostics. Slicing does not change a score: every molecule is embedded in its own
+    ``EmbedMultipleConfs`` call with a fixed ``params.randomSeed``, so its conformers do not
+    depend on where in the batch it sat. ``Tests`` pins that on the real scorer.
+    """
+    if chunk < 1:
+        raise ValueError(f"chunk must be positive, got {chunk}")
+    frames, diagnostics = [], {}
+    for start in range(0, len(smiles), chunk):
+        piece = smiles[start : start + chunk]
+        frames.append(env.getScores(piece).reset_index(drop=True))
+        for column, values in components(env, piece).items():
+            diagnostics.setdefault(column, []).extend(values)
+    if not frames:
+        return env.getScores(smiles), {}
+    return pd.concat(frames, ignore_index=True), diagnostics
 
 
 def pool_is_healthy() -> bool:

@@ -205,6 +205,17 @@ came from (40 jobs measured: 1.0 GB per worker at 10 conformers, 2.0 at 20, 2.83
 33 jobs had been killed at their cgroup by the old one-number cap). A rebuild sizes each
 run from its own `config.json`, since one job carries runs of different shapes. The
 per-run worker count is recorded in the spec, so a later rebudget cannot rewrite history.
+The worker count, however, was the wrong lever, and the rebuild batch proved it: six jobs
+scored the same 30 arms and all peaked at exactly 32.0 GB whether they ran 13 or 16 workers,
+five of them killed at the cgroup. The scorers embed every conformer of the batch in the
+parent process before the pool starts, so the peak follows `n_final × max_conformers` and is
+nearly independent of the pool. `score_in_chunks` now scores an arm in slices of 500
+molecules, which puts a 5000 × 20 arm at ~3 GB instead of ~32 GB; slicing is score-neutral
+because each molecule is embedded in its own call under a fixed `randomSeed`, and a test
+pins a whole-batch arm and a sliced one to be bit-identical. `memreport` correspondingly
+refuses to calibrate on a job that finished at ≥95 % of its request — that number stopped
+growing at the cgroup just like an OOM kill does, which is how a "per worker" coefficient
+was fitted from six identical ceilings.
 Nothing here changes the science: the job body calls the same `_david.code.run` entry point,
 with the same single-checkpoint training loop; the worker cap changes epoch time, not scores.
 

@@ -10,7 +10,14 @@ Two fingerprints decide the reading:
 
 - a peak equal to the request with ``Exit_status = 137`` was killed by the cgroup, so the
   request was too small for the pool that ran;
-- a peak above the budget for its conformer count means the cap itself is too generous.
+- a job that *finished* at 95 % or more of its request is censored the same way: the number
+  stopped growing at the limit, so it bounds the need from below and cannot confirm a budget.
+
+And one measurement that overrides the per-worker reading: the scorers build every conformer
+of the batch in the parent process before the pool runs, so a job's peak follows
+``n_final x max_conformers`` and moves little with the pool size. Six rebuild jobs at 13
+workers and earlier training jobs at 16 workers all peaked at exactly 32.0 GB for that
+reason, which is why the report shows the total peak per shape beside the per-worker split.
 """
 
 from __future__ import annotations
@@ -46,6 +53,12 @@ _MEM_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z]*)\s*$")
 
 #: Above this fraction of the request a job is too close to its cgroup to trust.
 TIGHT_FRACTION = 0.85
+#: A job that finished at this fraction of its request is censored exactly like one that
+#: was killed: the number stopped growing at the cgroup, so it is a floor on what the shape
+#: needs, not a measurement of it. The rebuild batch is why this matters — six jobs at 13
+#: and 16 workers all peaked at exactly 32.0 GB, so dividing by the pool turns a ceiling
+#: into a convincing "per worker" fit that is not a fit at all.
+CENSORED_FRACTION = 0.95
 #: PBS reports a SIGKILL as 128 + 9; a job killed by the cgroup lands here.
 OOM_EXIT_STATUS = 137
 #: A job that died in setup peaks at a few MB. Counting that as a measurement of the
@@ -106,6 +119,12 @@ class Finished:
         return self.peak_gb / self.requested_gb
 
     @property
+    def censored(self) -> bool:
+        """Whether the request capped the peak, so the peak only bounds the need."""
+        fill = self.fill
+        return fill is not None and fill >= CENSORED_FRACTION
+
+    @property
     def verdict(self) -> str:
         if self.exit_status == OOM_EXIT_STATUS:
             return "OOM (killed at the request)"
@@ -113,6 +132,9 @@ class Finished:
             # A job cancelled in the queue keeps state F with no usage: it never ran, so
             # it says nothing about what a scoring pool needs.
             return "never started"
+        if self.censored:
+            # Finished, but at the limit: peak/pool here is (request/pool), not a need.
+            return "censored at the request"
         per_worker, budget = self.per_worker_gb, self.budget_gb
         if per_worker is not None and budget is not None and per_worker > budget:
             return "over its budget"
@@ -208,23 +230,50 @@ def _usable(row: Finished) -> bool:
         row.per_worker_gb is not None
         and row.conformers is not None
         and row.exit_status != OOM_EXIT_STATUS
+        and not row.censored
         and (row.peak_gb or 0) >= MIN_USEFUL_PEAK_GB
+    )
+
+
+def _ceilinged(row: Finished) -> bool:
+    """A peak that was cut off by the request, and so is a lower bound, not a measurement."""
+    return (
+        row.per_worker_gb is not None
+        and row.conformers is not None
+        and (row.peak_gb or 0) >= MIN_USEFUL_PEAK_GB
+        and (row.exit_status == OOM_EXIT_STATUS or row.censored)
     )
 
 
 def summary(rows: list[Finished]) -> dict:
     """The numbers the worker budget is calibrated from.
 
-    Only successful jobs inform the budget: a job killed at its cgroup recorded the request
-    as its peak, so its peak-per-worker is cut off by the allocation and says "at least this
-    much", not "this much sufficed". Those jobs are reported separately, because the fix for
-    them is a larger request, not a different worker count.
+    Only uncensored jobs inform the budget. A job killed at its cgroup, and equally one that
+    finished at 100 % of its request, recorded the request as its peak: that number is a
+    floor on what the shape needs, not evidence of what sufficed. Both are reported as lower
+    bounds, because the fix for them is a larger ``--mem``, not a different worker count.
+
+    ``worst_total_gb`` is the observable that actually scales with the work: the scorers
+    build every conformer of the batch in the parent process before the pool runs, so the
+    peak follows ``n_final x max_conformers`` and barely moves with the pool size.
     """
     buckets: dict[int, list[float]] = {}
     for row in rows:
         if _usable(row):
             buckets.setdefault(row.conformers, []).append(row.per_worker_gb)
     worst = {conformers: max(values) for conformers, values in buckets.items()}
+    floors: dict[int, list[float]] = {}
+    totals: dict[int, float] = {}
+    for row in rows:
+        if row.conformers is None or (row.peak_gb or 0) < MIN_USEFUL_PEAK_GB:
+            continue
+        if row.censored or row.exit_status == OOM_EXIT_STATUS:
+            totals[row.conformers] = max(totals.get(row.conformers, 0.0), float(row.peak_gb))
+            if _ceilinged(row):
+                floors.setdefault(row.conformers, []).append(row.per_worker_gb)
+        elif _usable(row):
+            totals[row.conformers] = max(totals.get(row.conformers, 0.0), float(row.peak_gb))
+    lower = {conformers: max(values) for conformers, values in floors.items()}
     oom = [row for row in rows if row.exit_status == OOM_EXIT_STATUS]
     tight = [row for row in rows if row.verdict == "tight"]
     over = [row for row in rows if row.verdict == "over its budget"]
@@ -238,19 +287,23 @@ def summary(rows: list[Finished]) -> dict:
     if ratio is not None and short:
         # Raise the coefficient to the smallest 0.01 that covers the worst measured shape.
         suggested = math.ceil(ratio * 100) / 100
+    shapes = sorted(set(worst) | set(lower) | set(totals))
     return {
         "jobs": len(rows),
         "measured": sum(len(values) for values in buckets.values()),
+        "censored": [row.name for row in rows if row.censored],
         "oom": [row.name for row in oom],
         "tight": [row.name for row in tight],
         "over_budget": [row.name for row in over],
         "per_conformer": {
             str(conformers): {
-                "jobs": len(buckets[conformers]),
-                "worst_gb_per_worker": worst[conformers],
+                "jobs": len(buckets.get(conformers, [])),
+                "worst_gb_per_worker": worst.get(conformers),
+                "lower_bound_gb_per_worker": lower.get(conformers),
+                "worst_total_gb": totals.get(conformers),
                 "budget_gb_per_worker": gb_per_worker(conformers),
             }
-            for conformers in sorted(worst)
+            for conformers in shapes
         },
         "current_gb_per_conformer": MEM_GB_PER_CONFORMER,
         "safety": MEMORY_SAFETY,
@@ -283,32 +336,49 @@ def _table(rows: list[Finished]) -> str:
     return "\n".join(lines)
 
 
+def _cell(value: float | None, width: int, places: int = 2) -> str:
+    return f"{value:>{width}.{places}f}" if value is not None else f"{'-':>{width}}"
+
+
 def _summary_text(stats: dict) -> str:
     if not stats["measured"]:
         lines = [
-            "no finished job gives a usable peak per worker: the recent ones either never "
-            "started, died in setup, or were killed at their cgroup"
+            "no finished job gives an uncensored peak: the recent ones either never "
+            "started, died in setup, or stopped at their cgroup"
         ]
         if stats["oom"]:
             lines.append(
                 f"{len(stats['oom'])} job(s) were killed by the cgroup "
                 f"({', '.join(stats['oom'][:4])}{' …' if len(stats['oom']) > 4 else ''})"
             )
+        if stats["censored"]:
+            lines.append(
+                f"{len(stats['censored'])} job(s) finished at or above "
+                f"{CENSORED_FRACTION:.0%} of their request: their peak is a floor on what "
+                "the shape needs, not a measurement of it"
+            )
         lines.append("the worker budget cannot be checked from measurements yet")
         return "\n".join(lines)
 
     lines = [
-        f"{stats['measured']} job(s) give a usable peak per worker; "
+        f"{stats['measured']} job(s) give an uncensored peak; "
         f"budget model: {stats['current_gb_per_conformer']} GB per conformer "
         f"per worker x {stats['safety']} safety + {stats['reserve_gb']} GB reserve",
-        f"{'conf':>4} {'jobs':>4} {'worst GB/w':>10} {'budget':>7}",
+        f"{'conf':>4} {'jobs':>4} {'worst GB/w':>10} {'>= GB/w':>8} {'peak GB':>8} "
+        f"{'budget':>7}",
     ]
     for conformers, bucket in stats["per_conformer"].items():
         lines.append(
             f"{conformers:>4} {bucket['jobs']:>4} "
-            f"{bucket['worst_gb_per_worker']:>10.2f} "
-            f"{bucket['budget_gb_per_worker']:>7.2f}"
+            f"{_cell(bucket['worst_gb_per_worker'], 10)} "
+            f"{_cell(bucket['lower_bound_gb_per_worker'], 8)} "
+            f"{_cell(bucket['worst_total_gb'], 8, 1)} "
+            f"{_cell(bucket['budget_gb_per_worker'], 7)}"
         )
+    lines.append(
+        "`>= GB/w` is a lower bound from jobs the request capped (killed or 100% full), "
+        "not a measurement"
+    )
     lines.append(
         "32 GB then runs "
         + ", ".join(
@@ -326,11 +396,18 @@ def _summary_text(stats: dict) -> str:
             f"{len(stats['over_budget'])} job(s) used more per worker than their shape's "
             "budget"
         )
+    if stats["censored"]:
+        lines.append(
+            f"{len(stats['censored'])} job(s) finished at or above {CENSORED_FRACTION:.0%} "
+            "of their request, so their peak is a floor: they cannot confirm a budget, and "
+            "a pool small enough to fit them is not thereby shown to be safe"
+        )
     if stats["oom"]:
         lines.append(
             f"{len(stats['oom'])} job(s) were killed by the cgroup "
             f"({', '.join(stats['oom'][:4])}{' …' if len(stats['oom']) > 4 else ''}): "
-            "the peak equals the request, so that shape needs a larger --mem"
+            "the peak equals the request, so that shape needs a larger --mem, and the "
+            "per-worker column of such a job is (request / pool), not a need"
         )
     if stats["tight"]:
         lines.append(
@@ -354,6 +431,7 @@ def _as_dict(row: Finished) -> dict:
         "budget_gb": row.budget_gb,
         "per_worker_gb": row.per_worker_gb,
         "fill": row.fill,
+        "censored": row.censored,
         "verdict": row.verdict,
     }
 

@@ -40,7 +40,9 @@ from _david.code.scorers.objectives import (
 )
 from _david.code.scorers.utils import (
     check_pool,
+    components,
     pool_is_healthy,
+    score_in_chunks,
     use_double_precision_pickling,
 )
 from _david.code.training import StopCheckpointExplorer
@@ -115,13 +117,6 @@ def sample(model: SequenceRNN, n: int, batch: int = 500) -> list[str]:
     while len(drawn) < n:
         drawn.extend(model.sample(min(batch, n - len(drawn))))
     return drawn[:n]
-
-
-def components(env, smiles: list[str]) -> dict[str, list[float]]:
-    for scorer in getattr(env, "scorers", []):
-        if hasattr(scorer, "component_frame"):
-            return scorer.component_frame(smiles)
-    return {}
 
 
 def _canonical_and_sa(smiles: list[str], valid: pd.Series) -> tuple[list[str], list[float]]:
@@ -403,11 +398,14 @@ def _pipeline(
         try:
             model = load_model(voc, run_dir / "models" / f"{name}.pkg")
             smiles = sample(model, cfg.n_final)
+            # In slices: the whole arm at once is a ~32 GB parent for 5000 x 20 conformers,
+            # at any worker count. Chunking is what lets a 32 GB job finish its own arm.
+            scores, diagnostics = score_in_chunks(env, smiles)
             arms[name] = write_arm(
                 run_dir / f"final_{name}.tsv",
-                env.getScores(smiles),
+                scores,
                 smiles,
-                components(env, smiles),
+                diagnostics,
                 origin="run",
                 seed=cfg.seed,
             )

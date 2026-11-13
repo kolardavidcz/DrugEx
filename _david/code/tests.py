@@ -506,6 +506,51 @@ class Rocs(unittest.TestCase):
             np.testing.assert_allclose(ours.getScores(mols), native.getScores(mols), atol=0)
             self.assertEqual(ours.getKey(), native.getKey())
 
+    def test_scoring_in_slices_gives_the_same_scores_and_components(self):
+        # The whole point of slicing: the arm is the same arm, only its parent peak is
+        # smaller. If a slice changed a conformer, every rebuilt arm would be suspect.
+        with tempfile.TemporaryDirectory() as directory:
+            cfg, path = self._bank(directory)
+            smiles = ["CCO", "CCN", "c1ccccc1O", "CC(=O)O", "CCCCO"]
+            env = self._two_objectives(self._scorer(cfg, path))
+            whole, whole_components = scorer_utils.score_in_chunks(env, smiles, chunk=len(smiles))
+            sliced, sliced_components = scorer_utils.score_in_chunks(env, smiles, chunk=2)
+        self.assertEqual(len(whole), len(smiles))
+        pd.testing.assert_frame_equal(whole, sliced)
+        self.assertEqual(sliced_components, whole_components, "the diagnostics merge in order")
+        self.assertEqual(
+            list(sliced_components["ShapeTanimoto"]),
+            list(whole_components["ShapeTanimoto"]),
+            "and stay aligned with the molecules",
+        )
+
+    def test_a_slice_cannot_be_zero(self):
+        with self.assertRaises(ValueError):
+            scorer_utils.score_in_chunks(None, ["CC"], chunk=0)
+
+    def test_slices_preserve_the_order_of_the_batch(self):
+        class Fake:
+            def __init__(self):
+                self.calls = []
+
+            def getScores(self, smiles):
+                self.calls.append(list(smiles))
+                return pd.DataFrame(
+                    {"SMILES": smiles, "Valid": 1, "Desired": 0, "ROCS": 0.5}
+                )
+
+        fake = Fake()
+        frame, diagnostics = scorer_utils.score_in_chunks(
+            fake, ["a", "b", "c", "d", "e"], chunk=2
+        )
+        self.assertEqual(fake.calls, [["a", "b"], ["c", "d"], ["e"]])
+        self.assertEqual(list(frame["SMILES"]), ["a", "b", "c", "d", "e"])
+        self.assertEqual(diagnostics, {}, "an environment without components reports none")
+        empty = Fake()
+        blank, blank_components = scorer_utils.score_in_chunks(empty, [], chunk=2)
+        self.assertEqual(len(blank), 0)
+        self.assertEqual(blank_components, {})
+
     def test_components_sum_to_the_reported_combo(self):
         with tempfile.TemporaryDirectory() as directory:
             scorer = self._scorer(*self._bank(directory))
@@ -1534,6 +1579,46 @@ Job Id: 25446500.pbs-m1.metacentrum.cz
         )
         self.assertEqual(row.workers, 8)
         self.assertLessEqual(row.per_worker_gb, row.budget_gb)
+
+    def test_a_job_that_finished_at_its_request_is_censored_like_an_oom_kill(self):
+        # The six rebuild jobs all ended at exactly 32.0 GB, five killed and one complete:
+        # both numbers come from the cgroup, so neither can confirm a budget.
+        full = memreport.Finished(
+            job_id="2.pbs",
+            name="p_m1e10r1c20q1",
+            state="F",
+            exit_status=0,
+            requested_gb=32.0,
+            peak_gb=32.0,
+            ncpus=16,
+            workers=13,
+            conformers=20,
+        )
+        self.assertTrue(full.censored)
+        self.assertEqual(full.verdict, "censored at the request")
+        stats = memreport.summary([full])
+        self.assertEqual(stats["measured"], 0, "a full request is a floor, not a measurement")
+        self.assertEqual(stats["censored"], ["p_m1e10r1c20q1"])
+        bucket = stats["per_conformer"]["20"]
+        self.assertIsNone(bucket["worst_gb_per_worker"])
+        self.assertAlmostEqual(bucket["lower_bound_gb_per_worker"], 32.0 / 13)
+        self.assertAlmostEqual(bucket["worst_total_gb"], 32.0)
+        self.assertEqual(
+            stats["suggested_gb_per_conformer"],
+            job_module.MEM_GB_PER_CONFORMER,
+            "a censored job cannot move the coefficient in either direction",
+        )
+        text = memreport._summary_text(stats)
+        self.assertIn("floor", text)
+
+    def test_the_total_peak_per_shape_is_reported_beside_the_per_worker_split(self):
+        stats = memreport.summary(self._rows())
+        self.assertAlmostEqual(
+            stats["per_conformer"]["30"]["worst_total_gb"], 38676060 / 1024**2, places=6
+        )
+        self.assertAlmostEqual(
+            stats["per_conformer"]["20"]["worst_total_gb"], 31641600 / 1024**2, places=6
+        )
 
     def test_the_table_and_summary_name_the_verdict(self):
         rows = self._rows()

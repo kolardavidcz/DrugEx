@@ -18,7 +18,6 @@ from drugex.data.corpus.vocabulary import VocSmiles
 from _david.code.config import ROCS_PUBLISHED_MAX, Config
 from _david.code.run import (
     FINAL_ARMS,
-    components,
     incomplete_arms,
     load_model,
     sample,
@@ -31,7 +30,11 @@ from _david.code.scorers.objectives import (
     build_scorers,
     reward_scheme,
 )
-from _david.code.scorers.utils import check_pool, use_double_precision_pickling
+from _david.code.scorers.utils import (
+    check_pool,
+    score_in_chunks,
+    use_double_precision_pickling,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,11 +125,14 @@ def rebuild(run_dir: Path, force: bool = False, only: tuple[str, ...] = (),
             continue
         logger.info("rebuilding arm %s from %s", name, model_path.name)
         smiles = sample(load_model(voc, model_path), cfg.n_final)
+        # A whole 5000-molecule arm at 20 conformers needs ~32 GB in the parent, whatever
+        # the pool size; scoring it in slices is what keeps a rebuild inside its request.
+        scores, diagnostics = score_in_chunks(env, smiles)
         rebuilt[name] = write_arm(
             run_dir / f"final_{name}.tsv",
-            env.getScores(smiles),
+            scores,
             smiles,
-            components(env, smiles),
+            diagnostics,
             origin="rebuilt",
             seed=cfg.seed,
         )
