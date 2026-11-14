@@ -5,24 +5,24 @@ from __future__ import annotations
 import logging
 import math
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
-from drugex.training.scorers.sascorer import calculateScore as calculate_sa_score
 from rdkit import Chem, DataStructs
 from rdkit.Chem import (
-    AllChem,
+    QED,
     Descriptors,
     Lipinski,
-    QED,
     rdDepictor,
     rdFMCS,
     rdMolDescriptors,
     rdShapeAlign,
 )
 from rdkit.Chem.Scaffolds import MurckoScaffold
+
+from drugex.training.scorers.sascorer import calculateScore as calculate_sa_score
 
 logger = logging.getLogger(__name__)
 
@@ -143,23 +143,19 @@ def enrich_descriptors(
     rocs_col: str | None = None,
     ref_smiles: str | None = None,
     config: dict | None = None,
+    prior: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Attach 2D medicinal-chemistry descriptors, raw SA, Murcko scaffold and ECFP4 seed similarity.
 
-    Returns ROCS as published TanimotoCombo on [0, 2] whatever units the run stored it
-    in (see ``rocs_scale``), and replaces
+    Returns ROCS as published TanimotoCombo on [0, 2] whatever units the frame stored it
+    in (see ``frame_rocs_scale``), and replaces
     unscorable SA failure sentinels (10.0) with NaN for continuous distributions so a
     failed score can never sort, colour or rank as good.
     """
     if frame is None or frame.empty:
         return pd.DataFrame()
     df = frame.copy()
-    # Published TanimotoCombo on [0, 2], whichever side of the reward rescale the run
-    # came from. Applied to the stored column rather than rebuilt from the components,
-    # because rl_smiles.tsv carries no components and every per-epoch figure reads it:
-    # reconstructing where possible and not elsewhere drew the trained epochs at half
-    # the prior's scale on one shared axis.
-    scale = rocs_scale(config)
+    scale = frame_rocs_scale(df, rocs_col, config, prior=prior)
     if rocs_col and rocs_col in df.columns:
         df["ROCS"] = pd.to_numeric(df[rocs_col], errors="coerce") * scale
     elif "ROCS" not in df.columns:
@@ -331,7 +327,10 @@ def enrich_descriptors(
 
 
 def scored_points(
-    frame: pd.DataFrame, objectives: list[str], config: dict | None = None
+    frame: pd.DataFrame,
+    objectives: list[str],
+    config: dict | None = None,
+    prior: pd.DataFrame | None = None,
 ) -> np.ndarray:
     """Unique valid molecules as a point cloud, ROCS on published [0, 2]. Fronts are affine-
     invariant and would not care; ``dominated_volume`` is a volume and does."""
@@ -342,7 +341,7 @@ def scored_points(
     # column is rescaled in place below.
     pts = u[objectives].to_numpy(dtype=float, copy=True)
     if objectives:
-        pts[:, 0] = pts[:, 0] * rocs_scale(config)
+        pts[:, 0] = pts[:, 0] * frame_rocs_scale(u, objectives[0], config, prior=prior)
     return pts[np.all(np.isfinite(pts), axis=1)]
 
 
@@ -453,6 +452,60 @@ def rocs_scale(config: dict | None) -> float:
         return 1.0
 
 
+def _resolve_rocs_column(frame: pd.DataFrame, rocs_col: str | None) -> str | None:
+    if rocs_col and rocs_col in frame.columns:
+        return rocs_col
+    for candidate in frame.columns:
+        if candidate.startswith("RDKit_") or "TanimotoCombo" in candidate:
+            return candidate
+    return "ROCS" if "ROCS" in frame.columns else None
+
+
+def frame_rocs_scale(
+    frame: pd.DataFrame | None,
+    rocs_col: str | None = None,
+    config: dict | None = None,
+    prior: pd.DataFrame | None = None,
+) -> float:
+    """Scale factor mapping ``frame``'s stored ROCS column onto published [0, 2].
+
+    Arms written with ``ShapeTanimoto`` and ``ColorTanimoto`` carry their ground-truth [0, 2]
+    sum directly, which catches runs whose stop arm was rebuilt after the reward rescale
+    while ``config.json`` lacked ``rocs_reward_scale`` (or runs between the rescale and the
+    manifest-field commit). Per-epoch tables lack those components and inherit from ``config``
+    or ``prior`` (written in the same training run).
+    """
+    if frame is not None and not frame.empty:
+        col = _resolve_rocs_column(frame, rocs_col)
+        if col and "ShapeTanimoto" in frame.columns and "ColorTanimoto" in frame.columns:
+            stored = pd.to_numeric(frame[col], errors="coerce")
+            combo = pd.to_numeric(frame["ShapeTanimoto"], errors="coerce") + pd.to_numeric(
+                frame["ColorTanimoto"], errors="coerce"
+            )
+            mask = (stored > 1e-6) & combo.notna()
+            if mask.any():
+                ratio = float((combo[mask] / stored[mask]).median())
+                return 2.0 if ratio >= 1.5 else 1.0
+    if (config or {}).get("rocs_reward_scale") is not None:
+        return rocs_scale(config)
+    if prior is not None and prior is not frame:
+        return frame_rocs_scale(prior, rocs_col, config)
+    return rocs_scale(config)
+
+
+def threshold_rocs_scale(
+    config: dict | None = None,
+    prior: pd.DataFrame | None = None,
+    rocs_col: str | None = None,
+) -> float:
+    """Scale factor mapping ``config['thresholds'][0]`` (calibrated on the prior) onto [0, 2]."""
+    if (config or {}).get("rocs_reward_scale") is not None:
+        return rocs_scale(config)
+    if prior is not None and not prior.empty:
+        return frame_rocs_scale(prior, rocs_col, config)
+    return rocs_scale(config)
+
+
 def scaffold_counts(frame: pd.DataFrame, generic: bool = False) -> pd.Series:
     """Bemis-Murcko scaffold counts of unique valid molecules. ``generic`` returns the graph
     framework instead -- every atom carbon, every bond single -- which a heteroatom swap does
@@ -502,10 +555,11 @@ def pareto_rows(
 ) -> dict[str, dict]:
     """Non-dominated front counts and dominated volume per arm for figure 02 and report.md."""
     rows: dict[str, dict] = {}
+    prior = arms.get("prior")
     for name in ARMS:
         if name not in arms:
             continue
-        pts = scored_points(arms[name], objectives, config)
+        pts = scored_points(arms[name], objectives, config, prior=prior)
         if not len(pts):
             continue
         front = int(pareto_mask(pts).sum())

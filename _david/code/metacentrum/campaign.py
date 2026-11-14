@@ -169,6 +169,44 @@ BATCHES: dict[str, Batch] = {
             "include_qed": (False, True),
         },
     ),
+    "dp": Batch(
+        prefix="dp",
+        purpose=(
+            "Pareto crowding under RDKit default colour typing, full 4-ref / 20-conf bank: "
+            "relaxation x exploration x QED"
+        ),
+        fixed={
+            "scheme": "PRCD",
+            "color_ff": "default",
+            "reference_conformers": 4,
+            "max_conformers": 20,
+            "alignment_shape_weight": 0.5,
+        },
+        axes={
+            "minimize": (True, False),
+            "epsilon": (0.1, 0.05),
+            "include_qed": (False, True),
+        },
+    ),
+    "dw": Batch(
+        prefix="dw",
+        purpose=(
+            "WeightedSum under RDKit default colour typing, full 4-ref / 20-conf bank: "
+            "relaxation x exploration x QED"
+        ),
+        fixed={
+            "scheme": "WS",
+            "color_ff": "default",
+            "reference_conformers": 4,
+            "max_conformers": 20,
+            "alignment_shape_weight": 0.5,
+        },
+        axes={
+            "minimize": (True, False),
+            "epsilon": (0.1, 0.05),
+            "include_qed": (False, True),
+        },
+    ),
 }
 
 

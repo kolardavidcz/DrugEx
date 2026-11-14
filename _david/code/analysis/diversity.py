@@ -14,6 +14,12 @@ computes the generative-modelling diversity repertoire on the unique valid molec
 - **internal diversity and nearest-neighbour similarity** — 1 − mean pairwise Tanimoto,
   and each molecule's closest neighbour: a mode-collapsed arm clusters at NN ≈ 1 even
   when every canonical is distinct;
+- **hierarchical internal diversity** — the same pairwise measure on the Murcko scaffolds
+  alone and on the side chains left after cutting them away: an arm that varies only its
+  substituents has breadth in the whole molecules but none in its scaffold families;
+- **scaffold entropy ratio and effective desired yield** — effective scaffolds per
+  effective molecule, and desired fraction × effective scaffolds per draw: how much of
+  the reward a run buys is actually distinct chemistry rather than one series;
 - **prior echo and novelty** — each stop-arm molecule's closest prior molecule: reward
   bought by re-describing the prior (echo) versus by finding new space (novelty);
 - **a 2-D PCA thumbnail** of stop and prior unique molecules, fitted on both: the
@@ -48,7 +54,7 @@ from _david.code.config import PROJECT_ROOT
 logger = logging.getLogger(__name__)
 
 #: Bump when the profile's meaning changes, so every cache invalidates at once.
-DIVERSITY_VERSION = 2
+DIVERSITY_VERSION = 3
 
 #: A neighbour this close is the same finding twice; a prior match this close is an echo.
 NEAR_DUP_SIM = 0.90
@@ -132,6 +138,78 @@ def _scaffold_counts(canonicals: list[str]) -> Counter:
         if scaffold:
             counts[scaffold] += 1
     return counts
+
+
+def _sidechain_mol(mol: Chem.Mol, scaffold: Chem.Mol) -> Chem.Mol | None:
+    """The substituents left when the Murcko scaffold's atoms are cut away.
+
+    ``RWMol.RemoveAtom`` leaves ``RingInfo`` uninitialised, so the fragment is handed to
+    :func:`Chem.FastFindRings` before it can be fingerprinted. Molecules that *are* their
+    scaffold (benzene, no substituents) have no side chain and are skipped: an empty
+    fingerprint would only add a spurious similar pair.
+    """
+    if scaffold is None or not scaffold.GetNumAtoms():
+        return None
+    match = mol.GetSubstructMatch(scaffold)
+    if len(match) < scaffold.GetNumAtoms():
+        return None
+    editable = Chem.RWMol(mol)
+    for index in sorted(match, reverse=True):
+        editable.RemoveAtom(index)
+    side = editable.GetMol()
+    if not side.GetNumAtoms():
+        return None
+    Chem.FastFindRings(side)
+    return side
+
+
+def _hierarchical_fingerprints(canonicals: list[str]) -> tuple[list[Any], list[Any]]:
+    """Morgan fingerprints of each molecule's Murcko scaffold and of its side chains.
+
+    The two lists are parallel repertoires, not molecules: an arm that only decorates one
+    ring scores high on whole-molecule internal diversity while its scaffolds stay one
+    family, and this pair of lists is what exposes that.
+    """
+    scaffold_fps: list[Any] = []
+    sidechain_fps: list[Any] = []
+    for canonical in canonicals:
+        mol = Chem.MolFromSmiles(canonical)
+        if mol is None:
+            continue
+        try:
+            scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+        except Exception:  # pragma: no cover - RDKit refuses some valences
+            continue
+        try:
+            if scaffold is not None and scaffold.GetNumAtoms():
+                scaffold_fps.append(
+                    AllChem.GetMorganFingerprintAsBitVect(
+                        scaffold, FINGERPRINT_RADIUS, nBits=FINGERPRINT_BITS
+                    )
+                )
+            side = _sidechain_mol(mol, scaffold)
+            if side is not None:
+                sidechain_fps.append(
+                    AllChem.GetMorganFingerprintAsBitVect(
+                        side, FINGERPRINT_RADIUS, nBits=FINGERPRINT_BITS
+                    )
+                )
+        except Exception:  # pragma: no cover - an uninitialised RingInfo must not kill the run
+            continue
+    return scaffold_fps, sidechain_fps
+
+
+def _mean_pairwise_diversity(fps: list[Any]) -> float | None:
+    """1 − mean pairwise Tanimoto over the given fingerprints, or None below two."""
+    usable = [fp for fp in fps if fp is not None]
+    if len(usable) < 2:
+        return None
+    total, pairs = 0.0, 0
+    for i in range(len(usable) - 1):
+        sims = DataStructs.BulkTanimotoSimilarity(usable[i], usable[i + 1:])
+        total += float(np.sum(sims))
+        pairs += len(sims)
+    return round(1.0 - total / pairs, 4) if pairs else None
 
 
 def _pairwise_profile(fps: list[Any]) -> dict[str, Any]:
@@ -224,15 +302,39 @@ def _thumb_coordinates(stop: ArmUniques, prior: ArmUniques) -> dict[str, Any] | 
 
 
 def arm_profile(uniques: ArmUniques) -> dict[str, Any]:
-    """Every per-arm statistic, from one arm's unique valid molecules."""
+    """Every per-arm statistic, from one arm's unique valid molecules.
+
+    Three layers are reported on purpose: the whole molecules, their Murcko scaffolds and
+    the side chains left when the scaffolds are cut away. A run can look diverse at the
+    first layer while decorating one ring family, which is what the second and third show.
+    ``effective_desired_yield`` is desired fraction × effective scaffolds per draw: the
+    part of the reward that is distinct chemistry rather than one repeated series.
+    """
     effective = _entropy_shannon(uniques.counts)
+    effective_molecules = round(effective, 1) if effective is not None else None
     scaffolds = _scaffold_counts(uniques.canonicals)
+    effective_scaffolds = round(_entropy_shannon(list(scaffolds.values())), 1) if scaffolds else None
+    scaffold_fps, sidechain_fps = _hierarchical_fingerprints(uniques.canonicals)
+    total_draws = float(sum(uniques.counts))
+    desired = float(sum(1 for flag in uniques.desired if flag == 1))
+    desired_ratio = desired / total_draws if total_draws else 0.0
     profile = {
         "n_unique": len(uniques),
-        "effective_molecules": round(effective, 1) if effective is not None else None,
+        "effective_molecules": effective_molecules,
         "scaffolds": len(scaffolds),
-        "effective_scaffolds": round(_entropy_shannon(list(scaffolds.values())), 1)
-        if scaffolds else None,
+        "effective_scaffolds": effective_scaffolds,
+        "scaffold_entropy_ratio": (
+            round(effective_scaffolds / max(effective_molecules, 1.0), 4)
+            if effective_scaffolds is not None and effective_molecules is not None
+            else None
+        ),
+        "scaffold_internal_diversity": _mean_pairwise_diversity(scaffold_fps),
+        "sidechain_internal_diversity": _mean_pairwise_diversity(sidechain_fps),
+        "effective_desired_yield": (
+            round(desired_ratio * effective_scaffolds / max(total_draws, 1.0), 4)
+            if effective_scaffolds is not None
+            else None
+        ),
     }
     profile.update(_pairwise_profile(uniques.fingerprints))
     return profile

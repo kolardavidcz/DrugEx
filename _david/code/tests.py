@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import multiprocessing as mp
+import os
 import tempfile
 import time
 import types
@@ -21,23 +22,17 @@ import torch
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 
-from drugex.training.environment import DrugExEnvironment
-from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
-from drugex.training.scorers.modifiers import ClippedScore
-from drugex.training.scorers.properties import FAILURE_VALUES, Property
-
 from _david.code import run as runner
-from _david.code.analysis import _helpers as analysis_helpers, figures, report as analysis
-from _david.code.analysis import atlas_v2, collapse, diversity
+from _david.code.analysis import _helpers as analysis_helpers
+from _david.code.analysis import atlas_v2, collapse, diversity, figures
+from _david.code.analysis import report as analysis
+from _david.code.archive.training import StopCheckpointExplorer
 from _david.code.config import PROJECT_ROOT, SCHEMES, Config
-from _david.code.metacentrum import campaign, monitor, queues, submit as submit_module
+from _david.code.metacentrum import campaign, memreport, monitor, queues
 from _david.code.metacentrum import job as job_module
-from _david.code.metacentrum import memreport
+from _david.code.metacentrum import submit as submit_module
 from _david.code.metacentrum.submit import Job
 from _david.code.reconstruct import provenance
-from _david.code.scorers import conformers, objectives as scorers, rocs
-from _david.code.scorers import utils as scorer_utils
-from _david.code.training import StopCheckpointExplorer
 from _david.code.run import (
     arm_is_complete,
     config_from_args,
@@ -45,6 +40,13 @@ from _david.code.run import (
     recorded_arm_size,
     write_arm,
 )
+from _david.code.scorers import conformers, rocs
+from _david.code.scorers import objectives as scorers
+from _david.code.scorers import utils as scorer_utils
+from drugex.training.environment import DrugExEnvironment
+from drugex.training.rewards import ParetoCrowdingDistance, WeightedSum
+from drugex.training.scorers.modifiers import ClippedScore
+from drugex.training.scorers.properties import FAILURE_VALUES, Property
 
 
 def small(**changes) -> Config:
@@ -604,7 +606,7 @@ class Provenance(unittest.TestCase):
         for name in (
             "run.py",
             "config.py",
-            "training.py",
+            "archive/training.py",
             "reconstruct/provenance.py",
             "reconstruct/score_arms.py",
             "scorers/objectives.py",
@@ -970,7 +972,7 @@ class ArmCompleteness(unittest.TestCase):
             getScores=lambda smiles: pd.DataFrame({"ROCS": [0.5] * len(smiles)}),
         )
         explorer = unittest.mock.Mock()
-        explorer.fit.return_value = {"epochs_run": 1}
+        explorer.getModel.return_value = {}
 
         def complete_file(path, n):
             return path.name != "final_desired_ratio_at_stop.tsv"
@@ -997,7 +999,7 @@ class ArmCompleteness(unittest.TestCase):
                 patch.object(runner, "build_scorers"),
                 patch.object(runner, "write_arm", return_value={}),
                 patch.object(runner, "components", return_value={}),
-                patch.object(runner, "StopCheckpointExplorer", return_value=explorer),
+                patch.object(runner, "SequenceExplorer", return_value=explorer),
                 patch.object(runner, "arm_is_complete", side_effect=complete_file),
                 patch.object(analysis, "analyse"),
             ):
@@ -1874,6 +1876,31 @@ class TreeAtlas(unittest.TestCase):
             self.assertFalse((root / "collapse_atlas.html").exists(),
                              "the v1 atlas is retired; atlas_v2 renders the tree atlas")
 
+    def test_the_arm_layout_not_a_missing_file_decides_the_schema(self):
+        # A current run whose prior.tsv was never downloaded keeps this repo's schema;
+        # reading it as legacy rewrites its axes from reward_scheme and pins ROCS to 1.0.
+        with tempfile.TemporaryDirectory() as tmp:
+            current, legacy = Path(tmp) / "20261113_0100_current", Path(tmp) / "20260901_0100_old"
+            current.mkdir()
+            legacy.mkdir()
+            (legacy / "raw_data").mkdir()
+            self.assertFalse(collapse.is_legacy_layout(current))
+            self.assertTrue(collapse.is_legacy_layout(legacy))
+
+    def test_a_running_job_is_not_on_the_rebuild_queue(self):
+        # A live job owes no arm yet; only a run that stopped without one is rebuildable.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "20261113_0200_live"
+            run.mkdir()
+            (run / "manifest.json").write_text(json.dumps({
+                "state": "running", "config": {"scheme": "WS", "n_final": 4},
+            }))
+            collapse.build([root], root / "collapse_atlas.html", since="20261110")
+            record = json.loads((root / "collapse_scan.json").read_text())["runs"][0]
+            self.assertNotIn("missing", record)
+            self.assertEqual(record["axes"]["scheme"], "WS")
+
     def test_the_scan_carries_hierarchical_diversity_and_effective_desired_yield(self):
         # Judged on the stop arm only: the EDY is the stop arm's desired fraction times its
         # effective scaffold families, normalised by the expected draw count.
@@ -2047,6 +2074,89 @@ class DiversityProfile(unittest.TestCase):
             five_families["effective_desired_yield"],
             5 * one_family["effective_desired_yield"],
         )
+
+
+class DefaultColourAndRocsScaleTests(unittest.TestCase):
+    def test_workers_returns_int_and_ignores_omp_single_thread_cap(self):
+        cfg = small(n_jobs=-1)
+        with patch.dict(os.environ, {"OMP_NUM_THREADS": "1", "PBS_NUM_PPN": "8"}, clear=False):
+            count = scorer_utils.workers(cfg)
+            self.assertIsInstance(count, int)
+            self.assertEqual(count, 8)
+
+    def test_combo_rocs_chunks_internally_without_changing_scores_or_components(self):
+        smiles = ["CCO", "CCN", "CCC", "CCO", "c1ccccc1"]
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = small(n_jobs=1, minimize=False)
+            ref = conformers.build_reference(cfg, Path(directory) / "ref.sdf")
+            scorer = rocs.ComboROCSScorer(
+                conformer_generator=conformers.RelaxingConformerGenerator(cfg),
+                references=ref,
+                score_type="TanimotoCombo",
+                color_ff=cfg.color_ff,
+                n_jobs=cfg.n_jobs,
+                show_progress=False,
+                alignment_shape_weight=cfg.alignment_shape_weight,
+            )
+            whole = scorer.getScores(smiles)
+            whole_comp = dict(scorer.components)
+            with patch.object(rocs, "SCORE_CHUNK", 2):
+                chunked = scorer.getScores(smiles)
+                chunked_comp = dict(scorer.components)
+        np.testing.assert_allclose(chunked, whole, atol=1e-9)
+        self.assertEqual(set(chunked_comp), set(whole_comp))
+        for key in whole_comp:
+            np.testing.assert_allclose(chunked_comp[key], whole_comp[key], atol=1e-9)
+
+    def test_mixed_scale_rebuilt_arms_and_missing_scale_report_on_zero_to_two(self):
+        col = "RDKit_Aggregate_4refs_TanimotoCombo"
+        prior = pd.DataFrame(
+            {
+                "SMILES": ["CCO", "CCN"],
+                "Canonical": ["CCO", "CCN"],
+                "Valid": [1, 1],
+                "Desired": [1, 0],
+                col: [1.4, 0.8],
+                "ShapeTanimoto": [0.9, 0.5],
+                "ColorTanimoto": [0.5, 0.3],
+            }
+        )
+        rebuilt_stop = pd.DataFrame(
+            {
+                "SMILES": ["c1ccccc1", "CC(=O)O"],
+                "Canonical": ["c1ccccc1", "CC(=O)O"],
+                "Valid": [1, 1],
+                "Desired": [1, 1],
+                col: [0.8, 0.6],
+                "ShapeTanimoto": [1.0, 0.8],
+                "ColorTanimoto": [0.6, 0.4],
+            }
+        )
+        halved_prior = prior.assign(**{col: [0.7, 0.4]})
+        # Mixed scales without rocs_reward_scale: prior is [0, 2], rebuilt stop is [0, 1].
+        self.assertEqual(analysis_helpers.frame_rocs_scale(prior, col, {}), 1.0)
+        self.assertEqual(analysis_helpers.frame_rocs_scale(rebuilt_stop, col, {}), 2.0)
+        self.assertEqual(analysis_helpers.threshold_rocs_scale({}, prior, col), 1.0)
+        self.assertEqual(analysis_helpers.threshold_rocs_scale({}, halved_prior, col), 2.0)
+
+        enriched_stop = analysis_helpers.enrich_descriptors(rebuilt_stop, col, "", {})
+        self.assertEqual(list(enriched_stop["ROCS"]), [1.6, 1.2])
+        # Epochs lack Shape/Color components and inherit from prior when rocs_reward_scale is absent.
+        epochs = halved_prior[["SMILES", "Valid", col]]
+        enriched_ep = analysis_helpers.enrich_descriptors(epochs, col, "", {}, prior=halved_prior)
+        self.assertEqual(list(enriched_ep["ROCS"]), [1.4, 0.8])
+
+    def test_default_colour_batches_cover_ps_and_ws_full_factorial(self):
+        for batch_name, expected_scheme in (("dp", "PRCD"), ("dw", "WS")):
+            self.assertIn(batch_name, campaign.BATCHES)
+            planned = campaign.runs(campaign.BATCHES[batch_name])
+            self.assertEqual(len(planned), 8)
+            for _, settings in planned:
+                self.assertEqual(settings["scheme"], expected_scheme)
+                self.assertEqual(settings["color_ff"], "default")
+                self.assertEqual(settings["reference_conformers"], 4)
+                self.assertEqual(settings["max_conformers"], 20)
+                self.assertEqual(settings["alignment_shape_weight"], 0.5)
 
 
 if __name__ == "__main__":

@@ -26,7 +26,6 @@ import re
 import shlex
 import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from _david.code.config import PROJECT_ROOT, Config
 from _david.code.metacentrum.job import workers_for
@@ -80,10 +79,10 @@ MODES = ("train", "rebuild")
 REQUIRED = (
     "__init__.py",
     "config.py",
-    "training.py",
     "run.py",
     "archive/__init__.py",
     "archive/explorer.py",
+    "archive/training.py",
     "reconstruct/__init__.py",
     "reconstruct/provenance.py",
     "reconstruct/score_arms.py",

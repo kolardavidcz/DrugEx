@@ -16,8 +16,6 @@ from pathlib import Path
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 
-from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
-
 from _david.code.config import Config
 from _david.code.scorers.utils import (
     map_tasks,
@@ -26,12 +24,13 @@ from _david.code.scorers.utils import (
     workers,
     write_sdf,
 )
+from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 
 logger = logging.getLogger(__name__)
 
 FORCE_FIELD = "MMFF94s"
 RELAXATION_TALLY: Counter[str] = Counter()
-PROTONATE = False
+PROTONATE = False #! we have not default value to this (we might want to check rest of the drugex)
 CANONICALIZE_TAUTOMER = True
 
 
@@ -107,6 +106,7 @@ def _relax(task: tuple[Chem.Mol, Config, bool]) -> tuple[Chem.Mol | None, str]:
 
 
 def _molecule_of(mol: Chem.Mol) -> str:
+    #! add quick docstring why do we have this here?
     return mol.GetProp("_Name").split("+")[0] if mol.HasProp("_Name") else "?"
 
 
@@ -162,13 +162,13 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
         strict_stereo: bool = False,
     ):
         super().__init__(
-            max_conformers=cfg.max_conformers if max_conformers is None else max_conformers,
+            max_conformers=cfg.max_conformers if max_conformers is None else max_conformers, #so we can have different amout of reference_molecule and RL_molecules
             max_isomers=cfg.max_isomers,
             max_heavy_atoms=cfg.max_heavy_atoms,
             max_rotatable_bonds=cfg.max_rotatable_bonds,
             num_threads=workers(cfg),
             timeout=cfg.timeout if timeout is None else timeout,
-            protonate=PROTONATE,
+            protonate=PROTONATE, #! not default value, further analysis we might need to improve this
             canonicalize_tautomer=CANONICALIZE_TAUTOMER,
             show_progress=False,
         )
@@ -188,7 +188,7 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
         }
 
     def _embed(self, smiles_list, out_dir) -> Path:
-        """Embed across molecules, not one at a time."""
+        """Embed across molecules, not one at a time.""" #! Better name + better doscstring
         return parallel_embed(
             self,
             smiles_list,
@@ -206,7 +206,7 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
             logger.warning(
                 "conformer generation produced no output for %d molecule(s); every shape "
                 "score in this batch will be 0.0. Check scratch/TMPDIR space.",
-                sum(1 for smiles in smiles_list if smiles),
+                sum(1 for smiles in smiles_list if smiles), #! not sure what is this doing here, could we just use len(smiles_list) instead - maybe not?
             )
         if written and self.cfg.minimize:
             relax_sdf(path, self.cfg, strict_stereo=self.strict_stereo)
@@ -214,6 +214,7 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
 
 
 def _rmsd(probe: Chem.Mol, other: Chem.Mol) -> float:
+    #! are we using counting in, that symetry molecules could have identical pozision, but different atom order?
     return rdMolAlign.GetBestRMS(Chem.Mol(probe), Chem.Mol(other))
 
 
@@ -242,10 +243,7 @@ def build_reference(cfg: Config, out_path: Path) -> list[Chem.Mol]:
     retained = [mol for mol in records if _stereo_key(mol) == expected]
     if len(retained) != len(records):
         logger.warning(
-            "reference embedding produced %d/%d conformers that are not %s; dropping them",
-            len(records) - len(retained),
-            len(records),
-            expected,
+            f"reference embedding produced {len(records) - len(retained)} conformers that are not {expected}; dropping them"
         )
     if not retained:
         raise RuntimeError(
@@ -256,12 +254,7 @@ def build_reference(cfg: Config, out_path: Path) -> list[Chem.Mol]:
 
     if len(records) < cfg.reference_conformers:
         logger.warning(
-            "reference embedding produced only %d distinct conformers of the %d attempted, "
-            "fewer than the %d the bank asks for. Legitimate for a rigid molecule; for a "
-            "flexible reference it means the embedding did not explore the space.",
-            len(records),
-            cfg.reference_attempts,
-            cfg.reference_conformers,
+            f"reference embedding produced only {len(records)} distinct conformers of the {cfg.reference_attempts} attempted, fewer than the {cfg.reference_conformers} the bank asks for. Legitimate for a rigid molecule; for a flexible reference it means the embedding did not explore the space."
         )
 
     ranked = sorted(((single_point_energy(mol, cfg), mol) for mol in records), key=lambda r: r[0])

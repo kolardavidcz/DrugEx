@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 from _david.code.analysis import figures as figures_module
-from _david.code.analysis._helpers import rocs_scale
+from _david.code.analysis._helpers import frame_rocs_scale, threshold_rocs_scale
 
 logger = logging.getLogger(__name__)
 
@@ -245,15 +245,20 @@ def _threshold_prose(
             )
     if prior is not None:
         valid = _valid(prior)
-        for objective, threshold in zip(objectives, thresholds):
+        for idx, (objective, threshold) in enumerate(zip(objectives, thresholds)):
             if objective not in valid or valid.empty:
                 continue
             column = valid[objective]
             tied = int((column >= threshold).sum())
             if threshold >= column.max():
+                shown_thr = (
+                    threshold * threshold_rocs_scale(config, prior, objective)
+                    if idx == 0
+                    else threshold
+                )
                 notes.append(
                     f"**`{objective}` is a hard gate, not a percentile**: the threshold "
-                    f"{threshold:.4g} equals the highest value in the prior, with "
+                    f"{shown_thr:.4g} equals the highest value in the prior, with "
                     f"{tied}/{len(column)} prior molecules tied there. A molecule clears it "
                     f"only by matching the best value, so this objective contributes no "
                     f"gradation to `Desired`."
@@ -308,8 +313,7 @@ def analyse(run_dir: Path) -> Path:
     config = json.loads((run_dir / "config.json").read_text())
     objectives = config["objectives"]
     # Every ROCS number in this file is published TanimotoCombo on [0, 2]; the column on
-    # disk is in the units that run's reward used. See `rocs_scale`.
-    scale = rocs_scale(config)
+    # disk is in the units that arm wrote. See `frame_rocs_scale`.
     thresholds = config["thresholds"]
     summary = config.get("summary", {})
     from_reference = [
@@ -325,6 +329,11 @@ def analyse(run_dir: Path) -> Path:
             arms[name] = arm
     if not arms:
         raise FileNotFoundError(f"{run_dir} holds no scored arm to analyse")
+
+    arm_scales = {
+        name: frame_rocs_scale(arm, objectives[0], config) for name, arm in arms.items()
+    }
+    thr_scale = threshold_rocs_scale(config, arms.get("prior"), objectives[0])
 
     fit_path = run_dir / "rl_fit.tsv"
     fit = pd.read_csv(fit_path, sep="\t") if fit_path.is_file() else None
@@ -404,7 +413,8 @@ def analyse(run_dir: Path) -> Path:
         "so no two columns in a row describe different sets.",
         "",
         _table(
-            {name: _describe(arm, objectives, scale) for name, arm in arms.items()}, "arm"
+            {name: _describe(arm, objectives, arm_scales[name]) for name, arm in arms.items()},
+            "arm",
         ),
         "",
         "### what the score columns are",
@@ -418,9 +428,9 @@ def analyse(run_dir: Path) -> Path:
         _pairs(
             {
                 f"{objective} ({_threshold_source(objective, config, from_reference)})": round(
-                    value, 4
+                    value * (thr_scale if idx == 0 else 1.0), 4
                 )
-                for objective, value in zip(objectives, thresholds)
+                for idx, (objective, value) in enumerate(zip(objectives, thresholds))
             },
             "objective",
             "threshold",
@@ -485,13 +495,14 @@ def analyse(run_dir: Path) -> Path:
     ]
     for name, best in tops.items():
         extra_cols = [c for c in ("ShapeTanimoto", "ColorTanimoto", "SA_raw") if c in best.columns]
+        arm_scale = arm_scales[name]
         report += [
             f"### {name}",
             "",
             _table(
                 {
                     row["SMILES"]: {
-                        o: round(float(row[o]) * (scale if o == objectives[0] else 1.0), 4)
+                        o: round(float(row[o]) * (arm_scale if o == objectives[0] else 1.0), 4)
                         for o in [*objectives, *extra_cols]
                         if o in row
                     }

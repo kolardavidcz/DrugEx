@@ -13,8 +13,6 @@ import logging
 from dataclasses import fields, replace
 from pathlib import Path
 
-from drugex.data.corpus.vocabulary import VocSmiles
-
 from _david.code.config import ROCS_PUBLISHED_MAX, Config
 from _david.code.run import (
     FINAL_ARMS,
@@ -35,6 +33,7 @@ from _david.code.scorers.utils import (
     score_in_chunks,
     use_double_precision_pickling,
 )
+from drugex.data.corpus.vocabulary import VocSmiles
 
 logger = logging.getLogger(__name__)
 

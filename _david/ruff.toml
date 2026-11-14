@@ -1,8 +1,25 @@
-line-length = 100
+target-version = "py310"
+line-length = 120
+extend-exclude = ["output"]
 
 [lint]
-select = ["E"]
-extend-ignore = [
-    "E501",  # line length is not enforced
-    "E402",  # module level import not at top of file
+# High-signal correctness and hygiene rules for agentic editing:
+# E/W = pycodestyle, F = Pyflakes (unused imports/vars, undefined names, broken f-strings),
+# B = flake8-bugbear (mutable defaults, loop-closure bugs), UP = pyupgrade,
+# I = deterministic import sorting, PLE = pylint errors.
+# Intentionally omitted: E501 (line length), TRY/EM (error-string ceremony), ANN (typing noise),
+# D (docstring nitpicks), T201 (print), BLE/S (except Exception & subprocess), PLR/C901 (complexity).
+select = ["E", "F", "W", "B", "UP", "I", "PLE"]
+ignore = [
+    "E501",  # never warn on long lines (including long error/log strings)
+    "E402",  # allow imports after sys.path / matplotlib.use() setup
+    "B905",  # don't require strict= on every zip()
+    "B028",  # don't require stacklevel= on warnings.warn()
 ]
+
+[lint.isort]
+known-first-party = ["_david", "drugex"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

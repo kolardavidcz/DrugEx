@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import logging
 import multiprocessing
 import os
@@ -9,6 +10,7 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdShapeAlign
 
+from _david.code.scorers.utils import SCORE_CHUNK, pool_is_healthy
 from drugex.training.scorers.parallel import (
     ScoreTimeout,
     capped_n_jobs,
@@ -18,13 +20,11 @@ from drugex.training.scorers.parallel import (
 )
 from drugex.training.scorers.rocs_rdkit import (
     _AXIS_SIGN_FLIPS,
+    RDKitROCSScorer,
     _annotate_color_features,
     _canonicalize_conformer_inplace,
     _flip_conformer,
-    RDKitROCSScorer,
 )
-
-from _david.code.scorers.utils import pool_is_healthy
 
 logger = logging.getLogger(__name__)
 
@@ -182,11 +182,31 @@ class ComboROCSScorer(RDKitROCSScorer):
         # Also here: the parent returns early on a missing conformer file.
         self._by_mol_id = {}
         self.components = {}
-        scores = super().getScores(mols, frags)
-        unique, _ = self._deduplicate_smiles(self._convert_to_smiles(mols))
-        self.components = {
-            smiles: self._by_mol_id.get(index, NO_OVERLAY) for index, smiles in enumerate(unique)
-        }
+        smiles_list = self._convert_to_smiles(mols)
+        unique, unique_to_original = self._deduplicate_smiles(smiles_list)
+        if not unique:
+            return np.zeros((len(mols), len(self.group_to_indices)))
+        if len(unique) <= SCORE_CHUNK:
+            scores = super().getScores(mols, frags)
+            self.components = {
+                smiles: self._by_mol_id.get(index, NO_OVERLAY)
+                for index, smiles in enumerate(unique)
+            }
+            return scores
+
+        num_groups = len(self.group_to_indices)
+        scores = np.zeros((len(mols), num_groups))
+        all_components: dict[str, tuple[float, float]] = {}
+        for start in range(0, len(unique), SCORE_CHUNK):
+            piece = unique[start : start + SCORE_CHUNK]
+            self._by_mol_id = {}
+            piece_scores = super().getScores(piece, frags)
+            for local_id, smiles in enumerate(piece):
+                all_components[smiles] = self._by_mol_id.get(local_id, NO_OVERLAY)
+                for original_idx in unique_to_original[start + local_id]:
+                    scores[original_idx] = piece_scores[local_id]
+            gc.collect()
+        self.components = all_components
         return scores
 
     def component_frame(self, smiles: list[str]) -> dict[str, list[float]]:

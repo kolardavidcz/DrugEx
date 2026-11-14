@@ -22,7 +22,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from _david.code.analysis.collapse import _depict, build as scan_build
+from _david.code.analysis.collapse import _depict
+from _david.code.analysis.collapse import build as scan_build
 from _david.code.analysis.diversity import load_profile
 from _david.code.config import PROJECT_ROOT
 
@@ -31,14 +32,13 @@ logger = logging.getLogger(__name__)
 OUTPUT_ROOT = PROJECT_ROOT / "_david" / "output"
 TEMPLATE = Path(__file__).with_name("atlas_v2_template.html")
 
-#: The tree's floors, most to least influential as a default question. Epsilon leads
-#: because the scan's own finding is that exploration is the collapse axis; the buttons
-#: reorder the whole tree, so this is only where the argument starts.
+#: The tree's floors, configured in default hierarchy: reward scheme, conformer budget,
+#: geometry, exploration, colour force field, shape/colour weight.
 LAYERS: tuple[dict[str, str], ...] = (
-    {"id": "epsilon", "label": "exploration ε"},
     {"id": "reward", "label": "reward scheme"},
-    {"id": "geometry", "label": "geometry (refs · minimization)"},
     {"id": "budget", "label": "conformer budget"},
+    {"id": "geometry", "label": "geometry (refs · minimization)"},
+    {"id": "epsilon", "label": "exploration ε"},
     {"id": "color", "label": "colour force field"},
     {"id": "shape_color", "label": "shape/colour weight"},
 )
@@ -94,6 +94,7 @@ def _tree_run(record: dict[str, Any]) -> dict[str, Any]:
     tree_run = {
         "run_id": record["run"],
         "label": record["run"],
+        "axes": axes,
         "verdict": record["verdict"],
         "repo": record["repo"],
         "legacy": bool(record.get("legacy")),
@@ -108,8 +109,13 @@ def _tree_run(record: dict[str, Any]) -> dict[str, Any]:
         "hac_drift": record.get("hac_drift"),
         "postpeak_decay": record.get("postpeak_decay"),
         "curve": record.get("curve") or {},
+        "stop_epoch": record.get("stop_epoch"),
+        "best_desired_epoch": record.get("best_desired_epoch"),
+        "gmean_epoch": record.get("gmean_epoch"),
+        "desired_frozen": record.get("desired_frozen"),
         "repeats": record.get("repeats") or [],
         "lead": record.get("lead"),
+        "best_desired": record.get("best_desired") or [],
         "missing": record.get("missing") or [],
         "frontier": bool(record.get("frontier")),
         "reasons": record.get("reasons") or [],
@@ -119,10 +125,24 @@ def _tree_run(record: dict[str, Any]) -> dict[str, Any]:
     # the arm tables it was computed from — the scan JSON stays a duplication report and
     # the chemical layer stays optional, so a run without a profile still renders.
     profile = load_profile(OUTPUT_ROOT / record["run"])
+    summary = record.get("diversity") or {}
     if profile:
-        tree_run["diversity"] = {
-            key: profile[key] for key in ("arms", "cross", "thumb") if profile.get(key)
-        }
+        diversity = {key: profile[key] for key in ("arms", "cross", "thumb") if profile.get(key)}
+    else:
+        diversity = {key: summary[key] for key in ("arms", "cross", "thumb") if summary.get(key)}
+    if diversity:
+        # The scan payload flattens the stop arm's hierarchical metrics beside ``arms``;
+        # fold them back in so every view reads one shape.
+        stop_arm = diversity.setdefault("arms", {}).setdefault("stop", {})
+        for key in (
+            "scaffold_internal_diversity",
+            "sidechain_internal_diversity",
+            "scaffold_entropy_ratio",
+            "effective_desired_yield",
+        ):
+            if stop_arm.get(key) is None and summary.get(key) is not None:
+                stop_arm[key] = summary[key]
+        tree_run["diversity"] = diversity
     return tree_run
 
 
@@ -193,12 +213,16 @@ def tree_payload(scan: dict[str, Any]) -> dict[str, Any]:
 def render(payload: dict[str, Any], out: Path) -> None:
     """Attach depictions for the runs worth looking at, then write the atlas."""
     for record in payload["runs"]:
-        # Lead structures only for the runs the tree celebrates; every run's repeats,
-        # because a collapsed run's evidence is what it repeated.
-        if record.get("lead") and (record["frontier"] or record.get("rank")):
+        # Depict lead molecules for all runs that have one
+        if record.get("lead") and record["lead"].get("smiles"):
             record["lead"]["svg"] = _depict(record["lead"]["smiles"])
+        # Depict up to 10 best desired molecules from the stop arm
+        for mol in (record.get("best_desired") or [])[:10]:
+            if mol.get("smiles"):
+                mol["svg"] = _depict(mol["smiles"])
         for repeat in record.get("repeats") or []:
-            repeat["svg"] = _depict(repeat["smiles"])
+            if repeat.get("smiles"):
+                repeat["svg"] = _depict(repeat["smiles"])
     serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     # A "</script>" inside a string would end the payload tag early; SMILES cannot
     # contain it, but the check is one replace and then the class of bug is gone.
@@ -227,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
 
     scan_path = args.scan or OUTPUT_ROOT / "collapse_scan.json"
     if args.rescan or not scan_path.is_file():
-        scan_build([OUTPUT_ROOT], OUTPUT_ROOT / "collapse_atlas.html")
+        scan_build([OUTPUT_ROOT])
     scan = json.loads(scan_path.read_text())
 
     out = args.out or OUTPUT_ROOT / "collapse_tree_atlas.html"

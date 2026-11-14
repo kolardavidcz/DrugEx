@@ -28,7 +28,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 SENTINEL = "@@@DRUGEX@@@"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]

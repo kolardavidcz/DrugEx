@@ -13,7 +13,7 @@ agreement with a bound or crystal conformation. Nothing here measures biological
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from _david.code.config import EGCG, PROJECT_ROOT

@@ -35,14 +35,13 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
 
-from drugex.training.scorers.parallel import capped_n_jobs, pool_context
-
 from _david.code.conformer.config import METHODS, RANKING_FALLBACK, Method, StudyConfig
 
 # The scoring seam the pipeline itself uses: best (shape, colour) over every
 # conformer-reference pair, with native's per-molecule guard. Importing it rather than
 # reimplementing it is the point -- the study must measure the pipeline's scorer.
 from _david.code.scorers.rocs import PoseSearch, _annotate_color_features
+from drugex.training.scorers.parallel import capped_n_jobs, pool_context
 
 logger = logging.getLogger(__name__)
 

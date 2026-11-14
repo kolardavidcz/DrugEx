@@ -18,12 +18,6 @@ import pandas as pd
 import torch
 from rdkit import Chem
 
-from drugex import DEFAULT_DEVICE, DEFAULT_GPUS
-from drugex.data.corpus.vocabulary import VocSmiles
-from drugex.training.generators.sequence_rnn import SequenceRNN
-from drugex.training.monitors import FileMonitor
-from drugex.training.scorers.parallel import capped_n_jobs
-
 from _david.code.config import PROJECT_ROOT, ROCS_PUBLISHED_MAX, Config
 from _david.code.reconstruct.provenance import ARTIFACTS, Manifest, describe, digest
 from _david.code.scorers.conformers import (
@@ -45,7 +39,12 @@ from _david.code.scorers.utils import (
     score_in_chunks,
     use_double_precision_pickling,
 )
-from _david.code.training import StopCheckpointExplorer
+from drugex import DEFAULT_DEVICE, DEFAULT_GPUS
+from drugex.data.corpus.vocabulary import VocSmiles
+from drugex.training.explorers.sequence_explorer import SequenceExplorer
+from drugex.training.generators.sequence_rnn import SequenceRNN
+from drugex.training.monitors import FileMonitor
+from drugex.training.scorers.parallel import capped_n_jobs
 
 FINAL_ARMS = ("desired_ratio_at_stop",)
 ARMS = ("prior", *FINAL_ARMS)
@@ -314,6 +313,51 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
 
+def _save_model(state, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    torch.save(state, temporary)
+    temporary.replace(path)
+
+
+def _training_summary(fit_path: Path, cfg: Config) -> dict:
+    if not fit_path.is_file():
+        return {}
+    fit = pd.read_csv(fit_path, sep="\t")
+    if fit.empty or "desired_ratio" not in fit.columns:
+        return {}
+    epochs_run = int(fit["Epoch"].iloc[-1])
+    best_idx = int(fit["desired_ratio"].idxmax())
+    best_desired = float(fit.loc[best_idx, "desired_ratio"])
+    last_save = int(fit["best_epoch"].iloc[-1]) if "best_epoch" in fit.columns else int(fit.loc[best_idx, "Epoch"])
+    best_epoch = last_save if last_save > 0 else int(fit.loc[best_idx, "Epoch"])
+    at_stop = float(fit["desired_ratio"].iloc[-1])
+    frozen = bool(
+        epochs_run < cfg.epochs
+        and epochs_run >= cfg.min_epochs
+        and (epochs_run - last_save) > cfg.patience
+    )
+    return {
+        "epochs_run": epochs_run,
+        "best_desired_ratio": best_desired,
+        "best_desired_ratio_epoch": best_epoch,
+        "peak_desired_ratio_any_epoch": best_desired,
+        "desired_ratio_frozen": frozen,
+        "desired_ratio_freeze_epoch": epochs_run,
+        "desired_ratio_at_stop": at_stop,
+        "checkpoint_population": {
+            "desired_ratio_at_stop": {
+                "valid_ratio": round(float(fit["valid_ratio"].iloc[-1]), 4)
+                if "valid_ratio" in fit.columns
+                else 0.0,
+                "unique_ratio": round(float(fit["unique_ratio"].iloc[-1]), 4)
+                if "unique_ratio" in fit.columns
+                else 0.0,
+            }
+        },
+    }
+
+
 def _pipeline(
     cfg: Config, run_dir: Path, resolved: dict, manifest: Manifest, started: float
 ) -> int:
@@ -371,7 +415,7 @@ def _pipeline(
         )
     }
 
-    explorer = StopCheckpointExplorer(
+    explorer = SequenceExplorer(
         agent=agent,
         env=env,
         mutate=prior,
@@ -381,16 +425,17 @@ def _pipeline(
         n_samples=cfg.n_samples,
         device=DEFAULT_DEVICE,
         use_gpus=DEFAULT_GPUS,
-        checkpoint_path=run_dir / "models" / "desired_ratio_at_stop.pkg",
-        training_samples_path=run_dir / "training_samples.tsv",
-        n_eval=cfg.n_eval,
     )
-    summary = explorer.fit(
+    explorer.fit(
         monitor=FileMonitor(str(run_dir / "rl"), save_smiles=True),
         epochs=cfg.epochs,
         patience=cfg.patience,
+        reload_interval=cfg.epochs + 1,
+        criteria="desired_ratio",
         min_epochs=cfg.min_epochs,
     )
+    _save_model(explorer.getModel(), run_dir / "models" / "desired_ratio_at_stop.pkg")
+    summary = _training_summary(run_dir / "rl_fit.tsv", cfg)
     logger.info("training summary: %s", summary)
 
     # Guarded per arm: this stage runs after training, so a fault must cost one arm.

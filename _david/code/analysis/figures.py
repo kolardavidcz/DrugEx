@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from rdkit import Chem, DataStructs
-from rdkit.Chem import Descriptors, Draw, QED, rdMolDescriptors
+from rdkit.Chem import Descriptors, Draw, rdMolDescriptors
 from scipy.stats import gaussian_kde
 
 from _david.code.analysis._helpers import (
@@ -30,17 +30,15 @@ from _david.code.analysis._helpers import (
     AlignedDepicter,
     align_lead_to_bank,
     compute_2d_skyline,
-    dedup_key,
     dominated_volume,
     enrich_descriptors,
     pareto_mask,
-    pareto_rows,
     provenance_tag,
     reference_properties,
-    rocs_scale,
     scaffold_counts,
     scaffold_rows,
     scored_points,
+    threshold_rocs_scale,
     unique,
     unique_per_epoch,
     valid,
@@ -530,7 +528,9 @@ def multiobjective_tradeoffs(
     thr_map = dict(zip(objectives, thresholds))
     # The manifest's ROCS threshold is in the units that run's reward used; this axis is
     # published TanimotoCombo. Without the factor the line lands at half its position.
-    rocs_thr = float(thr_map.get(objectives[0], 0.70)) * rocs_scale(config)
+    rocs_thr = float(thr_map.get(objectives[0], 0.70)) * threshold_rocs_scale(
+        config, arms.get("prior"), objectives[0]
+    )
     # Map SA desirability threshold on [0, 1] back to physical raw SA [1, 10]
     sa_mod_thr = float(thr_map.get("SA", 0.63))
     sa_lo = float((config or {}).get("sa_reward_zero", 5.0))
@@ -743,6 +743,7 @@ def training_trajectories(
     objectives: list[str] | None = None,
     config: dict | None = None,
     reference: Path | None = None,
+    prior: pd.DataFrame | None = None,
 ) -> Path | None:
     if fit is None or fit.empty:
         return None
@@ -755,7 +756,11 @@ def training_trajectories(
     sa_grp = None
     if epochs is not None and not epochs.empty:
         vep = enrich_descriptors(
-            unique_per_epoch(epochs), rocs_col, (config or {}).get("reference_smiles"), config
+            unique_per_epoch(epochs),
+            rocs_col,
+            (config or {}).get("reference_smiles"),
+            config,
+            prior=prior,
         )
         if not vep.empty:
             for col in ("ROCS", "QED"):
@@ -2039,7 +2044,7 @@ def epoch_property_trajectories(
     style()
     rocs_col = (objectives or ["ROCS"])[0]
     ref_smi = (config or {}).get("reference_smiles")
-    valid_df = enrich_descriptors(vep, rocs_col, ref_smi, config)
+    valid_df = enrich_descriptors(vep, rocs_col, ref_smi, config, prior=prior)
     prior_df = (
         enrich_descriptors(_unique(prior), rocs_col, ref_smi, config)
         if prior is not None and not prior.empty
@@ -2190,7 +2195,7 @@ def training_diagnostics(
     prov = provenance_tag(config, reference)
     summary = summary or (config or {}).get("summary", {})
 
-    table = enrich_descriptors(epochs, rocs_col, ref_smi, config)
+    table = enrich_descriptors(epochs, rocs_col, ref_smi, config, prior=prior)
     val_df = _valid(table)
     if val_df.empty:
         return None
@@ -2206,7 +2211,7 @@ def training_diagnostics(
     cum_front = np.empty((0, len(objectives)))
     for ep in ep_nums:
         grp = val_df[val_df["Epoch"] == ep]
-        pts = scored_points(grp, objectives, config)
+        pts = scored_points(grp, objectives, config, prior=prior)
         hv_epoch.append(dominated_volume(pts))
         if len(pts):
             cum_front = np.vstack([cum_front, pts])
@@ -2697,6 +2702,7 @@ def render_all(
                 objectives=objectives,
                 config=config,
                 reference=reference,
+                prior=prior,
             ),
         ),
         (

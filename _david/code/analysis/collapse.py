@@ -7,8 +7,9 @@ run under the roots it is given, computes per-arm distribution statistics, and l
 run. Both schemas are understood: this repo's arms (``prior.tsv``, ``final_*.tsv``) and the
 legacy WITH_BUGS repo's ``raw_data/*_raw.csv.gz``.
 
-Outputs ``collapse_scan.json``, ``collapse_scan.tsv`` and one self-contained
-``collapse_atlas.html``. The verdict is a triage label with its reasons attached, not a
+Outputs ``collapse_scan.json`` and ``collapse_scan.tsv``; the self-contained atlas is the
+tree atlas (``collapse_tree_atlas.html``, see :mod:`_david.code.analysis.atlas_v2`), which
+reads the same scan. The verdict is a triage label with its reasons attached, not a
 statistic; the atlas exists so the trade-off itself (desired vs unique) can be read off the
 scatter, thresholds argued with, and the interesting runs found by eye.
 
@@ -18,12 +19,13 @@ checkpoint's arm: comparing selection rules is not comparing configurations. And
 runs from :data:`SINCE` onwards are counted: everything earlier belongs to the legacy
 WITH_BUGS regime and this repo's first probes, whose numbers answer different questions.
 
-    python -m _david.code.analysis.collapse [--roots DIR ...] [--since YYYYMMDD] [--out FILE.html]
+    python -m _david.code.analysis.collapse [--roots DIR ...] [--since YYYYMMDD]
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import gzip
 import json
 import logging
@@ -39,7 +41,7 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors, Draw
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
-from _david.code.analysis._helpers import pareto_mask, rocs_scale
+from _david.code.analysis._helpers import frame_rocs_scale, pareto_mask
 from _david.code.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
@@ -233,21 +235,37 @@ def _top_molecules(frame: pd.DataFrame, rocs_column: str | None, scale: float, c
     return out
 
 
-def _lead_molecule(frame: pd.DataFrame, rocs_column: str | None, scale: float) -> dict | None:
-    """The single best desired molecule of an arm: what winning looked like in this run."""
+def _best_desired_molecules(
+    frame: pd.DataFrame, rocs_column: str | None, scale: float, count: int = 10
+) -> list[dict]:
+    """Top N unique desired molecules of an arm, ranked by ROCS."""
     if not len(frame) or rocs_column is None:
-        return None
+        return []
     valid = frame[_numeric(frame, "Valid").fillna(0) == 1].copy()
     if "Desired" in valid.columns:
-        valid = valid[_numeric(valid, "Desired").fillna(0) == 1]
-    if not len(valid):
-        valid = frame[_numeric(frame, "Valid").fillna(0) == 1]
-    valid["_rocs"] = _numeric(valid, rocs_column) * scale
-    valid = valid.dropna(subset=["_rocs"]).nlargest(1, "_rocs")
-    if not len(valid):
-        return None
-    smiles = str(valid.iloc[0].get("Canonical") or valid.iloc[0].get("SMILES") or "")
-    return {"smiles": smiles, "rocs": round(float(valid.iloc[0]["_rocs"]), 3)} or None
+        desired_mols = valid[_numeric(valid, "Desired").fillna(0) == 1].copy()
+    else:
+        desired_mols = valid.copy()
+    if not len(desired_mols):
+        desired_mols = valid
+    desired_mols["_rocs"] = _numeric(desired_mols, rocs_column) * scale
+    top = (
+        desired_mols.dropna(subset=["_rocs"])
+        .drop_duplicates(subset=["Canonical" if "Canonical" in desired_mols.columns else "SMILES"])
+        .nlargest(count, "_rocs")
+    )
+    out = []
+    for _, row in top.iterrows():
+        smi = str(row.get("Canonical") or row.get("SMILES") or "")
+        if smi:
+            out.append({"smiles": smi, "rocs": round(float(row["_rocs"]), 3)})
+    return out
+
+
+def _lead_molecule(frame: pd.DataFrame, rocs_column: str | None, scale: float) -> dict | None:
+    """The single best desired molecule of an arm: what winning looked like in this run."""
+    top = _best_desired_molecules(frame, rocs_column, scale, count=1)
+    return top[0] if top else None
 
 
 # --------------------------------------------------------------------------------------
@@ -430,10 +448,7 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
         return None
 
     frames = _load_legacy(run) if legacy else _load_current(run)
-    scale = rocs_scale(config)
-    if legacy:
-        # The legacy pipeline stored published TanimotoCombo directly.
-        scale = 1.0
+    arm_scales: dict[str, float] = {}
 
     n_expected = int(config.get("n_final") or config.get("n_eval_samples") or 5000)
     arms: dict[str, Any] = {}
@@ -442,7 +457,10 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
         if frame is None or not len(frame):
             arms[role] = None
             continue
-        arms[role] = arm_stats(frame, _rocs_column(frame), scale)
+        rocs_col = _rocs_column(frame)
+        arm_scale = 1.0 if legacy else frame_rocs_scale(frame, rocs_col, config)
+        arm_scales[role] = arm_scale
+        arms[role] = arm_stats(frame, rocs_col, arm_scale)
 
     stop_chemistry = prior_chemistry = {}
     if arms.get("stop") and arms.get("prior"):
@@ -474,18 +492,66 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
         prior_div = (profile.get("arms") or {}).get("prior") or {}
         cross = profile.get("cross") or {}
         diversity_summary = {
+            "effective_molecules": stop_div.get("effective_molecules"),
+            "prior_effective_molecules": prior_div.get("effective_molecules"),
             "effective_scaffolds": stop_div.get("effective_scaffolds"),
             "prior_effective_scaffolds": prior_div.get("effective_scaffolds"),
             "internal_diversity": stop_div.get("internal_diversity"),
+            "scaffold_internal_diversity": stop_div.get("scaffold_internal_diversity"),
+            "sidechain_internal_diversity": stop_div.get("sidechain_internal_diversity"),
+            "scaffold_entropy_ratio": stop_div.get("scaffold_entropy_ratio"),
             "nn_sim_p50": stop_div.get("nn_sim_p50"),
+            "nn_sim_p90": stop_div.get("nn_sim_p90"),
+            "near_dup_rate": stop_div.get("near_dup_rate"),
             "novelty_rate": cross.get("novelty_rate"),
             "prior_echo_rate": cross.get("prior_echo_rate"),
+            "prior_sim_p50": cross.get("prior_sim_p50"),
         }
+        # Judged on the stop arm only: how much of the reward is distinct chemistry.
+        # effective scaffolds are an exp(entropy) count in the same units as a draw.
+        stop_arm = arms.get("stop") or {}
+        diversity_summary["effective_desired_yield"] = round(
+            (stop_arm.get("desired_ratio") or 0.0)
+            * (diversity_summary.get("effective_scaffolds") or 0.0)
+            / max(n_expected, 1),
+            4,
+        )
+        if profile.get("thumb"):
+            diversity_summary["thumb"] = profile["thumb"]
+        if profile.get("arms"):
+            diversity_summary["arms"] = profile["arms"]
+        if profile.get("cross"):
+            diversity_summary["cross"] = profile["cross"]
 
     hac = stop_chemistry.get("hac_median")
     hac_prior = prior_chemistry.get("hac_median")
     curve = _training_curve(run, legacy)
-    summary = manifest.get("summary") or {}
+    summary = manifest.get("summary") or manifest.get("config", {}).get("summary") or {}
+    if not summary and (run / "run.log").is_file():
+        try:
+            for line in (run / "run.log").read_text().splitlines():
+                if "training summary:" in line:
+                    summary = ast.literal_eval(line.split("training summary: ", 1)[1].strip())
+                    break
+        except Exception:
+            pass
+
+    stop_epoch = summary.get("desired_ratio_freeze_epoch")
+    best_desired_epoch = summary.get("best_desired_ratio_epoch")
+    gmean_epoch = summary.get("best_avg_gmean_epoch")
+    desired_frozen = summary.get("desired_ratio_frozen")
+
+    if best_desired_epoch is None and curve.get("desired"):
+        des_list = curve["desired"]
+        if des_list:
+            best_desired_epoch = max(range(len(des_list)), key=lambda i: des_list[i]) + 1
+    if stop_epoch is None:
+        stop_epoch = summary.get("epochs_run") or curve.get("epochs") or len(curve.get("desired") or [])
+
+    curve["stop_epoch"] = stop_epoch
+    curve["best_desired_epoch"] = best_desired_epoch
+    curve["gmean_epoch"] = gmean_epoch
+    curve["desired_frozen"] = desired_frozen
 
     record: dict[str, Any] = {
         "run": run.name,
@@ -508,6 +574,10 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
         if arms.get("best") and arms.get("stop") and arms["best"]["unique_ratio"] is not None
         else None,
         "curve": curve,
+        "stop_epoch": stop_epoch,
+        "best_desired_epoch": best_desired_epoch,
+        "gmean_epoch": gmean_epoch,
+        "desired_frozen": desired_frozen,
         "verdict": result["label"],
         "flags": result["flags"],
         "reasons": result["reasons"],
@@ -515,11 +585,15 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
 
     stop_frame = frames.get("stop")
     if stop_frame is not None and len(stop_frame):
+        stop_scale = arm_scales.get("stop", 1.0)
         if result["label"] == "collapsed":
-            record["repeats"] = _top_molecules(stop_frame, _rocs_column(stop_frame), scale, 3)
-        lead = _lead_molecule(stop_frame, _rocs_column(stop_frame), scale)
+            record["repeats"] = _top_molecules(stop_frame, _rocs_column(stop_frame), stop_scale, 3)
+        lead = _lead_molecule(stop_frame, _rocs_column(stop_frame), stop_scale)
         if lead and lead.get("smiles"):
             record["lead"] = lead
+        record["best_desired"] = _best_desired_molecules(
+            stop_frame, _rocs_column(stop_frame), stop_scale, count=10
+        )
 
     if legacy:
         record["axes"]["scheme"] = f"{record['axes'].get('scheme') or 'PRCD'}"
@@ -527,17 +601,17 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
 
 
 def missing_arms(run: Path, record: dict[str, Any]) -> list[str]:
-    """Final arms a killed run still owes, in score_arms' own completeness sense."""
+    """The stop arm a killed run still owes, in score_arms' own completeness sense.
+
+    Only the stop arm: the verdict and the atlas read it, and a new run writes no other
+    checkpoint. Legacy checkpoints an older run already has are not re-scored here.
+    """
     from _david.code.run import arm_is_complete
 
+    name = "final_desired_ratio_at_stop.tsv"
     owed = []
-    for role, name in (
-        ("best", "final_desired_ratio.tsv"),
-        ("stop", "final_desired_ratio_at_stop.tsv"),
-        ("gmean", "final_gmean.tsv"),
-    ):
-        if record["arms"].get(role) is None or not arm_is_complete(run / name, record["n_expected"]):
-            owed.append(name)
+    if record["arms"].get("stop") is None or not arm_is_complete(run / name, record["n_expected"]):
+        owed.append(name)
     return owed
 
 
@@ -570,7 +644,25 @@ def _run_date(name: str) -> str | None:
     return match.group(1) if match else None
 
 
-def build(roots: list[Path], out: Path, since: str = SINCE) -> Path:
+def is_legacy_layout(run: Path) -> bool:
+    """Whether a run directory is the legacy checkout's layout, by what it holds.
+
+    The arms are the test, never a missing file: a current run whose ``prior.tsv`` was
+    never downloaded (or a job killed before calibration) still writes ``final_*.tsv``
+    and has no ``raw_data``, and reading it as legacy silently rewrites its axes from
+    ``reward_scheme`` and pins the ROCS scale to 1.0. The legacy pipeline always kept
+    its arms as ``raw_data/*_raw.csv.gz``.
+    """
+    return (run / "raw_data").is_dir()
+
+
+def build(roots: list[Path], out: Path | None = None, since: str = SINCE) -> Path:
+    """Scan the roots and write ``collapse_scan.json``/``.tsv`` beside ``out``.
+
+    ``out`` survives only as the directory anchor for callers that used to name the v1
+    atlas: the scan data lands in its parent (or in ``roots[0]`` when omitted). No HTML is
+    rendered here any more — :mod:`_david.code.analysis.atlas_v2` owns the atlas.
+    """
     records = []
     for root in roots:
         if not root.is_dir():
@@ -582,12 +674,14 @@ def build(roots: list[Path], out: Path, since: str = SINCE) -> Path:
             date = _run_date(run.name)
             if date is not None and date < since:
                 continue
-            legacy = not (run / "prior.tsv").is_file()
+            legacy = is_legacy_layout(run)
             record = scan_run(run, legacy)
             if record is None:
                 logger.warning("%s: no usable manifest; skipped", run.name)
                 continue
-            if record["state"] != "complete" and not legacy:
+            # A live job owes nothing yet: its arm is written when it stops. Only a run
+            # that stopped without one is on the rebuild queue.
+            if record["state"] not in ("complete", "running") and not legacy:
                 record["missing"] = missing_arms(run, record)
             records.append(record)
 
@@ -618,11 +712,13 @@ def build(roots: list[Path], out: Path, since: str = SINCE) -> Path:
         },
     }
 
-    out.parent.mkdir(parents=True, exist_ok=True)
-    (out.parent / "collapse_scan.json").write_text(json.dumps(payload, indent=1))
-    _write_tsv(payload, out.parent / "collapse_scan.tsv")
-    render(payload, out)
-    return out
+    target = out if out is not None and out.suffix == "" else (out.parent if out else roots[0])
+    target.mkdir(parents=True, exist_ok=True)
+    scan_path = target / "collapse_scan.json"
+    scan_path.write_text(json.dumps(payload, indent=1))
+    _write_tsv(payload, target / "collapse_scan.tsv")
+    logger.info("wrote %s (%d runs)", scan_path, len(records))
+    return scan_path
 
 
 def _write_tsv(payload: dict[str, Any], path: Path) -> None:
@@ -630,6 +726,7 @@ def _write_tsv(payload: dict[str, Any], path: Path) -> None:
     rows = []
     for r in payload["runs"]:
         stop = r["arms"].get("stop") or {}
+        diversity = r.get("diversity") or {}
         rows.append({
             "run": r["run"], "repo": r["repo"], "state": r["state"], "verdict": r["verdict"],
             "flags": ";".join(r["flags"]), "frontier": r["frontier"],
@@ -642,12 +739,19 @@ def _write_tsv(payload: dict[str, Any], path: Path) -> None:
             "hac_drift": r["hac_drift"], "postpeak_decay": r["postpeak_decay"],
             "unique_prior": (r["arms"].get("prior") or {}).get("unique_ratio"),
             "desired_prior": (r["arms"].get("prior") or {}).get("desired_ratio"),
+            "eff_molecules": diversity.get("effective_molecules"),
+            "eff_scaffolds": diversity.get("effective_scaffolds"),
+            "internal_div": diversity.get("internal_diversity"),
+            "scaffold_internal_div": diversity.get("scaffold_internal_diversity"),
+            "sidechain_internal_div": diversity.get("sidechain_internal_diversity"),
+            "scaffold_entropy": diversity.get("scaffold_entropy_ratio"),
+            "edy": diversity.get("effective_desired_yield"),
         })
     pd.DataFrame(rows).to_csv(path, sep="\t", index=False)
 
 
 # --------------------------------------------------------------------------------------
-# HTML
+# Depictions
 # --------------------------------------------------------------------------------------
 
 
@@ -663,322 +767,46 @@ def _depict(smiles: str) -> str:
 
 
 def render(payload: dict[str, Any], out: Path) -> None:
-    """Attach depictions for the highlighted runs, then write the atlas."""
+    """Attach molecule depictions, then write one safe, self-contained v1 atlas."""
     for record in payload["runs"]:
-        if record.get("lead") and record["frontier"]:
+        if record.get("lead"):
             record["lead"]["svg"] = _depict(record["lead"]["smiles"])
         for repeat in record.get("repeats") or []:
             repeat["svg"] = _depict(repeat["smiles"])
     serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    out.write_text(_PAGE.replace("__PAYLOAD__", serialized), encoding="utf-8")
+    # Prevent molecule text from terminating the payload script; JSON.parse restores it.
+    serialized = serialized.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
+    page = _PAGE.replace("__PAYLOAD__", serialized)
+    for name, value in {
+        "COLLAPSED_UNIQUE": COLLAPSED_UNIQUE,
+        "CONCENTRATED_UNIQUE": CONCENTRATED_UNIQUE,
+        "SERIES_LOCK_TOP10": SERIES_LOCK_TOP10,
+        "VALIDITY_FLOOR": VALIDITY_FLOOR,
+    }.items():
+        page = page.replace(f"__{name}__", f"{value:.2f}")
+    out.write_text(page, encoding="utf-8")
     logger.info("wrote %s (%.1f MB)", out, out.stat().st_size / 1e6)
 
 
 _PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mode collapse atlas</title>
+<meta name="color-scheme" content="light">
+<title>Collapse atlas · live policies at stop</title>
 <style>
-:root { color-scheme: light dark; --bg:#f8fafc; --fg:#0f172a; --panel:#fff; --line:#e2e8f0;
-  --muted:#64748b; --head:#0f172a; --accent:#4f46e5; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg:#0b1120; --fg:#e2e8f0; --panel:#111827; --line:#1f2937; --muted:#94a3b8; --head:#020617; } }
-* { box-sizing:border-box; }
-body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 ui-sans-serif,-apple-system,"Segoe UI",sans-serif; }
-header { padding:20px 16px 14px; background:var(--head); color:#f8fafc; }
-h1 { margin:0 0 4px; font-size:20px; } header p { margin:0; color:#cbd5e1; font-size:12.5px; }
-.cards { display:flex; gap:12px; padding:16px 16px 4px; flex-wrap:wrap; }
-.card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 16px; min-width:110px; }
-.card b { display:block; font-size:22px; } .card span { color:var(--muted); font-size:11.5px; text-transform:uppercase; }
-nav { display:flex; gap:4px; padding:14px 16px 0; flex-wrap:wrap; }
-nav button { border:1px solid var(--line); background:var(--panel); color:var(--fg); padding:7px 13px; border-radius:7px; cursor:pointer; }
-nav button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-main { padding:14px 16px 48px; } section { display:none; } section.active { display:block; }
-h2 { font-size:15px; margin:18px 0 8px; } .note { background:#fff7ed; border:1px solid #fed7aa; color:#7c2d12; padding:9px 12px; border-radius:8px; margin:10px 0; }
-.scroll { overflow-x:auto; }
-table { width:100%; border-collapse:collapse; background:var(--panel); font-size:12.5px; border:1px solid var(--line); }
-th,td { padding:6px 9px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }
-th { background:var(--bg); font-weight:600; cursor:pointer; position:sticky; top:0; }
-td.num { text-align:right; font-variant-numeric:tabular-nums; }
-.pill { padding:1px 8px; border-radius:999px; font-size:11px; font-weight:600; }
-.collapsed { background:#fee2e2; color:#991b1b; } .concentrated { background:#fef3c7; color:#92400e; }
-.clean { background:#dcfce7; color:#166534; } .unlearned { background:#e0e7ff; color:#3730a3; }
-.pilot, .incomplete { background:var(--line); color:var(--muted); }
-.state { padding:1px 7px; border-radius:999px; font-size:11px; font-weight:600; }
-.complete { background:#dcfce7; color:#166534; } .running { background:#fee2e2; color:#991b1b; }
-.unknown { background:var(--line); color:var(--muted); }
-tr.detail { display:none; } tr.detail.open { display:table-row; }
-tr.detail > td { background:var(--bg); white-space:normal; }
-svg.spark { vertical-align:middle; }
-.mols { display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:12px; }
-.mol { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:8px; }
-.mol svg { width:100%; height:auto; display:block; } .mol .meta { font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
-.mol b { color:var(--fg); }
-.runs { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
-.run { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:10px 12px; }
-.run h3 { margin:0 0 4px; font-size:13px; overflow-wrap:anywhere; }
-.run .meta { font-size:11.5px; color:var(--muted); }
-#scatter-box { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px; }
-.controls { display:flex; gap:10px; flex-wrap:wrap; margin:8px 0; align-items:center; }
-.controls select { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 6px; }
-.legend { font-size:11.5px; color:var(--muted); }
-.axisgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(430px,1fr)); gap:14px; }
-.axisplot { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px; }
-.axisplot h3 { margin:2px 4px 6px; font-size:12.5px; }
-</style></head><body>
-<header><h1>Mode collapse atlas</h1><p id="sub"></p></header>
-<div class="cards" id="cards"></div>
-<nav id="nav"></nav>
-<main>
-  <section id="runs" class="active"><h2>Every run</h2>
-    <div class="note">Click a row for the verdict's evidence: all four arms, the reasons, and what the model repeated.</div>
-    <div class="scroll"><table id="runtable"></table></div></section>
-  <section id="map"><h2>Collapse map: diversity retained vs desired reached</h2>
-    <div class="controls" id="filters"></div>
-    <div class="controls"><b>x-axis:</b>
-      <label><input type="radio" name="scatter-x" value="unique" checked> unique / draw</label>
-      <label><input type="radio" name="scatter-x" value="eff"> eff. scaffolds (log)</label>
-      <span class="legend" style="margin-left:8px">unique-ratio is not chemical breadth — switch axes to see the "concentrated" band sit below the "collapsed" one.</span></div>
-    <div id="scatter-box"></div>
-    <div class="legend">Dashed line: the non-dominated frontier on (desired, unique). Top-left is a collapsed policy that still collects reward; top-right is the goal.</div></section>
-  <section id="axes"><h2>What the axes do to uniqueness</h2><div class="axisgrid" id="axisgrid"></div></section>
-  <section id="high"><h2>Runs worth reading first</h2>
-    <h2>Frontier runs</h2><div class="runs" id="frontier"></div>
-    <h2>What the collapsed runs collapsed onto</h2><div class="mols" id="collapsed"></div>
-    <h2>Largest post-checkpoint decay (unique: best checkpoint &rarr; stop)</h2><div class="scroll"><table id="decay"></table></div></section>
-  <section id="rebuild"><h2>Killed runs, rebuildable from checkpoints</h2>
-    <div class="note">These finished training and were killed while scoring final arms. All keep three checkpoints; rebuild with <code>python -m _david.code.score_arms &lt;run&gt;</code>.</div>
-    <div class="scroll"><table id="rebuildtable"></table></div></section>
-</main>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<!--__BODY__-->
 <script id="payload" type="application/json">__PAYLOAD__</script>
-<script>
-const P = JSON.parse(document.getElementById('payload').textContent);
-const R = P.runs;
-const esc = v => String(v ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const num = (v, d=2) => v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d);
-const cell = v => typeof v === 'boolean' ? (v ? 'on' : 'off') : (v ?? '—');
-const stopOf = r => r.arms.stop || {};
-const priorOf = r => r.arms.prior || {};
-
-document.getElementById('sub').textContent = `${P.totals.runs} runs · ${P.totals.complete} complete · ${P.totals.killed} killed (${P.totals.rebuildable} rebuildable) · ${P.generated}`;
-
-const VERDICTS = ['collapsed','concentrated','clean','unlearned','pilot','incomplete'];
-document.getElementById('cards').innerHTML =
-  `<div class="card"><b>${P.totals.runs}</b><span>runs</span></div>` +
-  VERDICTS.map(v => `<div class="card"><b>${P.counts[v] || 0}</b><span>${v}</span></div>`).join('') +
-  `<div class="card"><b>${P.totals.frontier}</b><span>frontier</span></div>`;
-
-document.getElementById('nav').innerHTML = [['runs','Runs'],['map','Collapse map'],['axes','By axis'],['high','Highlights'],['rebuild','Rebuild']]
-  .map(([id, label], i) => `<button data-tab="${id}" class="${i ? '' : 'active'}">${label}</button>`).join('');
-document.getElementById('nav').onclick = e => {
-  const id = e.target.dataset.tab; if (!id) return;
-  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b === e.target));
-  document.querySelectorAll('section').forEach(s => s.classList.toggle('active', s.id === id));
-};
-
-const COLS = [
-  ['run', 'run', r => esc(r.run)],
-  ['verdict', 'verdict', r => `<span class="pill ${r.verdict}">${r.verdict}</span>${r.frontier ? ' ★' : ''}`],
-  ['state', 'state', r => `<span class="state ${['complete','running'].includes(r.state) ? r.state : 'unknown'}">${r.state}</span>`],
-  ['repo', 'repo', r => esc(r.repo)],
-  ['epsilon', 'ε', r => num(r.axes.epsilon, 2)],
-  ['scheme', 'scheme', r => esc(r.axes.scheme)],
-  ['minimize', 'min', r => cell(r.axes.minimize)],
-  ['reference_conformers', 'K', r => esc(r.axes.reference_conformers)],
-  ['max_conformers', 'C', r => esc(r.axes.max_conformers)],
-  ['include_qed', 'qed', r => cell(r.axes.include_qed)],
-  ['color_ff', 'colour', r => esc(r.axes.color_ff)],
-  ['alignment_shape_weight', 'w', r => num(r.axes.alignment_shape_weight, 1)],
-  ['unique_ratio', 'unique', r => num(stopOf(r).unique_ratio), 1],
-  ['eff_scaffolds', 'eff.scaf', r => {
-    const v = (r.diversity || {}).effective_scaffolds;
-    // Unique-ratio is not chemical breadth: red when the arm holds < 100 effective
-    // scaffold families, whatever the verdict says.
-    return v == null ? '—' : `<span style="${v < 100 ? 'color:#dc2626;font-weight:700' : ''}">${Math.round(v).toLocaleString()}</span>`;
-  }, 1],
-  ['nn_sim_p50', 'NN p50', r => num((r.diversity || {}).nn_sim_p50), 1],
-  ['top10_share', 'top10', r => num(stopOf(r).top10_share), 1],
-  ['desired_ratio', 'desired', r => num(stopOf(r).desired_ratio), 1],
-  ['valid_ratio', 'valid', r => num(stopOf(r).valid_ratio), 1],
-  ['rocs_median', 'ROCS', r => num(stopOf(r).rocs_median, 2), 1],
-  ['hac_drift', 'ΔHAC', r => num(r.hac_drift, 1), 1],
-  ['postpeak_decay', 'decay', r => num(r.postpeak_decay), 1],
-  ['epochs_run', 'epochs', r => r.epochs_run ?? '—', 1],
-  ['hours', 'hours', r => num(r.hours, 1), 1],
-  ['curve', 'desired/epoch', r => spark(r), 0],
-];
-let key = 'unique_ratio', desc = false;
-const fmt = (r, k) => {
-  if (k === 'unique_ratio') return stopOf(r).unique_ratio;
-  if (k === 'eff_scaffolds') return (r.diversity || {}).effective_scaffolds;
-  if (k === 'nn_sim_p50') return (r.diversity || {}).nn_sim_p50;
-  if (k === 'desired_ratio') return stopOf(r).desired_ratio;
-  if (k === 'top10_share') return stopOf(r).top10_share;
-  if (k === 'valid_ratio') return stopOf(r).valid_ratio;
-  if (k === 'rocs_median') return stopOf(r).rocs_median;
-  if (k === 'hac_drift') return r.hac_drift;
-  if (k === 'postpeak_decay') return r.postpeak_decay;
-  if (k === 'epochs_run') return r.epochs_run;
-  if (k === 'hours') return r.hours;
-  return r.axes[k] ?? r[k];
-};
-const draw = () => {
-  const rows = [...R].sort((a, b) => {
-    const x = fmt(a, key), y = fmt(b, key);
-    if (x === y) return a.run < b.run ? -1 : 1;
-    if (x == null) return 1; if (y == null) return -1;
-    return (x > y ? 1 : -1) * (desc ? -1 : 1);
-  });
-  document.getElementById('runtable').innerHTML =
-    `<thead><tr>${COLS.map(([k, l]) => `<th data-k="${k}">${l}${k === key ? (desc ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead>` +
-    `<tbody>${rows.map(r => `<tr data-run="${esc(r.run)}">${COLS.map(([, , f, n]) => `<td class="${n ? 'num' : ''}">${f(r)}</td>`).join('')}</tr>` +
-      detailRow(r)).join('')}</tbody>`;
-};
-const detailRow = r => `<tr class="detail" id="d-${esc(r.run)}"><td colspan="${COLS.length}">
-  <b>${esc(r.run)}</b> — ${esc(r.verdict)}${r.frontier ? ' · frontier' : ''}<br>
-  ${r.reasons.length ? r.reasons.map(esc).join('<br>') : 'no verdict reasons recorded'}<br>
-  arms: ${['prior','best','stop','gmean'].map(a => r.arms[a] ?
-    `${a} (n=${r.arms[a].n}, unique ${num(r.arms[a].unique_ratio)}, desired ${num(r.arms[a].desired_ratio)}, valid ${num(r.arms[a].valid_ratio)})` :
-    `${a}: missing`).join(' · ')}<br>
-  ${r.repeats ? `repeated: ${r.repeats.map(m => `<span title="${esc(m.smiles)}">${m.count}× ROCS ${num(m.rocs)}</span>`).join(', ')}` : ''}
-  ${r.missing ? `<br>missing final arms: ${esc(r.missing.join(', '))}` : ''}</td></tr>`;
-document.getElementById('runtable').onclick = e => {
-  const th = e.target.closest('th'); if (th) { const k = th.dataset.k; desc = k === key ? !desc : true; key = k; draw(); return; }
-  const tr = e.target.closest('tr[data-run]'); if (!tr) return;
-  document.getElementById('d-' + tr.dataset.run)?.classList.toggle('open');
-};
-draw();
-
-function spark(r) {
-  const series = r.curve?.desired; if (!series || !series.length) return '—';
-  const w = 90, h = 22, max = Math.max(...series, 1e-9);
-  const pts = series.map((v, i) => `${(i / (series.length - 1 || 1)) * w},${h - v / max * (h - 3) - 1.5}`);
-  return `<svg class="spark" width="${w}" height="${h}"><polyline points="${pts.join(' ')}" fill="none" stroke="#4f46e5" stroke-width="1.5"/></svg>`;
-}
-
-// ---- collapse map ----
-const AXES = ['scheme','epsilon','minimize','include_qed','reference_conformers','max_conformers','color_ff'];
-const filters = {};
-document.getElementById('filters').innerHTML = AXES.map(a =>
-  `<label>${a} <select id="f-${a}"><option value="">all</option></select></label>`).join('') +
-  `<label>repo <select id="f-repo"><option value="">all</option><option>current</option><option>legacy</option></select></label>`;
-for (const a of [...AXES, 'repo']) {
-  const sel = document.getElementById('f-' + a);
-  [...new Set(R.map(r => a === 'repo' ? r.repo : r.axes[a]))].filter(v => v != null)
-    .sort((x, y) => x > y ? 1 : -1).forEach(v => {
-      const o = document.createElement('option'); o.value = o.textContent = v; sel.appendChild(o);
-    });
-  sel.onchange = () => { filters[a] = sel.value; drawScatter(); };
-}
-let scatterX = 'unique';
-document.querySelectorAll('input[name="scatter-x"]').forEach(rb => rb.onchange = () => { scatterX = rb.value; drawScatter(); });
-function drawScatter() {
-  const runs = R.filter(r => r.verdict !== 'pilot' && r.verdict !== 'incomplete'
-    && Object.entries(filters).every(([a, v]) => !v || (a === 'repo' ? r.repo : String(r.axes[a])) === v));
-  const W = 860, H = 480, m = { l: 52, r: 16, t: 16, b: 42 };
-  const xOf = r => scatterX === 'eff' ? (r.diversity || {}).effective_scaffolds : stopOf(r).unique_ratio;
-  const xs = runs.map(xOf).filter(v => v != null);
-  const ys = runs.map(r => stopOf(r).desired_ratio).filter(v => v != null);
-  // Effective scaffolds span 1..2500: log scale, floored at 1, so both bands stay readable.
-  const logX = scatterX === 'eff';
-  const xmin = logX ? 1 : Math.min(...xs, 0), xmax = logX ? Math.max(...xs, 2) : Math.max(...xs, 1), ymin = 0, ymax = Math.max(...ys, 0.1);
-  const sx = v => logX ? Math.log10(Math.max(v, 1)) : v;
-  const X = v => m.l + (sx(v) - sx(xmin)) / (sx(xmax) - sx(xmin) || 1) * (W - m.l - m.r);
-  const Y = v => H - m.b - (v - ymin) / (ymax - ymin || 1) * (H - m.t - m.b);
-  const color = { collapsed: '#dc2626', concentrated: '#d97706', clean: '#16a34a', unlearned: '#4f46e5', pilot: '#94a3b8', incomplete: '#94a3b8' };
-  const fr = runs.filter(r => r.frontier).sort((a, b) => stopOf(a).desired_ratio - stopOf(b).desired_ratio);
-  const ticks = (lo, hi, n) => Array.from({ length: n + 1 }, (_, i) => lo + (hi - lo) * i / n);
-  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
-    ${ticks(0, 1, 5).map(t => `<line x1="${X(t * xmax)}" y1="${m.t}" x2="${X(t * xmax)}" y2="${H - m.b}" stroke="var(--line)"/>`).join('')}
-    ${ticks(0, 1, 5).map(t => `<line x1="${m.l}" y1="${Y(t * ymax)}" x2="${W - m.r}" y2="${Y(t * ymax)}" stroke="var(--line)"/>`).join('')}
-    ${(logX ? [1, 10, 100, 1000, xmax].filter((v, i, a) => a.indexOf(v) === i && v <= xmax)
-             : ticks(0, 1, 5).map(t => t * xmax)).map(xv =>
-      `<text x="${X(xv)}" y="${H - m.b + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${logX ? Math.round(xv).toLocaleString() : xv.toFixed(2)}</text>`).join('')}
-    ${ticks(0, 1, 5).map(t => `<text x="${m.l - 8}" y="${Y(t * ymax) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${(t * ymax).toFixed(2)}</text>`).join('')}
-    <text x="${(m.l + W - m.r) / 2}" y="${H - 6}" text-anchor="middle" font-size="12">${logX ? 'effective scaffolds in the stop arm (log)' : 'unique molecules per draw (stop arm)'}</text>
-    <text x="18" y="${(m.t + H - m.b) / 2}" text-anchor="middle" font-size="12" transform="rotate(-90 18 ${(m.t + H - m.b) / 2})">desired ratio</text>`;
-  if (fr.length > 1) svg += `<polyline points="${fr.map(r => `${X(xOf(r))},${Y(stopOf(r).desired_ratio)}`).join(' ')}" fill="none" stroke="var(--fg)" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>`;
-  for (const r of runs) {
-    const x = xOf(r), y = stopOf(r).desired_ratio;
-    if (x == null || y == null) continue;
-    svg += `<g><circle cx="${X(x)}" cy="${Y(y)}" r="${r.frontier ? 6 : 4}" fill="${color[r.verdict] || '#94a3b8'}"
-      opacity="0.8" stroke="${r.frontier ? 'var(--fg)' : 'none'}" stroke-width="1.5">
-      <title>${esc(r.run)} — ${r.verdict}
-unique ${num(stopOf(r).unique_ratio)} · desired ${num(y)} · valid ${num(stopOf(r).valid_ratio)}${(r.diversity || {}).effective_scaffolds != null ? ' · eff. scaffolds ' + Math.round(r.diversity.effective_scaffolds).toLocaleString() + ' (NN p50 ' + num(r.diversity.nn_sim_p50) + ')' : ''}
-ε=${num(r.axes.epsilon)} ${esc(r.axes.scheme)} K=${esc(r.axes.reference_conformers)} C=${esc(r.axes.max_conformers)} qed=${cell(r.axes.include_qed)}</title></circle></g>`;
-  }
-  svg += `</svg><div class="legend">${Object.entries(color).map(([k, c]) =>
-    `<svg width="10" height="10" style="vertical-align:-1px"><circle cx="5" cy="5" r="4" fill="${c}"/></svg> ${k}`).join(' · ')} · ★ = frontier · ${runs.length} runs shown</div>`;
-  document.getElementById('scatter-box').innerHTML = svg;
-}
-drawScatter();
-
-// ---- by axis ----
-const stripAxes = ['epsilon','scheme','minimize','include_qed','reference_conformers','max_conformers','color_ff','alignment_shape_weight'];
-document.getElementById('axisgrid').innerHTML = stripAxes.map(a => {
-  const groups = {};
-  R.forEach(r => { if (r.verdict === 'pilot' || r.verdict === 'incomplete') return;
-    const v = r.axes[a]; if (v == null) return;
-    (groups[v] = groups[v] || []).push(r); });
-  const keys = Object.keys(groups).sort((x, y) => parseFloat(x) - parseFloat(y) || (x > y ? 1 : -1));
-  const W = 420, H = 200, m = { l: 34, r: 8, t: 8, b: 24 };
-  const color = { collapsed: '#dc2626', concentrated: '#d97706', clean: '#16a34a', unlearned: '#4f46e5' };
-  const Y = v => H - m.b - v * (H - m.t - m.b);
-  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">`;
-  [0, .25, .5, .75, 1].map(y => { svg += `<line x1="${m.l}" y1="${Y(y)}" x2="${W - m.r}" y2="${Y(y)}" stroke="var(--line)"/>
-    <text x="${m.l - 6}" y="${Y(y) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${y}</text>`; });
-  keys.forEach((k, gi) => {
-    const cx = m.l + (gi + 0.5) * (W - m.l - m.r) / keys.length;
-    svg += `<text x="${cx}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(k)}</text>`;
-    groups[k].forEach((r, i) => {
-      const u = stopOf(r).unique_ratio; if (u == null) return;
-      const jx = cx + (i / Math.max(groups[k].length - 1, 1) - 0.5) * Math.min(46, (W - m.l - m.r) / keys.length * 0.7);
-      svg += `<circle cx="${jx}" cy="${Y(u)}" r="3.5" fill="${color[r.verdict] || '#94a3b8'}" opacity="0.75"><title>${esc(r.run)} unique ${num(u)}</title></circle>`;
-    });
-    const us = groups[k].map(r => stopOf(r).unique_ratio).filter(v => v != null);
-    if (us.length) {
-      const med = us.sort((x, y) => x - y)[Math.floor(us.length / 2)];
-      svg += `<line x1="${cx - 14}" y1="${Y(med)}" x2="${cx + 14}" y2="${Y(med)}" stroke="var(--fg)" stroke-width="2"/>`;
-    }
-  });
-  return `<div class="axisplot"><h3>${a} — median bar, one dot per run (y: unique)</h3>${svg}</div>`;
-}).join('');
-
-// ---- highlights ----
-const frontier = R.filter(r => r.frontier).sort((a, b) =>
-  (stopOf(b).desired_ratio + stopOf(b).unique_ratio) - (stopOf(a).desired_ratio + stopOf(a).unique_ratio));
-document.getElementById('frontier').innerHTML = frontier.slice(0, 10).map(r => {
-  const lead = r.lead || {};
-  return `<div class="run"><h3>${esc(r.run)}</h3><div class="meta">
-    ${esc(r.axes.scheme)} · ε=${num(r.axes.epsilon)} · K=${esc(r.axes.reference_conformers)} · C=${esc(r.axes.max_conformers)} · qed=${cell(r.axes.include_qed)} · ${esc(r.axes.color_ff)}<br>
-    desired <b>${num(stopOf(r).desired_ratio)}</b> · unique <b>${num(stopOf(r).unique_ratio)}</b> · valid ${num(stopOf(r).valid_ratio)} · ROCS med ${num(stopOf(r).rocs_median)} · ${r.epochs_run} epochs<br>
-    lead: ${esc(lead.smiles || '—')} (ROCS ${num(lead.rocs)})</div>
-    ${lead.svg || ''}</div>`;
-}).join('') || '<div class="note">No full-scale scored run.</div>';
-
-document.getElementById('collapsed').innerHTML = R.filter(r => r.verdict === 'collapsed')
-  .sort((a, b) => stopOf(a).unique_ratio - stopOf(b).unique_ratio)
-  .flatMap(r => (r.repeats || []).map((m, i) => `<div class="mol">${m.svg || ''}
-    <div class="meta"><b>${m.count}× per 5000</b> · ROCS ${num(m.rocs)}<br>
-    ${i === 0 ? `<b>${esc(r.run)}</b> (unique ${num(stopOf(r).unique_ratio)})` : '&nbsp;'}<br>${esc(m.smiles)}</div></div>`))
-  .join('') || '<div class="note">No collapsed run.</div>';
-
-const decay = R.filter(r => r.postpeak_decay != null).sort((a, b) => b.postpeak_decay - a.postpeak_decay).slice(0, 12);
-document.getElementById('decay').innerHTML = `<thead><tr><th>run</th><th>verdict</th><th>ε</th><th>scheme</th>
-  <th>unique @ best</th><th>unique @ stop</th><th>lost</th></tr></thead><tbody>${decay.map(r =>
-  `<tr><td>${esc(r.run)}</td><td><span class="pill ${r.verdict}">${r.verdict}</span></td>
-   <td>${num(r.axes.epsilon)}</td><td>${esc(r.axes.scheme)}</td>
-   <td class="num">${num(r.arms.best?.unique_ratio)}</td><td class="num">${num(stopOf(r).unique_ratio)}</td>
-   <td class="num">${num(r.postpeak_decay)}</td></tr>`).join('')}</tbody>`;
-
-// ---- rebuild ----
-const reb = R.filter(r => r.missing && r.missing.length);
-document.getElementById('rebuildtable').innerHTML = `<thead><tr><th>run</th><th>state</th><th>epochs trained</th>
-  <th>missing arms</th><th>command</th></tr></thead><tbody>${reb.map(r =>
-  `<tr><td>${esc(r.run)}</td><td><span class="state running">${esc(r.state)}</span></td>
-   <td class="num">${r.epochs_run ?? '—'}</td><td>${esc(r.missing.join(', '))}</td>
-   <td><code>python -m _david.code.score_arms ${esc(r.run)}</code></td></tr>`).join('')}</tbody>`;
-</script></body></html>
+<script id="app">
+/*__APP__*/
+</script>
+</body>
+</html>
 """
 
 
@@ -997,20 +825,14 @@ def main(argv: list[str] | None = None) -> int:
         metavar="YYYYMMDD",
         help=f"count only runs from this date onwards (default: {SINCE})",
     )
-    parser.add_argument(
-        "--out",
-        type=Path,
-        default=None,
-        help="atlas path (default: <first root>/collapse_atlas.html)",
-    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     roots = args.roots or [PROJECT_ROOT / "_david" / "output"]
-    out = args.out or roots[0] / "collapse_atlas.html"
-    build(roots, out, since=args.since)
-    print(f"collapse atlas: {out}")
-    print(f"scan data: {out.parent / 'collapse_scan.json'}")
+    scan_path = build(roots, since=args.since)
+    print(f"scan data: {scan_path}")
+    print(f"scan table: {scan_path.with_suffix('.tsv')}")
+    print("atlas: python -m _david.code.analysis.atlas_v2")
     return 0
 
 

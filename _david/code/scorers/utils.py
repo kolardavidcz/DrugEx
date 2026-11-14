@@ -7,6 +7,7 @@ makes that work run on more than one core and moves the resulting records throug
 
 from __future__ import annotations
 
+import gc
 import logging
 import math
 import multiprocessing
@@ -14,14 +15,12 @@ import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+import pandas as pd
 from rdkit import Chem
 
-import pandas as pd
-
+from _david.code.config import Config
 from drugex.training.scorers.conformer_generators import RDKitConformerGenerator
 from drugex.training.scorers.parallel import capped_n_jobs, pool_context
-
-from _david.code.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +60,7 @@ def score_in_chunks(env, smiles: list[str], *, chunk: int = SCORE_CHUNK):
         frames.append(env.getScores(piece).reset_index(drop=True))
         for column, values in components(env, piece).items():
             diagnostics.setdefault(column, []).extend(values)
+        gc.collect()
     if not frames:
         return env.getScores(smiles), {}
     return pd.concat(frames, ignore_index=True), diagnostics
@@ -112,8 +112,18 @@ def use_double_precision_pickling() -> None:
     )
 
 
+def _allocated_cpus() -> int:
+    for var in ("PBS_NUM_PPN", "NCPUS"):
+        raw = os.getenv(var)
+        if raw and raw.isdigit() and int(raw) > 0:
+            return int(raw)
+    return os.cpu_count() or 1
+
+
 def workers(cfg: Config) -> int:
-    return capped_n_jobs(cfg.n_jobs if cfg.n_jobs > 0 else (os.cpu_count() or 1))
+    # OMP_NUM_THREADS is pinned to 1 in job.py to stop BLAS thread oversubscription inside
+    # each worker; the worker pool size comes from cfg.n_jobs (or PBS_NUM_PPN/NCPUS).
+    return capped_n_jobs(cfg.n_jobs if cfg.n_jobs > 0 else _allocated_cpus())
 
 
 def map_tasks(fn, tasks: list, cfg: Config) -> list:
