@@ -749,6 +749,66 @@ class RewardSchemes(unittest.TestCase):
         self.assertNotIn("Pareto reward is effectively the ROCS", prose)
         self.assertNotIn("stop condition only", prose)
 
+    def test_analyse_writes_report_and_figures_without_missing_helpers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "20261115_0000_smoke_report"
+            run_dir.mkdir(parents=True)
+            cfg = {
+                "objectives": ["RDKit_Aggregate_1refs_TanimotoCombo", "SA"],
+                "thresholds": [0.35, 0.5],
+                "scheme": "PRCD",
+                "threshold_percentile": 85.0,
+                "threshold_from_reference": ["SA"],
+                "n_prior": 2,
+                "n_final": 2,
+                "rocs_reward_scale": 2.0,
+                "sa_reward_zero": 5.0,
+                "sa_reward_one": 3.0,
+                "max_conformers": 2,
+                "max_isomers": 1,
+                "reference_conformers": 1,
+                "color_ff": "default",
+                "alignment_shape_weight": 0.5,
+                "minimize": False,
+                "reference_smiles": "CCO",
+                "summary": {"epochs_run": 1},
+            }
+            (run_dir / "config.json").write_text(json.dumps(cfg))
+            (run_dir / "manifest.json").write_text(json.dumps({"state": "complete", "config": cfg}))
+            prior = pd.DataFrame(
+                {
+                    "SMILES": ["CCO", "c1ccccc1"],
+                    "Canonical": ["CCO", "c1ccccc1"],
+                    "Valid": [1, 1],
+                    "Desired": [0, 1],
+                    "RDKit_Aggregate_1refs_TanimotoCombo": [0.30, 0.45],
+                    "SA": [0.4, 0.8],
+                    "SA_raw": [4.2, 2.0],
+                    "ShapeTanimoto": [0.4, 0.6],
+                    "ColorTanimoto": [0.2, 0.3],
+                }
+            )
+            stop = prior.assign(
+                SMILES=["c1ccccc1O", "c1ccncc1O"],
+                Canonical=["Oc1ccccc1", "Oc1cccnc1"],
+                Desired=[1, 1],
+                RDKit_Aggregate_1refs_TanimotoCombo=[0.60, 0.70],
+                SA=[0.9, 0.85],
+                SA_raw=[1.8, 2.1],
+                ShapeTanimoto=[0.8, 0.9],
+                ColorTanimoto=[0.4, 0.5],
+            )
+            prior.to_csv(run_dir / "prior.tsv", sep="\t", index=False)
+            stop.to_csv(run_dir / "final_desired_ratio_at_stop.tsv", sep="\t", index=False)
+
+            report_path = analysis.analyse(run_dir)
+            text = report_path.read_text()
+            self.assertIn("## the non-dominated front", text)
+            self.assertIn("dominated_volume", text)
+            # ROCS numbers in report.md must appear on [0, 2] (1.30 median for [0.60, 0.70] * 2)
+            self.assertIn("1.3", text)
+            self.assertTrue((run_dir / "figures").is_dir())
+
 
 class ScoringBatches(unittest.TestCase):
 

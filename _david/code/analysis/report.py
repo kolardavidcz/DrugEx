@@ -16,7 +16,12 @@ from pathlib import Path
 import pandas as pd
 
 from _david.code.analysis import figures as figures_module
-from _david.code.analysis._helpers import frame_rocs_scale, threshold_rocs_scale
+from _david.code.analysis._helpers import (
+    frame_rocs_scale,
+    pareto_rows,
+    scaffold_rows,
+    threshold_rocs_scale,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -462,7 +467,7 @@ def analyse(run_dir: Path) -> Path:
         "`n scored` is below `n` wherever a molecule was invalid, duplicated, or missing "
         "a score on one objective. Figure 02 draws these fronts.",
         "",
-        _table(figures_module.pareto_rows(arms, objectives, config), "arm"),
+        _table(pareto_rows(arms, objectives, config), "arm"),
         "",
         "## scaffolds",
         "",
@@ -473,7 +478,7 @@ def analyse(run_dir: Path) -> Path:
         "scores well on the first two columns and poorly on the last. It is `n/a` for the "
         "prior, which is the baseline it is measured against. Figure 07 draws this table.",
         "",
-        _table(figures_module.scaffold_rows(arms), "arm"),
+        _table(scaffold_rows(arms), "arm"),
         "",
         "## settings that define this run",
         "",
