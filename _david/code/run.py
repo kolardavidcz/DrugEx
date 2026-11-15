@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import signal
 import sys
 import time
 from datetime import datetime
@@ -426,15 +427,30 @@ def _pipeline(
         device=DEFAULT_DEVICE,
         use_gpus=DEFAULT_GPUS,
     )
-    explorer.fit(
-        monitor=FileMonitor(str(run_dir / "rl"), save_smiles=True),
-        epochs=cfg.epochs,
-        patience=cfg.patience,
-        reload_interval=cfg.epochs + 1,
-        criteria="desired_ratio",
-        min_epochs=cfg.min_epochs,
-    )
-    _save_model(explorer.getModel(), run_dir / "models" / "desired_ratio_at_stop.pkg")
+    model_path = run_dir / "models" / "desired_ratio_at_stop.pkg"
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def _on_sigterm(signum: int, _frame) -> None:
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+    try:
+        explorer.fit(
+            monitor=FileMonitor(str(run_dir / "rl"), save_smiles=True),
+            epochs=cfg.epochs,
+            patience=cfg.patience,
+            reload_interval=cfg.epochs + 1,
+            criteria="desired_ratio",
+            min_epochs=cfg.min_epochs,
+        )
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        if not model_path.exists():
+            try:
+                _save_model(explorer.getModel(), model_path)
+            except Exception:
+                logger.exception("failed to save %s", model_path.name)
+        signal.signal(signal.SIGTERM, previous_sigterm)
     summary = _training_summary(run_dir / "rl_fit.tsv", cfg)
     logger.info("training summary: %s", summary)
 

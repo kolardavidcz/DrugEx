@@ -41,7 +41,7 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors, Draw
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
-from _david.code.analysis._helpers import frame_rocs_scale, pareto_mask
+from _david.code.analysis._helpers import frame_rocs_scale, iter_run_dirs, pareto_mask
 from _david.code.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
@@ -668,9 +668,7 @@ def build(roots: list[Path], out: Path | None = None, since: str = SINCE) -> Pat
         if not root.is_dir():
             logger.warning("root %s does not exist; skipping", root)
             continue
-        for run in sorted(root.iterdir()):
-            if not run.is_dir() or not (run / "manifest.json").is_file():
-                continue
+        for run in iter_run_dirs(root):
             date = _run_date(run.name)
             if date is not None and date < since:
                 continue

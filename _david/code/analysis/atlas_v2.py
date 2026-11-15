@@ -22,6 +22,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from _david.code.analysis._helpers import iter_run_dirs
 from _david.code.analysis.collapse import _depict
 from _david.code.analysis.collapse import build as scan_build
 from _david.code.analysis.diversity import load_profile
@@ -88,7 +89,7 @@ def _constants(family_runs: list[dict[str, Any]], since: str | None) -> str:
     return " · ".join(bits)
 
 
-def _tree_run(record: dict[str, Any]) -> dict[str, Any]:
+def _tree_run(record: dict[str, Any], run_dir: Path | None = None) -> dict[str, Any]:
     """One scan record as the template's run object."""
     axes = record.get("axes") or {}
     tree_run = {
@@ -124,7 +125,7 @@ def _tree_run(record: dict[str, Any]) -> dict[str, Any]:
     # The diversity profile rides along from its own per-run cache, fresh-checked against
     # the arm tables it was computed from — the scan JSON stays a duplication report and
     # the chemical layer stays optional, so a run without a profile still renders.
-    profile = load_profile(OUTPUT_ROOT / record["run"])
+    profile = load_profile(run_dir or (OUTPUT_ROOT / record["run"]))
     summary = record.get("diversity") or {}
     if profile:
         diversity = {key: profile[key] for key in ("arms", "cross", "thumb") if profile.get(key)}
@@ -167,7 +168,8 @@ def _medals(runs: list[dict[str, Any]]) -> None:
 
 def tree_payload(scan: dict[str, Any]) -> dict[str, Any]:
     """The whole template payload from one collapse scan."""
-    runs = [_tree_run(record) for record in scan["runs"]]
+    run_dirs = {path.name: path for path in iter_run_dirs(OUTPUT_ROOT)}
+    runs = [_tree_run(record, run_dirs.get(record["run"])) for record in scan["runs"]]
     _medals(runs)
     counts = dict(scan.get("counts") or {})
     totals = dict(scan.get("totals") or {})

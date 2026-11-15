@@ -20,7 +20,7 @@ import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import Draw
 
-from _david.code.analysis._helpers import enrich_descriptors, unique
+from _david.code.analysis._helpers import enrich_descriptors, iter_run_dirs, unique
 from _david.code.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,7 @@ def read_run(run: Path) -> tuple[dict[str, Any], pd.DataFrame] | None:
         "run": run.name,
         "state": manifest.get("state", "unknown"),
         "arms": len(list(run.glob("final_*.tsv"))),
+        "has_stop_arm": (run / ARM).is_file(),
         "epochs": summary.get("epochs_run"),
         "hours": round((manifest.get("elapsed_seconds") or 0) / 3600, 2) or None,
         "config": {key: config.get(key) for key in AXES},
@@ -168,7 +169,8 @@ def design_grids(rows: list[dict]) -> list[dict]:
 
 def build(root: Path, out: Path) -> Path:
     runs = sorted(
-        (d for d in root.iterdir() if d.is_dir() and RUN_NAME.match(d.name) and (d / "manifest.json").is_file()),
+        (d for d in iter_run_dirs(root) if RUN_NAME.match(d.name)),
+        key=lambda d: d.name,
         reverse=True,
     )
     if not runs:
@@ -182,10 +184,10 @@ def build(root: Path, out: Path) -> Path:
             continue
         row, molecules = result
         rows.append(row)
-        if row["state"] == "complete" and row["arms"] == 3 and not molecules.empty:
+        if row["state"] == "complete" and row["has_stop_arm"] and not molecules.empty:
             frames.append(molecules)
 
-    complete = [r for r in rows if r["state"] == "complete" and r["arms"] == 3]
+    complete = [r for r in rows if r["state"] == "complete" and r["has_stop_arm"]]
     payload = {
         "generated": datetime.now().isoformat(" ", "seconds"),
         "root": str(root),

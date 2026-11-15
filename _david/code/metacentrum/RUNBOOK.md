@@ -350,7 +350,7 @@ python -m _david.code.metacentrum.submit pull --name egcg_probe  # one run tag
 
 A job copies its run directory back on success, failure, `SIGTERM` (walltime) and `SIGINT`,
 so partial results survive a kill. `pull` rsyncs `$STORAGE/_david/output/` into
-`_david/output/`. It refuses to pretend when nothing is there yet: a run directory appears on
+`_david/output/new_runs/`, skipping runs already organized and complete outside `new_runs/`. It refuses to pretend when nothing is there yet: a run directory appears on
 storage only once the job has copied something back.
 
 Result artifacts worth checking first:

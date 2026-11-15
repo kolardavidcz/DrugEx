@@ -352,17 +352,34 @@ def main(argv: list[str] | None = None) -> int:
         )
         env_for_job = job_environment(env, release_copy, temp_root, spec.get("revision"))
         status, failed = 0, []
-        for command in commands:
-            # One unit of work failing does not discard the ones after it: a rebuild job
-            # carries several independent runs, and each is useful on its own.
-            process = subprocess.run(command, cwd=release_copy, env=env_for_job)
-            returncode = process.returncode
-            code = 128 - returncode if returncode < 0 else returncode
-            if code:
-                unit = command[-1] if spec.get("mode") == "rebuild" else spec["name"]
-                failed.append((unit, code))
-                print(f"FAILED ({code}): {' '.join(command)}", file=sys.stderr)
-            status = status or code
+        active: subprocess.Popen | None = None
+        try:
+            for command in commands:
+                # One unit of work failing does not discard the ones after it: a rebuild job
+                # carries several independent runs, and each is useful on its own.
+                active = subprocess.Popen(command, cwd=release_copy, env=env_for_job)
+                returncode = active.wait()
+                active = None
+                code = 128 - returncode if returncode < 0 else returncode
+                if code:
+                    unit = command[-1] if spec.get("mode") == "rebuild" else spec["name"]
+                    failed.append((unit, code))
+                    print(f"FAILED ({code}): {' '.join(command)}", file=sys.stderr)
+                status = status or code
+        except _SignalExit:
+            if active is not None and active.poll() is None:
+                for signum in (signal.SIGTERM, signal.SIGINT):
+                    signal.signal(signum, signal.SIG_IGN)
+                with suppress(OSError):
+                    active.terminate()
+                try:
+                    active.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    with suppress(OSError):
+                        active.kill()
+                    with suppress(OSError):
+                        active.wait()
+            raise
         if failed:
             print(f"{len(failed)} of {len(commands)} unit(s) failed: {failed}", file=sys.stderr)
     except _SignalExit as error:

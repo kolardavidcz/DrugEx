@@ -2158,6 +2158,214 @@ class DefaultColourAndRocsScaleTests(unittest.TestCase):
                 self.assertEqual(settings["max_conformers"], 20)
                 self.assertEqual(settings["alignment_shape_weight"], 0.5)
 
+    def test_e02_batches_cover_ps_and_ws_default_colour_k1_k4_c20_c30(self):
+        for batch_name, expected_scheme in (("dp_e02", "PRCD"), ("dw_e02", "WS")):
+            self.assertIn(batch_name, campaign.BATCHES)
+            planned = campaign.runs(campaign.BATCHES[batch_name])
+            self.assertEqual(len(planned), 16)
+            combos = set()
+            for _, settings in planned:
+                self.assertEqual(settings["scheme"], expected_scheme)
+                self.assertEqual(settings["color_ff"], "default")
+                self.assertEqual(settings["epsilon"], 0.02)
+                self.assertEqual(settings["alignment_shape_weight"], 0.5)
+                combos.add(
+                    (
+                        settings["minimize"],
+                        settings["reference_conformers"],
+                        settings["max_conformers"],
+                        settings["include_qed"],
+                    )
+                )
+            self.assertEqual(len(combos), 16)
+
+
+class NestedLayoutAndPullTests(unittest.TestCase):
+    @staticmethod
+    def _make_run(path: Path, *, state: str = "complete", with_stop: bool = True) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "state": state,
+                    "config": {
+                        "scheme": "PRCD",
+                        "epsilon": 0.05,
+                        "minimize": True,
+                        "reference_conformers": 4,
+                        "max_conformers": 20,
+                        "include_qed": False,
+                        "color_ff": "default",
+                        "alignment_shape_weight": 0.5,
+                        "rocs_reward_scale": 2.0,
+                        "n_final": 2,
+                    },
+                }
+            )
+        )
+        prior = pd.DataFrame(
+            {
+                "SMILES": ["CCO", "CCN"],
+                "Canonical": ["CCO", "CCN"],
+                "Valid": [1, 1],
+                "Desired": [0, 0],
+                "RDKit_Aggregate_4refs_TanimotoCombo": [0.4, 0.3],
+                "ShapeTanimoto": [0.5, 0.4],
+                "ColorTanimoto": [0.3, 0.2],
+                "SA_raw": [2.0, 2.0],
+            }
+        )
+        prior.to_csv(path / "prior.tsv", sep="\t", index=False)
+        if with_stop:
+            stop = prior.assign(
+                SMILES=["c1ccccc1O", "c1ccncc1O"],
+                Canonical=["Oc1ccccc1", "Oc1cccnc1"],
+                Desired=[1, 1],
+                RDKit_Aggregate_4refs_TanimotoCombo=[0.8, 0.7],
+                ShapeTanimoto=[1.0, 0.9],
+                ColorTanimoto=[0.6, 0.5],
+            )
+            stop.to_csv(path / "final_desired_ratio_at_stop.tsv", sep="\t", index=False)
+
+    def test_iter_run_dirs_finds_nested_runs_and_skips_internal_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_a = root / "Pareto" / "K4_opt" / "C20" / "e05" / "20261114_0100_dp_m1e05q0"
+            run_b = root / "new_runs" / "20261114_0200_dw_m1e05q0"
+            self._make_run(run_a)
+            self._make_run(run_b)
+            # Decoy internal directories must never be descended into or treated as runs.
+            for decoy in (
+                root / "conformer" / "fake",
+                root / "rebuild_logs" / "fake",
+                run_a / "models" / "nested",
+            ):
+                decoy.mkdir(parents=True, exist_ok=True)
+                (decoy / "manifest.json").write_text('{"state": "complete"}')
+            found = analysis_helpers.iter_run_dirs(root)
+            self.assertEqual(found, [run_a, run_b])
+
+    def test_organized_complete_runs_excludes_organized_complete_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            new_runs = root / "new_runs"
+            done_org = root / "Pareto" / "20261114_0100_dp_done"
+            running_org = root / "Pareto" / "20261114_0101_dp_running"
+            no_arm_org = root / "Pareto" / "20261114_0102_dp_noarm"
+            done_new = new_runs / "20261114_0103_dp_in_new"
+            self._make_run(done_org, state="complete", with_stop=True)
+            self._make_run(running_org, state="running", with_stop=True)
+            self._make_run(no_arm_org, state="complete", with_stop=False)
+            self._make_run(done_new, state="complete", with_stop=True)
+
+            skipped = submit_module._organized_complete_runs(root, new_runs)
+            self.assertEqual(skipped, ["20261114_0100_dp_done"])
+
+    def test_collapse_atlas_and_dashboard_handle_nested_single_arm_runs(self):
+        from _david.code.analysis import dashboard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "Pareto" / "K4_opt" / "C20" / "e05" / "20261114_0100_dp_m1e05q0"
+            self._make_run(run, state="complete", with_stop=True)
+            profile = {
+                "version": diversity.DIVERSITY_VERSION,
+                "arms": {"prior": {}, "stop": {"effective_scaffolds": 2.0}},
+                "sources": diversity._sources(run),
+            }
+            (run / "cache_stats").mkdir()
+            (run / "cache_stats" / "diversity.json").write_text(json.dumps(profile))
+
+            scan_path = collapse.build([root], since="20261110")
+            scan = json.loads(scan_path.read_text())
+            self.assertEqual(len(scan["runs"]), 1)
+            with patch.object(atlas_v2, "OUTPUT_ROOT", root):
+                payload = atlas_v2.tree_payload(scan)
+            self.assertEqual(len(payload["runs"]), 1)
+            self.assertIn("diversity", payload["runs"][0])
+
+            out_html = dashboard.build(root, root / "dashboard.html")
+            html = out_html.read_text(encoding="utf-8")
+            self.assertIn('"complete": 1', html)
+            self.assertIn("20261114_0100_dp_m1e05q0", html)
+
+
+class SignalHandlingTests(unittest.TestCase):
+    def test_job_main_waits_for_child_checkpoint_before_copy_results(self):
+        import subprocess
+        import sys
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scratch = root / "scratch"
+            storage = root / "storage"
+            release = root / "release"
+            (release / "_david" / "code").mkdir(parents=True)
+            (release / "_david" / "code" / "run.py").write_text("# stub\n")
+            (storage / ".venv" / "bin").mkdir(parents=True)
+            py_stub = storage / ".venv" / "bin" / "python"
+            py_stub.symlink_to(sys.executable)
+            spec = root / "spec.json"
+            spec.write_text(
+                json.dumps(
+                    {
+                        "name": "sig_test",
+                        "args": [],
+                        "source": str(release),
+                        "revision": "deadbeef",
+                    }
+                )
+            )
+            child_script = root / "child.py"
+            child_script.write_text(
+                "import pathlib, signal, sys, time\n"
+                "out = pathlib.Path(sys.argv[1])\n"
+                "(out / 'models').mkdir(parents=True, exist_ok=True)\n"
+                "def handler(signum, frame):\n"
+                "    time.sleep(0.15)\n"
+                "    (out / 'models' / 'desired_ratio_at_stop.pkg').write_text('checkpoint')\n"
+                "    raise SystemExit(128 + signum)\n"
+                "signal.signal(signal.SIGTERM, handler)\n"
+                "print('ready', flush=True)\n"
+                "while True:\n"
+                "    time.sleep(0.05)\n"
+            )
+            harness = root / "run_job.py"
+            harness.write_text(
+                "import os, sys\n"
+                "from _david.code.metacentrum import job\n"
+                "job.commands_for = lambda py, out_root, *_a: [[sys.executable, "
+                f"{str(child_script)!r}, str(out_root / '20261115_0000_sig_test')]]\n"
+                "job.clean_scratch = lambda s: None\n"
+                "raise SystemExit(job.main())\n"
+            )
+            env = {
+                **os.environ,
+                "PYTHONPATH": str(PROJECT_ROOT),
+                "PBS_JOBID": "1.pbs",
+                "SCRATCHDIR": str(scratch),
+                "STORAGE_DIR": str(storage),
+                "RUN_SPEC": str(spec),
+                "NCPUS": "1",
+            }
+            with subprocess.Popen(
+                [sys.executable, str(harness)],
+                cwd=str(PROJECT_ROOT),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ) as proc:
+                for line in iter(proc.stdout.readline, ""):
+                    if line.strip() == "ready":
+                        break
+                proc.terminate()
+                code = proc.wait(timeout=15)
+            self.assertEqual(code, 143)
+            copied = storage / "_david" / "output" / "20261115_0000_sig_test" / "models" / "desired_ratio_at_stop.pkg"
+            self.assertTrue(copied.is_file(), "SIGTERM checkpoint must survive into copy_results")
+            self.assertEqual(copied.read_text(), "checkpoint")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -48,6 +48,7 @@ from rdkit import Chem, DataStructs, RDLogger
 from rdkit.Chem import AllChem
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
+from _david.code.analysis._helpers import iter_run_dirs
 from _david.code.analysis.collapse import _read_table
 from _david.code.config import PROJECT_ROOT
 
@@ -420,10 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     RDLogger.DisableLog("rdApp.*")
 
-    runs = sorted(
-        run for run in args.root.iterdir()
-        if run.is_dir() and (run / "manifest.json").is_file() and (run / PRIOR_ARM).is_file()
-    )
+    runs = [run for run in iter_run_dirs(args.root) if (run / PRIOR_ARM).is_file()]
     todo = [run for run in runs if args.force or not profile_is_fresh(run)]
     if args.limit is not None:
         todo = todo[: args.limit]

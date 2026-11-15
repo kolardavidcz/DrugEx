@@ -10,7 +10,7 @@
     watch [-i 60]             live epochs of running jobs, read on the login node
     logs <name> [-f]          the PBS stdout of the job, not merely of its name
     cancel <name|id> ...      qdel, resolving names through qselect
-    pull [--name <tag>]       copy finished runs back into _david/output
+    pull [--name <tag>]       copy finished runs back into _david/output/new_runs
 
 One job at a time; the planned sweep lives in ``campaign.py`` and calls into this. A job runs
 ``git archive <revision>``, so a fix travels through a commit, never through an edit on
@@ -26,6 +26,7 @@ import re
 import shlex
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from _david.code.config import PROJECT_ROOT, Config
 from _david.code.metacentrum.job import workers_for
@@ -93,6 +94,7 @@ REQUIRED = (
     "scorers/utils.py",
     "analysis/__init__.py",
     "analysis/__main__.py",
+    "analysis/_helpers.py",
     "analysis/report.py",
     "analysis/figures.py",
     "metacentrum/__init__.py",
@@ -544,8 +546,31 @@ def cancel(targets: list[str]) -> list[str]:
     return resolved
 
 
+def _organized_complete_runs(output_root: Path, new_runs_dir: Path) -> list[str]:
+    """Run names already organized outside ``new_runs`` that do not need re-downloading."""
+    from _david.code.analysis._helpers import iter_run_dirs
+
+    skip: list[str] = []
+    for run_dir in iter_run_dirs(output_root):
+        if new_runs_dir == run_dir or new_runs_dir in run_dir.parents:
+            continue
+        if not (run_dir / "final_desired_ratio_at_stop.tsv").is_file():
+            continue
+        try:
+            manifest = json.loads((run_dir / "manifest.json").read_text())
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if manifest.get("state") == "complete":
+            skip.append(run_dir.name)
+    return sorted(set(skip))
+
+
 def pull(name: str | None) -> None:
-    """MetaCentrum to here only; nothing is pushed the other way."""
+    """MetaCentrum to here only; nothing is pushed the other way.
+
+    New runs land in ``_david/output/new_runs``; already-organized complete runs outside
+    ``new_runs`` are skipped unless ``--name`` names one explicitly.
+    """
     remote_root = f"{STORAGE}/_david/output"
     if name is not None and not _NAME_RE.fullmatch(name):
         raise SystemExit(
@@ -563,12 +588,17 @@ def pull(name: str | None) -> None:
             "there when a job finishes or is killed."
         )
 
-    destination = PROJECT_ROOT / "_david" / "output"
+    output_root = PROJECT_ROOT / "_david" / "output"
+    destination = output_root / "new_runs"
     destination.mkdir(parents=True, exist_ok=True)
     command = ["rsync", "-az", "--info=progress2"]
     if name:
         # A run directory is `<YYYYmmdd_HHMM>_<tag>`: the job name is only a suffix.
         command += ["--include=*/", f"--include=*_{name}/***", "--exclude=*"]
+    else:
+        command += ["--exclude=/rebuild_logs/", "--exclude=/conformer/"]
+        for run_name in _organized_complete_runs(output_root, destination):
+            command.append(f"--exclude=/{run_name}/")
     command += [f"{HOST}:{remote_root}/", f"{destination}/"]
     subprocess.run(command, check=True)
     print(f"pulled into {destination}")

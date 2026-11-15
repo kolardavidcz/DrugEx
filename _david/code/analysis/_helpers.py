@@ -36,6 +36,29 @@ ARMS = ("prior", "desired_ratio", "desired_ratio_at_stop", "gmean")
 #: n_final x arms entries.
 _DESCRIPTORS: dict[tuple[str, str], tuple] = {}
 
+_NON_RUN_DIRS = frozenset(
+    {"conformer", "rebuild_logs", "figures", "models", "cache_stats", "raw_data"}
+)
+
+
+def iter_run_dirs(root: Path) -> list[Path]:
+    """Every run directory (holding ``manifest.json``) anywhere under ``root``."""
+    found: list[Path] = []
+    if not root.is_dir():
+        return found
+
+    def _walk(directory: Path) -> None:
+        if (directory / "manifest.json").is_file():
+            found.append(directory)
+            return
+        for child in sorted(directory.iterdir()):
+            if not child.is_dir() or child.name.startswith(".") or child.name in _NON_RUN_DIRS:
+                continue
+            _walk(child)
+
+    _walk(root)
+    return sorted(found, key=lambda p: (p.name, str(p)))
+
 
 def valid(arm: pd.DataFrame | None) -> pd.DataFrame:
     """Valid rows only; invalid rows have every objective zeroed and are not real molecules."""
