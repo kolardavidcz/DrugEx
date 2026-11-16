@@ -92,6 +92,7 @@ class CrossStudyConfig:
     prune_rms: float = 0.5
     max_heavy_atoms: int = 45
     max_rotatable_bonds: int = 15
+    embed_timeout: int = 30  # per-isomer ETKDGv3 cap (s), matching Config.timeout; 0 = unlimited
 
     # ROCS scoring (explicitly default colouring and equal shape/colour weight 0.5)
     alignment_shape_weight: float = 0.5
@@ -154,6 +155,8 @@ class CrossStudyConfig:
             raise ValueError(
                 f"reference_caps asks for {max(self.reference_caps)} > {self.reference_attempts}"
             )
+        if self.embed_timeout < 0:
+            raise ValueError(f"embed_timeout must be >= 0, got {self.embed_timeout!r}")
         if self.rigid_max_rot >= self.flexible_min_rot:
             raise ValueError("rigid_max_rot must be < flexible_min_rot")
         if not 0.0 <= self.alignment_shape_weight <= 1.0:
@@ -184,15 +187,30 @@ def _cross_isomers(smiles: str, cap: int) -> list[Chem.Mol]:
     return out or [Chem.AddHs(mol)]
 
 
-def _embed_tagged(smiles: str, attempts: int, seed: int, cfg: CrossStudyConfig) -> list[Chem.Mol]:
-    """Embed ``attempts`` per stereoisomer, tagging each single-conformer Mol with ``LocalConfId``."""
+def _etkdg_params(seed: int, cfg: CrossStudyConfig):
     params = AllChem.ETKDGv3()
     params.randomSeed = seed
     params.numThreads = 1
     params.pruneRmsThresh = cfg.prune_rms
+    if cfg.embed_timeout > 0:
+        params.timeout = int(cfg.embed_timeout)
+    return params
+
+
+def _embed_ids(isomer: Chem.Mol, num_confs: int, params) -> tuple[list[int], bool]:
+    """Embed conformers and filter RDKit's `-1` timeout sentinel."""
+    raw = list(AllChem.EmbedMultipleConfs(isomer, numConfs=num_confs, params=params))
+    valid = [int(c) for c in raw if int(c) >= 0]
+    timed_out = any(int(c) < 0 for c in raw)
+    return valid, timed_out
+
+
+def _embed_tagged(smiles: str, attempts: int, seed: int, cfg: CrossStudyConfig) -> list[Chem.Mol]:
+    """Embed ``attempts`` per stereoisomer, tagging each single-conformer Mol with ``LocalConfId``."""
+    params = _etkdg_params(seed, cfg)
     out: list[Chem.Mol] = []
     for iso_idx, isomer in enumerate(_cross_isomers(smiles, cfg.max_isomers)):
-        ids = AllChem.EmbedMultipleConfs(isomer, numConfs=attempts, params=params)
+        ids, _ = _embed_ids(isomer, attempts, params)
         for local_idx, conf_id in enumerate(ids):
             single = Chem.Mol(isomer, confId=int(conf_id))
             single.SetIntProp("IsomerIdx", iso_idx)
@@ -475,10 +493,7 @@ def _prepare_candidate_task(args: tuple[int, str, str, CrossStudyConfig]) -> dic
     max_c = counts[-1]
     cand_seed = cfg.reference_seed + CANDIDATE_OFFSET
 
-    params = AllChem.ETKDGv3()
-    params.randomSeed = cand_seed
-    params.numThreads = 1
-    params.pruneRmsThresh = cfg.prune_rms
+    params = _etkdg_params(cand_seed, cfg)
     isomers = _cross_isomers(smiles, cfg.max_isomers)
 
     # Determine each surviving conformer's true earliest C-tier even when pruneRmsThresh
@@ -487,13 +502,27 @@ def _prepare_candidate_task(args: tuple[int, str, str, CrossStudyConfig]) -> dic
     embed_wall: dict[int, float] = {}
     embed_cpu: dict[int, float] = {}
     seen_cutoff: dict[tuple[int, int], int] = {}
+    failed_iso_time: dict[int, tuple[float, float]] = {}
+    iso_timeout_hits = 0
     embedded_max: list[Chem.Mol] = []
 
     for ci, count in enumerate(counts):
-        t0, c0 = time.perf_counter(), time.process_time()
+        w_acc, c_acc = 0.0, 0.0
         for iso_idx, isomer in enumerate(isomers):
+            if iso_idx in failed_iso_time:
+                dw, dc = failed_iso_time[iso_idx]
+                w_acc += dw
+                c_acc += dc
+                continue
             working = isomer if count == max_c else Chem.Mol(isomer)
-            ids = AllChem.EmbedMultipleConfs(working, numConfs=count, params=params)
+            t0, c0 = time.perf_counter(), time.process_time()
+            ids, timed_out = _embed_ids(working, count, params)
+            dw, dc = time.perf_counter() - t0, time.process_time() - c0
+            w_acc += dw
+            c_acc += dc
+            if timed_out and not ids:
+                failed_iso_time[iso_idx] = (dw, dc)
+                iso_timeout_hits += 1
             for local_idx, conf_id in enumerate(ids):
                 tier = seen_cutoff.setdefault((iso_idx, local_idx), ci)
                 if count == max_c:
@@ -502,8 +531,8 @@ def _prepare_candidate_task(args: tuple[int, str, str, CrossStudyConfig]) -> dic
                     single.SetIntProp("LocalConfId", local_idx)
                     single.SetIntProp("CTier", tier)
                     embedded_max.append(single)
-        embed_wall[count] = time.perf_counter() - t0
-        embed_cpu[count] = time.process_time() - c0
+        embed_wall[count] = w_acc
+        embed_cpu[count] = c_acc
 
     tier_relax_wall = [0.0] * len(counts)
     tier_relax_cpu = [0.0] * len(counts)
@@ -543,6 +572,7 @@ def _prepare_candidate_task(args: tuple[int, str, str, CrossStudyConfig]) -> dic
         "embed_cpu": embed_cpu,
         "relax_wall": relax_wall,
         "relax_cpu": relax_cpu,
+        "iso_timeouts": iso_timeout_hits,
         "actual_wall_total": sum(embed_wall.values()) + rw_acc,
     }
 
@@ -915,22 +945,43 @@ def run(
 
     mp_ctx = pool_context("forkserver")
 
+    def _lpt_rank(mol_idx: int) -> tuple[int, int, int, int]:
+        m = Chem.MolFromSmiles(smiles_list[mol_idx])
+        bh = int(rdMolDescriptors.CalcNumBridgeheadAtoms(m)) if m is not None else 0
+        sp = int(rdMolDescriptors.CalcNumSpiroAtoms(m)) if m is not None else 0
+        row = molecules_df.iloc[mol_idx]
+        return (bh + sp, int(row["n_isomers"]), int(row["ring_count"]), int(row["hac"]))
+
+    lpt_ranks = [_lpt_rank(i) for i in range(n_q)]
+
     for m_idx, method_key in enumerate(methods):
         logger.info("=== Method %s (%d/%d) ===", method_key, m_idx + 1, n_m)
 
-        # 1. Reference pools & banks
-        ref_tasks = [
-            (r_idx, smiles_list[mol_idx], method_key, cfg)
-            for r_idx, mol_idx in enumerate(ref_mol_indices)
-        ]
+        # 1. Reference pools & banks (LPT + chunksize=1 avoids slow-isomer tail)
+        ref_tasks = sorted(
+            [
+                (r_idx, smiles_list[mol_idx], method_key, cfg)
+                for r_idx, mol_idx in enumerate(ref_mol_indices)
+            ],
+            key=lambda t: lpt_ranks[ref_mol_indices[t[0]]],
+            reverse=True,
+        )
         t_ref_start = time.perf_counter()
         if workers <= 1 or len(ref_tasks) < 2:
             ref_results = [_prepare_reference_task(t) for t in ref_tasks]
         else:
             with mp_ctx.Pool(min(workers, len(ref_tasks))) as pool:
-                ref_results = pool.map(_prepare_reference_task, ref_tasks)
+                ref_results = list(pool.imap_unordered(_prepare_reference_task, ref_tasks, chunksize=1))
         ref_phase_wall = time.perf_counter() - t_ref_start
         ref_results.sort(key=lambda r: r["ref_idx"])
+        logger.info(
+            "Refs %s: %d/%d ready (%.1fs, zero_bank=%d)",
+            method_key,
+            len(ref_results),
+            len(ref_tasks),
+            ref_phase_wall,
+            sum(1 for r in ref_results if r["pool_confs"] == 0),
+        )
 
         ref_banks_packed = [(r["smiles"], r["bank_confs"]) for r in ref_results]
         ref_prep_cpu = sum(r["embed_cpu"] + r["relax_cpu"] for r in ref_results)
@@ -954,14 +1005,31 @@ def run(
         molecules_df[f"{method_key}_ref_pool_confs"] = ref_pool_col
         molecules_df[f"{method_key}_ref_bank_k{caps[-1]}"] = ref_bank_col
 
-        # 2. Candidate conformer pools + genuine per-C timing
-        cand_tasks = [(mol_idx, smiles_list[mol_idx], method_key, cfg) for mol_idx in range(n_q)]
+        # 2. Candidate conformer pools + genuine per-C timing (LPT puts bridged cages first)
+        cand_tasks = sorted(
+            [(mol_idx, smiles_list[mol_idx], method_key, cfg) for mol_idx in range(n_q)],
+            key=lambda t: lpt_ranks[t[0]],
+            reverse=True,
+        )
         t_cand_start = time.perf_counter()
+        cand_log_step = max(1, len(cand_tasks) // 5)
         if workers <= 1 or len(cand_tasks) < 2:
             cand_results = [_prepare_candidate_task(t) for t in cand_tasks]
         else:
+            cand_results = []
             with mp_ctx.Pool(min(workers, len(cand_tasks))) as pool:
-                cand_results = pool.map(_prepare_candidate_task, cand_tasks)
+                for done_i, res in enumerate(
+                    pool.imap_unordered(_prepare_candidate_task, cand_tasks, chunksize=1), 1
+                ):
+                    cand_results.append(res)
+                    if done_i % cand_log_step == 0 or done_i == len(cand_tasks):
+                        logger.info(
+                            "Cand %s: %d/%d ready (%.1fs)",
+                            method_key,
+                            done_i,
+                            len(cand_tasks),
+                            time.perf_counter() - t_cand_start,
+                        )
         cand_phase_wall = time.perf_counter() - t_cand_start
         cand_results.sort(key=lambda r: r["mol_idx"])
 
@@ -981,6 +1049,8 @@ def run(
         molecules_df[f"{method_key}_cand_param_frac"] = [
             round(r["param_max"] / max(r["embedded_max"], 1), 4) for r in cand_results
         ]
+        cand_zero_confs = sum(1 for r in cand_results if r["confs_max"] == 0)
+        cand_iso_timeouts = sum(int(r["iso_timeouts"]) for r in cand_results)
 
         # 3. 50 x 1000 ROCS incremental scoring sweep (LPT order + chunksize=1 removes straggler tail)
         score_tasks = [(r["mol_idx"], r["smiles"], r["cand_confs"]) for r in cand_results]
@@ -1060,6 +1130,8 @@ def run(
             "ref_parameterised_confs": int(sum(r["parameterised"] for r in ref_results)),
             "ref_embedded_confs": int(sum(r["embedded"] for r in ref_results)),
             "zero_bank_refs": int(sum(1 for r in ref_results if r["pool_confs"] == 0)),
+            "cand_zero_confs": cand_zero_confs,
+            "cand_iso_timeouts": cand_iso_timeouts,
         }
 
         # 4. Aggregate summaries per (K, C)
