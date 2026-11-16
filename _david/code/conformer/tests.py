@@ -258,5 +258,178 @@ class ConfigValidation(unittest.TestCase):
         self.assertAlmostEqual(cfg.alignment_shape_weight, 0.25)
 
 
+class CrossStudyTests(unittest.TestCase):
+    def test_select_bank_ordered_prefixes_match_select_bank_set(self):
+        cfg = small(smiles="CCCCCC(=O)NCc1ccccc1", reference_attempts=12)
+        method = METHODS["MMFF94s_e78.4"]
+        pool = study._relax(study._embed(cfg.smiles, 12, study.SEEDS[0], cfg), method, cfg)
+        ordered = study.select_bank_ordered(pool, 4, method, cfg)
+        for k in (1, 2, 4):
+            direct = study.select_bank(pool, k, method, cfg)
+            e_ord = sorted(round(m.GetDoubleProp("Energy"), 6) for m in ordered[:k])
+            e_dir = sorted(round(m.GetDoubleProp("Energy"), 6) for m in direct)
+            self.assertEqual(e_ord, e_dir)
+
+    def test_classify_flexibility_bounds(self):
+        from _david.code.conformer.cross_study import CrossStudyConfig, classify_flexibility
+
+        cfg = CrossStudyConfig()
+        self.assertEqual(classify_flexibility(0, cfg), "rigid")
+        self.assertEqual(classify_flexibility(2, cfg), "rigid")
+        self.assertEqual(classify_flexibility(3, cfg), "intermediate")
+        self.assertEqual(classify_flexibility(6, cfg), "intermediate")
+        self.assertEqual(classify_flexibility(7, cfg), "flexible")
+        self.assertEqual(classify_flexibility(15, cfg), "flexible")
+
+    def test_incremental_grid_matches_brute_force_pair_components_and_renders(self):
+        from _david.code.conformer import cross_figures, cross_study
+        from _david.code.scorers.rocs import pair_components
+
+        sample_smiles = [
+            "c1ccccc1",  # rigid (0 RotB)
+            "CC(=O)Nc1ccc(O)cc1",  # rigid (1 RotB)
+            "CC(C)Cc1ccc(C(C)C(=O)O)cc1",  # intermediate (4 RotB, chiral)
+            "CC(O)CC(N)CC(F)CC",  # multi-isomer chiral, triggers RMSD pruning (M(C) < C)
+            "COc1ccccc1OCC(=O)NCCO",  # flexible (7 RotB)
+            "Fc1ccc(-c2nc(C3CC3)no2)cc1",  # rigid/inter
+            "CCN(CC)CCOC(=O)c1ccccc1",  # flexible (7 RotB)
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            smi_file = tmp / "cohort.smi"
+            smi_file.write_text("\n".join(sample_smiles) + "\n")
+            out = tmp / "out"
+            cfg = cross_study.CrossStudyConfig(
+                n_molecules=7,
+                n_references=3,
+                methods=("ETKDG", "MMFF94s_e78.4"),
+                reference_caps=(1, 2),
+                candidate_counts=(4, 8),
+                reference_attempts=6,
+                max_isomers=2,
+                representative_k=2,
+                representative_c=8,
+                n_jobs=1,
+            )
+            molecules_df, grid_df, timing_df, self_df = cross_study.run(
+                cfg, out, smiles_file=smi_file
+            )
+
+            self.assertEqual(len(molecules_df), 7)
+            self.assertEqual(len(self_df), 3 * 2 * 2 * 2)  # 3 refs x 2 methods x 2 K x 2 C
+            self.assertEqual(len(timing_df), 2 * 2 * 2)
+            self.assertTrue((timing_df["rocs_cpu_s"] > 0).all())
+            self.assertTrue((timing_df["cand_embed_cpu_s"] > 0).all())
+
+            # Check cross band partition invariant on global_cross: <p50 + [p50,p85) + >=p85 == all_cross
+            g_cell = grid_df[
+                (grid_df["method"] == "MMFF94s_e78.4")
+                & (grid_df["reference_cap"] == 2)
+                & (grid_df["candidate_count"] == 8)
+                & (grid_df["scope"] == "global_cross")
+            ]
+            n_by_band = dict(zip(g_cell["band"], g_cell["n"]))
+            self.assertEqual(
+                n_by_band["lt_p50_noise"] + n_by_band["p50_to_p85"] + n_by_band["ge_p85"],
+                n_by_band["all_cross"],
+            )
+            self.assertEqual(n_by_band["all_cross"], 3 * 7 - 3)
+
+            # Verify bit-exact match against independent oracle _embed_tagged + select_bank + pair_components
+            with np.load(out / "pair_scores.npz") as data:
+                shapes = data["shape"].copy()
+                colours = data["colour"].copy()
+                ref_indices = [int(x) for x in data["ref_mol_indices"]]
+            study_cfg = cfg.as_study_config("MMFF94s_e78.4")
+            method = METHODS["MMFF94s_e78.4"]
+            cand_seed = cfg.reference_seed + study.CANDIDATE_OFFSET
+
+            for ri, ref_mol_idx in enumerate(ref_indices):
+                ref_smi = molecules_df.loc[ref_mol_idx, "canonical_smiles"]
+                ref_pool = study._relax(
+                    cross_study._embed_tagged(ref_smi, cfg.reference_attempts, cfg.reference_seed, cfg),
+                    method,
+                    study_cfg,
+                )
+                for ki, k_cap in enumerate(cfg.reference_caps):
+                    bank = study.select_bank(ref_pool, k_cap, method, study_cfg)
+                    for qi, cand_smi in enumerate(molecules_df["canonical_smiles"]):
+                        for ci, c_cnt in enumerate(cfg.candidate_counts):
+                            cands = study._relax(
+                                cross_study._embed_tagged(cand_smi, c_cnt, cand_seed, cfg),
+                                method,
+                                study_cfg,
+                            )
+                            best_sc = (0.0, 0.0)
+                            for cm in cands:
+                                for rm in bank:
+                                    sc = pair_components(
+                                        cm, rm, opt_param=0.5, use_colors=True, color_ff="default"
+                                    )
+                                    if sum(sc) > sum(best_sc):
+                                        best_sc = sc
+                            got_combo = float(shapes[1, ri, qi, ki, ci] + colours[1, ri, qi, ki, ci])
+                            self.assertAlmostEqual(
+                                got_combo,
+                                sum(best_sc),
+                                places=5,
+                                msg=f"mismatch at ref={ri}, q={qi}, K={k_cap}, C={c_cnt}",
+                            )
+
+            written = cross_figures.render_all(out, cfg=cfg)
+            self.assertEqual(len(written), 5)
+            for p in written:
+                self.assertGreater(p.stat().st_size, 0)
+
+    def test_non_default_color_ff_matches_pair_components(self):
+        from _david.code.conformer import cross_study
+        from _david.code.scorers.rocs import pair_components
+
+        smi_ref = "c1ccccc1OCC(=O)O"
+        smi_cand = "c1ccccc1NC(=O)C"
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            smi_file = tmp / "fdef.smi"
+            smi_file.write_text(f"{smi_ref}\n{smi_cand}\n")
+            cfg = cross_study.CrossStudyConfig(
+                n_molecules=2,
+                n_references=1,
+                methods=("ETKDG",),
+                reference_caps=(1,),
+                candidate_counts=(2,),
+                reference_attempts=2,
+                max_isomers=1,
+                color_ff="fdef",
+                representative_k=1,
+                representative_c=2,
+                n_jobs=1,
+            )
+            molecules_df, _, _, _ = cross_study.run(cfg, tmp / "out", smiles_file=smi_file)
+            with np.load(tmp / "out" / "pair_scores.npz") as data:
+                ref_idx = int(data["ref_mol_indices"][0])
+                other_idx = 1 - ref_idx
+                got_combo = float(data["shape"][0, 0, other_idx, 0, 0] + data["colour"][0, 0, other_idx, 0, 0])
+
+            study_cfg = cfg.as_study_config("ETKDG")
+            ref_smi = molecules_df.loc[ref_idx, "canonical_smiles"]
+            cand_smi = molecules_df.loc[other_idx, "canonical_smiles"]
+            bank = study.select_bank(
+                cross_study._embed_tagged(ref_smi, cfg.reference_attempts, cfg.reference_seed, cfg),
+                1,
+                METHODS["ETKDG"],
+                study_cfg,
+            )
+            cands = cross_study._embed_tagged(
+                cand_smi, 2, cfg.reference_seed + study.CANDIDATE_OFFSET, cfg
+            )
+            best_sc = (0.0, 0.0)
+            for cm in cands:
+                for rm in bank:
+                    sc = pair_components(cm, rm, opt_param=0.5, use_colors=True, color_ff="fdef")
+                    if sum(sc) > sum(best_sc):
+                        best_sc = sc
+            self.assertAlmostEqual(got_combo, sum(best_sc), places=5)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -163,15 +163,28 @@ def _relax(mols: list[Chem.Mol], method: Method, cfg: StudyConfig) -> list[Chem.
     return out
 
 
-def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig) -> list[Chem.Mol]:
-    """At most ``cap`` conformers, chosen the way the pipeline chooses its reference bank.
+def select_bank_ordered(
+    mols: list[Chem.Mol],
+    cap: int,
+    method: Method,
+    cfg: StudyConfig,
+    *,
+    caps_to_time: tuple[int, ...] = (),
+    cap_times: dict[int, tuple[float, float]] | None = None,
+) -> list[Chem.Mol]:
+    """Select at most ``cap`` diverse conformers in greedy selection order.
 
-    Energy anchors the bank at the global minimum; every further pose is the one whose
-    closest already-kept neighbour is furthest away, on heavy atoms. Identical rule to
-    ``_david/code/scorers/conformers.build_reference`` -- see its comment for the evidence.
+    Taking the first ``k`` elements gives the exact same conformer set as calling
+    :func:`select_bank` with ``cap=k`` because ``kept`` grows deterministically from the
+    lowest-energy pose without reordering until ``select_bank`` sorts the final slice.
     """
     if not mols:
+        if cap_times is not None:
+            for k in caps_to_time:
+                cap_times[k] = (0.0, 0.0)
         return []
+    t0, c0 = time.perf_counter(), time.process_time()
+    wanted = set(caps_to_time)
     # A method with no force field still gets an energy ranking, because the pipeline
     # gives one: its _force_field is not gated on cfg.minimize, so an unminimised bank is
     # MMFF94s-ranked all the same. Ranking ETKDG by nothing anchored its bank on
@@ -181,6 +194,8 @@ def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig
     probes = [Chem.RemoveHs(Chem.Mol(mol)) for _, mol in ranked]
     kept = [0]
     spread = [rdMolAlign.GetBestRMS(Chem.Mol(probe), Chem.Mol(probes[0])) for probe in probes]
+    if cap_times is not None and 1 in wanted:
+        cap_times[1] = (time.perf_counter() - t0, time.process_time() - c0)
     while len(kept) < cap:
         nxt = max(
             (i for i in range(len(ranked)) if i not in kept), key=lambda i: spread[i], default=None
@@ -192,6 +207,12 @@ def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig
             spread[i] = min(
                 spread[i], rdMolAlign.GetBestRMS(Chem.Mol(probes[i]), Chem.Mol(probes[nxt]))
             )
+        if cap_times is not None and len(kept) in wanted:
+            cap_times[len(kept)] = (time.perf_counter() - t0, time.process_time() - c0)
+    if cap_times is not None:
+        end_t = (time.perf_counter() - t0, time.process_time() - c0)
+        for k in caps_to_time:
+            cap_times.setdefault(k, end_t)
     if len(kept) < cap:
         # Silence here made K=8 and K=16 the same measurement for every minimised method:
         # both returned the same six or seven poses, so the figures showed a "saturation
@@ -205,11 +226,23 @@ def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig
             len(ranked),
         )
     out = []
-    for i in sorted(kept, key=lambda i: ranked[i][0]):
-        energy, mol = ranked[i]
+    for i in kept:
+        energy, raw_mol = ranked[i]
+        mol = Chem.Mol(raw_mol)
         mol.SetDoubleProp("Energy", energy)
         out.append(mol)
     return out
+
+
+def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig) -> list[Chem.Mol]:
+    """At most ``cap`` conformers, chosen the way the pipeline chooses its reference bank.
+
+    Energy anchors the bank at the global minimum; every further pose is the one whose
+    closest already-kept neighbour is furthest away, on heavy atoms. Identical rule to
+    ``_david/code/scorers/conformers.build_reference`` -- see its comment for the evidence.
+    """
+    selected = select_bank_ordered(mols, cap, method, cfg)
+    return sorted(selected, key=lambda mol: mol.GetDoubleProp("Energy"))
 
 
 def score(

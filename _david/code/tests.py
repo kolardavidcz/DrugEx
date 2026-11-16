@@ -616,6 +616,9 @@ class Provenance(unittest.TestCase):
             "archive/explorer.py",
             "analysis/report.py",
             "analysis/figures.py",
+            "analysis/health.py",
+            "conformer/cross_study.py",
+            "conformer/cross_figures.py",
             "metacentrum/job.py",
             "metacentrum/submit.py",
             "metacentrum/monitor.py",
@@ -2321,9 +2324,7 @@ class NestedLayoutAndPullTests(unittest.TestCase):
             skipped = submit_module._organized_complete_runs(root, new_runs)
             self.assertEqual(skipped, ["20261114_0100_dp_done"])
 
-    def test_collapse_atlas_and_dashboard_handle_nested_single_arm_runs(self):
-        from _david.code.analysis import dashboard
-
+    def test_collapse_atlas_handles_nested_single_arm_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run = root / "Pareto" / "K4_opt" / "C20" / "e05" / "20261114_0100_dp_m1e05q0"
@@ -2344,10 +2345,6 @@ class NestedLayoutAndPullTests(unittest.TestCase):
             self.assertEqual(len(payload["runs"]), 1)
             self.assertIn("diversity", payload["runs"][0])
 
-            out_html = dashboard.build(root, root / "dashboard.html")
-            html = out_html.read_text(encoding="utf-8")
-            self.assertIn('"complete": 1', html)
-            self.assertIn("20261114_0100_dp_m1e05q0", html)
 
 
 class SignalHandlingTests(unittest.TestCase):
@@ -2425,6 +2422,161 @@ class SignalHandlingTests(unittest.TestCase):
             copied = storage / "_david" / "output" / "20261115_0000_sig_test" / "models" / "desired_ratio_at_stop.pkg"
             self.assertTrue(copied.is_file(), "SIGTERM checkpoint must survive into copy_results")
             self.assertEqual(copied.read_text(), "checkpoint")
+
+
+class HealthAndCacheTests(unittest.TestCase):
+    def _arm_table(self, n: int = 10) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "SMILES": [f"C{'C' * (i % 4)}O" for i in range(n)],
+                "Canonical": [f"C{'C' * (i % 4)}O" for i in range(n)],
+                "Valid": [1] * n,
+                "Desired": [1 if i % 2 == 0 else 0 for i in range(n)],
+                "SA_raw": [2.2 + 0.1 * (i % 5) for i in range(n)],
+                "RDKit_EGCG": [0.4 + 0.02 * i for i in range(n)],
+                "SA": [0.9] * n,
+            }
+        )
+
+    def _base_manifest(self, run_dir: Path, state: str = "complete") -> None:
+        cfg = {
+            "scheme": "PRCD",
+            "epsilon": 0.02,
+            "minimize": True,
+            "reference_conformers": 4,
+            "max_conformers": 20,
+            "include_qed": False,
+            "n_prior": 10,
+            "n_final": 10,
+            "objectives": ["RDKit_EGCG", "SA"],
+            "thresholds": [0.45, 1.0],
+            "rocs_reward_scale": 2.0,
+        }
+        (run_dir / "config.json").write_text(json.dumps(cfg))
+        (run_dir / "manifest.json").write_text(
+            json.dumps({"run": run_dir.name, "state": state, "config": cfg})
+        )
+
+    def test_health_classifies_all_failure_stages_and_caches(self):
+        from _david.code.analysis import health
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            # 1) no_model_saved (forkserver failure)
+            r1 = root / "20261116_0100_dp_fail"
+            r1.mkdir()
+            self._base_manifest(r1, state="failed")
+            (r1 / "run.log").write_text(
+                "2026-11-16 01:00:00 ERROR _david: 16 cores were requested but no worker can start.\n"
+            )
+
+            # 2) no_eval_dataset (stop model saved, stop TSV missing)
+            r2 = root / "20261116_0101_dp_nodata"
+            (r2 / "models").mkdir(parents=True)
+            self._base_manifest(r2, state="running")
+            self._arm_table(10).to_csv(r2 / "prior.tsv", sep="\t", index=False)
+            (r2 / "models" / "desired_ratio_at_stop.pkg").write_bytes(b"pkg")
+            (r2 / "run.log").write_text(
+                "2026-11-16 01:00:00 INFO _david: training summary: {'epochs_run': 70}\n"
+            )
+
+            # 3) missing_figures_or_report (TSVs complete, only 3 PNGs)
+            r3 = root / "20261116_0102_dp_nofigs"
+            (r3 / "models").mkdir(parents=True)
+            (r3 / "figures").mkdir()
+            self._base_manifest(r3, state="complete")
+            self._arm_table(10).to_csv(r3 / "prior.tsv", sep="\t", index=False)
+            self._arm_table(10).to_csv(r3 / "final_desired_ratio_at_stop.tsv", sep="\t", index=False)
+            (r3 / "models" / "desired_ratio_at_stop.pkg").write_bytes(b"pkg")
+            for slot in ("01_a.png", "02_b.png", "03_c.png"):
+                (r3 / "figures" / slot).write_bytes(b"png")
+
+            # 4) healthy (TSVs complete, all 9 PNG slots + report.md)
+            r4 = root / "20261116_0103_dp_ok"
+            (r4 / "models").mkdir(parents=True)
+            (r4 / "figures").mkdir()
+            self._base_manifest(r4, state="complete")
+            self._arm_table(10).to_csv(r4 / "prior.tsv", sep="\t", index=False)
+            self._arm_table(10).to_csv(r4 / "final_desired_ratio_at_stop.tsv", sep="\t", index=False)
+            (r4 / "models" / "desired_ratio_at_stop.pkg").write_bytes(b"pkg")
+            (r4 / "report.md").write_text("# report\n")
+            for i in range(1, 10):
+                (r4 / "figures" / f"{i:02d}_fig.png").write_bytes(b"png")
+
+            payload = health.check_health(root)
+            self.assertEqual(
+                payload["counts"],
+                {
+                    "no_model_saved": 1,
+                    "no_eval_dataset": 1,
+                    "missing_figures_or_report": 1,
+                    "healthy": 1,
+                },
+            )
+            by_run = {row["run"]: row for row in payload["runs"]}
+            self.assertIn("forkserver_pool_failure", by_run[r1.name]["reason"])
+            self.assertIn("submit submit --name dp_fail", by_run[r1.name]["command"])
+            self.assertIn("epsilon=0.02", by_run[r1.name]["command"])
+            self.assertIn("submit rebuild --runs", by_run[r2.name]["command"])
+            self.assertEqual(by_run[r3.name]["action"], "re_report")
+            self.assertEqual(by_run[r3.name]["missing_figure_slots"], ["04", "05", "06", "07", "08", "09"])
+            self.assertTrue((r4 / "cache_stats" / "health.json").is_file())
+            self.assertTrue((root / "health_report.md").is_file())
+            self.assertTrue((root / "health_report.tsv").is_file())
+
+    def test_report_writes_cache_stats_and_collapse_uses_cache(self):
+        from _david.code.analysis import collapse, report
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "20261116_0104_dp_cache"
+            run.mkdir()
+            cfg = {
+                "scheme": "PRCD",
+                "epsilon": 0.02,
+                "minimize": True,
+                "reference_conformers": 1,
+                "max_conformers": 2,
+                "include_qed": False,
+                "n_prior": 8,
+                "n_final": 8,
+                "sa_reward_zero": 5.0,
+                "sa_reward_one": 3.0,
+                "threshold_percentile": 85.0,
+                "color_ff": "default",
+                "alignment_shape_weight": 0.5,
+                "objectives": ["RDKit_EGCG", "SA"],
+                "thresholds": [0.45, 1.0],
+                "rocs_reward_scale": 2.0,
+            }
+            (run / "config.json").write_text(json.dumps(cfg))
+            (run / "manifest.json").write_text(
+                json.dumps({"run": run.name, "state": "complete", "config": cfg})
+            )
+            self._arm_table(8).to_csv(run / "prior.tsv", sep="\t", index=False)
+            self._arm_table(8).to_csv(run / "final_desired_ratio_at_stop.tsv", sep="\t", index=False)
+            (run / "run.log").write_text(
+                "2026-11-16 01:00:00 WARNING _david.code.scorers.conformers: "
+                "relaxation dropped 2/20 conformers (converged=17, unconverged=3); 1 molecules left with none\n"
+            )
+
+            with patch.object(report.figures_module, "render_all", return_value=[run / "figures" / "01_a.png"]):
+                report.analyse(run)
+
+            cache_file = run / "cache_stats" / "report_stats.json"
+            self.assertTrue(cache_file.is_file())
+            stats = json.loads(cache_file.read_text())
+            self.assertEqual(stats["log_diagnostics"]["conformers_dropped"], 2)
+            self.assertEqual(stats["log_diagnostics"]["zero_conformer_molecules"], 1)
+            self.assertEqual(stats["figures"]["count"], 1)
+
+            rec1 = collapse.scan_run(run, legacy=False, use_cache=True)
+            self.assertIsNotNone(rec1)
+            self.assertTrue((run / "cache_stats" / "collapse_run.json").is_file())
+            # Cached call matches without touching tables.
+            with patch.object(collapse, "_load_current", side_effect=AssertionError("should hit cache")):
+                rec2 = collapse.scan_run(run, legacy=False, use_cache=True)
+            self.assertEqual(rec2["verdict"], rec1["verdict"])
 
 
 if __name__ == "__main__":

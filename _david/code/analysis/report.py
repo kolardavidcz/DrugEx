@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -313,6 +315,130 @@ def _units(config: dict, objectives: list[str]) -> str:
     return "\n".join(notes)
 
 
+REPORT_CACHE_VERSION = 1
+EXPECTED_FIGURE_SLOTS = ("01", "02", "03", "04", "05", "06", "07", "08", "09")
+_RELAX_RE = re.compile(
+    r"relaxation dropped (\d+)/(\d+) conformers \(([^)]+)\); (\d+) molecules left with none"
+)
+
+
+def _source_fingerprints(run_dir: Path) -> dict[str, list[int]]:
+    names = (
+        "config.json",
+        "manifest.json",
+        "prior.tsv",
+        "final_desired_ratio_at_stop.tsv",
+        "final_desired_ratio.tsv",
+        "final_gmean.tsv",
+        "rl_fit.tsv",
+        "run.log",
+    )
+    out: dict[str, list[int]] = {}
+    for name in names:
+        path = run_dir / name
+        if path.is_file():
+            st = path.stat()
+            out[name] = [int(st.st_size), int(st.st_mtime_ns)]
+        else:
+            out[name] = [-1, -1]
+    return out
+
+
+def parse_run_log_diagnostics(log_path: Path) -> dict:
+    """Extract relaxation tallies, timeouts, and error signals from run.log."""
+    if not log_path.is_file():
+        return {"present": False}
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    relax_events = 0
+    conformers_total = 0
+    conformers_dropped = 0
+    zero_mol_events = 0
+    detail_totals: dict[str, int] = {}
+    scoring_failures = 0
+    analysis_failures = 0
+    figure_failures: list[str] = []
+    error_lines: list[str] = []
+
+    for line in text.splitlines():
+        match = _RELAX_RE.search(line)
+        if match:
+            relax_events += 1
+            dropped, total, details, zero_mols = match.groups()
+            conformers_dropped += int(dropped)
+            conformers_total += int(total)
+            zero_mol_events += int(zero_mols)
+            for part in details.split(","):
+                k, _, v = part.strip().partition("=")
+                if k and v.isdigit():
+                    detail_totals[k] = detail_totals.get(k, 0) + int(v)
+        if "scoring failed for one molecule" in line:
+            scoring_failures += 1
+        if "analysis failed" in line:
+            analysis_failures += 1
+        fig_m = re.search(r"figure (\d+) failed", line)
+        if fig_m:
+            figure_failures.append(fig_m.group(1))
+        if " ERROR " in line or "CRITICAL " in line or line.startswith("Traceback"):
+            if len(error_lines) < 20:
+                error_lines.append(line.strip())
+
+    return {
+        "present": True,
+        "relaxation_events": relax_events,
+        "conformers_total": conformers_total,
+        "conformers_dropped": conformers_dropped,
+        "zero_conformer_molecules": zero_mol_events,
+        "relaxation_details": detail_totals,
+        "scoring_failures": scoring_failures,
+        "analysis_failures": analysis_failures,
+        "figure_failures": figure_failures,
+        "errors": error_lines,
+    }
+
+
+def _write_report_cache(
+    run_dir: Path,
+    *,
+    arm_scales: dict[str, float],
+    thr_scale: float,
+    arms_table: dict[str, dict],
+    pareto_table: dict[str, dict],
+    scaffold_table: dict[str, dict],
+    written: list[Path],
+    summary: dict,
+    fit: pd.DataFrame | None,
+) -> None:
+    files = sorted(p.name for p in written)
+    missing_slots = [
+        slot for slot in EXPECTED_FIGURE_SLOTS if not any(name.startswith(slot) for name in files)
+    ]
+    payload = {
+        "version": REPORT_CACHE_VERSION,
+        "sources": _source_fingerprints(run_dir),
+        "arm_scales": arm_scales,
+        "threshold_rocs_scale": thr_scale,
+        "arms": arms_table,
+        "pareto": pareto_table,
+        "scaffolds": scaffold_table,
+        "figures": {
+            "count": len(files),
+            "expected": len(EXPECTED_FIGURE_SLOTS),
+            "files": files,
+            "missing_slots": missing_slots,
+        },
+        "epoch_summary": {
+            **(summary or {}),
+            "epochs_logged": int(len(fit)) if fit is not None else 0,
+        },
+        "log_diagnostics": parse_run_log_diagnostics(run_dir / "run.log"),
+    }
+    cache_dir = run_dir / "cache_stats"
+    cache_dir.mkdir(exist_ok=True)
+    tmp_cache = cache_dir / f".report_stats.{os.getpid()}.tmp"
+    tmp_cache.write_text(json.dumps(payload, indent=2) + "\n")
+    os.replace(tmp_cache, cache_dir / "report_stats.json")
+
+
 def analyse(run_dir: Path) -> Path:
     """Write every figure and ``report.md`` for one run directory. Returns the report path."""
     config = json.loads((run_dir / "config.json").read_text())
@@ -370,6 +496,11 @@ def analyse(run_dir: Path) -> Path:
     )
     logger.info("wrote %d figures", len(written))
 
+    arms_table = {
+        name: _describe(arm, objectives, arm_scales[name]) for name, arm in arms.items()
+    }
+    pareto_table = pareto_rows(arms, objectives, config)
+    scaffold_table = scaffold_rows(arms)
     tops = {name: top_molecules(arm, objectives) for name, arm in arms.items() if name != "prior"}
 
     settings = [
@@ -417,10 +548,7 @@ def analyse(run_dir: Path) -> Path:
         "Medians and percentiles are over valid *unique* molecules, the same population, "
         "so no two columns in a row describe different sets.",
         "",
-        _table(
-            {name: _describe(arm, objectives, arm_scales[name]) for name, arm in arms.items()},
-            "arm",
-        ),
+        _table(arms_table, "arm"),
         "",
         "### what the score columns are",
         "",
@@ -467,7 +595,7 @@ def analyse(run_dir: Path) -> Path:
         "`n scored` is below `n` wherever a molecule was invalid, duplicated, or missing "
         "a score on one objective. Figure 02 draws these fronts.",
         "",
-        _table(pareto_rows(arms, objectives, config), "arm"),
+        _table(pareto_table, "arm"),
         "",
         "## scaffolds",
         "",
@@ -478,7 +606,7 @@ def analyse(run_dir: Path) -> Path:
         "scores well on the first two columns and poorly on the last. It is `n/a` for the "
         "prior, which is the baseline it is measured against. Figure 07 draws this table.",
         "",
-        _table(scaffold_rows(arms), "arm"),
+        _table(scaffold_table, "arm"),
         "",
         "## settings that define this run",
         "",
@@ -530,6 +658,20 @@ def analyse(run_dir: Path) -> Path:
 
     report_path = run_dir / "report.md"
     report_path.write_text("\n".join(report) + "\n")
+    try:
+        _write_report_cache(
+            run_dir,
+            arm_scales=arm_scales,
+            thr_scale=thr_scale,
+            arms_table=arms_table,
+            pareto_table=pareto_table,
+            scaffold_table=scaffold_table,
+            written=written,
+            summary=summary,
+            fit=fit,
+        )
+    except OSError:
+        logger.warning("could not write report_stats.json cache for %s", run_dir)
     logger.info("wrote %s and %d figures", report_path, len(list(figures.glob("*.png"))))
     return report_path
 

@@ -30,6 +30,7 @@ import gzip
 import json
 import logging
 import math
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -436,8 +437,92 @@ def verdict(
 # --------------------------------------------------------------------------------------
 
 
-def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
+COLLAPSE_CACHE_VERSION = 1
+
+
+def _diversity_version() -> int:
+    try:
+        from _david.code.analysis.diversity import DIVERSITY_VERSION
+
+        return int(DIVERSITY_VERSION)
+    except Exception:
+        return 0
+
+
+def _collapse_sources(run: Path, legacy: bool) -> dict[str, list[int]]:
+    """Size + mtime_ns fingerprints of every file scan_run() depends on."""
+    names = [
+        "manifest.json",
+        "config.json",
+        "rl_fit.tsv",
+        "run.log",
+        "cache_stats/diversity.json",
+    ]
+    if legacy:
+        names.extend(f"raw_data/{name}" for name in LEGACY_ARMS.values())
+        names.append("molecules/training_molecules.csv.gz")
+    else:
+        names.extend(
+            [
+                "prior.tsv",
+                "final_desired_ratio.tsv",
+                "final_desired_ratio_at_stop.tsv",
+                "final_gmean.tsv",
+            ]
+        )
+    out: dict[str, list[int]] = {}
+    for rel in names:
+        path = run / rel
+        if path.is_file():
+            st = path.stat()
+            out[rel] = [int(st.st_size), int(st.st_mtime_ns)]
+        else:
+            out[rel] = [-1, -1]
+    return out
+
+
+def _load_collapse_cache(run: Path, legacy: bool) -> dict[str, Any] | None:
+    cache = run / "cache_stats" / "collapse_run.json"
+    try:
+        data = json.loads(cache.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        data.get("version") != COLLAPSE_CACHE_VERSION
+        or data.get("diversity_version") != _diversity_version()
+        or bool(data.get("legacy")) != bool(legacy)
+    ):
+        return None
+    if data.get("sources") != _collapse_sources(run, legacy):
+        return None
+    record = data.get("record")
+    return record if isinstance(record, dict) else None
+
+
+def _save_collapse_cache(run: Path, legacy: bool, record: dict[str, Any]) -> None:
+    cache_dir = run / "cache_stats"
+    try:
+        cache_dir.mkdir(exist_ok=True)
+        payload = {
+            "version": COLLAPSE_CACHE_VERSION,
+            "diversity_version": _diversity_version(),
+            "legacy": bool(legacy),
+            "sources": _collapse_sources(run, legacy),
+            "record": record,
+        }
+        tmp_cache = cache_dir / f".collapse_run.{os.getpid()}.tmp"
+        tmp_cache.write_text(json.dumps(payload))
+        os.replace(tmp_cache, cache_dir / "collapse_run.json")
+    except OSError:
+        pass
+
+
+def scan_run(run: Path, legacy: bool, *, use_cache: bool = True) -> dict[str, Any] | None:
     """Every statistic the atlas shows, for one run directory."""
+    if use_cache:
+        cached = _load_collapse_cache(run, legacy)
+        if cached is not None:
+            return cached
     manifest_path = run / "manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text())
@@ -597,6 +682,8 @@ def scan_run(run: Path, legacy: bool) -> dict[str, Any] | None:
 
     if legacy:
         record["axes"]["scheme"] = f"{record['axes'].get('scheme') or 'PRCD'}"
+    if use_cache:
+        _save_collapse_cache(run, legacy, record)
     return record
 
 
@@ -656,7 +743,13 @@ def is_legacy_layout(run: Path) -> bool:
     return (run / "raw_data").is_dir()
 
 
-def build(roots: list[Path], out: Path | None = None, since: str = SINCE) -> Path:
+def build(
+    roots: list[Path],
+    out: Path | None = None,
+    since: str = SINCE,
+    *,
+    use_cache: bool = True,
+) -> Path:
     """Scan the roots and write ``collapse_scan.json``/``.tsv`` beside ``out``.
 
     ``out`` survives only as the directory anchor for callers that used to name the v1
@@ -673,7 +766,7 @@ def build(roots: list[Path], out: Path | None = None, since: str = SINCE) -> Pat
             if date is not None and date < since:
                 continue
             legacy = is_legacy_layout(run)
-            record = scan_run(run, legacy)
+            record = scan_run(run, legacy, use_cache=use_cache)
             if record is None:
                 logger.warning("%s: no usable manifest; skipped", run.name)
                 continue
@@ -823,11 +916,16 @@ def main(argv: list[str] | None = None) -> int:
         metavar="YYYYMMDD",
         help=f"count only runs from this date onwards (default: {SINCE})",
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="bypass per-run cache_stats/collapse_run.json and recompute from tables",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     roots = args.roots or [PROJECT_ROOT / "_david" / "output"]
-    scan_path = build(roots, since=args.since)
+    scan_path = build(roots, since=args.since, use_cache=not args.no_cache)
     print(f"scan data: {scan_path}")
     print(f"scan table: {scan_path.with_suffix('.tsv')}")
     print("atlas: python -m _david.code.analysis.atlas_v2")

@@ -6,6 +6,7 @@
     rebuild [--all|--runs …]  complete the arms of runs a walltime kill left unfinished
     status                    the user's queue, from long-format qstat
     memreport [--last N]      requested vs peak memory of finished jobs
+    health [--remote]         audit runs locally (+ live MetaCentrum check) and report issues
     table                     one row per job, with the epoch it is on
     watch [-i 60]             live epochs of running jobs, read on the login node
     logs <name> [-f]          the PBS stdout of the job, not merely of its name
@@ -785,6 +786,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     memory.add_argument("--json", action="store_true", help="machine-readable output")
 
+    health_p = sub.add_parser(
+        "health",
+        help="audit runs (models, eval TSVs, figures/reports) and emit remediation report",
+    )
+    health_p.add_argument("--root", type=Path, default=None, help="override output root directory")
+    health_p.add_argument("--out", type=Path, default=None, help="override health_report.{md,tsv} output dir")
+    health_p.add_argument("--since", default=None, metavar="YYYYMMDD", help="only audit runs on/after date")
+    health_p.add_argument("--remote", action="store_true", help="cross-check MetaCentrum queue and storage")
+    health_p.add_argument("--fix-reports", action="store_true", help="regenerate missing figures/reports locally")
+    health_p.add_argument("--no-cache", action="store_true", help="bypass cache_stats/health.json")
+    health_p.add_argument("--json", action="store_true", help="machine-readable output")
+
     run = sub.add_parser("submit", help="stage a release and queue one job")
     run.add_argument("--name", required=True, help="PBS job name and the run's tag")
     _resource_flags(run)
@@ -850,6 +863,25 @@ def main(argv: list[str] | None = None) -> int:
         from _david.code.metacentrum import memreport
 
         print(memreport.report(args.last, args.json))
+    elif args.command == "health":
+        from _david.code.analysis import health
+
+        forwarded = []
+        if args.root is not None:
+            forwarded.extend(["--root", str(args.root)])
+        if args.out is not None:
+            forwarded.extend(["--out", str(args.out)])
+        if args.since:
+            forwarded.extend(["--since", args.since])
+        if args.remote:
+            forwarded.append("--remote")
+        if args.fix_reports:
+            forwarded.append("--fix-reports")
+        if args.no_cache:
+            forwarded.append("--no-cache")
+        if args.json:
+            forwarded.append("--json")
+        return health.main(forwarded)
     elif args.command == "rebuild":
         return rebuild_runs(args)
     elif args.command == "submit":
