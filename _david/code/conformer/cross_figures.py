@@ -218,6 +218,12 @@ def cohort_flexibility(
     return path
 
 
+def _fmt_k(sec: float) -> str:
+    if sec >= 1000:
+        return f"{sec / 1000:.1f}k"
+    return f"{sec:.0f}"
+
+
 def cross_bands_and_timing(
     grid: pd.DataFrame,
     timing: pd.DataFrame,
@@ -234,7 +240,7 @@ def cross_bands_and_timing(
     b85 = g_cross[g_cross["band"] == "ge_p85"]
     bmid = g_cross[g_cross["band"] == "p50_to_p85"]
 
-    fig, axes = plt.subplots(len(methods), 3, figsize=(18.5, 3.6 * len(methods) + 1.2), dpi=200, squeeze=False)
+    fig, axes = plt.subplots(len(methods), 3, figsize=(19.2, 3.7 * len(methods) + 1.2), dpi=200, squeeze=False)
     fig.suptitle(
         f"Cross-Molecule ROCS Bands (Top 15% >= p85 and Signal 50-85%) & Measured Runtime Grid\n"
         f"{_subtitle(summary, cfg)} | values show median +/- std (TanimotoCombo [0, 2])",
@@ -255,7 +261,7 @@ def cross_bands_and_timing(
             [
                 (b85[b85["method"] == method], "Top 15% (>= p85) Combo", "YlGn", vmin_85, vmax_85, False),
                 (bmid[bmid["method"] == method], "Band 50-85% (p50-p85) Combo", "YlGnBu", vmin_mid, vmax_mid, False),
-                (timing[timing["method"] == method], "Runtime: CPU s (cand+ROCS) / Wall s", "magma_r", vmin_t, vmax_t, True),
+                (timing[timing["method"] == method], "Runtime: CPU s (cand+ROCS) / R:ROCS | Wall", "magma_r", vmin_t, vmax_t, True),
             ]
         ):
             ax = axes[row_i][col_i]
@@ -280,10 +286,12 @@ def cross_bands_and_timing(
                     pos = (val - vmin) / span
                     dark = pos > 0.58
                     if is_time:
-                        txt = f"{val:,.0f}s CPU"
+                        txt = f"{_fmt_k(val)}s CPU"
                         if piv_rocs[r, c] > 0:
-                            txt += f" (R:{piv_rocs[r, c]:,.0f}s)"
-                        txt += f"\n{piv_wall[r, c]:.1f}s wall\n{piv_ms[r, c]:.2f}ms/pr"
+                            txt += f"\nR:{_fmt_k(piv_rocs[r, c])}s | {piv_wall[r, c]:.0f}s"
+                        else:
+                            txt += f"\n{piv_wall[r, c]:.0f}s wall"
+                        txt += f"\n{piv_ms[r, c]:.0f} ms/pr"
                     else:
                         txt = f"{val:.3f}\n+/- {piv_std[r, c]:.3f}"
                     ax.text(
@@ -292,7 +300,7 @@ def cross_bands_and_timing(
                         txt,
                         ha="center",
                         va="center",
-                        fontsize=7.0 if is_time else 7.8,
+                        fontsize=6.8 if is_time else 7.8,
                         fontweight="bold",
                         color="#ffffff" if dark else "#111827",
                     )
@@ -361,7 +369,7 @@ def band_distributions_and_fractions(
                     fontsize=6.8,
                 )
     ax.set_xticks(x, band_labels)
-    ax.set_ylim(0, 2.25)
+    ax.set_ylim(0, 2.48)
     ax.set_ylabel("TanimotoCombo [0, 2]  (median +/- std)")
     ax.set_title("A. Noise Floor (<p50) vs Signal Bands vs Self-Recovery", fontweight="bold")
     ax.legend(fontsize=8, loc="upper left")
@@ -514,11 +522,29 @@ def self_recovery_large_sample(
         not ((costs <= costs[i]) & (vals >= vals[i]) & ((costs < costs[i]) | (vals > vals[i]))).any()
         for i in range(len(costs))
     ])
-    front = pareto_df[nd]
+    front = pareto_df[nd].sort_values("total_cpu_ms_per_pair").reset_index(drop=True)
     ax.scatter(front["total_cpu_ms_per_pair"], front["self_recovery"], facecolors="none", edgecolors="#111827", s=135, linewidths=1.3, label="non-dominated")
+    placed: list[tuple[float, float]] = []
     for _, r in front.iterrows():
-        ax.annotate(f"{r['method'][:4]} K{int(r['reference_cap'])}/C{int(r['candidate_count'])}", (r["total_cpu_ms_per_pair"], r["self_recovery"]), fontsize=6.8, xytext=(4, 3), textcoords="offset points")
+        lx = float(np.log10(max(r["total_cpu_ms_per_pair"], 1e-9)))
+        ly = float(r["self_recovery"])
+        close_cnt = sum(1 for px, py in placed if abs(lx - px) < 0.25 and abs(ly - py) < 0.03)
+        if ly >= 0.99:
+            dx, dy = [(-6, 6), (6, -9), (6, 5), (-6, -9)][close_cnt % 4]
+        else:
+            dx, dy = [(5, 3), (5, -9), (-5, 4)][close_cnt % 3]
+        ha = "right" if dx < 0 else "left"
+        ax.annotate(
+            f"{r['method'][:4]} K{int(r['reference_cap'])}/C{int(r['candidate_count'])}",
+            (r["total_cpu_ms_per_pair"], r["self_recovery"]),
+            fontsize=6.8,
+            xytext=(dx, dy),
+            textcoords="offset points",
+            ha=ha,
+        )
+        placed.append((lx, ly))
     ax.set_xscale("log")
+    ax.set_ylim(top=1.032)
     ax.set_xlabel("Measured CPU ms per (ref, cand) pair (cand + ROCS)")
     ax.set_ylabel("Median self-recovery across 50 refs  [0, 1]")
     ax.set_title("C. Self-Recovery Pareto Frontier Across 50 Prior Molecules", fontweight="bold")
@@ -541,10 +567,10 @@ def self_recovery_large_sample(
             if np.isfinite(med):
                 ax.text(bar.get_x() + bar.get_width() / 2, med + 0.012, f"{med:.3f}\n({ceil:.0%}@2)", ha="center", va="bottom", fontsize=6.8)
     ax.set_xticks(xt, [FLEX_LABELS[t] for t in FLEXIBILITY_ORDER])
-    ax.set_ylim(0, 1.15)
+    ax.set_ylim(0, 1.18)
     ax.set_ylabel("Median self-recovery [0, 1]  (% at combo=2.0 ceiling)")
     ax.set_title(f"D. Self-Recovery & Pose-Collapse Ceiling by Flexibility (K={fixed_k}, C={fixed_c})", fontweight="bold")
-    ax.legend(fontsize=8, loc="lower left")
+    ax.legend(fontsize=8, loc="upper right")
 
     plt.tight_layout(rect=[0, 0, 1, 0.93])
     path = out / "04_self_recovery_large_sample.png"
