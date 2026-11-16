@@ -982,10 +982,15 @@ def run(
             round(r["param_max"] / max(r["embedded_max"], 1), 4) for r in cand_results
         ]
 
-        # 3. 50 x 1000 ROCS incremental scoring sweep
+        # 3. 50 x 1000 ROCS incremental scoring sweep (LPT order + chunksize=1 removes straggler tail)
         score_tasks = [(r["mol_idx"], r["smiles"], r["cand_confs"]) for r in cand_results]
         del cand_results
+        score_tasks.sort(key=lambda t: len(t[2]), reverse=True)
+        bucket_wall = np.zeros((n_k, n_c), dtype=np.float64)
+        bucket_cpu = np.zeros((n_k, n_c), dtype=np.float64)
+        align_calls = np.zeros((n_k, n_c), dtype=np.int64)
         t_rocs_start = time.perf_counter()
+        log_step = max(1, len(score_tasks) // 10)
         if workers <= 1 or len(score_tasks) < 2:
             _score_worker_init(
                 ref_banks_packed,
@@ -995,7 +1000,22 @@ def run(
                 cfg.color_ff,
                 cfg.max_isomers,
             )
-            score_results = [_score_candidate_worker(t) for t in score_tasks]
+            for done_i, t in enumerate(score_tasks, 1):
+                res = _score_candidate_worker(t)
+                q_idx = res["mol_idx"]
+                shape_all[m_idx, :, q_idx, :, :] = res["cum_shape"]
+                colour_all[m_idx, :, q_idx, :, :] = res["cum_colour"]
+                bucket_wall += res["bucket_wall"]
+                bucket_cpu += res["bucket_cpu"]
+                align_calls += res["align_calls"]
+                if done_i % log_step == 0 or done_i == len(score_tasks):
+                    logger.info(
+                        "ROCS %s: %d/%d candidates (%.1fs)",
+                        method_key,
+                        done_i,
+                        len(score_tasks),
+                        time.perf_counter() - t_rocs_start,
+                    )
         else:
             with mp_ctx.Pool(
                 min(workers, len(score_tasks)),
@@ -1009,19 +1029,24 @@ def run(
                     cfg.max_isomers,
                 ),
             ) as pool:
-                score_results = pool.map(_score_candidate_worker, score_tasks)
+                for done_i, res in enumerate(
+                    pool.imap_unordered(_score_candidate_worker, score_tasks, chunksize=1), 1
+                ):
+                    q_idx = res["mol_idx"]
+                    shape_all[m_idx, :, q_idx, :, :] = res["cum_shape"]
+                    colour_all[m_idx, :, q_idx, :, :] = res["cum_colour"]
+                    bucket_wall += res["bucket_wall"]
+                    bucket_cpu += res["bucket_cpu"]
+                    align_calls += res["align_calls"]
+                    if done_i % log_step == 0 or done_i == len(score_tasks):
+                        logger.info(
+                            "ROCS %s: %d/%d candidates (%.1fs)",
+                            method_key,
+                            done_i,
+                            len(score_tasks),
+                            time.perf_counter() - t_rocs_start,
+                        )
         rocs_phase_wall = time.perf_counter() - t_rocs_start
-
-        bucket_wall = np.zeros((n_k, n_c), dtype=np.float64)
-        bucket_cpu = np.zeros((n_k, n_c), dtype=np.float64)
-        align_calls = np.zeros((n_k, n_c), dtype=np.int64)
-        for res in score_results:
-            q_idx = res["mol_idx"]
-            shape_all[m_idx, :, q_idx, :, :] = res["cum_shape"]
-            colour_all[m_idx, :, q_idx, :, :] = res["cum_colour"]
-            bucket_wall += res["bucket_wall"]
-            bucket_cpu += res["bucket_cpu"]
-            align_calls += res["align_calls"]
 
         total_bucket_wall = max(float(bucket_wall.sum()), 1e-9)
         cum_rocs_wall = np.cumsum(np.cumsum(bucket_wall, axis=0), axis=1) / total_bucket_wall * rocs_phase_wall
