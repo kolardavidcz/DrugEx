@@ -90,7 +90,9 @@ REQUIRED = (
     "reconstruct/score_arms.py",
     "scorers/__init__.py",
     "scorers/conformers.py",
+    "scorers/prior_cache.py",
     "scorers/rocs.py",
+    "scorers/rocs_basin_tmp.py",
     "scorers/objectives.py",
     "scorers/utils.py",
     "analysis/__init__.py",
@@ -98,6 +100,7 @@ REQUIRED = (
     "analysis/_helpers.py",
     "analysis/report.py",
     "analysis/figures.py",
+    "analysis/basin_study.py",
     "metacentrum/__init__.py",
     "metacentrum/job.py",
     "metacentrum/monitor.py",
@@ -309,6 +312,11 @@ def sync(revision: str | None = None) -> str:
     relative = pkg.parent.relative_to(PROJECT_ROOT)
     remote(f"mkdir -p {shlex.quote(f'{release}/{relative}')}")
     _run(["rsync", "-a", str(pkg), str(vocab), f"{HOST}:{release}/{relative}/"])
+
+    local_cache = PROJECT_ROOT / "_david" / "prior_cache"
+    if local_cache.is_dir() and any(local_cache.iterdir()):
+        remote(f"mkdir -p {shlex.quote(STORAGE + '/_david/prior_cache')}")
+        _run(["rsync", "-a", f"{local_cache}/", f"{HOST}:{STORAGE}/_david/prior_cache/"])
 
     remote(f"ln -sfn {shlex.quote(release)} {shlex.quote(STORAGE + '/current')}")
     print(f"release : {release}")

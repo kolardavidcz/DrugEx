@@ -73,6 +73,8 @@ class Config:
     # execution
     seed: int = 42  # Python/NumPy/torch seed, recorded per run
     n_jobs: int = -1  # -1 = all cores; DRUGEX_SCORE_NJOBS caps it further
+    use_prior_cache: bool = True  # reuse precalculated reference.sdf + prior scores when axes match
+    track_conformer_basins: bool = False  # log per-conformer RMSD/energy basins via BasinTrackingROCSScorer
 
     output_root: Path = PROJECT_ROOT / "_david" / "output"
 

@@ -24,7 +24,7 @@ from rdkit.Chem import AllChem
 
 from _david.code import run as runner
 from _david.code.analysis import _helpers as analysis_helpers
-from _david.code.analysis import atlas_v2, collapse, diversity, figures
+from _david.code.analysis import atlas_v2, basin_study, collapse, diversity, figures
 from _david.code.analysis import report as analysis
 from _david.code.archive.training import StopCheckpointExplorer
 from _david.code.config import PROJECT_ROOT, SCHEMES, Config
@@ -40,7 +40,7 @@ from _david.code.run import (
     recorded_arm_size,
     write_arm,
 )
-from _david.code.scorers import conformers, rocs
+from _david.code.scorers import conformers, prior_cache, rocs, rocs_basin_tmp
 from _david.code.scorers import objectives as scorers
 from _david.code.scorers import utils as scorer_utils
 from drugex.training.environment import DrugExEnvironment
@@ -163,7 +163,7 @@ class _FakeAgent:
         index = min(self.epoch - 1, len(self.ratios) - 1)  # forward() already incremented
         desired = self.ratios[index]
         n = len(smiles)
-        hits = int(round(desired * n))
+        hits = round(desired * n)
         return pd.DataFrame(
             {
                 "Valid": [1] * n,
@@ -2577,6 +2577,335 @@ class HealthAndCacheTests(unittest.TestCase):
             with patch.object(collapse, "_load_current", side_effect=AssertionError("should hit cache")):
                 rec2 = collapse.scan_run(run, legacy=False, use_cache=True)
             self.assertEqual(rec2["verdict"], rec1["verdict"])
+
+
+class PriorCacheTests(unittest.TestCase):
+    def test_key_depends_only_on_prior_affecting_axes(self):
+        base = small(scheme="PRCD", epsilon=0.05, include_qed=False, threshold_percentile=85.0)
+        other_rl = small(
+            scheme="WS",
+            epsilon=0.2,
+            beta=0.1,
+            include_qed=True,
+            sa_reward_zero=4.5,
+            sa_reward_one=2.5,
+            threshold_percentile=90.0,
+            epochs=20,
+            min_epochs=20,
+            n_samples=200,
+        )
+        self.assertEqual(prior_cache.prior_cache_key(base), prior_cache.prior_cache_key(other_rl))
+        self.assertNotEqual(
+            prior_cache.prior_cache_key(base),
+            prior_cache.prior_cache_key(small(minimize=False)),
+        )
+        self.assertNotEqual(
+            prior_cache.prior_cache_key(base),
+            prior_cache.prior_cache_key(small(color_ff="fdef")),
+        )
+        self.assertNotEqual(
+            prior_cache.prior_cache_key(base),
+            prior_cache.prior_cache_key(small(max_conformers=4)),
+        )
+        self.assertNotEqual(
+            prior_cache.prior_cache_key(base),
+            prior_cache.prior_cache_key(small(alignment_shape_weight=0.2)),
+        )
+        with patch.object(Config, "pretrained", return_value=("missing.pkg", "missing.vocab")):
+            self.assertIsNone(prior_cache.prior_cache_axes(base))
+            self.assertIsNone(prior_cache.prior_cache_key(base))
+
+    def test_roundtrip_projection_masks_invalid_sa_and_matches_live_scores(self):
+        smiles = ["CCO", "c1ccccc1O", "not_a_smiles", "", "CCO.Cl"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_dir = root / "cache"
+            ref_sdf = root / "ref.sdf"
+            cfg_no_qed = small(minimize=False, include_qed=False, n_prior=len(smiles))
+            refs = conformers.build_reference(cfg_no_qed, ref_sdf)
+            scorers_no_qed = scorers.build_scorers(cfg_no_qed, refs)
+            live_thresh_no_qed, live_scores_no_qed = scorers.calibrate_thresholds(
+                cfg_no_qed, scorers_no_qed, smiles
+            )
+            env_no_qed = scorers.build_environment(scorers_no_qed, live_thresh_no_qed, scorers.reward_scheme("PRCD"))
+            diag = scorer_utils.components(env_no_qed, smiles)
+
+            bundle = prior_cache.save_prior_bundle(
+                cfg_no_qed,
+                ref_sdf,
+                smiles,
+                live_scores_no_qed,
+                diag,
+                origin="test",
+                cache_root=cache_dir,
+            )
+            self.assertIsNotNone(bundle)
+            checked, errors = prior_cache.verify_cache(cache_dir)
+            self.assertEqual(checked, 1)
+            self.assertEqual(errors, [])
+
+            # Project onto include_qed=True and shifted SA modifier without rescoring.
+            cfg_qed = small(
+                minimize=False,
+                include_qed=True,
+                n_prior=len(smiles),
+                sa_reward_zero=4.5,
+                sa_reward_one=2.0,
+            )
+            loaded = prior_cache.load_prior_bundle(cfg_qed, smiles, cache_root=cache_dir)
+            self.assertIsNotNone(loaded)
+            scorers_qed = scorers.build_scorers(cfg_qed, refs)
+            projected = prior_cache.project_prior_scores(loaded.scores, cfg_qed, scorers_qed)
+            proj_keys = [
+                k for s in scorers_qed for k in (s.getKey() if isinstance(s.getKey(), list) else [s.getKey()])
+            ]
+            proj_thresh = scorers.thresholds_from_scores(cfg_qed, scorers_qed, projected, proj_keys)
+
+            live_thresh_qed, live_scores_qed = scorers.calibrate_thresholds(cfg_qed, scorers_qed, smiles)
+            np.testing.assert_allclose(proj_thresh, live_thresh_qed, atol=1e-6)
+            for col in ("Valid", *proj_keys):
+                np.testing.assert_allclose(projected[col].to_numpy(), live_scores_qed[col].to_numpy(), atol=1e-6)
+            # Critical invariant: invalid rows never inherit SA=1.0 from SA_raw=0.0.
+            invalid = projected["Valid"] == 0
+            self.assertEqual(int(invalid.sum()), 3)
+            self.assertTrue(np.allclose(projected.loc[invalid, "SA"], 0.0))
+
+            # Tamper / sequence mismatch invalidates lookup cleanly.
+            self.assertIsNone(
+                prior_cache.load_prior_bundle(cfg_qed, list(reversed(smiles)), cache_root=cache_dir)
+            )
+            (bundle.bundle_dir / "prior_scores.tsv").write_text("corrupted\n")
+            self.assertIsNone(prior_cache.load_prior_bundle(cfg_qed, smiles, cache_root=cache_dir))
+
+    def test_pipeline_hits_prior_cache_without_rebuilding_reference_or_rescoring(self):
+        smiles = ["CCO", "CCN", "c1ccccc1O", "CC(=O)O"]
+        explorer = unittest.mock.Mock()
+        explorer.getModel.return_value = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache_dir = root / "cache"
+            pkg = root / "model.pkg"
+            vocab = root / "model.vocab"
+            pkg.write_bytes(b"pkg-bytes")
+            vocab.write_bytes(b"vocab-bytes")
+            cfg = small(
+                minimize=False,
+                n_prior=len(smiles),
+                n_final=len(smiles),
+                epochs=1,
+                min_epochs=1,
+                patience=1,
+                output_root=root / "out",
+            )
+            run1 = root / "run1"
+            (run1 / "models").mkdir(parents=True)
+            manifest1 = provenance.Manifest(run1 / "manifest.json")
+            with (
+                patch.dict(os.environ, {"DRUGEX_PRIOR_CACHE": str(cache_dir)}),
+                patch.object(Config, "pretrained", return_value=(pkg, vocab)),
+                patch.object(runner.VocSmiles, "fromFile"),
+                patch.object(runner, "load_model"),
+                patch.object(runner, "sample", return_value=smiles),
+                patch.object(runner, "SequenceExplorer", return_value=explorer),
+                patch.object(analysis, "analyse"),
+            ):
+                status1 = runner._pipeline(cfg, run1, {}, manifest1, time.monotonic())
+            self.assertEqual(status1, 0)
+            self.assertTrue(str(manifest1.data["prior_cache"]).startswith("miss:"))
+
+            run2 = root / "run2"
+            (run2 / "models").mkdir(parents=True)
+            manifest2 = provenance.Manifest(run2 / "manifest.json")
+            with (
+                patch.dict(os.environ, {"DRUGEX_PRIOR_CACHE": str(cache_dir)}),
+                patch.object(Config, "pretrained", return_value=(pkg, vocab)),
+                patch.object(runner.VocSmiles, "fromFile"),
+                patch.object(runner, "load_model"),
+                patch.object(runner, "sample", return_value=smiles),
+                patch.object(
+                    runner, "build_reference", side_effect=AssertionError("should hit cache")
+                ),
+                patch.object(
+                    runner, "calibrate_thresholds", side_effect=AssertionError("should hit cache")
+                ),
+                patch.object(runner, "SequenceExplorer", return_value=explorer),
+                patch.object(analysis, "analyse"),
+            ):
+                status2 = runner._pipeline(cfg, run2, {}, manifest2, time.monotonic())
+            self.assertEqual(status2, 0)
+            self.assertTrue(str(manifest2.data["prior_cache"]).startswith("hit:"))
+            self.assertEqual(manifest1.data["thresholds"], manifest2.data["thresholds"])
+            p1 = pd.read_csv(run1 / "prior.tsv", sep="\t")
+            p2 = pd.read_csv(run2 / "prior.tsv", sep="\t")
+            pd.testing.assert_frame_equal(p1, p2)
+
+
+class BasinTrackingROCSScorerTests(unittest.TestCase):
+    def test_basin_scorer_matches_combo_rocs_and_streams_gzip_logs(self):
+        # Mix rigid, flexible, unassigned chiral (multi-isomer), 1-atom, and invalid SMILES.
+        smiles = ["CCO", "CCCCO", "CC(O)CC(F)C", "C", "not_a_smiles", "CCO"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for minimize in (True, False):
+                cfg = small(minimize=minimize, max_conformers=6, max_isomers=4, n_jobs=1)
+                refs = conformers.build_reference(cfg, root / f"ref_{minimize}.sdf")
+                base = rocs.ComboROCSScorer(
+                    conformer_generator=conformers.RelaxingConformerGenerator(cfg),
+                    references=refs,
+                    score_type="TanimotoCombo",
+                    color_ff=cfg.color_ff,
+                    n_jobs=cfg.n_jobs,
+                    show_progress=False,
+                    alignment_shape_weight=cfg.alignment_shape_weight,
+                )
+                log_dir = root / f"basins_{minimize}"
+                tracked = rocs_basin_tmp.BasinTrackingROCSScorer(
+                    conformer_generator=conformers.RelaxingConformerGenerator(cfg),
+                    references=refs,
+                    score_type="TanimotoCombo",
+                    color_ff=cfg.color_ff,
+                    n_jobs=cfg.n_jobs,
+                    show_progress=False,
+                    alignment_shape_weight=cfg.alignment_shape_weight,
+                    cfg=cfg,
+                    basin_log_dir=log_dir,
+                    stage="prior",
+                )
+                expected = base.getScores(smiles)
+                with patch.object(rocs_basin_tmp, "SCORE_CHUNK", 2):
+                    actual = tracked.getScores(smiles)
+                np.testing.assert_allclose(actual, expected, atol=1e-9)
+
+                comp = tracked.component_frame(smiles)
+                for col in ("ShapeTanimoto", "ColorTanimoto", *rocs_basin_tmp.BASIN_DIAGNOSTIC_KEYS):
+                    self.assertIn(col, comp)
+                    self.assertEqual(len(comp[col]), len(smiles))
+                np.testing.assert_allclose(
+                    comp["ShapeTanimoto"], base.component_frame(smiles)["ShapeTanimoto"], atol=1e-9
+                )
+
+                summary_df = pd.read_csv(log_dir / "molecule_basins_summary.tsv.gz", sep="\t")
+                basins_df = pd.read_csv(log_dir / "conformer_basins.tsv.gz", sep="\t")
+                self.assertEqual(tuple(summary_df.columns), rocs_basin_tmp.SUMMARY_COLUMNS)
+                self.assertEqual(tuple(basins_df.columns), rocs_basin_tmp.BASIN_COLUMNS)
+                self.assertTrue((summary_df["stage"] == "prior").all())
+                if minimize:
+                    self.assertGreater(int(summary_df["n_converged"].sum()), 0)
+                else:
+                    self.assertEqual(int(summary_df["n_converged"].sum()), 0)
+                # Basin multiplicities sum to n_embedded per (call_id, smiles, isomer_id, ...).
+                for (cid, smi, iso), grp in basins_df.groupby(["call_id", "smiles", "isomer_id"]):
+                    sub = summary_df[
+                        (summary_df["call_id"] == cid)
+                        & (summary_df["smiles"] == smi)
+                        & (summary_df["isomer_id"] == iso)
+                    ]
+                    self.assertEqual(int(grp["count"].sum()), int(sub["n_embedded"].sum()))
+
+
+class BasinStudyTests(unittest.TestCase):
+    def test_slice_grid_matches_basin_pose_search_and_plots(self):
+        smiles = ["CCO", "CCCCO", "CC(O)CC(F)C"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = small(
+                minimize=True,
+                color_ff="default",
+                reference_attempts=8,
+                reference_conformers=4,
+                max_conformers=6,
+                max_isomers=2,
+                n_jobs=1,
+            )
+            refs = conformers.build_reference(cfg, root / "ref.sdf")
+            gen = conformers.RelaxingConformerGenerator(cfg)
+            sdf = Path(gen.genConformers(smiles, str(root)))
+            confs = scorer_utils.read_sdf(sdf)
+            by_mol = {0: [], 1: [], 2: []}
+            for mol in confs:
+                head = mol.GetProp("_Name").split("+")[0]
+                by_mol[int(head[4:])].append(mol)
+
+            grid_search = basin_study.SliceGridSearch(
+                references=refs,
+                opt_param=cfg.alignment_shape_weight,
+                cfg=cfg,
+                color_ff=cfg.color_ff,
+                grid_cells=((3, 1), (6, 4)),
+            )
+            base_search = rocs_basin_tmp.BasinPoseSearch(
+                references=refs,
+                groups=[list(range(len(refs)))],
+                opt_param=cfg.alignment_shape_weight,
+                cfg=cfg,
+                color_ff=cfg.color_ff,
+            )
+            for idx, smi in enumerate(smiles):
+                rows = grid_search.evaluate_molecule(smi, by_mol[idx])
+                row_full = next(r for r in rows if r["C"] == 6 and r["K"] == 4)
+                _, groups, iso_sum, _ = base_search.score_and_cluster(idx, by_mol[idx])
+                diag = rocs_basin_tmp._aggregate_molecule_diagnostics(iso_sum)
+                self.assertAlmostEqual(
+                    float(row_full["rocs_combo_max"]), float(sum(groups[0])), places=5
+                )
+                self.assertAlmostEqual(
+                    float(row_full["collapse_ratio_025"]),
+                    float(diag["collapse_ratio_025"]),
+                    places=5,
+                )
+                self.assertAlmostEqual(
+                    float(row_full["energy_min"]), float(diag["energy_min"]), places=4
+                )
+
+            # End-to-end sample + evaluate + plot on two tiny mock runs.
+            runs_root = root / "runs"
+            for name, train_min in (("run_m1", True), ("run_m0", False)):
+                rdir = runs_root / name
+                rdir.mkdir(parents=True)
+                (rdir / "manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "state": "complete",
+                            "config": {
+                                "color_ff": "default",
+                                "epsilon": 0.05,
+                                "alignment_shape_weight": 0.5,
+                                "scheme": "PRCD",
+                                "minimize": train_min,
+                                "reference_conformers": 4,
+                                "max_conformers": 20,
+                                "include_qed": True,
+                            },
+                        }
+                    )
+                )
+                pd.DataFrame(
+                    {
+                        "Canonical": ["CCO", "CCCCO", "CC(O)C"],
+                        "Valid": [1, 1, 1],
+                        "Desired": [1, 1, 1],
+                    }
+                ).to_csv(rdir / "final_desired_ratio_at_stop.tsv", sep="\t", index=False)
+                pd.DataFrame(
+                    {"Canonical": ["CCO", "c1ccccc1"], "Valid": [1, 1]}
+                ).to_csv(rdir / "prior.tsv", sep="\t", index=False)
+
+            study_dir = root / "study"
+            membership, uniq = basin_study.sample_runs(
+                [runs_root / "run_m1", runs_root / "run_m0"],
+                study_dir,
+                per_run=2,
+                n_prior=2,
+                max_per_scaffold=2,
+            )
+            self.assertGreaterEqual(len(uniq), 2)
+            self.assertIn("Prior", set(membership["regime"]))
+            with patch.object(basin_study, "Config", side_effect=lambda **kw: small(**kw)):
+                basin_study.evaluate_molecules(study_dir, minimize=True, n_jobs=1, chunk_size=2)
+                basin_study.evaluate_molecules(study_dir, minimize=False, n_jobs=1, chunk_size=2)
+            fig_path = basin_study.plot_multi_run_study(study_dir)
+            self.assertTrue(fig_path.is_file())
+            self.assertTrue((study_dir / "run_summary.tsv").is_file())
 
 
 if __name__ == "__main__":

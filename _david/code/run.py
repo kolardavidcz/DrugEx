@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import shutil
 import signal
 import sys
 import time
@@ -32,11 +33,21 @@ from _david.code.scorers.objectives import (
     calibrate_thresholds,
     mark_desired,
     reward_scheme,
+    set_basin_stage,
+    thresholds_from_scores,
+)
+from _david.code.scorers.prior_cache import (
+    load_prior_bundle,
+    prior_cache_key,
+    project_prior_diagnostics,
+    project_prior_scores,
+    save_prior_bundle,
 )
 from _david.code.scorers.utils import (
     check_pool,
     components,
     pool_is_healthy,
+    read_sdf,
     score_in_chunks,
     use_double_precision_pickling,
 )
@@ -364,7 +375,6 @@ def _pipeline(
 ) -> int:
     # Before anything expensive: an unknown scheme name is a typo in a submitted delta.
     scheme = reward_scheme(cfg.scheme)
-    references = build_reference(cfg, run_dir / "reference.sdf")
 
     checkpoint, vocabulary = cfg.pretrained()
     voc = VocSmiles.fromFile(str(vocabulary), encode_frags=False)
@@ -375,11 +385,53 @@ def _pipeline(
         parameter.requires_grad_(False)
     prior.eval()
 
-    scorers = build_scorers(cfg, references)
     logger.info("sampling %d molecules from the prior to calibrate thresholds", cfg.n_prior)
     prior_smiles = sample(prior, cfg.n_prior)
-    thresholds, prior_scores = calibrate_thresholds(cfg, scorers, prior_smiles)
-    env = build_environment(scorers, thresholds, scheme)
+
+    use_cache = cfg.use_prior_cache and not cfg.track_conformer_basins
+    cached = load_prior_bundle(cfg, prior_smiles) if use_cache else None
+    if cached is not None:
+        shutil.copy2(cached.reference_sdf, run_dir / "reference.sdf")
+        references = read_sdf(run_dir / "reference.sdf")
+        scorers = build_scorers(cfg, references)
+        prior_scores = project_prior_scores(cached.scores, cfg, scorers)
+        prior_diagnostics = project_prior_diagnostics(cached.scores)
+        keys = [
+            key
+            for scorer in scorers
+            for key in (
+                scorer.getKey() if isinstance(scorer.getKey(), list) else [scorer.getKey()]
+            )
+        ]
+        thresholds = thresholds_from_scores(cfg, scorers, prior_scores, keys)
+        env = build_environment(scorers, thresholds, scheme)
+        prior_cache_status = f"hit:{cached.key}"
+        logger.info("prior cache hit: %s (%d molecules)", cached.key, len(prior_smiles))
+    else:
+        references = build_reference(cfg, run_dir / "reference.sdf")
+        if cfg.track_conformer_basins:
+            scorers = build_scorers(
+                cfg,
+                references,
+                basin_log_dir=run_dir / "conformer_basins",
+                basin_stage="prior",
+            )
+        else:
+            scorers = build_scorers(cfg, references)
+        thresholds, prior_scores = calibrate_thresholds(cfg, scorers, prior_smiles)
+        env = build_environment(scorers, thresholds, scheme)
+        prior_diagnostics = components(env, prior_smiles)
+        saved = None
+        if cfg.use_prior_cache and prior_cache_key(cfg) is not None:
+            saved = save_prior_bundle(
+                cfg,
+                run_dir / "reference.sdf",
+                prior_smiles,
+                prior_scores,
+                prior_diagnostics,
+                origin=f"run:{run_dir.name}",
+            )
+        prior_cache_status = f"miss:{saved.key}" if saved is not None else "bypassed"
     objectives = env.getScorerKeys()
 
     resolved.update(
@@ -396,6 +448,7 @@ def _pipeline(
         objectives=objectives,
         thresholds=dict(zip(objectives, thresholds)),
         threshold_source="fixed" if cfg.fixed_thresholds else f"p{cfg.threshold_percentile:g}",
+        prior_cache=prior_cache_status,
         reference_conformers=len(references),
         reference_sha256=digest(run_dir / "reference.sdf"),
         reference_energies=[
@@ -410,12 +463,13 @@ def _pipeline(
             run_dir / "prior.tsv",
             mark_desired(prior_scores, objectives, thresholds),
             prior_smiles,
-            components(env, prior_smiles),
+            prior_diagnostics,
             origin="prior",
             seed=cfg.seed,
         )
     }
 
+    set_basin_stage(env, "train")
     explorer = SequenceExplorer(
         agent=agent,
         env=env,
@@ -454,6 +508,7 @@ def _pipeline(
     summary = _training_summary(run_dir / "rl_fit.tsv", cfg)
     logger.info("training summary: %s", summary)
 
+    set_basin_stage(env, "final")
     # Guarded per arm: this stage runs after training, so a fault must cost one arm.
     for name in FINAL_ARMS:
         try:

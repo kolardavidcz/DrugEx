@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ from drugex.training.scorers.properties import Property
 
 logger = logging.getLogger(__name__)
 
+
 #! could we just have assert to use fappropirate funcison names + in config.py use acctuall funl names isnted of our short version
 def reward_scheme(name: str):
     try:
@@ -26,16 +28,38 @@ def reward_scheme(name: str):
         ) from None
 
 
-def build_scorers(cfg: Config, references: list[Chem.Mol]) -> list:
-    rocs = ComboROCSScorer(
-        conformer_generator=RelaxingConformerGenerator(cfg),
-        references=references,
-        score_type="TanimotoCombo",
-        color_ff=cfg.color_ff,
-        n_jobs=cfg.n_jobs,
-        show_progress=False,
-        alignment_shape_weight=cfg.alignment_shape_weight,
-    )
+def build_scorers(
+    cfg: Config,
+    references: list[Chem.Mol],
+    *,
+    basin_log_dir: Path | None = None,
+    basin_stage: str = "init",
+) -> list:
+    if cfg.track_conformer_basins:
+        from _david.code.scorers.rocs_basin_tmp import BasinTrackingROCSScorer
+
+        rocs = BasinTrackingROCSScorer(
+            conformer_generator=RelaxingConformerGenerator(cfg),
+            references=references,
+            score_type="TanimotoCombo",
+            color_ff=cfg.color_ff,
+            n_jobs=cfg.n_jobs,
+            show_progress=False,
+            alignment_shape_weight=cfg.alignment_shape_weight,
+            cfg=cfg,
+            basin_log_dir=basin_log_dir,
+            stage=basin_stage,
+        )
+    else:
+        rocs = ComboROCSScorer(
+            conformer_generator=RelaxingConformerGenerator(cfg),
+            references=references,
+            score_type="TanimotoCombo",
+            color_ff=cfg.color_ff,
+            n_jobs=cfg.n_jobs,
+            show_progress=False,
+            alignment_shape_weight=cfg.alignment_shape_weight,
+        )
     # Onto [0, 1]: WS sums the columns, so raw [0, 2] gave ROCS twice the leverage.
     rocs.setModifier(ClippedScore(lower_x=0.0, upper_x=ROCS_PUBLISHED_MAX))
     scorers = [
@@ -48,6 +72,16 @@ def build_scorers(cfg: Config, references: list[Chem.Mol]) -> list:
     if cfg.include_qed:
         scorers.append(Property("QED"))
     return scorers
+
+
+def set_basin_stage(scorers_or_env, stage: str) -> None:
+    """Update the stage label on any ``BasinTrackingROCSScorer`` in ``scorers_or_env``."""
+    scorers = getattr(scorers_or_env, "scorers", scorers_or_env)
+    if not isinstance(scorers, (list, tuple)):
+        return
+    for scorer in scorers:
+        if hasattr(scorer, "set_stage"):
+            scorer.set_stage(stage)
 
 
 def _reference_thresholds(cfg: Config, scorers: list, keys: list[str]) -> dict[str, float]:
@@ -90,20 +124,17 @@ def _percentile_threshold(column: pd.Series, percentile: float, key: str) -> flo
     return threshold
 
 
-def calibrate_thresholds(
-    cfg: Config, scorers: list, prior_smiles: list[str]
-) -> tuple[list[float], pd.DataFrame]:
-    """A percentile of the prior's own output, plus the scored prior arm as the baseline."""
-    probe = DrugExEnvironment(scorers, [0.0] * len(scorers), ParetoCrowdingDistance())
-    scores = probe.getScores(prior_smiles)
+def thresholds_from_scores(
+    cfg: Config, scorers: list, scores: pd.DataFrame, keys: list[str]
+) -> list[float]:
+    """Compute per-objective thresholds from a scored prior DataFrame without re-scoring."""
     valid = scores[scores["Valid"] == 1]
     if valid.empty:
         raise RuntimeError(
-            f"the prior produced no valid molecules out of {len(prior_smiles)}; nothing to "
+            f"the prior produced no valid molecules out of {len(scores)}; nothing to "
             "calibrate against"
         )
 
-    keys = probe.getScorerKeys()
     if cfg.fixed_thresholds:
         if len(cfg.fixed_thresholds) != len(keys):
             raise ValueError(
@@ -115,7 +146,7 @@ def calibrate_thresholds(
             "fixed thresholds (percentile calibration skipped): %s",
             dict(zip(keys, [round(value, 4) for value in thresholds])),
         )
-        return thresholds, scores
+        return thresholds
 
     # SA saturates: p85 of that column is its maximum, so the reference's own value is used.
     from_reference = _reference_thresholds(cfg, scorers, keys)
@@ -133,6 +164,17 @@ def calibrate_thresholds(
         len(valid),
         dict(zip(keys, [round(value, 4) for value in thresholds])),
     )
+    return thresholds
+
+
+def calibrate_thresholds(
+    cfg: Config, scorers: list, prior_smiles: list[str]
+) -> tuple[list[float], pd.DataFrame]:
+    """A percentile of the prior's own output, plus the scored prior arm as the baseline."""
+    probe = DrugExEnvironment(scorers, [0.0] * len(scorers), ParetoCrowdingDistance())
+    scores = probe.getScores(prior_smiles)
+    keys = probe.getScorerKeys()
+    thresholds = thresholds_from_scores(cfg, scorers, scores, keys)
     return thresholds, scores
 
 
