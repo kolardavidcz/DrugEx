@@ -224,43 +224,55 @@ def _fmt_k(sec: float) -> str:
     return f"{sec:.0f}"
 
 
-def cross_bands_and_timing(
+def _render_cross_bands_sheet(
     grid: pd.DataFrame,
     timing: pd.DataFrame,
     summary: dict,
     cfg: CrossStudyConfig | None,
-    out: Path,
+    out_path: Path,
+    *,
+    top_band: str,
+    top_label: str,
+    rest_band: str,
+    rest_label: str,
 ) -> Path:
     _style()
     methods = sorted(grid["method"].unique())
     caps = sorted(grid["reference_cap"].unique())
     counts = sorted(grid["candidate_count"].unique())
 
+    g_self = grid[(grid["scope"] == "self_50") & (grid["band"] == "all_self")]
     g_cross = grid[grid["scope"] == "global_cross"]
-    b85 = g_cross[g_cross["band"] == "ge_p85"]
-    bmid = g_cross[g_cross["band"] == "p50_to_p85"]
+    b_top = g_cross[g_cross["band"] == top_band]
+    b_rest = g_cross[g_cross["band"] == rest_band]
+    if b_rest.empty:
+        b_rest = g_cross[g_cross["band"] == "p50_to_p85"]
 
-    fig, axes = plt.subplots(len(methods), 3, figsize=(19.2, 3.7 * len(methods) + 1.2), dpi=200, squeeze=False)
+    fig, axes = plt.subplots(
+        len(methods), 4, figsize=(24.0, 3.7 * len(methods) + 1.3), dpi=200, squeeze=False
+    )
     fig.suptitle(
-        f"Cross-Molecule ROCS Bands (Top 15% >= p85 and Signal 50-85%) & Measured Runtime Grid\n"
+        f"Self-Similarity vs. Cross-Molecule ROCS Bands ({top_label} vs. {rest_label}) & Runtime Grid\n"
         f"{_subtitle(summary, cfg)} | values show median +/- std (TanimotoCombo [0, 2])",
         fontsize=11.5,
         fontweight="bold",
     )
 
-    vmin_85 = float(b85["median_combo"].min())
-    vmax_85 = float(b85["median_combo"].max())
-    vmin_mid = float(bmid["median_combo"].min())
-    vmax_mid = float(bmid["median_combo"].max())
+    vmin_self = float(g_self["median_combo"].min()) if not g_self.empty else 0.0
+    vmax_self = float(g_self["median_combo"].max()) if not g_self.empty else 2.0
+    vmin_top = float(b_top["median_combo"].min())
+    vmax_top = float(b_top["median_combo"].max())
+    vmin_rest = float(b_rest["median_combo"].min())
+    vmax_rest = float(b_rest["median_combo"].max())
     vmin_t = float(timing["total_cand_plus_rocs_cpu_s"].min())
     vmax_t = float(timing["total_cand_plus_rocs_cpu_s"].max())
 
     for row_i, method in enumerate(methods):
-        # Col 0: >= p85; Col 1: p50-p85; Col 2: timing (CPU s + Wall s)
         for col_i, (sub_df, title_tag, cmap, vmin, vmax, is_time) in enumerate(
             [
-                (b85[b85["method"] == method], "Top 15% (>= p85) Combo", "YlGn", vmin_85, vmax_85, False),
-                (bmid[bmid["method"] == method], "Band 50-85% (p50-p85) Combo", "YlGnBu", vmin_mid, vmax_mid, False),
+                (g_self[g_self["method"] == method], "Identical Molecule (Self, n=50)", "PuBuGn", vmin_self, vmax_self, False),
+                (b_top[b_top["method"] == method], top_label, "YlGn", vmin_top, vmax_top, False),
+                (b_rest[b_rest["method"] == method], rest_label, "YlGnBu", vmin_rest, vmax_rest, False),
                 (timing[timing["method"] == method], "Runtime: CPU s (cand+ROCS) / R:ROCS | Wall", "magma_r", vmin_t, vmax_t, True),
             ]
         ):
@@ -308,15 +320,47 @@ def cross_bands_and_timing(
             ax.set_yticks(range(len(counts)), [f"C={c}" for c in counts])
             ax.set_xlabel("Reference bank cap (K)")
             ax.set_ylabel("Candidate attempts (C)")
-            ax.set_title(f"{method} | {title_tag}", fontsize=9.8, fontweight="bold")
+            ax.set_title(f"{method} | {title_tag}", fontsize=9.5, fontweight="bold")
             ax.grid(False)
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
 
     plt.tight_layout(rect=[0, 0, 1, 0.94])
-    path = out / "02_cross_bands_and_timing.png"
-    plt.savefig(path, dpi=200, bbox_inches="tight")
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
-    return path
+    return out_path
+
+
+def cross_bands_and_timing(
+    grid: pd.DataFrame,
+    timing: pd.DataFrame,
+    summary: dict,
+    cfg: CrossStudyConfig | None,
+    out: Path,
+) -> Path:
+    path_p85 = _render_cross_bands_sheet(
+        grid,
+        timing,
+        summary,
+        cfg,
+        out / "02_cross_bands_and_timing.png",
+        top_band="ge_p85",
+        top_label="Top 15% Cross (>= p85)",
+        rest_band="lt_p85",
+        rest_label="Rest 85% Non-Desired (< p85)",
+    )
+    if "lt_p75" in set(grid["band"]):
+        _render_cross_bands_sheet(
+            grid,
+            timing,
+            summary,
+            cfg,
+            out / "02_cross_bands_and_timing_p75.png",
+            top_band="ge_p75",
+            top_label="Top 25% Cross (>= p75)",
+            rest_band="lt_p75",
+            rest_label="Rest 75% Non-Desired (< p75)",
+        )
+    return path_p85
 
 
 def band_distributions_and_fractions(

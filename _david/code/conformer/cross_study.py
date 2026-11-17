@@ -784,11 +784,13 @@ def _summarize_cell_cross_bands(
     p50, p75, p85, p90, p95 = np.percentile(c_cross, [50.0, 75.0, 85.0, 90.0, 95.0])
     bands: list[tuple[str, np.ndarray, float, float]] = [
         ("ge_p85", c_cross >= p85, p85, float(c_cross.max())),
+        ("lt_p85", c_cross < p85, float(c_cross.min()), p85),
         ("p50_to_p85", (c_cross >= p50) & (c_cross < p85), p50, p85),
         ("lt_p50_noise", c_cross < p50, float(c_cross.min()), p50),
         ("ge_p95", c_cross >= p95, p95, float(c_cross.max())),
         ("ge_p90", c_cross >= p90, p90, float(c_cross.max())),
         ("ge_p75", c_cross >= p75, p75, float(c_cross.max())),
+        ("lt_p75", c_cross < p75, float(c_cross.min()), p75),
         ("ge_p50", c_cross >= p50, p50, float(c_cross.max())),
         ("p50_to_p90", (c_cross >= p50) & (c_cross < p90), p50, p90),
         ("p75_to_p95", (c_cross >= p75) & (c_cross < p95), p75, p95),

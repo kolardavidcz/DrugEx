@@ -172,11 +172,12 @@ def select_bank_ordered(
     caps_to_time: tuple[int, ...] = (),
     cap_times: dict[int, tuple[float, float]] | None = None,
 ) -> list[Chem.Mol]:
-    """Select at most ``cap`` diverse conformers in greedy selection order.
+    """Select at most ``cap`` conformers in ascending energy order with RMSD > ``reference_rmsd``.
 
-    Taking the first ``k`` elements gives the exact same conformer set as calling
-    :func:`select_bank` with ``cap=k`` because ``kept`` grows deterministically from the
-    lowest-energy pose without reordering until ``select_bank`` sorts the final slice.
+    Starts with the global minimum-energy conformer and walks through the remaining conformers
+    in ascending energy order, keeping a conformer only if its heavy-atom RMSD to every
+    already-kept reference conformer exceeds ``cfg.reference_rmsd``. Taking the first ``k``
+    elements gives the exact same conformer set as calling :func:`select_bank` with ``cap=k``.
     """
     if not mols:
         if cap_times is not None:
@@ -193,22 +194,18 @@ def select_bank_ordered(
     ranked = sorted(((_energy(mol, ranking, cfg), mol) for mol in mols), key=lambda p: p[0])
     probes = [Chem.RemoveHs(Chem.Mol(mol)) for _, mol in ranked]
     kept = [0]
-    spread = [rdMolAlign.GetBestRMS(Chem.Mol(probe), Chem.Mol(probes[0])) for probe in probes]
     if cap_times is not None and 1 in wanted:
         cap_times[1] = (time.perf_counter() - t0, time.process_time() - c0)
-    while len(kept) < cap:
-        nxt = max(
-            (i for i in range(len(ranked)) if i not in kept), key=lambda i: spread[i], default=None
-        )
-        if nxt is None or spread[nxt] <= cfg.reference_rmsd:
-            break  # nothing left that is a genuinely different pose
-        kept.append(nxt)
-        for i in range(len(ranked)):
-            spread[i] = min(
-                spread[i], rdMolAlign.GetBestRMS(Chem.Mol(probes[i]), Chem.Mol(probes[nxt]))
-            )
-        if cap_times is not None and len(kept) in wanted:
-            cap_times[len(kept)] = (time.perf_counter() - t0, time.process_time() - c0)
+    for i in range(1, len(ranked)):
+        if len(kept) >= cap:
+            break
+        if all(
+            rdMolAlign.GetBestRMS(Chem.Mol(probes[i]), Chem.Mol(probes[k])) > cfg.reference_rmsd
+            for k in kept
+        ):
+            kept.append(i)
+            if cap_times is not None and len(kept) in wanted:
+                cap_times[len(kept)] = (time.perf_counter() - t0, time.process_time() - c0)
     if cap_times is not None:
         end_t = (time.perf_counter() - t0, time.process_time() - c0)
         for k in caps_to_time:
@@ -237,9 +234,10 @@ def select_bank_ordered(
 def select_bank(mols: list[Chem.Mol], cap: int, method: Method, cfg: StudyConfig) -> list[Chem.Mol]:
     """At most ``cap`` conformers, chosen the way the pipeline chooses its reference bank.
 
-    Energy anchors the bank at the global minimum; every further pose is the one whose
-    closest already-kept neighbour is furthest away, on heavy atoms. Identical rule to
-    ``_david/code/scorers/conformers.build_reference`` -- see its comment for the evidence.
+    Conformers are sorted by ascending energy; the lowest-energy conformer seeds the bank,
+    and subsequent conformers are added in energy order only when their heavy-atom RMSD to
+    every already-kept conformer exceeds ``cfg.reference_rmsd``. Identical rule to
+    ``_david/code/scorers/conformers.build_reference``.
     """
     selected = select_bank_ordered(mols, cap, method, cfg)
     return sorted(selected, key=lambda mol: mol.GetDoubleProp("Energy"))

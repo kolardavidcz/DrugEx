@@ -289,21 +289,15 @@ def build_reference(cfg: Config, out_path: Path) -> list[Chem.Mol]:
         raise RuntimeError("no reference conformer could be assigned a finite energy")
 
     probes = [Chem.RemoveHs(Chem.Mol(mol)) for _, mol in ranked]
-    spread = [_rmsd(probe, probes[0]) for probe in probes]
-    kept = {0}
-    while len(kept) < cfg.reference_conformers:
-        candidate = max(
-            (index for index in range(len(ranked)) if index not in kept),
-            key=lambda index: spread[index],
-            default=None,
-        )
-        if candidate is None or spread[candidate] <= cfg.reference_rmsd:
+    kept = [0]
+    for index in range(1, len(ranked)):
+        if len(kept) >= cfg.reference_conformers:
             break
-        kept.add(candidate)
-        spread = [min(value, _rmsd(probes[i], probes[candidate])) for i, value in enumerate(spread)]
+        if all(_rmsd(probes[index], probes[k]) > cfg.reference_rmsd for k in kept):
+            kept.append(index)
 
     bank = []
-    for index in sorted(kept, key=lambda index: ranked[index][0]):
+    for index in kept:
         energy, mol = ranked[index]
         mol.SetDoubleProp("Energy", energy)
         bank.append(mol)
