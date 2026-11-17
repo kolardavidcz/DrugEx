@@ -1462,6 +1462,44 @@ Job Id: 25256880.pbs-m1.metacentrum.cz
         self.assertEqual(monitor._memory_gb(" 64gb"), 64)
         self.assertIsNone(monitor._memory_gb(""))
 
+    def test_the_monitor_extracts_scratchdir_continuation_and_surfaces_probe_errors(self):
+        qstat_text = (
+            "Job Id: 25615509.pbs-m1.metacentrum.cz\n"
+            "    Job_Name = dp_m1e02r1c30q0\n"
+            "    Job_Owner = kolardavidcz@tarkil.grid.cesnet.cz\n"
+            "    job_state = R\n"
+            "    queue = q_2d\n"
+            "    exec_host2 = fobos10.meta.zcu.cz:15002/3*16\n"
+            "    Variable_List = PBS_O_HOST=tarkil.grid.cesnet.cz,\n"
+            "\tSCRATCHDIR=/scratch/local.ssd/kolardavidcz/job_25615509.pbs-m1,\n"
+            "\tSCRATCH_TYPE=ssd\n"
+        )
+        jobs = monitor.parse_qstat_full(qstat_text)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].user, "kolardavidcz")
+        self.assertEqual(
+            jobs[0].scratch_dir,
+            "/scratch/local.ssd/kolardavidcz/job_25615509.pbs-m1",
+        )
+
+        with patch.object(monitor, "_run_probe_ssh", return_value=("", "ssh timed out after 30s")) as ssh:
+            probe = monitor.probe_node(
+                jobs[0].node,
+                jobs[0].short_id,
+                5,
+                scratch_dir=jobs[0].scratch_dir,
+                user=jobs[0].user,
+            )
+        script = ssh.call_args.args[0][-1]
+        self.assertIn("HINT='/scratch/local.ssd/kolardavidcz/job_25615509.pbs-m1'", script)
+        self.assertNotIn("/scratch*/*/*/job_", script)
+        self.assertEqual(probe["probe_error"], "ssh timed out after 30s")
+
+        printed = StringIO()
+        with redirect_stdout(printed):
+            monitor.print_human(jobs, [{"id": jobs[0].short_id, "state": "R", **probe}])
+        self.assertIn("(node probe failed: ssh timed out after 30s)", printed.getvalue())
+
     def test_the_table_command_streams_the_local_monitor(self):
         with patch.object(submit_module.subprocess, "run") as run:
             run.return_value.returncode = 0

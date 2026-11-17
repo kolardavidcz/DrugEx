@@ -85,7 +85,7 @@ def check_pool(timeout: float = 300.0) -> str:
     try:
         pool = context.Pool(2)
         pool.map_async(_touch, (1, 2)).get(timeout=timeout)
-    except Exception as error:  # noqa: BLE001 - any failure here means "no workers"
+    except Exception as error:  # any failure here means "no workers"
         _POOL_BROKEN = True
         logger.error(
             "multiprocessing start method %r cannot start a worker here (%s: %s). Every "

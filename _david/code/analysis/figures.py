@@ -9,6 +9,7 @@ scheme) directly in the subtitle.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import time
@@ -1045,7 +1046,7 @@ def training_trajectories(
         sc_hi = max(float(df[["avg_ShapeTanimoto", "avg_ColorTanimoto"]].to_numpy().max()), 0.1)
         ax4r.set_ylim(0.0, max(sc_hi * 1.28, 0.2))
         ax4r.set_ylabel("Shape / Color Tanimoto [0, 1]", fontsize=8.6)
-        h4, l4 = h4 + [ls_line, lc_line], l4 + [ls_line.get_label(), lc_line.get_label()]
+        h4, l4 = [*h4, ls_line, lc_line], [*l4, ls_line.get_label(), lc_line.get_label()]
     if h4:
         ax4.legend(h4, l4, loc="lower right", fontsize=7.2, ncol=2)
 
@@ -1243,8 +1244,10 @@ def _render_lead_cards(
         card["mol"] = depicter.align_molecule(card["mol"])
 
     rows: list[list[dict[str, Any] | None]] = [top_row]
-    for row_cards in spread_rows:
-        rows.append([None] + row_cards if depicter.ref_mol is not None else row_cards)
+    rows.extend(
+        ([None, *row_cards] if depicter.ref_mol is not None else row_cards)
+        for row_cards in spread_rows
+    )
 
     ncols = max(len(r) for r in rows)
     nrows = len(rows)
@@ -2561,7 +2564,7 @@ def training_diagnostics(
     ax.legend(loc="upper left", fontsize=7.4)
 
     ax = axes[1, 2]
-    k = max(5, int(round(0.15 * float(val_df.groupby("Epoch").size().median()))))
+    k = max(5, round(0.15 * float(val_df.groupby("Epoch").size().median())))
     ranked = (
         val_df.dropna(subset=["ROCS"])
         .sort_values("ROCS", ascending=False)
@@ -2652,10 +2655,8 @@ def render_all(
     """Render every figure in the suite. Removes stale PNGs first and logs any individual error."""
     out.mkdir(parents=True, exist_ok=True)
     for stale in out.glob("*.png"):
-        try:
+        with contextlib.suppress(Exception):
             stale.unlink()
-        except Exception:
-            pass
 
     if config is None:
         cfg_path = out.parent / "config.json"

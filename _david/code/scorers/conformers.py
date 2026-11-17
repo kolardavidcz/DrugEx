@@ -100,7 +100,7 @@ def _relax(task: tuple[Chem.Mol, Config, bool]) -> tuple[Chem.Mol | None, str]:
         mol.SetDoubleProp("Energy", energy)
         mol.SetIntProp("MinimizeStatus", status)
         return mol, "converged" if status == 0 else "unconverged"
-    except Exception as error:  # noqa: BLE001 - a per-conformer fault must stay local
+    except Exception as error:  # a per-conformer fault must stay local
         logger.debug("relaxation raised for one conformer: %s", error)
         return record, "relax_raised"
 

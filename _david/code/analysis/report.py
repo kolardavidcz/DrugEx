@@ -52,7 +52,7 @@ def _configurable(config: dict) -> dict:
     for key, value in config.items():
         if key not in fields or value is None:
             continue
-        if key in {"output_root"}:
+        if key == "output_root":
             continue
         out[key] = tuple(value) if isinstance(value, list) else value
     return out
@@ -378,9 +378,8 @@ def parse_run_log_diagnostics(log_path: Path) -> dict:
         fig_m = re.search(r"figure (\d+) failed", line)
         if fig_m:
             figure_failures.append(fig_m.group(1))
-        if " ERROR " in line or "CRITICAL " in line or line.startswith("Traceback"):
-            if len(error_lines) < 20:
-                error_lines.append(line.strip())
+        if (" ERROR " in line or "CRITICAL " in line or line.startswith("Traceback")) and len(error_lines) < 20:
+            error_lines.append(line.strip())
 
     return {
         "present": True,
@@ -428,7 +427,7 @@ def _write_report_cache(
         },
         "epoch_summary": {
             **(summary or {}),
-            "epochs_logged": int(len(fit)) if fit is not None else 0,
+            "epochs_logged": len(fit) if fit is not None else 0,
         },
         "log_diagnostics": parse_run_log_diagnostics(run_dir / "run.log"),
     }
@@ -436,7 +435,7 @@ def _write_report_cache(
     cache_dir.mkdir(exist_ok=True)
     tmp_cache = cache_dir / f".report_stats.{os.getpid()}.tmp"
     tmp_cache.write_text(json.dumps(payload, indent=2) + "\n")
-    os.replace(tmp_cache, cache_dir / "report_stats.json")
+    tmp_cache.replace(cache_dir / "report_stats.json")
 
 
 def analyse(run_dir: Path) -> Path:

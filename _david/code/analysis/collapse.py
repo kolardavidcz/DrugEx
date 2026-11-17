@@ -512,7 +512,7 @@ def _save_collapse_cache(run: Path, legacy: bool, record: dict[str, Any]) -> Non
         }
         tmp_cache = cache_dir / f".collapse_run.{os.getpid()}.tmp"
         tmp_cache.write_text(json.dumps(payload))
-        os.replace(tmp_cache, cache_dir / "collapse_run.json")
+        tmp_cache.replace(cache_dir / "collapse_run.json")
     except OSError:
         pass
 

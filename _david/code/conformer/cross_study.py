@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import contextlib
 import dataclasses
 import json
 import logging
@@ -176,10 +177,8 @@ def _cross_isomers(smiles: str, cap: int) -> list[Chem.Mol]:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise ValueError(f"RDKit cannot parse {smiles!r}")
-    try:
+    with contextlib.suppress(Exception):
         mol = _RDKIT_TAUTOMER_ENUMERATOR.Canonicalize(mol)
-    except Exception:
-        pass
     options = StereoEnumerationOptions(maxIsomers=cap, onlyUnassigned=True, unique=True)
     if hasattr(options, "rand"):
         options.rand = 0xC0FFEE
@@ -1337,7 +1336,7 @@ def main(argv: list[str] | None = None) -> int:
     (out_dir / "config.json").write_text(json.dumps(resolved, indent=2) + "\n")
 
     started = time.perf_counter()
-    molecules_df, grid_df, timing_df, self_df = run(cfg, out_dir, smiles_file=args.smiles_file)
+    _molecules_df, _grid_df, _timing_df, _self_df = run(cfg, out_dir, smiles_file=args.smiles_file)
     logger.info("Cross study finished in %.1f s", time.perf_counter() - started)
 
     if not args.no_figures:

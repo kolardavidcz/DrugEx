@@ -99,7 +99,7 @@ class DualCheckpointExplorer(SequenceExplorer):
         min_epochs=100,
     ):
         """``criteria`` and ``reload_interval`` are ignored."""
-        self.monitor = monitor if monitor else NullMonitor()
+        self.monitor = monitor or NullMonitor()
 
         # -1.0: desired_ratio is legitimately 0.0 early, and each path must be written once.
         best = {"desired_ratio": -1.0, "avg_gmean": -1.0}

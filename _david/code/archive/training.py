@@ -100,7 +100,7 @@ class StopCheckpointExplorer(SequenceExplorer):
         min_epochs=100,
     ):
         """``criteria`` and ``reload_interval`` exist for signature compatibility only."""
-        self.monitor = monitor if monitor else NullMonitor()
+        self.monitor = monitor or NullMonitor()
 
         # -1.0: desired_ratio is legitimately 0.0 early, and the checkpoint is written once.
         best = -1.0

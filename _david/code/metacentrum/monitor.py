@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
-import glob
 import json
 import os
 import re
@@ -29,21 +28,36 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 SENTINEL = "@@@DRUGEX@@@"
-SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]
+SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-T"]
 FIT_NAME = "rl_fit.tsv"
 PBS_LOG_LINES = 12
 STALE_EPOCH_SECONDS = 1800
 
 
-def run(argv: list[str], timeout: int = 20) -> str:
+def run(argv: list[str], timeout: int = 30) -> str:
     """Return stdout of ``argv`` (empty on any failure; this is a monitor, not a guard)."""
     try:
         proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return proc.stdout
+
+
+def _run_probe_ssh(argv: list[str], timeout: int = 30) -> tuple[str, str]:
+    """Run an SSH probe and return ``(stdout, error_summary)``."""
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return "", f"ssh timed out after {timeout}s"
+    except OSError as exc:
+        return "", str(exc)
+    if proc.returncode != 0 and not proc.stdout.strip():
+        err = (proc.stderr or "").strip().splitlines()
+        return "", err[-1] if err else f"ssh exited {proc.returncode}"
+    return proc.stdout, ""
 
 
 @dataclass
@@ -60,6 +74,8 @@ class Job:
     #: The request, in the units the table prints: cores and whole GB.
     ncpus: int | None = None
     memory_gb: int | None = None
+    scratch_dir: str = ""
+    user: str = ""
 
 
 def parse_walltime(value: str) -> int | None:
@@ -78,18 +94,24 @@ def parse_walltime(value: str) -> int | None:
 
 
 def parse_qstat_full(text: str) -> list[Job]:
-    """Parse long-format ``qstat -f <id>`` blocks (``Key = Value`` lines)."""
+    """Parse long-format ``qstat -f <id>`` blocks (``Key = Value`` lines + continuations)."""
     blocks: list[dict[str, str]] = []
     current: dict[str, str] = {}
+    last_key: str | None = None
     for line in text.splitlines():
         if line.startswith("Job Id:"):
             if current:
                 blocks.append(current)
             current = {"Job_Id": line.split(":", 1)[1].strip()}
+            last_key = None
         elif current:
+            if last_key and line.startswith("\t"):
+                current[last_key] += line.strip()
+                continue
             match = re.match(r"\s+([A-Za-z_][\w.\-]*)\s*=\s*(.*)$", line)
             if match:
-                current[match.group(1)] = match.group(2).strip()
+                last_key = match.group(1)
+                current[last_key] = match.group(2).strip()
     if current:
         blocks.append(current)
 
@@ -111,9 +133,22 @@ def parse_qstat_full(text: str) -> list[Job]:
                 comment=fields.get("comment", ""),
                 ncpus=_as_int(fields.get("Resource_List.ncpus") or fields.get("NCPUS")),
                 memory_gb=_memory_gb(fields.get("Resource_List.mem", "")),
+                scratch_dir=_scratch_dir(fields),
+                user=_job_owner(fields),
             )
         )
     return jobs
+
+
+def _scratch_dir(fields: dict[str, str]) -> str:
+    var_list = fields.get("Variable_List", "")
+    match = re.search(r"(?:^|,)SCRATCHDIR=([^,]+)", var_list)
+    return match.group(1).strip() if match else ""
+
+
+def _job_owner(fields: dict[str, str]) -> str:
+    owner = fields.get("Job_Owner", "").strip()
+    return owner.split("@", 1)[0] if owner else ""
 
 
 def _as_int(value: str | None) -> int | None:
@@ -155,16 +190,37 @@ def queue_snapshot(user: str) -> list[Job]:
 # --------------------------------------------------------------------------- #
 
 
-def probe_node(node: str, short_id: str, lines: int) -> dict[str, object]:
+def probe_node(
+    node: str,
+    short_id: str,
+    lines: int,
+    *,
+    scratch_dir: str = "",
+    user: str = "",
+) -> dict[str, object]:
     """One SSH round trip: scratch dir, run dir, epoch count/age, tail, manifest summary."""
     if not node or node == "unknown":
         return {}
+    if user and re.fullmatch(r"[A-Za-z0-9_.-]+", user):
+        globs = (
+            f"/scratch*/job_{short_id}* "
+            f"/scratch*/{user}/job_{short_id}* "
+            f"/scratch*/*/{user}/job_{short_id}*"
+        )
+    else:
+        globs = f"/scratch*/job_{short_id}* /scratch*/*/job_{short_id}* /scratch*/*/*/job_{short_id}*"
+    hint = scratch_dir.replace("'", "'\"'\"'") if scratch_dir else ""
     script = f"""
 set +e
 S=""
-for d in /scratch*/job_{short_id}* /scratch*/*/job_{short_id}* /scratch*/*/*/job_{short_id}*; do
-    if [ -d "$d" ]; then S="$d"; break; fi
-done
+HINT='{hint}'
+if [ -n "$HINT" ] && [ -d "$HINT" ]; then
+    S="$HINT"
+else
+    for d in {globs}; do
+        if [ -d "$d" ]; then S="$d"; break; fi
+    done
+fi
 echo "SCRATCH=$S"
 [ -n "$S" ] || exit 0
 R=$(ls -td "$S"/output/*/ 2>/dev/null | head -1)
@@ -193,7 +249,10 @@ fi
 echo "PRIOR=$(stat -c %Y "${{R}}"prior.tsv 2>/dev/null)"
 echo "FINAL=$(grep -m1 '"n_final"' "${{R}}"config.json 2>/dev/null | tr -dc '0-9')"
 """
-    return parse_probe(run(["ssh", *SSH_OPTS, node, script]))
+    stdout, err = _run_probe_ssh(["ssh", *SSH_OPTS, node, script])
+    if err:
+        return {"probe_error": err}
+    return parse_probe(stdout)
 
 
 def parse_probe(text: str) -> dict[str, object]:
@@ -241,17 +300,17 @@ def pbs_log_tail(name: str, lines: int, short_id: str | None = None) -> tuple[st
     A reused ``--name`` leaves the logs of earlier attempts in ``$HOME``; preferring
     ``<name>.o<short_id>*`` keeps a stale failure out of the report.
     """
-    pattern = f"~/{name}.o{short_id}*" if short_id else f"~/{name}.o*"
-    candidates = glob.glob(os.path.expanduser(pattern))
+    pattern = f"{name}.o{short_id}*" if short_id else f"{name}.o*"
+    candidates = list(Path.home().glob(pattern))
     if not candidates:
         return "", ""
-    path = max(candidates, key=os.path.getmtime)
+    path = max(candidates, key=lambda p: p.stat().st_mtime)
     try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
+        with path.open(encoding="utf-8", errors="replace") as handle:
             tail = handle.readlines()[-lines:]
     except OSError:
-        return path, ""
-    return path, "".join(tail).rstrip()
+        return str(path), ""
+    return str(path), "".join(tail).rstrip()
 
 
 #: What happens after the epoch loop: three 5000-molecule arms (best-epoch, at-stop,
@@ -286,7 +345,17 @@ def head_seconds(job: Job, prior_mtime: object, now: float) -> float | None:
 
 
 def job_report(job: Job, lines: int) -> dict[str, object]:
-    probe = probe_node(job.node, job.short_id, lines) if job.state == "R" else {}
+    probe = (
+        probe_node(
+            job.node,
+            job.short_id,
+            lines,
+            scratch_dir=job.scratch_dir,
+            user=job.user,
+        )
+        if job.state == "R"
+        else {}
+    )
     now = time.time()
     report: dict[str, object] = {
         "id": job.short_id,
@@ -302,6 +371,8 @@ def job_report(job: Job, lines: int) -> dict[str, object]:
     rows = probe.get("rows")
     report["run_dir"] = probe.get("run", "")
     report["scratch"] = probe.get("scratch", "")
+    if probe.get("probe_error"):
+        report["probe_error"] = probe["probe_error"]
     if isinstance(rows, list) and rows:
         header = probe.get("header")
         report["header"] = header[0] if isinstance(header, list) and header else ""
@@ -430,6 +501,11 @@ def print_table(jobs: list[Job], reports: list[dict[str, object]]) -> None:
         and isinstance(by_id[job.short_id].get("last_epoch_age_s"), (int, float))
         and by_id[job.short_id]["last_epoch_age_s"] > STALE_EPOCH_SECONDS
     ]
+    unreachable = [
+        f"{job.name} ({job.node}: {by_id[job.short_id]['probe_error']})"
+        for job in jobs
+        if job.state == "R" and by_id[job.short_id].get("probe_error")
+    ]
     queued = [f"{job.name}: {job.comment}" for job in jobs if job.state != "R" and job.comment]
 
     print()
@@ -437,6 +513,8 @@ def print_table(jobs: list[Job], reports: list[dict[str, object]]) -> None:
         print(f" ! ETA overruns the walltime left ({len(overrun)}): {', '.join(overrun)}")
     if stale:
         print(f" no new epoch for 30+ min: {', '.join(stale)}")
+    for line in unreachable:
+        print(f" unreachable {line}")
     for line in queued:
         print(f" queued {line}")
     if any(isinstance(by_id[job.short_id].get("eta_s"), (int, float)) for job in jobs):
@@ -491,9 +569,13 @@ def print_human(jobs: list[Job], reports: list[dict[str, object]]) -> None:
             if isinstance(age, float):
                 print(f" | last row {age / 60:.1f} min ago", end="")
             print()
-            if isinstance(eta, (int, float)) and job.limit and job.elapsed:
-                if float(eta) > job.limit - job.elapsed:
-                    print("    ! ETA exceeds the remaining walltime")
+            if (
+                isinstance(eta, (int, float))
+                and job.limit
+                and job.elapsed
+                and float(eta) > job.limit - job.elapsed
+            ):
+                print("    ! ETA exceeds the remaining walltime")
             if isinstance(age, float) and age > STALE_EPOCH_SECONDS:
                 print("    ! no new epoch for 30+ min (stuck molecule or dead process?)")
             header = report.get("header")
@@ -506,9 +588,12 @@ def print_human(jobs: list[Job], reports: list[dict[str, object]]) -> None:
                 print(f"    manifest state: {state}")
         else:
             run_dir = report.get("run_dir")
+            probe_error = report.get("probe_error")
             if run_dir:
                 print(f"    scratch run dir: {run_dir}")
                 print("    (setup still running -- no epoch rows yet)")
+            elif probe_error:
+                print(f"    (node probe failed: {probe_error})")
             else:
                 print("    (scratch not reachable yet -- job starting, or another node fs)")
             log_path = report.get("pbs_log")

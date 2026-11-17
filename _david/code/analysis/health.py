@@ -159,7 +159,7 @@ def _parse_log_stage(run_dir: Path, log_diag: dict[str, Any]) -> dict[str, Any]:
     reason = "unknown"
     detail = lines[-1].strip() if lines else ""
     elapsed_log_hours = None
-    ts_matches = re.findall(r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", text, flags=re.M)
+    ts_matches = re.findall(r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", text, flags=re.MULTILINE)
     if len(ts_matches) >= 2:
         try:
             t0 = datetime.strptime(ts_matches[0], "%Y-%m-%d %H:%M:%S")
@@ -427,7 +427,7 @@ def inspect_run(run_dir: Path, *, use_cache: bool = True) -> dict[str, Any] | No
                     indent=2,
                 )
             )
-            os.replace(tmp_cache, cache_path)
+            tmp_cache.replace(cache_path)
         except OSError:
             pass
     return record
