@@ -437,7 +437,7 @@ def verdict(
 # --------------------------------------------------------------------------------------
 
 
-COLLAPSE_CACHE_VERSION = 1
+COLLAPSE_CACHE_VERSION = 2
 
 
 def _diversity_version() -> int:
@@ -567,9 +567,22 @@ def scan_run(run: Path, legacy: bool, *, use_cache: bool = True) -> dict[str, An
     # the arm tables); lazy import: diversity reads this module's _read_table at load.
     diversity_summary: dict[str, Any] = {}
     try:
-        from _david.code.analysis.diversity import load_profile
+        from _david.code.analysis.diversity import _sources as _div_sources
+        from _david.code.analysis.diversity import load_profile, profile_run
 
         profile = load_profile(run)
+        if (
+            profile is None
+            and arms.get("stop")
+            and arms.get("prior")
+            and (run / "cache_stats" / "diversity.json").is_file()
+        ):
+            profile = profile_run(run)
+            if profile is not None:
+                profile["sources"] = _div_sources(run)
+                cache_dir = run / "cache_stats"
+                cache_dir.mkdir(exist_ok=True)
+                (cache_dir / "diversity.json").write_text(json.dumps(profile))
     except Exception:  # a missing cache is not a scan failure
         profile = None
     if profile:
@@ -708,7 +721,7 @@ def missing_arms(run: Path, record: dict[str, Any]) -> list[str]:
 
 
 def _frontier(records: list[dict[str, Any]]) -> list[str]:
-    """Runs not dominated on (desired, unique) among full-scale, scored runs."""
+    """Runs not dominated on (desired, unique) per objective family among full-scale scored runs."""
     scored = [
         r for r in records
         if r["arms"].get("stop")
@@ -718,11 +731,17 @@ def _frontier(records: list[dict[str, Any]]) -> list[str]:
     ]
     if not scored:
         return []
-    points = np.array(
-        [[r["arms"]["stop"]["desired_ratio"], r["arms"]["stop"]["unique_ratio"]] for r in scored]
-    )
-    mask = pareto_mask(points)
-    return [r["run"] for r, on in zip(scored, mask) if on]
+    out: list[str] = []
+    for include_qed in (False, True):
+        group = [r for r in scored if bool((r.get("axes") or {}).get("include_qed")) == include_qed]
+        if not group:
+            continue
+        points = np.array(
+            [[r["arms"]["stop"]["desired_ratio"], r["arms"]["stop"]["unique_ratio"]] for r in group]
+        )
+        mask = pareto_mask(points)
+        out.extend(r["run"] for r, on in zip(group, mask) if on)
+    return out
 
 
 def _run_date(name: str) -> str | None:
@@ -756,25 +775,32 @@ def build(
     atlas: the scan data lands in its parent (or in ``roots[0]`` when omitted). No HTML is
     rendered here any more — :mod:`_david.code.analysis.atlas_v2` owns the atlas.
     """
-    records = []
+    candidates: list[Path] = []
     for root in roots:
         if not root.is_dir():
             logger.warning("root %s does not exist; skipping", root)
             continue
-        for run in iter_run_dirs(root):
-            date = _run_date(run.name)
-            if date is not None and date < since:
-                continue
-            legacy = is_legacy_layout(run)
-            record = scan_run(run, legacy, use_cache=use_cache)
-            if record is None:
-                logger.warning("%s: no usable manifest; skipped", run.name)
-                continue
-            # A live job owes nothing yet: its arm is written when it stops. Only a run
-            # that stopped without one is on the rebuild queue.
-            if record["state"] not in ("complete", "running") and not legacy:
-                record["missing"] = missing_arms(run, record)
-            records.append(record)
+        candidates.extend(iter_run_dirs(root))
+
+    chosen_dirs: dict[str, Path] = {}
+    for run in sorted(candidates, key=lambda p: ("pilots_and_other" in p.parts, str(p))):
+        chosen_dirs.setdefault(run.name, run)
+
+    records = []
+    for run in sorted(chosen_dirs.values(), key=lambda p: (p.name, str(p))):
+        date = _run_date(run.name)
+        if date is not None and date < since:
+            continue
+        legacy = is_legacy_layout(run)
+        record = scan_run(run, legacy, use_cache=use_cache)
+        if record is None:
+            logger.warning("%s: no usable manifest; skipped", run.name)
+            continue
+        # A live job owes nothing yet: its arm is written when it stops. Only a run
+        # that stopped without one is on the rebuild queue.
+        if record["state"] not in ("complete", "running") and not legacy:
+            record["missing"] = missing_arms(run, record)
+        records.append(record)
 
     if not records:
         raise SystemExit("no runs with a readable manifest under the given roots")

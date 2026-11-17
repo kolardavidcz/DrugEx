@@ -1892,6 +1892,23 @@ class CollapseVerdict(unittest.TestCase):
         ]
         self.assertEqual(collapse._frontier(records), ["real"])
 
+    def test_the_frontier_is_stratified_per_family(self):
+        def run(name, desired, unique, qed=False):
+            return {
+                "run": name,
+                "verdict": "clean",
+                "n_expected": 5000,
+                "arms": {"stop": {"n": 5000, "desired_ratio": desired, "unique_ratio": unique}},
+                "axes": {"include_qed": qed},
+            }
+
+        records = [
+            run("rocs_top", 0.85, 0.90, qed=False),
+            run("qed_top", 0.72, 0.85, qed=True),
+            run("qed_dominated", 0.65, 0.80, qed=True),
+        ]
+        self.assertEqual(collapse._frontier(records), ["rocs_top", "qed_top"])
+
 
 class TreeAtlas(unittest.TestCase):
     """What the tree atlas celebrates, what it refuses to, and which runs it counts."""
@@ -1942,6 +1959,49 @@ class TreeAtlas(unittest.TestCase):
             "reward": "WS", "epsilon": "0.05", "geometry": "K1 · raw", "budget": "C20",
             "color": "oe_mills_dean", "shape_color": "w 0.3",
         })
+
+    def test_tree_payload_deduplicates_runs_and_prefers_active_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active = root / "new_runs" / "20261112_0926_w_e00q1"
+            stale = root / "pilots_and_other" / "20261112_0926_w_e00q1"
+            active.mkdir(parents=True)
+            stale.mkdir(parents=True)
+            dedup = atlas_v2._dedup_run_dirs([stale, active])
+            self.assertEqual(dedup["20261112_0926_w_e00q1"], active)
+            scan = {
+                "generated": "now",
+                "roots": [],
+                "since": "20261110",
+                "totals": {},
+                "counts": {},
+                "runs": [
+                    self._scan_run("20261112_0926_w_e00q1", desired=0.5),
+                    self._scan_run("20261112_0926_w_e00q1", desired=0.4),
+                ],
+            }
+            payload = atlas_v2.tree_payload(scan)
+            self.assertEqual(len(payload["runs"]), 1)
+
+    def test_template_hides_pilots_and_exposes_ranking_and_param_axes(self):
+        html = atlas_v2.TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("VERDICTS.filter(v => v !== 'pilot')", html)
+        self.assertIn('id="rank-criterion"', html)
+        self.assertIn("p_epsilon:", html)
+        self.assertIn("rocs_gain:", html)
+        self.assertIn("populateMapAxisSelect", html)
+        self.assertNotIn('id="view-axes"', html)
+        self.assertIn('id="global-param-filters"', html)
+        self.assertIn("BASELINE_ANCHOR", html)
+        self.assertIn("is-gray-low", html)
+        self.assertIn("tree-breadcrumb", html)
+        self.assertIn("podium-grid", html)
+        self.assertIn("criteria-top5-grid", html)
+        self.assertIn("top5ByCriterion", html)
+        self.assertIn("list.slice(0, 5)", html)
+        self.assertIn("DATA.runs.filter(r => passesGlobalFilters(r))", html)
+        self.assertIn("frontier-charts", html)
+        self.assertIn("rescue-diagnostics", html)
 
     def test_the_scan_counts_only_runs_since_the_restart(self):
         # The 10.11 rule: WITH_BUGS runs and first probes stay out, whatever root holds them.

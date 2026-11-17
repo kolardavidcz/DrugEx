@@ -166,19 +166,44 @@ def _medals(runs: list[dict[str, Any]]) -> None:
             run["rank"] = rank
 
 
+def _dedup_run_dirs(paths: list[Path]) -> dict[str, Path]:
+    """Map run name -> directory, preferring organized/active dirs over pilots_and_other."""
+    chosen: dict[str, Path] = {}
+    for path in sorted(paths, key=lambda p: ("pilots_and_other" in p.parts, str(p))):
+        chosen.setdefault(path.name, path)
+    return chosen
+
+
 def tree_payload(scan: dict[str, Any]) -> dict[str, Any]:
     """The whole template payload from one collapse scan."""
-    run_dirs = {path.name: path for path in iter_run_dirs(OUTPUT_ROOT)}
-    runs = [_tree_run(record, run_dirs.get(record["run"])) for record in scan["runs"]]
+    run_dirs = _dedup_run_dirs(iter_run_dirs(OUTPUT_ROOT))
+    seen_ids: set[str] = set()
+    unique_records = []
+    for record in scan["runs"]:
+        if record["run"] in seen_ids:
+            continue
+        seen_ids.add(record["run"])
+        unique_records.append(record)
+    runs = [_tree_run(record, run_dirs.get(record["run"])) for record in unique_records]
     _medals(runs)
-    counts = dict(scan.get("counts") or {})
-    totals = dict(scan.get("totals") or {})
-    for verdict in ("collapsed", "concentrated", "clean", "unlearned"):
-        totals.setdefault(verdict, counts.get(verdict, 0))
+    has_dups = len(unique_records) != len(scan["runs"])
+    if has_dups:
+        counts: dict[str, int] = {}
+        for record in unique_records:
+            verdict = record.get("verdict") or "unknown"
+            counts[verdict] = counts.get(verdict, 0) + 1
+        totals: dict[str, Any] = {"runs": len(unique_records)}
+        for verdict in ("collapsed", "concentrated", "clean", "unlearned"):
+            totals[verdict] = counts.get(verdict, 0)
+    else:
+        counts = dict(scan.get("counts") or {})
+        totals = dict(scan.get("totals") or {})
+        for verdict in ("collapsed", "concentrated", "clean", "unlearned"):
+            totals.setdefault(verdict, counts.get(verdict, 0))
     # The chemical layer's campaign headline, computed here once: median effective
     # scaffolds and NN-similarity p50 per verdict, and the novelty floor across runs.
     # Unique-ratio is not chemical breadth, and these three numbers say so on load.
-    judged = [r for r in scan["runs"] if r.get("diversity")]
+    judged = [r for r in unique_records if r.get("diversity")]
     for verdict in ("collapsed", "concentrated", "clean"):
         values = sorted(
             r["diversity"]["effective_scaffolds"]
@@ -195,7 +220,7 @@ def tree_payload(scan: dict[str, Any]) -> dict[str, Any]:
     families = []
     for family in FAMILIES:
         family_records = [
-            record for record in scan["runs"]
+            record for record in unique_records
             if ("qed" if (record.get("axes") or {}).get("include_qed") else "rocs") == family["key"]
         ]
         families.append({**family, "constants": _constants(family_records, scan.get("since"))})

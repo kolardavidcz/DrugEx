@@ -111,11 +111,53 @@
   .run-card.v-unlearned { border-left-color:var(--v-unlearned); }
   .run-card.v-pilot, .run-card.v-incomplete { border-left-color:var(--v-pilot); opacity:.75; }
   .run-card.dimmed { opacity:.12; }
+  .run-card.is-gray-low { opacity:.42; filter:grayscale(0.72); border-style:dashed; }
+  .run-card.is-gray-low:hover { opacity:.98; filter:none; }
+  .run-card.is-baseline-anchor { border:2.5px solid #000000 !important; box-shadow:0 0 0 2px rgba(0,0,0,0.16), var(--shadow-md); }
+  [data-theme="dark"] .run-card.is-baseline-anchor { border:2.5px solid #000000 !important; box-shadow:0 0 0 2px rgba(255,255,255,0.28), var(--shadow-md); }
+  .run-card.is-frontier { box-shadow:0 0 0 1.5px rgba(245,158,11,0.55), var(--shadow-sm); }
+  .run-card.is-neighbor-1hop { box-shadow:0 0 0 2.5px var(--brand-indigo), var(--shadow-md); opacity:1 !important; filter:none !important; }
+  .run-card.is-anchor-selected { box-shadow:0 0 0 3px #000000, var(--shadow-lg); opacity:1 !important; filter:none !important; }
+  .run-card.compact { height:46px; padding:4px 8px; display:flex; align-items:center; gap:6px; }
+  .run-card.compact .compact-name { font-size:11px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
+  .run-card.compact .compact-vals { font-size:10px; font-variant-numeric:tabular-nums; color:var(--text-muted); white-space:nowrap; }
+  .anchor-pill { font-size:8.5px; font-weight:800; background:#000000; color:#ffffff; padding:1px 5px; border-radius:4px; letter-spacing:.03em; }
+  .gray-low-tag { font-size:8.5px; color:var(--text-muted); background:var(--bg-surface-2); border:1px solid var(--border-subtle); border-radius:4px; padding:0 4px; margin-left:auto; }
+  .neighbor-delta-tag { font-size:9px; font-weight:750; color:var(--brand-indigo); background:rgba(79,70,229,0.12); border-radius:4px; padding:1px 5px; margin-top:2px; display:inline-block; }
+  .tree-breadcrumb { background:var(--bg-surface-2); border-bottom:1px solid var(--border-subtle); padding:7px 14px; font-size:11.5px;
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-height:34px; color:var(--text-muted); }
+  .tree-breadcrumb b { color:var(--text-main); }
+  .tree-node.is-collapsed { border-style:dashed; background:var(--bg-surface-2); }
+  .node-collapse-btn { float:right; border:1px solid var(--border-strong); background:var(--bg-surface-2); color:var(--text-main);
+    border-radius:4px; padding:0 5px; font-size:10px; cursor:pointer; font-weight:700; line-height:1.4; }
+  .node-collapse-btn:hover { background:var(--brand-blue); color:#fff; border-color:var(--brand-blue); }
+  .node-kpis { display:flex; gap:6px; font-size:10px; color:var(--text-muted); margin-top:2px; flex-wrap:wrap; }
+  .node-kpis b { color:var(--text-main); font-variant-numeric:tabular-nums; }
+  .global-param-filters { display:flex; gap:6px 10px; flex-wrap:wrap; align-items:center; }
+  .global-param-filters label { font-size:11px; font-weight:600; display:inline-flex; align-items:center; gap:4px; color:var(--text-muted); }
+  .global-param-filters select { padding:2px 6px; font-size:11px; max-width:160px; }
+  .floor-chip.inactive { opacity:.48; border-style:dashed; }
+  .floor-chip input[type="checkbox"] { accent-color:var(--brand-blue); cursor:pointer; }
   .run-card-top { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:2px; }
   .run-tag { font-size:9px; font-weight:700; color:var(--text-soft); text-transform:uppercase; }
   .badges { display:flex; gap:4px; align-items:center; }
   .medal { font-size:9.5px; font-weight:800; border-radius:4px; padding:1px 5px; color:#fff; }
   .medal.m1 { background:var(--rank-gold); } .medal.m2 { background:var(--rank-silver); } .medal.m3 { background:var(--rank-bronze); }
+  .medal.m4 { background:var(--brand-indigo); } .medal.m5 { background:#8b5cf6; }
+  .crit-rank-pill { display:inline-block; font-size:9.5px; font-weight:700; border-radius:4px; padding:1px 5px;
+    background:var(--bg-surface-2); border:1px solid var(--border-subtle); color:var(--text-main); }
+  .crit-matrix { display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:12px; }
+  .crit-card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius);
+    padding:12px 14px; box-shadow:var(--shadow-sm); }
+  .crit-card.active-crit { border:2px solid var(--brand-blue); }
+  .crit-card h3 { font-size:12.5px; font-weight:800; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .crit-fam-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:720px) { .crit-fam-grid { grid-template-columns:1fr; } }
+  .crit-fam-title { font-size:10px; font-weight:800; text-transform:uppercase; color:var(--text-soft); margin-bottom:4px; letter-spacing:.04em; }
+  .crit-row { display:flex; align-items:center; gap:5px; padding:3px 4px; border-radius:5px; font-size:10.5px; cursor:pointer; }
+  .crit-row:hover { background:var(--bg-surface-2); }
+  .crit-row .crit-run { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:650; }
+  .crit-row .crit-val { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-weight:700; font-size:10.5px; color:var(--text-muted); }
   .star { color:var(--rank-gold); font-weight:800; font-size:11px; }
   .run-name { font-size:11.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .verdict-pill { display:inline-block; font-size:9.5px; font-weight:700; border-radius:999px; padding:1px 7px; margin:2px 0 4px; }
@@ -133,34 +175,60 @@
 
   /* Collapse Map View */
   .map-wrap { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius);
-    padding:16px 20px; box-shadow:var(--shadow-sm); }
-  .map-controls { display:flex; gap:16px; margin-bottom:14px; flex-wrap:wrap; align-items:center; }
-  .map-controls label { font-size:11.5px; font-weight:600; display:flex; align-items:center; gap:5px; }
+    padding:16px 20px; box-shadow:var(--shadow-sm); position:relative; }
+  .map-presets { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; align-items:center;
+    padding-bottom:10px; border-bottom:1px solid var(--border-subtle); }
+  .map-presets .label-muted { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); font-weight:750; margin-right:2px; }
+  .map-controls { display:flex; gap:10px 14px; margin-bottom:10px; flex-wrap:wrap; align-items:center; }
+  .map-controls label { font-size:11.5px; font-weight:600; display:inline-flex; align-items:center; gap:5px; }
   .map-controls select { border:1px solid var(--border-strong); border-radius:6px; padding:3px 7px; font-size:11.5px;
-    background:var(--bg-surface); color:var(--text-main); }
-  .map-legend { display:flex; gap:14px; font-size:11px; margin-top:8px; color:var(--text-muted); flex-wrap:wrap; align-items:center; }
+    background:var(--bg-surface); color:var(--text-main); max-width:240px; }
+  .map-controls input[type="checkbox"] { accent-color:var(--brand-blue); cursor:pointer; }
+  .map-summary-banner { background:var(--bg-surface-2); border:1px solid var(--border-subtle); border-radius:8px;
+    padding:7px 12px; margin-bottom:10px; font-size:11.5px; color:var(--text-muted); display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+  .map-summary-banner b { color:var(--text-main); }
+  .map-facets { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:1050px) { .map-facets { grid-template-columns:1fr; } }
+  .map-facet-panel { border:1px solid var(--border-subtle); border-radius:8px; padding:8px; background:var(--bg-page); }
+  .map-facet-title { font-size:12px; font-weight:750; text-align:center; margin-bottom:4px; color:var(--text-main); }
+  .map-legend { display:flex; gap:12px; font-size:11px; margin-top:10px; color:var(--text-muted); flex-wrap:wrap; align-items:center; }
   .map-dot-sample { width:10px; height:10px; border-radius:50%; display:inline-block; vertical-align:middle; margin-right:3px; }
+  .map-pin-bar { margin-top:10px; padding:8px 12px; border-radius:8px; background:var(--bg-surface-2); border:1px dashed var(--border-strong);
+    display:none; align-items:center; gap:12px; flex-wrap:wrap; font-size:11.5px; }
+  .map-pin-bar.active { display:flex; }
+  .map-tooltip { position:fixed; z-index:80; pointer-events:none; display:none; max-width:320px;
+    background:var(--bg-surface); color:var(--text-main); border:1px solid var(--border-strong);
+    border-radius:10px; padding:10px 12px; box-shadow:var(--shadow-lg); font-size:11px; line-height:1.4; }
+  .map-tooltip svg { max-height:95px; width:100%; display:block; background:var(--bg-surface-2); border-radius:6px; margin-top:6px; }
+  .toolbar select { border:1px solid var(--border-strong); border-radius:6px; padding:4px 8px; font-size:11.5px;
+    background:var(--bg-surface); color:var(--text-main); font-weight:600; }
 
-  /* By Axis View */
-  .axes-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(380px, 1fr)); gap:16px; }
-  .axisplot-card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius);
-    padding:12px 14px; box-shadow:var(--shadow-sm); }
-  .axisplot-card h3 { font-size:12px; font-weight:700; margin-bottom:8px; color:var(--text-main); display:flex; justify-content:space-between; }
-
-  /* Highlights View */
+  /* Highlights & Insights Hub */
   .highlights-section { margin-bottom:24px; }
-  .highlights-section h2 { font-size:16px; font-weight:800; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .highlights-section h2 { font-size:16px; font-weight:800; margin-bottom:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .podium-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:1050px) { .podium-grid { grid-template-columns:1fr; } }
+  .podium-col { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow-sm); }
+  .podium-col h3 { font-size:14px; font-weight:800; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+  .bullet-row { display:grid; grid-template-columns:72px 1fr 48px; align-items:center; gap:6px; font-size:10px; margin:3px 0; }
+  .bullet-track { height:7px; background:var(--bg-surface-2); border-radius:4px; position:relative; overflow:hidden; }
+  .bullet-fill { height:100%; border-radius:4px; background:var(--brand-blue); }
   .frontier-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:14px; }
   .frontier-card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius);
     padding:12px 14px; box-shadow:var(--shadow-sm); position:relative; }
+  .frontier-card.is-baseline-anchor { border:2.5px solid #000000 !important; }
   .frontier-card h3 { font-size:12.5px; font-weight:750; margin-bottom:4px; }
   .frontier-card .meta { font-size:11px; color:var(--text-muted); margin-bottom:8px; line-height:1.4; }
   .frontier-card .mol-lead { background:var(--bg-surface-2); border-radius:8px; padding:6px; margin-top:6px; }
   .frontier-card .mol-lead svg { width:100%; height:auto; max-height:140px; display:block; }
-  .collapsed-mols-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; }
+  .collapsed-mols-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:10px; }
   .collapsed-mol-card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px; padding:8px; }
   .collapsed-mol-card svg { width:100%; height:auto; max-height:120px; display:block; }
   .collapsed-mol-card .meta { font-size:10.5px; color:var(--text-muted); margin-top:4px; overflow-wrap:anywhere; }
+  .rescue-badge { display:inline-block; margin-top:5px; padding:3px 7px; border-radius:6px; background:rgba(22,163,74,.12);
+    color:var(--v-clean); font-size:10px; font-weight:700; cursor:pointer; border:1px solid rgba(22,163,74,.25); }
+  tr.is-gray-low td { opacity:0.48; }
+  tr.is-gray-low:hover td { opacity:1; }
 
   /* Comparator View */
   .compare-panel { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius);
@@ -237,7 +305,6 @@
   <div class="nav-bar">
     <button class="nav-tab active" data-view="view-tree">🌳 Decision Tree</button>
     <button class="nav-tab" data-view="view-map">🗺️ Collapse Map</button>
-    <button class="nav-tab" data-view="view-axes">📊 By Axis</button>
     <button class="nav-tab" data-view="view-highlights">⭐ Highlights & Frontiers</button>
     <button class="nav-tab" data-view="view-compare">⚖️ Run Comparator</button>
     <button class="nav-tab" data-view="view-table">📋 Runs Table</button>
@@ -251,14 +318,38 @@
     <div class="toolbar-row" id="tree-specific-row">
       <h4>Tree Floors</h4>
       <div id="floor-controls" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
+      <button class="btn sm" id="btn-tree-hide-single" title="Hide floors that have only 1 distinct value under current filters">Hide 1-val</button>
+      <button class="btn sm" id="btn-tree-show-all-floors">All floors</button>
       <div class="spacer"></div>
-      <h4>Presets</h4>
+      <h4>Depth</h4>
+      <button class="btn sm" data-tree-depth="1">1</button>
+      <button class="btn sm" data-tree-depth="2">2</button>
+      <button class="btn sm" data-tree-depth="3">3</button>
+      <button class="btn sm" data-tree-depth="99">All</button>
+      <label style="font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;">
+        <input type="checkbox" id="chk-tree-compact"> Compact
+      </label>
+      <label style="font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;">Sort:
+        <select id="sel-tree-sort">
+          <option value="param">Param</option>
+          <option value="criterion">Best Criterion ↓</option>
+          <option value="instability">Instability ↓</option>
+        </select>
+      </label>
+      <label style="font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;">Edges:
+        <select id="sel-tree-edge">
+          <option value="instability">Instability</option>
+          <option value="collapsed">Collapse %</option>
+          <option value="edy">Median EDY</option>
+          <option value="desired">Median Desired</option>
+        </select>
+      </label>
       <button class="btn sm" id="btn-preset-exploration">ε first</button>
       <button class="btn sm" id="btn-preset-reward">reward first</button>
       <button class="btn sm" id="btn-preset-geometry">geometry first</button>
       <button class="btn sm" id="btn-preset-budget">budget first</button>
-      <button class="btn sm" id="btn-lr">left → right</button>
-      <button class="btn sm" id="btn-td">top ↓ down</button>
+      <button class="btn sm" id="btn-lr">L→R</button>
+      <button class="btn sm" id="btn-td">T↓D</button>
       <button class="btn sm" id="btn-zoom-fit">fit</button>
       <button class="btn sm" id="btn-zoom-out">−</button>
       <button class="btn sm" id="btn-zoom-reset">100%</button>
@@ -269,9 +360,35 @@
       <input class="search-box" id="search" placeholder="search run ID, scheme, parameters…">
       <h4>Verdicts</h4>
       <span class="verdict-filter" id="verdict-filter"></span>
+      <h4>Best Runs By</h4>
+      <select id="rank-criterion" title="Criterion used for #1–#5 per-family medals (enumerated from currently filtered runs) across Tree, Map, Highlights & Table">
+        <option value="desired">Desired Ratio (stop)</option>
+        <option value="edy">EDY (Desired × Eff. Scaffolds)</option>
+        <option value="desired_sqrt_eff">Desired × √(Eff. Scaffolds)</option>
+        <option value="eff_scaffolds">Effective Scaffolds</option>
+        <option value="rocs_median">ROCS Median</option>
+        <option value="rocs_gain">ROCS Improvement (Stop − Prior)</option>
+        <option value="desired_gain">Desired Improvement (Stop − Prior)</option>
+        <option value="composite">Composite (Desired × Uniq × Scaf Entropy)</option>
+        <option value="edy_per_hour">Compute ROI (EDY / hour)</option>
+      </select>
+      <label style="font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;" title="Dim runs where changing just 1 parameter strictly improves the active ranking criterion">
+        <input type="checkbox" id="chk-gray-low" checked> Gray-low 1-step beaten
+      </label>
+      <label style="font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px;" title="Highlight K1 raw C20 ε=0.1 color_ff=default (WS & PRCD) in black">
+        <input type="checkbox" id="chk-black-anchor" checked> Black anchor
+      </label>
       <div class="spacer"></div>
       <button class="btn sm" id="btn-export-csv">Export Table CSV</button>
       <button class="btn sm" id="btn-export-svg">Export SVG</button>
+    </div>
+    <div class="toolbar-row">
+      <h4>Filter</h4>
+      <div class="global-param-filters" id="global-param-filters"></div>
+      <button class="btn sm" id="btn-slice-w05" title="Show only alignment_shape_weight = 0.5">w=0.5</button>
+      <button class="btn sm" id="btn-slice-default-ff" title="Show only color_ff = default">color=default</button>
+      <button class="btn sm" id="btn-slice-anchor-nbhd" title="Show only K1·raw·C20·ε=0.1·default anchor and its 1-condition neighbors">Anchor + 1-hop</button>
+      <button class="btn sm" id="btn-global-reset-filters">Reset Filters</button>
     </div>
   </div>
 
@@ -280,6 +397,7 @@
     <div class="family-tabs" id="family-tabs"></div>
     <div class="constants-card" id="constants"></div>
     <div class="tree-wrap">
+      <div class="tree-breadcrumb" id="tree-breadcrumb">Hover or click a branch or run card to inspect its path, deltas, and 1-condition neighbors.</div>
       <div class="tree-viewport" id="viewport">
         <div class="tree-canvas" id="canvas">
           <svg id="edges"></svg>
@@ -292,66 +410,127 @@
   <!-- VIEW 2: COLLAPSE MAP -->
   <section class="view" id="view-map">
     <div class="map-wrap">
+      <div class="map-presets">
+        <span class="label-muted">Presets:</span>
+        <button class="btn sm" data-preset="breadth_yield">Breadth vs Yield (EDY)</button>
+        <button class="btn sm" data-preset="dup_yield">Duplication vs Yield</button>
+        <button class="btn sm" data-preset="rocs_breadth">3D ROCS vs Breadth</button>
+        <button class="btn sm" data-preset="rocs_gain_breadth">ROCS Gain vs Breadth</button>
+        <button class="btn sm" data-preset="scaf_side">Scaffold vs Sidechain</button>
+        <button class="btn sm" data-preset="eps_sweep">ε Parameter Sweep</button>
+        <button class="btn sm" data-preset="compute_roi">Compute ROI (h vs EDY)</button>
+        <div style="flex:1;"></div>
+        <label style="font-size:11.5px;font-weight:650;display:inline-flex;align-items:center;gap:5px;">Family:
+          <select id="map-family-scope">
+            <option value="both">Both (Split Frontier)</option>
+            <option value="rocs">SA + ROCS only</option>
+            <option value="qed">SA + ROCS + QED only</option>
+            <option value="facets">Side-by-Side Facets</option>
+          </select>
+        </label>
+      </div>
       <div class="map-controls">
-        <label>X Axis:
-          <select id="map-x-metric">
-            <option value="unique">Stop-arm Uniqueness Ratio</option>
-            <option value="eff">Effective Scaffolds (log scale)</option>
-            <option value="eff_mol">Effective Molecules (log scale)</option>
-            <option value="internal">Internal Diversity (1 - pairwise)</option>
-            <option value="scaffold_internal">Scaffold Internal Diversity</option>
-            <option value="sidechain_internal">Sidechain Internal Diversity</option>
-            <option value="entropy">Scaffold Entropy Ratio</option>
-            <option value="edy">Effective Desired Yield (EDY)</option>
-            <option value="nn">NN Similarity p50</option>
-            <option value="novelty">Novelty vs Prior</option>
+        <label>X Axis: <select id="map-x-metric"></select></label>
+        <button class="btn sm" id="btn-map-swap-axes" title="Swap X and Y axes">⇄</button>
+        <label>Y Axis: <select id="map-y-metric"></select></label>
+        <label>Color:
+          <select id="map-color-by">
+            <option value="verdict">Verdict</option>
+            <option value="epsilon">Exploration ε</option>
+            <option value="scheme">Reward Scheme</option>
+            <option value="include_qed">Family (QED)</option>
+            <option value="geometry">Geometry (K · min)</option>
+            <option value="color_ff">Colour Force Field</option>
+            <option value="max_conformers">Max Conformers C</option>
+            <option value="alignment_shape_weight">Shape Weight w</option>
+            <option value="edy">Continuous: EDY</option>
+            <option value="rocs">Continuous: ROCS Median</option>
+            <option value="rocs_gain">Continuous: ROCS Gain</option>
+            <option value="eff">Continuous: Eff. Scaffolds</option>
           </select>
         </label>
-        <label>Y Axis:
-          <select id="map-y-metric">
-            <option value="desired">Stop-arm Desired Ratio</option>
-            <option value="edy">Effective Desired Yield (EDY)</option>
+        <label>Shape:
+          <select id="map-shape-by">
+            <option value="family">Family (● ROCS, ◆ +QED)</option>
+            <option value="scheme">Scheme (● PRCD, ▲ WS)</option>
+            <option value="minimize">Minimize (● opt, ■ raw)</option>
+            <option value="none">Uniform Circle ●</option>
+          </select>
+        </label>
+        <label>Size:
+          <select id="map-size-by">
+            <option value="uniform">Uniform</option>
+            <option value="edy">EDY</option>
             <option value="rocs">ROCS Median</option>
-            <option value="valid">Validity Ratio</option>
+            <option value="eff">Eff. Scaffolds</option>
+            <option value="hours">Walltime (hours)</option>
           </select>
         </label>
+      </div>
+      <div class="map-controls">
+        <label>Paired Arrows:
+          <select id="map-pair-by">
+            <option value="none">None</option>
+            <option value="minimize">Minimization (raw → opt)</option>
+            <option value="reference_conformers">Ref Bank (K=1 → K=4)</option>
+            <option value="epsilon">Epsilon (0 → 0.02 → 0.05 → 0.1 → 0.2)</option>
+            <option value="scheme">Scheme (WS → PRCD)</option>
+            <option value="include_qed">Family (SA+ROCS → +QED)</option>
+            <option value="color_ff">Colour FF (default → fdef → oe_mills_dean)</option>
+            <option value="max_conformers">Budget (C10 → C20 → C30)</option>
+            <option value="prior_to_stop">Trajectory: Prior → Stop Arm</option>
+            <option value="peak_to_stop">Trajectory: Peak Desired → Stop Arm</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="map-opt-frontier" checked> Pareto frontiers</label>
+        <label><input type="checkbox" id="map-opt-refs" checked> Reference lines</label>
+        <label><input type="checkbox" id="map-opt-centroids"> Group medians (IQR)</label>
+        <label><input type="checkbox" id="map-opt-jitter" checked> Jitter discrete axes</label>
+      </div>
+      <div class="map-controls">
         <div id="map-axis-filters" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"></div>
         <button class="btn sm" id="btn-map-reset-filters">Reset Map Filters</button>
       </div>
+      <div class="map-summary-banner" id="map-summary-banner"></div>
       <div id="scatter-box" style="position:relative;width:100%;min-height:500px;"></div>
+      <div class="map-pin-bar" id="map-pin-bar"></div>
       <div class="map-legend" id="map-legend"></div>
+      <div class="map-tooltip" id="map-tooltip"></div>
     </div>
   </section>
 
-  <!-- VIEW 3: BY AXIS -->
-  <section class="view" id="view-axes">
-    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-      <h4>Metric on Y-axis:</h4>
-      <button class="btn sm active axis-y-toggle" data-metric="unique">Uniqueness Ratio</button>
-      <button class="btn sm axis-y-toggle" data-metric="desired">Desired Ratio</button>
-      <button class="btn sm axis-y-toggle" data-metric="eff">Effective Scaffolds (log)</button>
-      <button class="btn sm axis-y-toggle" data-metric="eff_mol">Effective Molecules (log)</button>
-      <button class="btn sm axis-y-toggle" data-metric="internal">Internal Diversity</button>
-      <button class="btn sm axis-y-toggle" data-metric="scaffold_internal">Scaffold Int. Div.</button>
-      <button class="btn sm axis-y-toggle" data-metric="sidechain_internal">Sidechain Int. Div.</button>
-      <button class="btn sm axis-y-toggle" data-metric="entropy">Scaffold Entropy Ratio</button>
-      <button class="btn sm axis-y-toggle" data-metric="edy">Effective Desired Yield</button>
-    </div>
-    <div class="axes-grid" id="axisgrid"></div>
-  </section>
-
-  <!-- VIEW 4: HIGHLIGHTS & FRONTIERS -->
+  <!-- VIEW 3: HIGHLIGHTS & FRONTIERS -->
   <section class="view" id="view-highlights">
     <div class="highlights-section">
-      <h2>🏆 Pareto Frontier Champions <small style="font-size:12px;color:var(--text-muted);font-weight:normal;">Non-dominated trade-offs between Desired Ratio and Uniqueness</small></h2>
+      <h2>🏆 Dual-Family Executive Podium <small style="font-size:12px;color:var(--text-muted);font-weight:normal;">Top #1–#5 per objective family from currently filtered runs under the active ranking criterion, normalized to family 5th–95th percentiles</small></h2>
+      <div class="podium-grid" id="podium-grid"></div>
+    </div>
+    <div class="highlights-section">
+      <h2>🏅 Top #1–#5 Per Criterion <small style="font-size:12px;color:var(--text-muted);font-weight:normal;">Enumerated from currently filtered runs for each criterion in &ldquo;Best Runs By&rdquo;</small></h2>
+      <div class="crit-matrix" id="criteria-top5-grid"></div>
+    </div>
+    <div class="highlights-section">
+      <h2>
+        <span>⭐ Pareto Frontier Curves & Trade-Offs</span>
+        <span style="display:inline-flex;gap:5px;margin-left:auto;">
+          <button class="btn sm active frontier-mode-btn" data-fmode="breadth">Desired vs Eff. Scaffolds (iso-EDY)</button>
+          <button class="btn sm frontier-mode-btn" data-fmode="unique">Desired vs Uniqueness (★)</button>
+          <button class="btn sm frontier-mode-btn" data-fmode="rocs">ROCS Median vs Eff. Scaffolds</button>
+        </span>
+      </h2>
+      <div class="podium-grid" id="frontier-charts" style="margin-bottom:14px;"></div>
       <div class="frontier-grid" id="frontier-cards"></div>
     </div>
     <div class="highlights-section">
-      <h2>⚠️ Worst Mode Collapse Showcase <small style="font-size:12px;color:var(--text-muted);font-weight:normal;">Molecules that repeated hundreds of times and hijacked the generator</small></h2>
+      <h2>🔬 1-Parameter Collapse Rescues & Factor Sensitivity <small style="font-size:12px;color:var(--text-muted);font-weight:normal;">Matched pairs holding 7 axes constant while changing 1 condition</small></h2>
+      <div class="podium-grid" id="rescue-diagnostics"></div>
+    </div>
+    <div class="highlights-section">
+      <h2>⚠️ Worst Mode Collapse Showcase <small style="font-size:12px;color:var(--text-muted);font-weight:normal;">Repeated molecules that hijacked the generator, linked to 1-hop clean rescues</small></h2>
       <div class="collapsed-mols-grid" id="collapsed-mols"></div>
     </div>
     <div class="highlights-section">
-      <h2>📉 Post-Peak Decay Leaderboard <small style="font-size:12px;color:var(--text-muted);font-weight:normal;">Runs where uniqueness collapsed hardest between checkpoint peak and stop arm</small></h2>
+      <h2>📉 Post-Peak Patience Decay Leaderboard <small style="font-size:12px;color:var(--text-muted);font-weight:normal;">Runs where uniqueness collapsed hardest between peak checkpoint and stop arm</small></h2>
       <div class="table-wrap"><div class="scroll"><table class="data" id="decay-table"></table></div></div>
     </div>
   </section>
@@ -412,35 +591,305 @@ const VCOLOR = { collapsed:'#dc2626', concentrated:'#d97706', clean:'#16a34a', u
 
 // The stop arm is the live policy and the only thing judged; every metric below reads it.
 const STOP = r => (r.arms || {}).stop || {};
+const PRIOR = r => (r.arms || {}).prior || {};
+const BEST = r => (r.arms || {}).best || {};
 const STOPDIV = r => ((r.diversity || {}).arms || {}).stop || {};
+const PRIORDIV = r => ((r.diversity || {}).arms || {}).prior || {};
 const CROSS = r => (r.diversity || {}).cross || {};
 // Scan payloads flatten the stop arm's hierarchical metrics; cached profiles keep them
 // inside arms.stop. Read both so a view never depends on which cache is present.
 const EDY = r => STOPDIV(r).effective_desired_yield ?? (r.diversity || {}).effective_desired_yield;
+const ROCS_GAIN = r => {
+  const s = STOP(r).rocs_median, p = PRIOR(r).rocs_median;
+  return (s != null && p != null) ? (s - p) : null;
+};
+const DESIRED_GAIN = r => {
+  const s = STOP(r).desired_ratio, p = PRIOR(r).desired_ratio;
+  return (s != null && p != null) ? (s - p) : null;
+};
+
+const RANK_CRITERIA = {
+  desired: {
+    label: 'Desired Ratio (stop)',
+    get: r => STOP(r).desired_ratio,
+    fmt: v => num(v, 3),
+  },
+  edy: {
+    label: 'EDY (Desired × Eff. Scaffolds)',
+    get: r => EDY(r),
+    fmt: v => num(v, 4),
+  },
+  desired_sqrt_eff: {
+    label: 'Desired × √(Eff. Scaffolds)',
+    get: r => {
+      const d = STOP(r).desired_ratio, e = STOPDIV(r).effective_scaffolds;
+      return (d != null && e != null) ? d * Math.sqrt(Math.max(e, 0)) : null;
+    },
+    fmt: v => num(v, 2),
+  },
+  eff_scaffolds: {
+    label: 'Effective Scaffolds',
+    get: r => STOPDIV(r).effective_scaffolds,
+    fmt: v => v == null ? '—' : Math.round(v).toLocaleString(),
+  },
+  rocs_median: {
+    label: 'ROCS Median',
+    get: r => STOP(r).rocs_median,
+    fmt: v => num(v, 3),
+  },
+  rocs_gain: {
+    label: 'ROCS Improvement (Stop − Prior)',
+    get: r => ROCS_GAIN(r),
+    fmt: v => (v >= 0 ? '+' : '') + num(v, 3),
+  },
+  desired_gain: {
+    label: 'Desired Improvement (Stop − Prior)',
+    get: r => DESIRED_GAIN(r),
+    fmt: v => (v >= 0 ? '+' : '') + num(v, 3),
+  },
+  composite: {
+    label: 'Composite (Desired × Uniq × Scaf Entropy)',
+    get: r => {
+      const d = STOP(r).desired_ratio, u = STOP(r).unique_ratio, e = STOPDIV(r).scaffold_entropy_ratio;
+      return (d != null && u != null && e != null) ? (d * u * e) : null;
+    },
+    fmt: v => num(v, 4),
+  },
+  edy_per_hour: {
+    label: 'Compute ROI (EDY / hour)',
+    get: r => {
+      const e = EDY(r), h = r.hours;
+      return (e != null && h != null && h > 0) ? (e / h) : null;
+    },
+    fmt: v => num(v, 4),
+  },
+};
+
+const AXES_KEYS = ['scheme', 'epsilon', 'minimize', 'reference_conformers', 'max_conformers', 'color_ff', 'alignment_shape_weight'];
+const BASELINE_ANCHOR = {
+  reference_conformers: 1,
+  minimize: false,
+  max_conformers: 20,
+  epsilon: 0.1,
+  color_ff: 'default',
+  alignment_shape_weight: 0.5,
+};
+
+function _axesDiff(axA, axB) {
+  const diffs = [];
+  for (const k of AXES_KEYS) {
+    if (String((axA || {})[k]) !== String((axB || {})[k])) diffs.push(k);
+  }
+  return diffs;
+}
+
+function getOneHopNeighbors(run) {
+  if (!run) return [];
+  const ax = run.axes || {};
+  const out = [];
+  for (const r2 of DATA.runs) {
+    if (r2.run_id === run.run_id || r2.family_key !== run.family_key) continue;
+    if (r2.verdict === 'pilot' || r2.verdict === 'incomplete') continue;
+    const diffs = _axesDiff(ax, r2.axes);
+    if (diffs.length === 1) {
+      const axis = diffs[0];
+      out.push({ run: r2, axis, fromVal: ax[axis], toVal: (r2.axes || {})[axis] });
+    }
+  }
+  return out;
+}
+
+function computeDynamicRanks() {
+  const unmedallable = new Set(['collapsed', 'pilot', 'incomplete']);
+  const filtered = DATA.runs.filter(r => passesGlobalFilters(r));
+  const eligible = filtered.filter(r => !unmedallable.has(r.verdict));
+
+  DATA.runs.forEach(r => {
+    delete r.rank;
+    delete r.rankScore;
+    r.criteriaRanks = {};
+  });
+
+  state.top5ByCriterion = {};
+  for (const [critKey, critSpec] of Object.entries(RANK_CRITERIA)) {
+    const byFamily = new Map();
+    eligible.forEach(r => {
+      const score = critSpec.get(r);
+      if (score == null || Number.isNaN(score)) return;
+      const fk = r.family_key || 'rocs';
+      if (!byFamily.has(fk)) byFamily.set(fk, []);
+      byFamily.get(fk).push({ run: r, score });
+    });
+    const famTop = {};
+    byFamily.forEach((list, fk) => {
+      list.sort((a, b) => b.score - a.score);
+      famTop[fk] = list.slice(0, 5).map((entry, idx) => {
+        const rank = idx + 1;
+        entry.run.criteriaRanks[critKey] = rank;
+        return { rank, run: entry.run, score: entry.score };
+      });
+    });
+    state.top5ByCriterion[critKey] = famTop;
+  }
+
+  const activeKey = RANK_CRITERIA[state.rankCriterion] ? state.rankCriterion : 'desired';
+  const activeSpec = RANK_CRITERIA[activeKey];
+  eligible.forEach(r => {
+    const score = activeSpec.get(r);
+    if (score != null && !Number.isNaN(score)) r.rankScore = score;
+  });
+  const activeTop = state.top5ByCriterion[activeKey] || {};
+  Object.values(activeTop).forEach(entries => {
+    entries.forEach(({ rank, run, score }) => {
+      run.rank = rank;
+      run.rankScore = score;
+    });
+  });
+}
+
+function computeRunInsights() {
+  const crit = RANK_CRITERIA[state.rankCriterion] || RANK_CRITERIA.desired;
+  const anchorKeys = Object.keys(BASELINE_ANCHOR);
+  DATA.runs.forEach(r => {
+    const ax = r.axes || {};
+    const bDiffs = anchorKeys.filter(k => String(ax[k]) !== String(BASELINE_ANCHOR[k]));
+    r.baselineDist = (ax.scheme === 'WS' || ax.scheme === 'PRCD') ? bDiffs.length : 99;
+    r.isBaselineAnchor = r.baselineDist === 0;
+    delete r.beatenByOne;
+    r.isLocalOptimum = false;
+  });
+
+  const active = DATA.runs.filter(r => r.verdict !== 'pilot' && r.verdict !== 'incomplete');
+  for (const r of active) {
+    const score = crit.get(r);
+    if (score == null || Number.isNaN(score)) continue;
+    let bestImp = null;
+    for (const r2 of active) {
+      if (r2.run_id === r.run_id || r2.family_key !== r.family_key || r2.verdict === 'collapsed') continue;
+      const s2 = crit.get(r2);
+      if (s2 == null || Number.isNaN(s2) || s2 <= score + 1e-9) continue;
+      const diffs = _axesDiff(r.axes, r2.axes);
+      if (diffs.length === 1) {
+        const delta = s2 - score;
+        if (!bestImp || delta > bestImp.delta) {
+          const axis = diffs[0];
+          bestImp = {
+            axis,
+            fromVal: (r.axes || {})[axis],
+            toVal: (r2.axes || {})[axis],
+            betterRunId: r2.run_id,
+            betterScore: s2,
+            delta,
+          };
+        }
+      }
+    }
+    if (bestImp) r.beatenByOne = bestImp;
+    else if (r.verdict !== 'collapsed') r.isLocalOptimum = true;
+  }
+}
 
 // Application state
 const state = {
   view: 'view-tree',
   layerOrder: [...DATA.default_layers],
+  activeLayers: new Set(DATA.default_layers),
+  collapsedPaths: new Set(),
+  treeCompact: false,
+  treeSort: 'param',
+  treeEdgeColor: 'instability',
+  treePinAnchorId: null,
   layout: 'lr',
   family: DATA.families[0],
   zoom: 1, pan: {x:0, y:0},
   searchQuery: '',
-  verdictsOn: new Set(VERDICTS),
+  // Hide pilots by default across Tree, Map, and Table (user can re-enable via verdict pill)
+  verdictsOn: new Set(VERDICTS.filter(v => v !== 'pilot')),
+  rankCriterion: 'desired',
+  top5ByCriterion: {},
+  highlightGrayLow: true,
+  highlightBlackAnchor: true,
+  anchorNeighborhoodOnly: false,
+  paramFilters: {},
   tableKey: 'unique', tableDesc: true,
   // Map state
-  mapX: 'unique', mapY: 'desired',
-  mapFilters: {},
-  // By-Axis state
-  axisMetric: 'unique',
+  mapX: 'eff', mapY: 'desired',
+  mapFamily: 'both',
+  mapColor: 'verdict',
+  mapShape: 'family',
+  mapSize: 'edy',
+  mapPairBy: 'none',
+  mapOptFrontier: true,
+  mapOptRefs: true,
+  mapOptCentroids: false,
+  mapOptJitter: true,
+  mapPinA: null, mapPinB: null,
+  // Highlights state
+  frontierMode: 'breadth',
   // Comparator state
   cmpA: null, cmpB: null,
 };
 
+function passesGlobalFilters(r, { ignoreFamily = false } = {}) {
+  if (!state.verdictsOn.has(r.verdict)) return false;
+  if (state.anchorNeighborhoodOnly && r.baselineDist > 1) return false;
+  for (const [k, v] of Object.entries(state.paramFilters)) {
+    if (!v) continue;
+    if (ignoreFamily && k === 'include_qed') continue;
+    if (String((r.axes || {})[k]) !== v) return false;
+  }
+  return true;
+}
+
+function refreshActiveView() {
+  computeDynamicRanks();
+  renderTree();
+  if (state.view === 'view-map') renderMap();
+  if (state.view === 'view-highlights') renderHighlights();
+  if (state.view === 'view-table') renderTable();
+  if (state.view === 'view-compare') renderComparator();
+}
+
+function renderGlobalFilters() {
+  const axesList = ['scheme', 'epsilon', 'minimize', 'reference_conformers', 'max_conformers', 'color_ff', 'alignment_shape_weight', 'include_qed'];
+  const labels = {
+    scheme: 'scheme', epsilon: 'ε', minimize: 'min', reference_conformers: 'K',
+    max_conformers: 'C', color_ff: 'color_ff', alignment_shape_weight: 'w', include_qed: 'QED',
+  };
+  const container = $('global-param-filters');
+  if (!container) return;
+  container.innerHTML = axesList.map(a =>
+    `<label>${labels[a]}: <select id="gf-${a}"><option value="">all</option></select></label>`
+  ).join('');
+  axesList.forEach(a => {
+    const sel = $('gf-' + a);
+    const vals = [...new Set(DATA.runs.map(r => (r.axes || {})[a]))].filter(v => v != null)
+      .sort((x, y) => {
+        const nx = parseFloat(x), ny = parseFloat(y);
+        return (!Number.isNaN(nx) && !Number.isNaN(ny)) ? nx - ny : String(x).localeCompare(String(y));
+      });
+    vals.forEach(v => {
+      const opt = document.createElement('option'); opt.value = String(v);
+      opt.textContent = a === 'include_qed' ? (v ? 'True (+QED)' : 'False (ROCS)') : String(v);
+      sel.appendChild(opt);
+    });
+    sel.value = state.paramFilters[a] || '';
+    sel.onchange = () => {
+      state.paramFilters[a] = sel.value;
+      const mf = $('mf-' + a);
+      if (mf) mf.value = sel.value;
+      refreshActiveView();
+    };
+  });
+}
+
 function init() {
+  computeDynamicRanks();
+  computeRunInsights();
   renderKPIs();
   renderFloorControls();
   renderVerdictFilter();
+  renderGlobalFilters();
   renderFamilyTabs();
   renderConstants();
   renderTree();
@@ -463,7 +912,6 @@ function setupNavigation() {
 
       // Lazy render target view
       if (targetView === 'view-map') renderMap();
-      else if (targetView === 'view-axes') renderByAxis();
       else if (targetView === 'view-highlights') renderHighlights();
       else if (targetView === 'view-compare') renderComparator();
       else if (targetView === 'view-table') renderTable();
@@ -507,13 +955,23 @@ function renderKPIs() {
 function renderFloorControls() {
   $('floor-controls').innerHTML = state.layerOrder.map((layerId, idx) => {
     const meta = DATA.available_layers.find(l => l.id === layerId) || { id: layerId, label: layerId };
-    return `<div class="floor-chip">
+    const active = state.activeLayers.has(layerId);
+    return `<div class="floor-chip ${active ? '' : 'inactive'}">
+      <input type="checkbox" class="floor-toggle" data-id="${layerId}" ${active ? 'checked' : ''} title="Include floor in tree">
       <b>${idx + 1}</b> ${esc(meta.label)}
       <button class="up" data-idx="${idx}" title="Move up">↑</button>
       <button class="down" data-idx="${idx}" title="Move down">↓</button>
     </div>`;
   }).join('');
 
+  $('floor-controls').querySelectorAll('input.floor-toggle').forEach(cb => {
+    cb.onchange = () => {
+      const id = cb.dataset.id;
+      if (cb.checked) state.activeLayers.add(id);
+      else state.activeLayers.delete(id);
+      renderFloorControls(); renderTree();
+    };
+  });
   $('floor-controls').querySelectorAll('button.up').forEach(b => {
     b.onclick = e => {
       e.stopPropagation();
@@ -547,9 +1005,8 @@ function renderVerdictFilter() {
       const v = lbl.dataset.v;
       if (state.verdictsOn.has(v)) state.verdictsOn.delete(v);
       else state.verdictsOn.add(v);
-      renderVerdictFilter(); renderTree();
-      if (state.view === 'view-map') renderMap();
-      if (state.view === 'view-table') renderTable();
+      renderVerdictFilter();
+      refreshActiveView();
     };
   });
 }
@@ -567,69 +1024,113 @@ function renderFamilyTabs() {
 }
 
 function renderConstants() {
-  $('constants').innerHTML = `<b>Family baseline:</b> ${esc(state.family.constants)}`;
+  const activeFilters = Object.entries(state.paramFilters).filter(([, v]) => v);
+  const filterNote = activeFilters.length
+    ? ` · <b>Active Filters:</b> ${activeFilters.map(([k, v]) => `${esc(k)}=${esc(v)}`).join(', ')}`
+    : '';
+  const nbhdNote = state.anchorNeighborhoodOnly ? ' · <b>Slice:</b> Baseline Anchor + 1-hop' : '';
+  $('constants').innerHTML = `<b>Family baseline:</b> ${esc(state.family.constants)}${filterNote}${nbhdNote}`;
 }
 
 // ----------------------------------------------------------------------------- Tree Logic & Layout
-function buildHierarchy(runs, layerIndex) {
-  if (layerIndex >= state.layerOrder.length) {
-    return runs.map(r => ({
+function _treeStats(runs) {
+  const judged = runs.filter(r => r.verdict !== 'pilot' && r.verdict !== 'incomplete');
+  const clean = judged.filter(r => r.verdict === 'clean').length;
+  const concentrated = judged.filter(r => r.verdict === 'concentrated').length;
+  const collapsed = judged.filter(r => r.verdict === 'collapsed').length;
+  const unlearned = judged.filter(r => r.verdict === 'unlearned').length;
+  const crit = RANK_CRITERIA[state.rankCriterion] || RANK_CRITERIA.desired;
+  const scores = judged.map(r => crit.get(r)).filter(v => v != null && !Number.isNaN(v));
+  const desVals = judged.map(r => STOP(r).desired_ratio).filter(v => v != null);
+  const edyVals = judged.map(r => EDY(r)).filter(v => v != null);
+  const scafVals = judged.map(r => STOPDIV(r).effective_scaffolds).filter(v => v != null);
+  const medals = runs.map(r => r.rank).filter(Boolean).sort((a, b) => a - b);
+  return {
+    runsCount: runs.length,
+    judged: judged.length,
+    clean, concentrated, collapsed, unlearned,
+    instability: judged.length ? (collapsed + 0.6 * concentrated + 0.35 * unlearned) / judged.length : null,
+    collapseRate: judged.length ? collapsed / judged.length : null,
+    frontierCount: runs.filter(r => r.frontier).length,
+    medDesired: _median(desVals),
+    medEDY: _median(edyVals),
+    medEffScaf: _median(scafVals),
+    bestCrit: scores.length ? Math.max(...scores) : -Infinity,
+    medals,
+    hasSearchMatch: runs.some(matchSearch),
+  };
+}
+
+function buildHierarchy(runs, activeLayers, layerIndex, pathPrefix, trail) {
+  const crit = RANK_CRITERIA[state.rankCriterion] || RANK_CRITERIA.desired;
+  if (layerIndex >= activeLayers.length) {
+    const sorted = runs.slice().sort((a, b) => {
+      const sa = crit.get(a) ?? -Infinity, sb = crit.get(b) ?? -Infinity;
+      return sb - sa;
+    });
+    return sorted.map(r => ({
       type: 'leaf', run: r, medal: r.rank,
-      runsCount: 1, collapsed: r.verdict === 'collapsed' ? 1 : 0,
-      judged: (r.arms.stop || {}).unique_ratio != null ? 1 : 0,
-      frontierCount: r.frontier ? 1 : 0,
-      hasSearchMatch: matchSearch(r),
+      path: pathPrefix + '/' + r.run_id,
+      trail,
+      ..._treeStats([r]),
     }));
   }
-  const layerId = state.layerOrder[layerIndex];
+  const layerId = activeLayers[layerIndex];
   const groups = new Map();
   runs.forEach(r => {
     const val = (r.factors && r.factors[layerId]) ?? '—';
     if (!groups.has(val)) groups.set(val, []);
     groups.get(val).push(r);
   });
-  const sortedKeys = Array.from(groups.keys()).sort((a,b) => {
-    const na = parseFloat(a), nb = parseFloat(b);
+  const nodes = Array.from(groups.entries()).map(([val, grpRuns]) => {
+    const path = `${pathPrefix}/${layerId}=${val}`;
+    const nodeTrail = [...trail, { factorId: layerId, value: val, stats: _treeStats(grpRuns) }];
+    const isCollapsed = state.collapsedPaths.has(path);
+    const children = isCollapsed ? [] : buildHierarchy(grpRuns, activeLayers, layerIndex + 1, path, nodeTrail);
+    const stats = _treeStats(grpRuns);
+    return {
+      type: 'group', factorId: layerId, value: val, path, trail: nodeTrail,
+      isCollapsed, children, ...stats,
+    };
+  });
+  nodes.sort((a, b) => {
+    if (state.treeSort === 'criterion') return (b.bestCrit ?? -Infinity) - (a.bestCrit ?? -Infinity);
+    if (state.treeSort === 'instability') return (b.instability ?? -1) - (a.instability ?? -1);
+    const na = parseFloat(a.value), nb = parseFloat(b.value);
     if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-    return a.localeCompare(b);
+    return String(a.value).localeCompare(String(b.value));
   });
-  return sortedKeys.map(val => {
-    const children = buildHierarchy(groups.get(val), layerIndex + 1);
-    const agg = children.reduce((acc, c) => ({
-      runs: acc.runs + c.runsCount,
-      collapsed: acc.collapsed + c.collapsed,
-      judged: acc.judged + c.judged,
-      frontier: acc.frontier + c.frontierCount,
-      match: acc.match || c.hasSearchMatch,
-    }), {runs:0, collapsed:0, judged:0, frontier:0, match:false});
-    return { type:'group', factorId:layerId, value:val, children,
-      runsCount: agg.runs, collapsed: agg.collapsed, judged: agg.judged,
-      frontierCount: agg.frontier, hasSearchMatch: agg.match };
-  });
+  return nodes;
 }
 
-const CARD_W = 246, CARD_H = 130, NODE_W = 160, NODE_H = 62;
-function layout(root) {
+const CARD_W = 246, NODE_W = 190, NODE_H = 82;
+function layout(root, activeCols) {
+  const cardH = state.treeCompact ? 46 : 136;
+  const colGap = 54, rowGap = state.treeCompact ? 8 : 16;
   let rows = 0;
-  const place = (node, depth) => {
-    if (node.type === 'leaf') { node.row = rows++; }
-    else { node.children.forEach(c => place(c, depth + 1)); node.row = (node.children[0].row + node.children[node.children.length-1].row) / 2; }
+  const place = (node) => {
+    if (node.type === 'leaf' || !node.children || !node.children.length) {
+      node.row = rows++;
+    } else {
+      node.children.forEach(place);
+      node.row = (node.children[0].row + node.children[node.children.length - 1].row) / 2;
+    }
   };
-  place(root, 0);
-  const cols = state.layerOrder.length + 1;
+  place(root);
+  const cols = activeCols + 1;
   const isLR = state.layout === 'lr';
-  const width = isLR ? cols * (CARD_W + 65) + 60 : rows * (CARD_W + 20) + 60;
-  const height = isLR ? rows * (CARD_H + 16) + 60 : cols * (NODE_H + 90) + 60;
+  const width = isLR ? cols * (CARD_W + colGap) + 60 : Math.max(1, rows) * (CARD_W + 20) + 60;
+  const height = isLR ? Math.max(1, rows) * (cardH + rowGap) + 60 : cols * (NODE_H + 92) + 60;
   const placePx = (node, depth) => {
-    const colX = 30 + depth * (isLR ? CARD_W + 65 : 0);
-    const rowY = 20 + node.row * (isLR ? CARD_H + 16 : CARD_W + 20);
+    const colX = 30 + depth * (isLR ? CARD_W + colGap : 0);
+    const rowY = 20 + node.row * (isLR ? cardH + rowGap : CARD_W + 20);
     if (node.type === 'leaf') {
-      node.w = CARD_W; node.h = CARD_H;
-      node.x = isLR ? colX : rowY; node.y = isLR ? rowY : 30 + depth * (NODE_H + 90);
+      node.w = CARD_W; node.h = cardH;
+      node.x = isLR ? colX : rowY; node.y = isLR ? rowY : 30 + depth * (NODE_H + 92);
     } else {
       node.w = NODE_W; node.h = NODE_H;
       node.x = isLR ? colX + (CARD_W - NODE_W) / 2 : rowY + (CARD_W - NODE_W) / 2;
-      node.y = isLR ? rowY + (CARD_H - NODE_H) / 2 : 30 + depth * (NODE_H + 90);
+      node.y = isLR ? rowY + (cardH - NODE_H) / 2 : 30 + depth * (NODE_H + 92);
     }
     (node.children || []).forEach(c => placePx(c, depth + 1));
   };
@@ -637,7 +1138,6 @@ function layout(root) {
   return { width, height };
 }
 
-function collapseShare(node) { return node.judged ? node.collapsed / node.judged : null; }
 function shareColor(share) {
   if (share == null) return '#94a3b8';
   const stops = [[0,'#16a34a'],[.5,'#f59e0b'],[1,'#dc2626']];
@@ -650,19 +1150,70 @@ function shareColor(share) {
   return `rgb(${mix(r1,r2)},${mix(g1,g2)},${mix(b1,b2)})`;
 }
 
+function edgeMetricColor(child) {
+  if (state.treeEdgeColor === 'collapsed') return shareColor(child.collapseRate);
+  if (state.treeEdgeColor === 'edy') {
+    const v = child.medEDY;
+    return v == null ? '#94a3b8' : _viridisColor(Math.min(1, v / 0.30));
+  }
+  if (state.treeEdgeColor === 'desired') {
+    const v = child.medDesired;
+    return v == null ? '#94a3b8' : _viridisColor(Math.min(1, v / 0.85));
+  }
+  return shareColor(child.instability);
+}
+
+function updateBreadcrumb(trail, leafRun, neighborMap) {
+  const bar = $('tree-breadcrumb');
+  if (!bar) return;
+  const parts = [`<b>${esc(state.family.label)}</b>`];
+  (trail || []).forEach(step => {
+    const des = step.stats.medDesired != null ? `des ${num(step.stats.medDesired, 2)}` : '';
+    const edy = step.stats.medEDY != null ? `EDY ${num(step.stats.medEDY, 3)}` : '';
+    parts.push(`<span>▸ <b>${esc(step.value)}</b> <small>(n=${step.stats.runsCount}${des ? ' · ' + des : ''}${edy ? ' · ' + edy : ''})</small></span>`);
+  });
+  if (leafRun) {
+    parts.push(`<span>▸ <b>${esc(leafRun.run_id)}</b></span>`);
+    if (leafRun.isBaselineAnchor) parts.push(`<span class="anchor-pill">ANCHOR</span>`);
+    if (leafRun.beatenByOne) {
+      parts.push(`<span class="gray-low-tag">↑ 1-step: ${esc(leafRun.beatenByOne.axis)}=${esc(leafRun.beatenByOne.toVal)} (+${num(leafRun.beatenByOne.delta, 3)})</span>`);
+    }
+    if (state.treePinAnchorId === leafRun.run_id && neighborMap) {
+      parts.push(`<span class="neighbor-delta-tag">1-hop halo active: ${neighborMap.size} neighbor(s)</span>
+        <button class="btn sm" id="btn-clear-1hop">Clear 1-hop</button>`);
+    }
+  }
+  bar.innerHTML = parts.join(' ');
+  if ($('btn-clear-1hop')) {
+    $('btn-clear-1hop').onclick = () => { state.treePinAnchorId = null; renderTree(); };
+  }
+}
+
 function renderTree() {
-  const runs = DATA.runs.filter(r => r.family_key === state.family.key && state.verdictsOn.has(r.verdict));
+  const runs = DATA.runs.filter(r => r.family_key === state.family.key && passesGlobalFilters(r));
   const nodes = $('nodes'), svg = $('edges');
   nodes.innerHTML = ''; svg.innerHTML = '';
-  if (!runs.length) { nodes.innerHTML = '<div style="padding:40px;color:var(--text-muted)">No runs match current family and verdict filters.</div>'; return; }
+  renderConstants();
+  if (!runs.length) {
+    nodes.innerHTML = '<div style="padding:40px;color:var(--text-muted)">No runs match current family, verdict, and parameter filters.</div>';
+    return;
+  }
 
-  const children = buildHierarchy(runs, 0);
-  const root = { type:'group', factorId:'root', value: state.family.label, children,
-    runsCount: runs.length, collapsed: children.reduce((s,c)=>s+c.collapsed,0),
-    judged: children.reduce((s,c)=>s+c.judged,0),
-    frontierCount: children.reduce((s,c)=>s+c.frontier,0),
-    hasSearchMatch: children.some(c => c.hasSearchMatch) };
-  const dims = layout(root);
+  const activeLayers = state.layerOrder.filter(id => state.activeLayers.has(id));
+  const neighborMap = new Map();
+  if (state.treePinAnchorId) {
+    const anchor = DATA.runs.find(r => r.run_id === state.treePinAnchorId);
+    getOneHopNeighbors(anchor).forEach(nb => neighborMap.set(nb.run.run_id, nb));
+  }
+
+  const rootPath = state.family.key;
+  const children = buildHierarchy(runs, activeLayers, 0, rootPath, []);
+  const rootStats = _treeStats(runs);
+  const root = {
+    type: 'group', factorId: 'root', value: state.family.label, path: rootPath,
+    trail: [], isCollapsed: false, children, ...rootStats,
+  };
+  const dims = layout(root, activeLayers.length);
   const canvas = $('canvas');
   canvas.style.width = dims.width + 'px'; canvas.style.height = dims.height + 'px';
   svg.setAttribute('width', dims.width); svg.setAttribute('height', dims.height);
@@ -670,7 +1221,7 @@ function renderTree() {
   const frag = document.createDocumentFragment(), svgFrag = document.createDocumentFragment();
   (function walk(node) {
     (node.children || []).forEach(child => { drawEdge(svgFrag, node, child); walk(child); });
-    drawNode(frag, node);
+    drawNode(frag, node, neighborMap);
   })(root);
   svg.appendChild(svgFrag); nodes.appendChild(frag);
   applyTransform();
@@ -688,51 +1239,119 @@ function drawEdge(svgContainer, parent, child) {
     : `M ${sx} ${sy} C ${sx} ${(sy+ey)/2}, ${ex} ${(sy+ey)/2}, ${ex} ${ey}`);
   path.setAttribute('fill', 'none'); path.setAttribute('stroke-linecap', 'round');
   path.setAttribute('vector-effect', 'non-scaling-stroke');
-  const share = collapseShare(child);
-  path.setAttribute('stroke', shareColor(share));
-  path.setAttribute('stroke-width', String(1.2 + 3.4 * Math.sqrt(child.runsCount || 1) / Math.sqrt(DATA.totals.runs || 1)));
+  path.setAttribute('stroke', edgeMetricColor(child));
+  path.setAttribute('stroke-width', String(1.3 + 3.5 * Math.sqrt(child.runsCount || 1) / Math.sqrt(DATA.totals.runs || 1)));
   if (state.searchQuery && !child.hasSearchMatch) { path.setAttribute('opacity', '0.06'); path.setAttribute('stroke-dasharray', '3 3'); }
   svgContainer.appendChild(path);
 }
 
-function drawNode(container, node) {
+function drawNode(container, node, neighborMap) {
   const el = document.createElement('div');
   el.style.left = node.x + 'px'; el.style.top = node.y + 'px';
   el.style.width = node.w + 'px';
   if (node.type === 'leaf') {
     const r = node.run, s = r.arms.stop || {};
-    el.className = `run-card v-${r.verdict}` + (node.hasSearchMatch ? '' : ' dimmed');
+    const nb = neighborMap ? neighborMap.get(r.run_id) : null;
+    const isPin = state.treePinAnchorId === r.run_id;
+    const isGrayLow = state.highlightGrayLow && !!r.beatenByOne && !isPin && !nb;
+    const isAnchor = state.highlightBlackAnchor && r.isBaselineAnchor;
+    el.className = `run-card v-${r.verdict}`
+      + (state.treeCompact ? ' compact' : '')
+      + (node.hasSearchMatch ? '' : ' dimmed')
+      + (isGrayLow ? ' is-gray-low' : '')
+      + (isAnchor ? ' is-baseline-anchor' : '')
+      + (r.frontier ? ' is-frontier' : '')
+      + (isPin ? ' is-anchor-selected' : '')
+      + (nb ? ' is-neighbor-1hop' : '');
     const medal = node.medal ? `<span class="medal m${node.medal}">#${node.medal}</span>` : '';
-    const star = r.frontier ? '<span class="star" title="Frontier run">★</span>' : '';
-    const killed = r.state !== 'complete' ? `<span class="killed-tag">⚡ killed</span>` : '';
+    const star = r.frontier ? '<span class="star" title="Pareto frontier run">★</span>' : '';
+    const anchorBadge = isAnchor ? '<span class="anchor-pill" title="K1 raw C20 ε=0.1 default">ANCHOR</span>' : '';
+    const killed = r.state !== 'complete' ? `<span class="killed-tag">⚡</span>` : '';
     const uniq = s.unique_ratio, uniqCls = uniq == null ? '' : uniq < .35 ? 'u-collapsed' : uniq >= .7 ? 'u-clean' : '';
     const div = ((r.diversity || {}).arms || {}).stop || {};
     const eff = v => v == null ? '—' : Math.round(v).toLocaleString();
-    el.innerHTML = `
-      <div class="run-card-top"><span class="run-tag">${esc(r.repo)}${r.legacy ? ' · old' : ''}</span>
-        <span class="badges">${killed}${medal}${star}</span></div>
-      <div class="run-name" title="${esc(r.run_id)}">${esc(r.label)}</div>
-      <span class="verdict-pill vp-${r.verdict}">${esc(r.verdict)}</span>
-      <div class="run-metrics">
-        <div class="rm"><span>desired</span><b>${num(s.desired_ratio)}</b></div>
-        <div class="rm"><span>unique</span><b class="${uniqCls}">${num(uniq)}</b></div>
-        <div class="rm"><span>eff. scaf</span><b>${eff(div.effective_scaffolds)}</b></div>
-        <div class="rm"><span>ROCS</span><b>${num(s.rocs_median)}</b></div>
-      </div>`;
-    el.addEventListener('click', () => showRunModal(r));
+    if (state.treeCompact) {
+      el.innerHTML = `
+        <span style="width:8px;height:8px;border-radius:50%;background:${VCOLOR[r.verdict] || '#94a3b8'};flex-shrink:0;"></span>
+        <span class="compact-name" title="${esc(r.run_id)}">${esc(r.label)}</span>
+        ${anchorBadge}${medal}${star}
+        <span class="compact-vals">D:${num(s.desired_ratio)} E:${num(EDY(r), 3)}</span>`;
+    } else {
+      const grayNote = isGrayLow
+        ? `<span class="gray-low-tag" title="1 change (${esc(r.beatenByOne.axis)}→${esc(r.beatenByOne.toVal)}) improves criterion by +${num(r.beatenByOne.delta, 3)}">↑1-step</span>`
+        : '';
+      const nbNote = nb ? `<div class="neighbor-delta-tag">${esc(nb.axis)}: ${esc(nb.fromVal)}→${esc(nb.toVal)}</div>` : '';
+      el.innerHTML = `
+        <div class="run-card-top">
+          <span class="run-tag">${esc(r.repo)}${r.legacy ? ' · old' : ''}</span>
+          <span class="badges">${anchorBadge}${killed}${medal}${star}</span>
+        </div>
+        <div class="run-name" title="${esc(r.run_id)}">${esc(r.label)}</div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <span class="verdict-pill vp-${r.verdict}">${esc(r.verdict)}</span>
+          ${grayNote}
+          <button class="btn sm" style="margin-left:auto;padding:0 5px;font-size:9.5px;" data-1hop="${esc(r.run_id)}" title="Highlight 1-parameter neighbors">1-hop</button>
+        </div>
+        ${nbNote}
+        <div class="run-metrics">
+          <div class="rm"><span>desired</span><b>${num(s.desired_ratio)}</b></div>
+          <div class="rm"><span>unique</span><b class="${uniqCls}">${num(uniq)}</b></div>
+          <div class="rm"><span>eff. scaf</span><b>${eff(div.effective_scaffolds)}</b></div>
+          <div class="rm"><span>EDY</span><b>${num(EDY(r), 3)}</b></div>
+        </div>`;
+    }
+    el.addEventListener('mouseenter', () => updateBreadcrumb(node.trail, r, neighborMap));
+    el.addEventListener('click', e => {
+      const hopBtn = e.target.closest('[data-1hop]');
+      if (hopBtn) {
+        e.stopPropagation();
+        const rid = hopBtn.getAttribute('data-1hop');
+        state.treePinAnchorId = state.treePinAnchorId === rid ? null : rid;
+        renderTree();
+        return;
+      }
+      if (nb && state.treePinAnchorId) {
+        state.cmpA = state.treePinAnchorId; state.cmpB = r.run_id;
+        const tab = document.querySelector('.nav-tab[data-view="view-compare"]');
+        if (tab) tab.click();
+        return;
+      }
+      showRunModal(r);
+    });
   } else {
-    el.className = 'tree-node' + (node.factorId === 'root' ? ' is-root' : '')
+    el.className = 'tree-node'
+      + (node.factorId === 'root' ? ' is-root' : '')
+      + (node.isCollapsed ? ' is-collapsed' : '')
       + (state.searchQuery && !node.hasSearchMatch ? ' dimmed' : '');
     const layerMeta = DATA.available_layers.find(l => l.id === node.factorId);
-    const share = collapseShare(node);
-    const bar = node.judged ? `<div class="node-bar">
-      <span style="width:${(node.collapsed/node.judged*100)||0}%;background:${VCOLOR.collapsed}"></span>
-      <span style="width:${((node.judged-node.collapsed)/node.judged*100)||0}%;background:${VCOLOR.clean}"></span></div>` : '';
+    const j = node.judged || 0;
+    const bar = j ? `<div class="node-bar">
+      <span style="width:${(node.clean/j*100)||0}%;background:${VCOLOR.clean}" title="clean: ${node.clean}"></span>
+      <span style="width:${(node.concentrated/j*100)||0}%;background:${VCOLOR.concentrated}" title="concentrated: ${node.concentrated}"></span>
+      <span style="width:${(node.collapsed/j*100)||0}%;background:${VCOLOR.collapsed}" title="collapsed: ${node.collapsed}"></span>
+      <span style="width:${(node.unlearned/j*100)||0}%;background:${VCOLOR.unlearned}" title="unlearned: ${node.unlearned}"></span>
+    </div>` : '';
+    const collapseBtn = node.factorId !== 'root'
+      ? `<button class="node-collapse-btn" title="Collapse/expand branch">${node.isCollapsed ? '▸ +' + node.runsCount : '▾'}</button>` : '';
+    const topMed = (node.medals && node.medals.length) ? `<span class="medal m${node.medals[0]}">#${node.medals[0]}</span>` : '';
     el.innerHTML = `
+      ${collapseBtn}
       ${node.factorId !== 'root' ? `<div class="node-floor-label">${esc(layerMeta ? layerMeta.label : node.factorId)}</div>` : ''}
-      <div class="node-title">${esc(node.value)}</div>
-      <div class="node-meta">${node.runsCount} run${node.runsCount===1?'':'s'}${node.judged ? ` · ${Math.round(share*100)}% collapsed` : ' · not yet scored'}
-        ${node.frontierCount ? ` · ★${node.frontierCount}` : ''}</div>${bar}`;
+      <div class="node-title">${esc(node.value)} ${topMed} ${node.frontierCount ? `<span class="star">★${node.frontierCount}</span>` : ''}</div>
+      <div class="node-kpis">
+        <span>n=<b>${node.runsCount}</b></span>
+        <span>Des <b>${num(node.medDesired, 2)}</b></span>
+        <span>EDY <b>${num(node.medEDY, 3)}</b></span>
+      </div>${bar}`;
+    el.addEventListener('mouseenter', () => updateBreadcrumb(node.trail, null, neighborMap));
+    if (node.factorId !== 'root') {
+      el.querySelector('.node-collapse-btn').onclick = e => {
+        e.stopPropagation();
+        if (state.collapsedPaths.has(node.path)) state.collapsedPaths.delete(node.path);
+        else state.collapsedPaths.add(node.path);
+        renderTree();
+      };
+    }
   }
   container.appendChild(el);
 }
@@ -750,81 +1369,547 @@ function matchSearch(r) {
 }
 
 // ----------------------------------------------------------------------------- COLLAPSE MAP VIEW
+const PARAM_ORDERS = {
+  epsilon: [0, 0.02, 0.05, 0.1, 0.2],
+  scheme: ['PRCD', 'WS', 'HARR', 'PRTD'],
+  max_conformers: [10, 20, 30],
+  reference_conformers: [1, 4],
+  minimize: ['false', 'true'],
+  include_qed: ['false', 'true'],
+  color_ff: ['default', 'fdef', 'oe_mills_dean'],
+  alignment_shape_weight: [0.1, 0.2, 0.3, 0.5],
+};
+
+const MAP_FIELDS = {
+  // Performance (Stop Arm)
+  desired: {
+    group: 'Performance (Stop Arm)', label: 'Stop-arm Desired Ratio', short: 'desired',
+    get: r => STOP(r).desired_ratio, priorGet: r => PRIOR(r).desired_ratio, peakGet: r => BEST(r).desired_ratio,
+    fixed: [0, 1], dir: 'max',
+    refs: [{ val: 0.131, label: 'prior ~0.13', color: '#64748b' }],
+  },
+  unique: {
+    group: 'Performance (Stop Arm)', label: 'Stop-arm Uniqueness Ratio', short: 'unique',
+    get: r => STOP(r).unique_ratio, priorGet: r => PRIOR(r).unique_ratio, peakGet: r => BEST(r).unique_ratio,
+    fixed: [0, 1], dir: 'max',
+    refs: [
+      { val: 0.35, label: 'collapsed <0.35', color: '#dc2626' },
+      { val: 0.70, label: 'conc <0.70', color: '#d97706' },
+      { val: 0.954, label: 'prior 0.95', color: '#64748b' },
+    ],
+  },
+  edy: {
+    group: 'Performance (Stop Arm)', label: 'Effective Desired Yield (EDY)', short: 'EDY',
+    get: EDY, dir: 'max', includeZero: true, prec: 4,
+  },
+  rocs: {
+    group: 'Performance (Stop Arm)', label: 'ROCS Median (stop)', short: 'ROCS med',
+    get: r => STOP(r).rocs_median, priorGet: r => PRIOR(r).rocs_median, peakGet: r => BEST(r).rocs_median,
+    dir: 'max', includeZero: false, prec: 3,
+  },
+  rocs_max: {
+    group: 'Performance (Stop Arm)', label: 'ROCS Max (stop)', short: 'ROCS max',
+    get: r => STOP(r).rocs_max, priorGet: r => PRIOR(r).rocs_max, peakGet: r => BEST(r).rocs_max,
+    dir: 'max', includeZero: false, prec: 3,
+  },
+  valid: {
+    group: 'Performance (Stop Arm)', label: 'Validity Ratio (stop)', short: 'valid',
+    get: r => STOP(r).valid_ratio, priorGet: r => PRIOR(r).valid_ratio, peakGet: r => BEST(r).valid_ratio,
+    fixed: [0, 1], dir: 'max',
+    refs: [{ val: 0.85, label: 'floor 0.85', color: '#dc2626' }],
+  },
+  // Gain & Collapse Dynamics
+  rocs_gain: {
+    group: 'Gain & Collapse Dynamics', label: 'ROCS Improvement (Stop − Prior)', short: 'ΔROCS',
+    get: ROCS_GAIN, dir: 'max', includeZero: true, prec: 3,
+    refs: [{ val: 0, label: 'prior parity (0)', color: '#64748b' }],
+  },
+  desired_gain: {
+    group: 'Gain & Collapse Dynamics', label: 'Desired Improvement (Stop − Prior)', short: 'Δdesired',
+    get: DESIRED_GAIN, dir: 'max', includeZero: true, prec: 3,
+    refs: [{ val: 0, label: 'prior parity (0)', color: '#64748b' }],
+  },
+  unique_delta: {
+    group: 'Gain & Collapse Dynamics', label: 'Uniqueness Shift (Stop − Prior)', short: 'Δunique',
+    get: r => {
+      const s = STOP(r).unique_ratio, p = PRIOR(r).unique_ratio;
+      return (s != null && p != null) ? (s - p) : null;
+    },
+    dir: 'max', includeZero: true, prec: 3,
+    refs: [{ val: 0, label: 'prior parity (0)', color: '#64748b' }],
+  },
+  postpeak_decay: {
+    group: 'Gain & Collapse Dynamics', label: 'Post-Peak Uniqueness Decay', short: 'decay',
+    get: r => r.postpeak_decay, dir: 'min', includeZero: true, prec: 3,
+    refs: [{ val: 0, label: 'no decay (0)', color: '#64748b' }],
+  },
+  top1_share: {
+    group: 'Gain & Collapse Dynamics', label: 'Top-1 Molecule Share', short: 'top1',
+    get: r => STOP(r).top1_share, fixed: [0, 1], dir: 'min', prec: 3,
+  },
+  top10_share: {
+    group: 'Gain & Collapse Dynamics', label: 'Top-10 Molecule Share', short: 'top10',
+    get: r => STOP(r).top10_share, fixed: [0, 1], dir: 'min', prec: 3,
+    refs: [{ val: 0.60, label: 'series lock 0.60', color: '#dc2626' }],
+  },
+  hac_drift: {
+    group: 'Gain & Collapse Dynamics', label: 'HAC Drift vs Prior', short: 'ΔHAC',
+    get: r => r.hac_drift, dir: 'none', includeZero: true, prec: 1,
+    refs: [{ val: 0, label: 'prior HAC (0)', color: '#64748b' }],
+  },
+  hac_median: {
+    group: 'Gain & Collapse Dynamics', label: 'Stop HAC Median', short: 'HAC',
+    get: r => ((r.chemistry || {}).stop || {}).hac_median,
+    priorGet: r => ((r.chemistry || {}).prior || {}).hac_median,
+    dir: 'none', includeZero: false, prec: 1,
+  },
+  // Chemical Diversity & Novelty
+  eff: {
+    group: 'Chemical Diversity & Novelty', label: 'Effective Scaffolds (log scale)', short: 'eff.scaf',
+    get: r => STOPDIV(r).effective_scaffolds, priorGet: r => PRIORDIV(r).effective_scaffolds,
+    log: true, dir: 'max', prec: 0,
+    refs: [{ val: 3783, label: 'prior ~3,783', color: '#64748b' }],
+  },
+  eff_linear: {
+    group: 'Chemical Diversity & Novelty', label: 'Effective Scaffolds (linear)', short: 'eff.scaf',
+    get: r => STOPDIV(r).effective_scaffolds, priorGet: r => PRIORDIV(r).effective_scaffolds,
+    dir: 'max', includeZero: true, prec: 0,
+    refs: [{ val: 3783, label: 'prior ~3,783', color: '#64748b' }],
+  },
+  eff_mol: {
+    group: 'Chemical Diversity & Novelty', label: 'Effective Molecules (log scale)', short: 'eff.mols',
+    get: r => STOPDIV(r).effective_molecules, priorGet: r => PRIORDIV(r).effective_molecules,
+    log: true, dir: 'max', prec: 0,
+  },
+  internal: {
+    group: 'Chemical Diversity & Novelty', label: 'Internal Diversity (1 − pairwise)', short: 'int.div',
+    get: r => STOPDIV(r).internal_diversity, priorGet: r => PRIORDIV(r).internal_diversity,
+    fixed: [0, 1], dir: 'max', prec: 3,
+  },
+  scaffold_internal: {
+    group: 'Chemical Diversity & Novelty', label: 'Scaffold Internal Diversity', short: 'scaf int.div',
+    get: r => STOPDIV(r).scaffold_internal_diversity, priorGet: r => PRIORDIV(r).scaffold_internal_diversity,
+    fixed: [0, 1], dir: 'max', prec: 3,
+  },
+  sidechain_internal: {
+    group: 'Chemical Diversity & Novelty', label: 'Sidechain Internal Diversity', short: 'side int.div',
+    get: r => STOPDIV(r).sidechain_internal_diversity, priorGet: r => PRIORDIV(r).sidechain_internal_diversity,
+    fixed: [0, 1], dir: 'max', prec: 3,
+  },
+  entropy: {
+    group: 'Chemical Diversity & Novelty', label: 'Scaffold Entropy Ratio', short: 'scaf entropy',
+    get: r => STOPDIV(r).scaffold_entropy_ratio, priorGet: r => PRIORDIV(r).scaffold_entropy_ratio,
+    fixed: [0, 1], dir: 'max', prec: 3,
+  },
+  nn: {
+    group: 'Chemical Diversity & Novelty', label: 'NN Similarity p50', short: 'NN p50',
+    get: r => STOPDIV(r).nn_sim_p50, priorGet: r => PRIORDIV(r).nn_sim_p50,
+    fixed: [0, 1], dir: 'min', prec: 3,
+  },
+  near_dup: {
+    group: 'Chemical Diversity & Novelty', label: 'Near-Dup Rate', short: 'near-dup',
+    get: r => STOPDIV(r).near_dup_rate, priorGet: r => PRIORDIV(r).near_dup_rate,
+    fixed: [0, 1], dir: 'min', prec: 3,
+  },
+  novelty: {
+    group: 'Chemical Diversity & Novelty', label: 'Novelty vs Prior', short: 'novelty',
+    get: r => CROSS(r).novelty_rate, fixed: [0, 1], dir: 'max', prec: 3,
+  },
+  prior_sim: {
+    group: 'Chemical Diversity & Novelty', label: 'Similarity to Prior p50', short: 'prior sim',
+    get: r => CROSS(r).prior_sim_p50, fixed: [0, 1], dir: 'none', prec: 3,
+  },
+  prior_echo: {
+    group: 'Chemical Diversity & Novelty', label: 'Prior Echo Rate', short: 'prior echo',
+    get: r => CROSS(r).prior_echo_rate, fixed: [0, 1], dir: 'min', prec: 3,
+  },
+  // Compute & Budget
+  hours: {
+    group: 'Compute & Budget', label: 'Walltime (hours)', short: 'hours',
+    get: r => r.hours, dir: 'min', includeZero: true, prec: 1,
+  },
+  epochs: {
+    group: 'Compute & Budget', label: 'Epochs Run', short: 'epochs',
+    get: r => r.epochs_run, dir: 'none', includeZero: true, prec: 0,
+  },
+  edy_per_hour: {
+    group: 'Compute & Budget', label: 'Compute ROI (EDY / hour)', short: 'EDY/h',
+    get: r => {
+      const e = EDY(r), h = r.hours;
+      return (e != null && h != null && h > 0) ? (e / h) : null;
+    },
+    dir: 'max', includeZero: true, prec: 4,
+  },
+  // Config Parameters (usable on either horizontal or vertical axis!)
+  p_epsilon: {
+    group: 'Configuration Parameters', label: 'Param: Exploration ε', short: 'ε',
+    get: r => (r.axes || {}).epsilon, discrete: PARAM_ORDERS.epsilon, dir: 'none',
+    fmtCat: v => `ε=${v}`,
+  },
+  p_scheme: {
+    group: 'Configuration Parameters', label: 'Param: Reward Scheme', short: 'scheme',
+    get: r => (r.axes || {}).scheme, discrete: PARAM_ORDERS.scheme, dir: 'none',
+  },
+  p_max_conformers: {
+    group: 'Configuration Parameters', label: 'Param: Max Conformers C', short: 'C',
+    get: r => (r.axes || {}).max_conformers, discrete: PARAM_ORDERS.max_conformers, dir: 'none',
+    fmtCat: v => `C=${v}`,
+  },
+  p_ref_conformers: {
+    group: 'Configuration Parameters', label: 'Param: Reference Conformers K', short: 'K',
+    get: r => (r.axes || {}).reference_conformers, discrete: PARAM_ORDERS.reference_conformers, dir: 'none',
+    fmtCat: v => `K=${v}`,
+  },
+  p_minimize: {
+    group: 'Configuration Parameters', label: 'Param: Minimize (raw vs opt)', short: 'min',
+    get: r => (r.axes || {}).minimize == null ? null : String((r.axes || {}).minimize),
+    discrete: PARAM_ORDERS.minimize, dir: 'none',
+    fmtCat: v => v === 'true' ? 'opt (True)' : 'raw (False)',
+  },
+  p_include_qed: {
+    group: 'Configuration Parameters', label: 'Param: Objective Family (QED)', short: 'QED',
+    get: r => (r.axes || {}).include_qed == null ? null : String((r.axes || {}).include_qed),
+    discrete: PARAM_ORDERS.include_qed, dir: 'none',
+    fmtCat: v => v === 'true' ? 'SA+ROCS+QED' : 'SA+ROCS',
+  },
+  p_color_ff: {
+    group: 'Configuration Parameters', label: 'Param: Colour Force Field', short: 'color_ff',
+    get: r => (r.axes || {}).color_ff, discrete: PARAM_ORDERS.color_ff, dir: 'none',
+  },
+  p_shape_weight: {
+    group: 'Configuration Parameters', label: 'Param: Shape Weight w', short: 'w',
+    get: r => (r.axes || {}).alignment_shape_weight, discrete: PARAM_ORDERS.alignment_shape_weight, dir: 'none',
+    fmtCat: v => `w=${v}`,
+  },
+};
+
+function populateMapAxisSelect(sel) {
+  const groups = new Map();
+  Object.entries(MAP_FIELDS).forEach(([key, spec]) => {
+    if (!groups.has(spec.group)) groups.set(spec.group, []);
+    groups.get(spec.group).push([key, spec.label]);
+  });
+  sel.innerHTML = Array.from(groups.entries()).map(([grp, opts]) =>
+    `<optgroup label="${esc(grp)}">${opts.map(([k, lbl]) => `<option value="${k}">${esc(lbl)}</option>`).join('')}</optgroup>`
+  ).join('');
+}
+
+const MAP_PRESETS = {
+  breadth_yield: { x: 'eff', y: 'desired', color: 'verdict', shape: 'family', size: 'edy', pair: 'none' },
+  dup_yield: { x: 'unique', y: 'desired', color: 'verdict', shape: 'family', size: 'uniform', pair: 'none' },
+  rocs_breadth: { x: 'eff', y: 'rocs', color: 'epsilon', shape: 'scheme', size: 'edy', pair: 'none' },
+  rocs_gain_breadth: { x: 'eff', y: 'rocs_gain', color: 'scheme', shape: 'family', size: 'edy', pair: 'none' },
+  scaf_side: { x: 'sidechain_internal', y: 'scaffold_internal', color: 'scheme', shape: 'family', size: 'edy', pair: 'none' },
+  eps_sweep: { x: 'p_epsilon', y: 'edy', color: 'scheme', shape: 'family', size: 'rocs', pair: 'epsilon' },
+  compute_roi: { x: 'hours', y: 'edy', color: 'max_conformers', shape: 'minimize', size: 'uniform', pair: 'minimize' },
+};
+
 function renderMap() {
-  const axesList = ['scheme','max_conformers','reference_conformers','minimize','epsilon','color_ff','alignment_shape_weight'];
+  const xSel = $('map-x-metric'), ySel = $('map-y-metric');
+  if (!xSel.options.length) populateMapAxisSelect(xSel);
+  if (!ySel.options.length) populateMapAxisSelect(ySel);
+
+  const axesList = ['include_qed','scheme','epsilon','minimize','reference_conformers','max_conformers','color_ff','alignment_shape_weight'];
   $('map-axis-filters').innerHTML = axesList.map(a =>
-    `<label>${a}: <select id="mf-${a}"><option value="">all</option></select></label>`
+    `<label>${a === 'alignment_shape_weight' ? 'shape_w' : a}: <select id="mf-${a}"><option value="">all</option></select></label>`
   ).join('');
 
   axesList.forEach(a => {
     const sel = $('mf-' + a);
-    const vals = [...new Set(DATA.runs.map(r => (r.axes || {})[a]))].filter(v => v != null).sort();
+    const vals = [...new Set(DATA.runs.map(r => (r.axes || {})[a]))].filter(v => v != null)
+      .sort((x, y) => {
+        const nx = parseFloat(x), ny = parseFloat(y);
+        return (!Number.isNaN(nx) && !Number.isNaN(ny)) ? nx - ny : String(x).localeCompare(String(y));
+      });
     vals.forEach(v => {
-      const opt = document.createElement('option'); opt.value = opt.textContent = v; sel.appendChild(opt);
+      const opt = document.createElement('option'); opt.value = String(v);
+      opt.textContent = a === 'include_qed' ? (v ? 'True (SA+ROCS+QED)' : 'False (SA+ROCS)') : String(v);
+      sel.appendChild(opt);
     });
-    sel.value = state.mapFilters[a] || '';
-    sel.onchange = () => { state.mapFilters[a] = sel.value; drawScatter(); };
+    sel.value = state.paramFilters[a] || '';
+    sel.onchange = () => {
+      state.paramFilters[a] = sel.value;
+      const gf = $('gf-' + a);
+      if (gf) gf.value = sel.value;
+      computeDynamicRanks();
+      drawScatter();
+    };
   });
 
-  $('map-x-metric').value = state.mapX;
-  $('map-y-metric').value = state.mapY;
-  $('map-x-metric').onchange = () => { state.mapX = $('map-x-metric').value; drawScatter(); };
-  $('map-y-metric').onchange = () => { state.mapY = $('map-y-metric').value; drawScatter(); };
+  const syncControls = () => {
+    xSel.value = state.mapX;
+    ySel.value = state.mapY;
+    $('map-family-scope').value = state.mapFamily;
+    $('map-color-by').value = state.mapColor;
+    $('map-shape-by').value = state.mapShape;
+    $('map-size-by').value = state.mapSize;
+    $('map-pair-by').value = state.mapPairBy;
+    $('map-opt-frontier').checked = state.mapOptFrontier;
+    $('map-opt-refs').checked = state.mapOptRefs;
+    $('map-opt-centroids').checked = state.mapOptCentroids;
+    $('map-opt-jitter').checked = state.mapOptJitter;
+  };
+  syncControls();
+
+  xSel.onchange = () => { state.mapX = xSel.value; drawScatter(); };
+  ySel.onchange = () => { state.mapY = ySel.value; drawScatter(); };
+  $('btn-map-swap-axes').onclick = () => {
+    [state.mapX, state.mapY] = [state.mapY, state.mapX];
+    syncControls();
+    computeDynamicRanks();
+    drawScatter();
+  };
+  $('map-family-scope').onchange = () => { state.mapFamily = $('map-family-scope').value; drawScatter(); };
+  $('map-color-by').onchange = () => { state.mapColor = $('map-color-by').value; drawScatter(); };
+  $('map-shape-by').onchange = () => { state.mapShape = $('map-shape-by').value; drawScatter(); };
+  $('map-size-by').onchange = () => { state.mapSize = $('map-size-by').value; drawScatter(); };
+  $('map-pair-by').onchange = () => { state.mapPairBy = $('map-pair-by').value; drawScatter(); };
+  $('map-opt-frontier').onchange = () => { state.mapOptFrontier = $('map-opt-frontier').checked; drawScatter(); };
+  $('map-opt-refs').onchange = () => { state.mapOptRefs = $('map-opt-refs').checked; drawScatter(); };
+  $('map-opt-centroids').onchange = () => { state.mapOptCentroids = $('map-opt-centroids').checked; drawScatter(); };
+  $('map-opt-jitter').onchange = () => { state.mapOptJitter = $('map-opt-jitter').checked; drawScatter(); };
+
+  document.querySelectorAll('[data-preset]').forEach(btn => {
+    btn.onclick = () => {
+      const p = MAP_PRESETS[btn.dataset.preset];
+      if (!p) return;
+      state.mapX = p.x; state.mapY = p.y; state.mapColor = p.color;
+      state.mapShape = p.shape; state.mapSize = p.size; state.mapPairBy = p.pair;
+      syncControls();
+      drawScatter();
+    };
+  });
+
   $('btn-map-reset-filters').onclick = () => {
-    state.mapFilters = {};
-    axesList.forEach(a => { const el = $('mf-' + a); if (el) el.value = ''; });
+    state.paramFilters = {};
+    state.anchorNeighborhoodOnly = false;
+    state.mapFamily = 'both';
+    axesList.forEach(a => {
+      const mf = $('mf-' + a), gf = $('gf-' + a);
+      if (mf) mf.value = '';
+      if (gf) gf.value = '';
+    });
+    syncControls();
+    computeDynamicRanks();
     drawScatter();
   };
 
   drawScatter();
 }
 
+function _hashJitter(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 1000) / 1000 - 0.5; // [-0.5, 0.5)
+}
+
+function _median(arr) {
+  if (!arr.length) return null;
+  const s = arr.slice().sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function _quantiles(arr) {
+  if (!arr.length) return null;
+  const s = arr.slice().sort((a, b) => a - b);
+  const q = p => {
+    const pos = (s.length - 1) * p;
+    const lo = Math.floor(pos), hi = Math.ceil(pos);
+    return s[lo] + (s[hi] - s[lo]) * (pos - lo);
+  };
+  return { q25: q(0.25), med: q(0.5), q75: q(0.75) };
+}
+
+function _viridisColor(t) {
+  const stops = ['#3b0f70', '#8c2981', '#de4968', '#fe9f6d', '#fcfdbf'];
+  const clamped = Math.max(0, Math.min(1, t));
+  const scaled = clamped * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(scaled));
+  const f = scaled - i;
+  const hex = h => [parseInt(h.slice(1,3), 16), parseInt(h.slice(3,5), 16), parseInt(h.slice(5,7), 16)];
+  const [r1, g1, b1] = hex(stops[i]), [r2, g2, b2] = hex(stops[i + 1]);
+  return `rgb(${Math.round(r1 + (r2 - r1) * f)},${Math.round(g1 + (g2 - g1) * f)},${Math.round(b1 + (b2 - b1) * f)})`;
+}
+
+function _computePareto2D(items, getValX, getValY, dirX, dirY) {
+  if (dirX === 'none' || dirY === 'none') return [];
+  const sx = dirX === 'max' ? 1 : -1;
+  const sy = dirY === 'max' ? 1 : -1;
+  const eligible = items.filter(it => it.run.verdict !== 'pilot' && it.run.verdict !== 'incomplete');
+  const front = [];
+  for (let i = 0; i < eligible.length; i++) {
+    const a = eligible[i];
+    const ax = getValX(a) * sx, ay = getValY(a) * sy;
+    let dominated = false;
+    for (let j = 0; j < eligible.length; j++) {
+      if (i === j) continue;
+      const b = eligible[j];
+      const bx = getValX(b) * sx, by = getValY(b) * sy;
+      if (bx >= ax && by >= ay && (bx > ax || by > ay)) {
+        dominated = true;
+        break;
+      }
+    }
+    if (!dominated) front.push(a);
+  }
+  return front;
+}
+
+function _shapePath(shape, cx, cy, r) {
+  if (shape === 'diamond') {
+    const d = r * 1.25;
+    return `<polygon points="${cx},${cy - d} ${cx + d},${cy} ${cx},${cy + d} ${cx - d},${cy}"`;
+  }
+  if (shape === 'triangle') {
+    const h = r * 1.3;
+    return `<polygon points="${cx},${cy - h} ${cx + h * 0.95},${cy + h * 0.78} ${cx - h * 0.95},${cy + h * 0.78}"`;
+  }
+  if (shape === 'square') {
+    const s = r * 0.95;
+    return `<rect x="${cx - s}" y="${cy - s}" width="${s * 2}" height="${s * 2}" rx="1.5"`;
+  }
+  return `<circle cx="${cx}" cy="${cy}" r="${r}"`;
+}
+
 function drawScatter() {
   const runs = DATA.runs.filter(r => {
-    if (!state.verdictsOn.has(r.verdict)) return false;
-    for (const [k, v] of Object.entries(state.mapFilters)) {
-      if (v && String((r.axes || {})[k]) !== v) return false;
-    }
+    if (!passesGlobalFilters(r, { ignoreFamily: state.mapFamily !== 'both' })) return false;
+    if (state.mapFamily === 'rocs' && r.family_key !== 'rocs') return false;
+    if (state.mapFamily === 'qed' && r.family_key !== 'qed') return false;
     return true;
   });
 
-  // Each metric carries its own domain: ratios are fixed 0–1, counts are log-scaled,
-  // and a yield (EDY) is small enough that a 0–1 axis would flatten it onto the floor.
-  const MAP_X = {
-    unique: { get: r => STOP(r).unique_ratio, fixed: [0, 1] },
-    eff: { get: r => STOPDIV(r).effective_scaffolds, log: true },
-    eff_mol: { get: r => STOPDIV(r).effective_molecules, log: true },
-    internal: { get: r => STOPDIV(r).internal_diversity, fixed: [0, 1] },
-    scaffold_internal: { get: r => STOPDIV(r).scaffold_internal_diversity, fixed: [0, 1] },
-    sidechain_internal: { get: r => STOPDIV(r).sidechain_internal_diversity, fixed: [0, 1] },
-    entropy: { get: r => STOPDIV(r).scaffold_entropy_ratio, fixed: [0, 1] },
-    edy: { get: EDY },
-    nn: { get: r => STOPDIV(r).nn_sim_p50, fixed: [0, 1] },
-    novelty: { get: r => CROSS(r).novelty_rate, fixed: [0, 1] },
-  };
-  const MAP_Y = {
-    desired: { get: r => STOP(r).desired_ratio, fixed: [0, 1] },
-    edy: { get: EDY },
-    rocs: { get: r => STOP(r).rocs_median },
-    valid: { get: r => STOP(r).valid_ratio, fixed: [0, 1] },
-  };
-  const specX = MAP_X[state.mapX] || MAP_X.unique;
-  const specY = MAP_Y[state.mapY] || MAP_Y.desired;
-  const getX = specX.get, getY = specY.get;
+  const specX = MAP_FIELDS[state.mapX] || MAP_FIELDS.eff;
+  const specY = MAP_FIELDS[state.mapY] || MAP_FIELDS.desired;
+  const getRawX = specX.get, getRawY = specY.get;
 
-  const validRuns = runs.filter(r => getX(r) != null && getY(r) != null);
-  const logX = !!specX.log;
-  const xs = validRuns.map(getX), ys = validRuns.map(getY);
-  const bounds = (values, spec, minimum) => {
-    if (spec.log) return [1, Math.max(10, ...values)];
-    if (spec.fixed) return spec.fixed;
-    const hi = values.length ? Math.max(...values) * 1.05 : 1;
-    return [0, Math.max(hi, minimum)];
+  const validRuns = runs.filter(r => {
+    const xv = getRawX(r), yv = getRawY(r);
+    return xv != null && yv != null && !Number.isNaN(Number(specX.discrete ? 0 : xv)) && !Number.isNaN(Number(specY.discrete ? 0 : yv));
+  });
+
+  // Discrete axis encoding maps categories to indices 0..K-1
+  const buildDiscreteMap = (spec, getter) => {
+    if (!spec.discrete) return null;
+    const present = new Set(validRuns.map(r => String(getter(r))));
+    const ordered = spec.discrete.map(String).filter(v => present.has(v));
+    [...present].filter(v => !ordered.includes(v)).sort().forEach(v => ordered.push(v));
+    const idx = new Map(ordered.map((v, i) => [v, i]));
+    return { ordered, idx };
   };
-  const [xmin, xmax] = bounds(xs, specX, 1e-6);
-  const [ymin, ymax] = bounds(ys, specY, 0.1);
-  // Tick precision follows the span so EDY (≈0.02) does not print five rows of 0.00.
-  const tick = (v, lo, hi) => {
+  const discX = buildDiscreteMap(specX, getRawX);
+  const discY = buildDiscreteMap(specY, getRawY);
+
+  const numX = r => discX ? discX.idx.get(String(getRawX(r))) : Number(getRawX(r));
+  const numY = r => discY ? discY.idx.get(String(getRawY(r))) : Number(getRawY(r));
+  const jitX = r => (discX && state.mapOptJitter) ? numX(r) + _hashJitter(r.run_id + ':x') * 0.46 : numX(r);
+  const jitY = r => (discY && state.mapOptJitter) ? numY(r) + _hashJitter(r.run_id + ':y') * 0.46 : numY(r);
+
+  // Include prior/peak endpoints when trajectory arrows are active
+  const extraX = [], extraY = [];
+  if (state.mapPairBy === 'prior_to_stop' && specX.priorGet && specY.priorGet) {
+    validRuns.forEach(r => {
+      const px = discX ? discX.idx.get(String(specX.priorGet(r))) : specX.priorGet(r);
+      const py = discY ? discY.idx.get(String(specY.priorGet(r))) : specY.priorGet(r);
+      if (px != null && py != null) { extraX.push(px); extraY.push(py); }
+    });
+  } else if (state.mapPairBy === 'peak_to_stop' && specX.peakGet && specY.peakGet) {
+    validRuns.forEach(r => {
+      const px = discX ? discX.idx.get(String(specX.peakGet(r))) : specX.peakGet(r);
+      const py = discY ? discY.idx.get(String(specY.peakGet(r))) : specY.peakGet(r);
+      if (px != null && py != null) { extraX.push(px); extraY.push(py); }
+    });
+  }
+
+  const computeBounds = (values, extras, spec, disc) => {
+    if (disc) return [-0.5, Math.max(0.5, disc.ordered.length - 0.5)];
+    const all = values.concat(extras).filter(v => v != null && Number.isFinite(v));
+    if (spec.log) {
+      const pos = all.filter(v => v > 0);
+      if (!pos.length) return [1, 100];
+      const lo = Math.max(1, Math.min(...pos) * 0.72);
+      const hi = Math.max(lo * 10, Math.max(...pos) * 1.18);
+      return [lo, hi];
+    }
+    if (spec.fixed) return spec.fixed;
+    if (!all.length) return [0, 1];
+    let lo = Math.min(...all), hi = Math.max(...all);
+    if (spec.includeZero) { lo = Math.min(0, lo); hi = Math.max(0, hi); }
+    const span = hi - lo || Math.abs(hi) || 1;
+    const padLo = (spec.includeZero && lo === 0) ? 0 : span * 0.07;
+    const padHi = (spec.includeZero && hi === 0) ? 0 : span * 0.08;
+    return [lo - padLo, hi + padHi];
+  };
+  const [xmin, xmax] = computeBounds(validRuns.map(numX), extraX, specX, discX);
+  const [ymin, ymax] = computeBounds(validRuns.map(numY), extraY, specY, discY);
+
+  // Color encoding
+  const CAT_PALETTE = {
+    epsilon: { '0': '#dc2626', '0.02': '#ea580c', '0.05': '#eab308', '0.1': '#10b981', '0.2': '#2563eb' },
+    scheme: { PRCD: '#2563eb', WS: '#16a34a', HARR: '#dc2626', PRTD: '#9333ea' },
+    include_qed: { false: '#2563eb', true: '#f59e0b' },
+    color_ff: { default: '#64748b', fdef: '#16a34a', oe_mills_dean: '#9333ea' },
+    max_conformers: { '10': '#0ea5e9', '20': '#8b5cf6', '30': '#e11d48' },
+    alignment_shape_weight: { '0.1': '#0ea5e9', '0.2': '#10b981', '0.3': '#f59e0b', '0.5': '#6366f1' },
+    geometry: { 'K1 · raw': '#0ea5e9', 'K1 · opt': '#2563eb', 'K4 · raw': '#f59e0b', 'K4 · opt': '#dc2626' },
+  };
+  const contGetters = {
+    edy: EDY,
+    rocs: r => STOP(r).rocs_median,
+    rocs_gain: ROCS_GAIN,
+    eff: r => STOPDIV(r).effective_scaffolds ? Math.log10(Math.max(STOPDIV(r).effective_scaffolds, 1)) : null,
+  };
+  const isContColor = !!contGetters[state.mapColor];
+  let contMin = 0, contMax = 1;
+  if (isContColor) {
+    const cvals = validRuns.map(contGetters[state.mapColor]).filter(v => v != null);
+    if (cvals.length) { contMin = Math.min(...cvals); contMax = Math.max(...cvals); }
+  }
+  const getColorCategory = r => {
+    if (state.mapColor === 'verdict') return r.verdict;
+    if (state.mapColor === 'geometry') return (r.factors || {}).geometry || '—';
+    return String((r.axes || {})[state.mapColor] ?? '—');
+  };
+  const getColor = r => {
+    if (state.mapColor === 'verdict') return VCOLOR[r.verdict] || '#94a3b8';
+    if (isContColor) {
+      const v = contGetters[state.mapColor](r);
+      if (v == null) return '#94a3b8';
+      return _viridisColor((v - contMin) / (contMax - contMin || 1));
+    }
+    const cat = getColorCategory(r);
+    return (CAT_PALETTE[state.mapColor] || {})[cat] || '#64748b';
+  };
+
+  // Shape & Size encoding
+  const getShape = r => {
+    if (state.mapShape === 'family') return r.family_key === 'qed' ? 'diamond' : 'circle';
+    if (state.mapShape === 'scheme') return (r.axes || {}).scheme === 'WS' ? 'triangle' : 'circle';
+    if (state.mapShape === 'minimize') return (r.axes || {}).minimize ? 'circle' : 'square';
+    return 'circle';
+  };
+  const sizeGetters = {
+    edy: EDY,
+    rocs: r => STOP(r).rocs_median,
+    eff: r => STOPDIV(r).effective_scaffolds ? Math.log10(Math.max(STOPDIV(r).effective_scaffolds, 1)) : null,
+    hours: r => r.hours,
+  };
+  let sizeMin = 0, sizeMax = 1;
+  if (state.mapSize !== 'uniform' && sizeGetters[state.mapSize]) {
+    const svals = validRuns.map(sizeGetters[state.mapSize]).filter(v => v != null);
+    if (svals.length) { sizeMin = Math.min(...svals); sizeMax = Math.max(...svals); }
+  }
+  const getRadius = (r, isFront) => {
+    if (state.mapSize === 'uniform') return isFront ? 6.5 : 4.6;
+    const v = sizeGetters[state.mapSize](r);
+    if (v == null) return 3.8;
+    const t = Math.max(0, Math.min(1, (v - sizeMin) / (sizeMax - sizeMin || 1)));
+    return 3.5 + t * 5.2 + (isFront ? 1.0 : 0);
+  };
+
+  const tickFmt = (v, lo, hi, spec) => {
+    if (spec && spec.prec != null) return Number(v).toFixed(spec.prec);
     const span = Math.abs(hi - lo);
     if (span >= 10) return Math.round(v).toLocaleString();
     if (span >= 0.1) return v.toFixed(2);
@@ -832,189 +1917,704 @@ function drawScatter() {
     return v.toFixed(4);
   };
 
-  const W = 940, H = 500, m = { l: 56, r: 24, t: 24, b: 46 };
-  const sx = v => logX ? Math.log10(Math.max(v, 1)) : v;
-  const X = v => m.l + (sx(v) - sx(xmin)) / (sx(xmax) - sx(xmin) || 1) * (W - m.l - m.r);
-  const Y = v => H - m.b - (v - ymin) / (ymax - ymin || 1) * (H - m.t - m.b);
+  // Compute Paired Arrows across filtered runs
+  let pairArrowCount = 0;
+  const pairDx = [], pairDy = [];
 
-  const tickValues = (lo, hi, n) => Array.from({ length: n + 1 }, (_, i) => lo + (hi - lo) * i / n);
-  const [xTicks, yTicks] = [tickValues(xmin, xmax, 5), tickValues(ymin, ymax, 5)];
-  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;max-height:550px;">
-    ${xTicks.map(v => `<line x1="${X(v)}" y1="${m.t}" x2="${X(v)}" y2="${H - m.b}" stroke="var(--border-subtle)"/>`).join('')}
-    ${yTicks.map(v => `<line x1="${m.l}" y1="${Y(v)}" x2="${W - m.r}" y2="${Y(v)}" stroke="var(--border-subtle)"/>`).join('')}
-    ${(logX ? [1, 10, 100, 1000, Math.round(xmax)].filter((v, i, a) => a.indexOf(v) === i && v <= xmax)
-            : xTicks).map(xv =>
-      `<text x="${X(xv)}" y="${H - m.b + 16}" text-anchor="middle" font-size="10.5" fill="var(--text-soft)">${logX ? Math.round(xv).toLocaleString() : tick(xv, xmin, xmax)}</text>`).join('')}
-    ${yTicks.map(yv => `<text x="${m.l - 8}" y="${Y(yv) + 4}" text-anchor="end" font-size="10.5" fill="var(--text-soft)">${tick(yv, ymin, ymax)}</text>`).join('')}
-    <text x="${(m.l + W - m.r) / 2}" y="${H - 10}" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text-main)">${$('map-x-metric').selectedOptions[0].text}</text>
-    <text x="16" y="${(m.t + H - m.b) / 2}" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text-main)" transform="rotate(-90 16 ${(m.t + H - m.b) / 2})">${$('map-y-metric').selectedOptions[0].text}</text>`;
+  const renderPanelSVG = (panelRuns, panelTitle, W, H) => {
+    const m = { l: discY ? 92 : 62, r: 24, t: panelTitle ? 32 : 24, b: 48 };
+    const logX = !!specX.log && !discX, logY = !!specY.log && !discY;
+    const sx = v => logX ? Math.log10(Math.max(v, 1)) : v;
+    const sy = v => logY ? Math.log10(Math.max(v, 1)) : v;
+    const X = v => m.l + (sx(v) - sx(xmin)) / (sx(xmax) - sx(xmin) || 1) * (W - m.l - m.r);
+    const Y = v => H - m.b - (sy(v) - sy(ymin)) / (sy(ymax) - sy(ymin) || 1) * (H - m.t - m.b);
 
-  // Frontier dashed line if unique vs desired
-  if (state.mapX === 'unique' && state.mapY === 'desired') {
-    const fr = validRuns.filter(r => r.frontier).sort((a,b) => getX(a) - getX(b));
-    if (fr.length > 1) {
-      svg += `<polyline points="${fr.map(r => `${X(getX(r))},${Y(getY(r))}`).join(' ')}" fill="none" stroke="var(--text-main)" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6"/>`;
-    }
-  }
-
-  // Draw points
-  validRuns.forEach(r => {
-    const cx = X(getX(r)), cy = Y(getY(r));
-    const s = STOP(r), div = STOPDIV(r);
-    svg += `<circle cx="${cx}" cy="${cy}" r="${r.frontier ? 6.5 : 4.5}" fill="${VCOLOR[r.verdict] || '#94a3b8'}"
-      opacity="${r.frontier ? 0.95 : 0.75}" stroke="${r.frontier ? 'var(--text-main)' : '#fff'}" stroke-width="${r.frontier ? 2 : 1}" style="cursor:pointer;"
-      onclick="showRunModalById('${r.run_id}')">
-      <title>${esc(r.run_id)} (${r.verdict})\ndesired: ${num(s.desired_ratio)} · unique: ${num(s.unique_ratio)} · valid: ${num(s.valid_ratio)}\neff.scaffolds: ${div.effective_scaffolds ? Math.round(div.effective_scaffolds).toLocaleString() : '—'} · EDY: ${num(EDY(r), 4)}\nscaffold int.div: ${num(div.scaffold_internal_diversity, 3)} · sidechain int.div: ${num(div.sidechain_internal_diversity, 3)}\nscaffold entropy ratio: ${num(div.scaffold_entropy_ratio, 3)}\nε=${(r.axes||{}).epsilon} scheme=${(r.axes||{}).scheme}</title>
-    </circle>`;
-  });
-
-  svg += `</svg>`;
-  $('scatter-box').innerHTML = svg;
-  $('map-legend').innerHTML = `${Object.entries(VCOLOR).map(([k, c]) =>
-    `<span><span class="map-dot-sample" style="background:${c}"></span>${k}</span>`).join('')}
-    <span style="margin-left:12px;font-weight:600;">★ = frontier (${validRuns.filter(r=>r.frontier).length})</span>
-    <span>Showing <b>${validRuns.length}</b> runs</span>`;
-}
-
-// ----------------------------------------------------------------------------- BY AXIS VIEW
-function renderByAxis() {
-  document.querySelectorAll('.axis-y-toggle').forEach(btn => {
-    btn.onclick = () => {
-      document.querySelectorAll('.axis-y-toggle').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.axisMetric = btn.dataset.metric;
-      renderByAxis();
-    };
-  });
-
-  const stripAxes = ['scheme','max_conformers','reference_conformers','minimize','epsilon','color_ff','alignment_shape_weight','include_qed'];
-  const getVal = r => {
-    const s = STOP(r), div = STOPDIV(r);
-    if (state.axisMetric === 'unique') return s.unique_ratio;
-    if (state.axisMetric === 'desired') return s.desired_ratio;
-    if (state.axisMetric === 'eff') return div.effective_scaffolds ? Math.log10(Math.max(div.effective_scaffolds, 1)) : null;
-    if (state.axisMetric === 'eff_mol') return div.effective_molecules ? Math.log10(Math.max(div.effective_molecules, 1)) : null;
-    if (state.axisMetric === 'internal') return div.internal_diversity;
-    if (state.axisMetric === 'scaffold_internal') return div.scaffold_internal_diversity;
-    if (state.axisMetric === 'sidechain_internal') return div.sidechain_internal_diversity;
-    if (state.axisMetric === 'entropy') return div.scaffold_entropy_ratio;
-    if (state.axisMetric === 'edy') return EDY(r);
-    return s.unique_ratio;
-  };
-  // EDY is an order of magnitude below the ratios, so it is normalised by its own maximum;
-  // log metrics use the log10 of a 5,000-draw arm (3.7). Everything else is already 0–1.
-  const edyMax = Math.max(1e-9, ...DATA.runs.map(r => EDY(r) ?? 0));
-  const isLogMetric = state.axisMetric === 'eff' || state.axisMetric === 'eff_mol';
-  const normVal = v => isLogMetric
-    ? Math.min(1, v / 3.7)
-    : state.axisMetric === 'edy' ? Math.min(1, v / edyMax) : Math.max(0, Math.min(1, v));
-  const axisTick = y => state.axisMetric === 'edy' ? (y * edyMax).toFixed(4) : y;
-
-  $('axisgrid').innerHTML = stripAxes.map(axis => {
-    const groups = {};
-    DATA.runs.forEach(r => {
-      if (r.verdict === 'pilot' || r.verdict === 'incomplete') return;
-      const v = (r.axes || {})[axis];
-      if (v == null) return;
-      (groups[v] = groups[v] || []).push(r);
-    });
-    const keys = Object.keys(groups).sort((a,b) => parseFloat(a) - parseFloat(b) || a.localeCompare(b));
-    const W = 360, H = 180, m = { l: 36, r: 12, t: 12, b: 28 };
-    const Y = v => H - m.b - v * (H - m.t - m.b);
-    let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;">`;
-    [0, .25, .5, .75, 1].forEach(y => {
-      svg += `<line x1="${m.l}" y1="${Y(y)}" x2="${W - m.r}" y2="${Y(y)}" stroke="var(--border-subtle)"/>
-        <text x="${m.l - 6}" y="${Y(y) + 4}" text-anchor="end" font-size="9.5" fill="var(--text-soft)">${axisTick(y)}</text>`;
-    });
-    keys.forEach((k, gi) => {
-      const cx = m.l + (gi + 0.5) * (W - m.l - m.r) / (keys.length || 1);
-      svg += `<text x="${cx}" y="${H - 8}" text-anchor="middle" font-size="9.5" font-weight="600" fill="var(--text-main)">${esc(k)}</text>`;
-      const vals = groups[k].map(getVal).filter(v => v != null);
-      groups[k].forEach((r, i) => {
-        const u = getVal(r); if (u == null) return;
-        const normU = normVal(u);
-        const jx = cx + (i / Math.max(groups[k].length - 1, 1) - 0.5) * Math.min(36, (W - m.l - m.r) / keys.length * 0.7);
-        svg += `<circle cx="${jx}" cy="${Y(normU)}" r="3" fill="${VCOLOR[r.verdict] || '#94a3b8'}" opacity="0.8" style="cursor:pointer;" onclick="showRunModalById('${r.run_id}')">
-          <title>${esc(r.run_id)}: ${state.axisMetric}=${num(u, 4)}</title></circle>`;
+    const linTicks = (lo, hi, n) => Array.from({ length: n + 1 }, (_, i) => lo + (hi - lo) * i / n);
+    const logTicksFor = (lo, hi, pxFn, minGap) => {
+      const cands = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].filter(v => v >= lo * 0.99 && v <= hi * 1.01);
+      const out = [];
+      cands.forEach(v => {
+        if (!out.length || Math.abs(pxFn(v) - pxFn(out[out.length - 1])) >= minGap) out.push(v);
       });
-      if (vals.length) {
-        const med = vals.sort((a,b) => a - b)[Math.floor(vals.length / 2)];
-        const normMed = normVal(med);
-        svg += `<line x1="${cx - 12}" y1="${Y(normMed)}" x2="${cx + 12}" y2="${Y(normMed)}" stroke="var(--text-main)" stroke-width="2.5"/>`;
+      return out;
+    };
+    const xTicks = discX ? discX.ordered.map((_, i) => i) : (logX ? logTicksFor(xmin, xmax, X, 40) : linTicks(xmin, xmax, 5));
+    const yTicks = discY ? discY.ordered.map((_, i) => i) : (logY ? logTicksFor(ymin, ymax, Y, 26) : linTicks(ymin, ymax, 5));
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;max-height:560px;">
+      <defs>
+        <marker id="map-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--text-main)" opacity="0.65"/>
+        </marker>
+      </defs>`;
+    if (panelTitle) {
+      svg += `<text x="${(m.l + W - m.r) / 2}" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text-main)">${esc(panelTitle)} (n=${panelRuns.length})</text>`;
+    }
+
+    // Gridlines & tick labels
+    xTicks.forEach(v => {
+      const label = discX ? (specX.fmtCat ? specX.fmtCat(discX.ordered[v]) : discX.ordered[v]) : (logX ? Math.round(v).toLocaleString() : tickFmt(v, xmin, xmax, specX));
+      svg += `<line x1="${X(v)}" y1="${m.t}" x2="${X(v)}" y2="${H - m.b}" stroke="var(--border-subtle)"/>
+        <text x="${X(v)}" y="${H - m.b + 16}" text-anchor="middle" font-size="10.5" fill="var(--text-soft)">${esc(label)}</text>`;
+    });
+    yTicks.forEach(v => {
+      const label = discY ? (specY.fmtCat ? specY.fmtCat(discY.ordered[v]) : discY.ordered[v]) : (logY ? Math.round(v).toLocaleString() : tickFmt(v, ymin, ymax, specY));
+      svg += `<line x1="${m.l}" y1="${Y(v)}" x2="${W - m.r}" y2="${Y(v)}" stroke="var(--border-subtle)"/>
+        <text x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end" font-size="10.5" fill="var(--text-soft)">${esc(label)}</text>`;
+    });
+
+    // Axis titles
+    svg += `<text x="${(m.l + W - m.r) / 2}" y="${H - 10}" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text-main)">${esc(specX.label)}</text>
+      <text x="16" y="${(m.t + H - m.b) / 2}" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text-main)" transform="rotate(-90 16 ${(m.t + H - m.b) / 2})">${esc(specY.label)}</text>`;
+
+    // Reference threshold & prior lines
+    if (state.mapOptRefs) {
+      (specX.refs || []).forEach(ref => {
+        if (ref.val < xmin || ref.val > xmax) return;
+        const rx = X(ref.val);
+        svg += `<line x1="${rx}" y1="${m.t}" x2="${rx}" y2="${H - m.b}" stroke="${ref.color}" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.7"/>
+          <text x="${rx + 3}" y="${m.t + 11}" font-size="9" font-weight="650" fill="${ref.color}" opacity="0.9">${esc(ref.label)}</text>`;
+      });
+      (specY.refs || []).forEach(ref => {
+        if (ref.val < ymin || ref.val > ymax) return;
+        const ry = Y(ref.val);
+        svg += `<line x1="${m.l}" y1="${ry}" x2="${W - m.r}" y2="${ry}" stroke="${ref.color}" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.7"/>
+          <text x="${W - m.r - 4}" y="${ry - 3}" text-anchor="end" font-size="9" font-weight="650" fill="${ref.color}" opacity="0.9">${esc(ref.label)}</text>`;
+      });
+    }
+
+    const items = panelRuns.map(r => ({
+      run: r,
+      x: jitX(r),
+      y: jitY(r),
+      rawNumX: numX(r),
+      rawNumY: numY(r),
+    }));
+    const itemById = new Map(items.map(it => [it.run.run_id, it]));
+
+    // Dynamic per-family Pareto frontiers (staircase)
+    const frontIds = new Set();
+    if (state.mapOptFrontier && specX.dir !== 'none' && specY.dir !== 'none') {
+      const famSpecs = [
+        { key: 'rocs', color: '#2563eb', dash: '5 4', label: 'SA+ROCS frontier' },
+        { key: 'qed', color: '#d97706', dash: '2 3', label: '+QED frontier' },
+      ];
+      famSpecs.forEach(fs => {
+        const sub = items.filter(it => (it.run.family_key || 'rocs') === fs.key);
+        const front = _computePareto2D(sub, it => it.rawNumX, it => it.rawNumY, specX.dir, specY.dir);
+        front.forEach(it => frontIds.add(it.run.run_id));
+        if (front.length > 1) {
+          front.sort((a, b) => X(a.x) - X(b.x));
+          let d = `M ${X(front[0].x)},${Y(front[0].y)}`;
+          for (let i = 0; i < front.length - 1; i++) {
+            const px1 = X(front[i].x), py1 = Y(front[i].y);
+            const px2 = X(front[i + 1].x), py2 = Y(front[i + 1].y);
+            if (specX.dir === 'max') d += ` L ${px1},${py2} L ${px2},${py2}`;
+            else d += ` L ${px2},${py1} L ${px2},${py2}`;
+          }
+          svg += `<path d="${d}" fill="none" stroke="${fs.color}" stroke-width="1.8" stroke-dasharray="${fs.dash}" opacity="0.72"/>`;
+        }
+      });
+    }
+
+    // Paired Arrows layer
+    if (state.mapPairBy !== 'none') {
+      if (state.mapPairBy === 'prior_to_stop' || state.mapPairBy === 'peak_to_stop') {
+        const isPrior = state.mapPairBy === 'prior_to_stop';
+        const gx = isPrior ? specX.priorGet : specX.peakGet;
+        const gy = isPrior ? specY.priorGet : specY.peakGet;
+        if (gx && gy) {
+          items.forEach(it => {
+            const ox = discX ? discX.idx.get(String(gx(it.run))) : gx(it.run);
+            const oy = discY ? discY.idx.get(String(gy(it.run))) : gy(it.run);
+            if (ox == null || oy == null) return;
+            const x1 = X(ox), y1 = Y(oy), x2 = X(it.x), y2 = Y(it.y);
+            if (Math.hypot(x2 - x1, y2 - y1) < 2) return;
+            svg += `<circle cx="${x1}" cy="${y1}" r="2.2" fill="var(--text-soft)" opacity="0.55"/>
+              <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--text-main)" stroke-width="1.1" opacity="0.38" marker-end="url(#map-arrow)"/>`;
+            pairArrowCount++;
+            pairDx.push(it.rawNumX - ox);
+            pairDy.push(it.rawNumY - oy);
+          });
+        }
+      } else {
+        const pairKey = state.mapPairBy;
+        const allAxes = ['scheme', 'epsilon', 'minimize', 'reference_conformers', 'max_conformers', 'include_qed', 'color_ff', 'alignment_shape_weight'];
+        const fixedAxes = allAxes.filter(a => a !== pairKey);
+        const order = PARAM_ORDERS[pairKey] || [];
+        const groups = new Map();
+        items.forEach(it => {
+          const ax = it.run.axes || {};
+          if (ax[pairKey] == null) return;
+          const sig = fixedAxes.map(k => String(ax[k])).join('|');
+          if (!groups.has(sig)) groups.set(sig, []);
+          groups.get(sig).push(it);
+        });
+        groups.forEach(list => {
+          list.sort((a, b) => {
+            const va = String((a.run.axes || {})[pairKey]), vb = String((b.run.axes || {})[pairKey]);
+            const ia = order.map(String).indexOf(va), ib = order.map(String).indexOf(vb);
+            if (ia >= 0 && ib >= 0) return ia - ib;
+            return va.localeCompare(vb);
+          });
+          // Deduplicate same step level if repeated, take first representative per level
+          const byLevel = [];
+          const seenLvl = new Set();
+          list.forEach(it => {
+            const lv = String((it.run.axes || {})[pairKey]);
+            if (!seenLvl.has(lv)) { seenLvl.add(lv); byLevel.push(it); }
+          });
+          for (let i = 0; i < byLevel.length - 1; i++) {
+            const a = byLevel[i], b = byLevel[i + 1];
+            const x1 = X(a.x), y1 = Y(a.y), x2 = X(b.x), y2 = Y(b.y);
+            if (Math.hypot(x2 - x1, y2 - y1) >= 2) {
+              svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--text-main)" stroke-width="1.25" opacity="0.48" marker-end="url(#map-arrow)"/>`;
+            }
+            pairArrowCount++;
+            pairDx.push(b.rawNumX - a.rawNumX);
+            pairDy.push(b.rawNumY - a.rawNumY);
+          }
+        });
+      }
+    }
+
+    // Group median & IQR crosshairs
+    if (state.mapOptCentroids) {
+      const grpMap = new Map();
+      items.forEach(it => {
+        const key = !isContColor ? getColorCategory(it.run)
+          : (discX ? String(getRawX(it.run)) : (discY ? String(getRawY(it.run)) : String((it.run.axes || {}).scheme || 'all')));
+        if (!grpMap.has(key)) grpMap.set(key, []);
+        grpMap.get(key).push(it);
+      });
+      grpMap.forEach((list, key) => {
+        if (list.length < 2) return;
+        const qx = _quantiles(list.map(i => i.rawNumX)), qy = _quantiles(list.map(i => i.rawNumY));
+        const mx = X(qx.med), my = Y(qy.med);
+        const col = !isContColor ? ((CAT_PALETTE[state.mapColor] || {})[key] || VCOLOR[key] || 'var(--text-main)') : 'var(--text-main)';
+        svg += `<line x1="${X(qx.q25)}" y1="${my}" x2="${X(qx.q75)}" y2="${my}" stroke="${col}" stroke-width="2.2" opacity="0.85"/>
+          <line x1="${mx}" y1="${Y(qy.q25)}" x2="${mx}" y2="${Y(qy.q75)}" stroke="${col}" stroke-width="2.2" opacity="0.85"/>
+          <circle cx="${mx}" cy="${my}" r="5.5" fill="${col}" stroke="#fff" stroke-width="2"/>`;
+      });
+    }
+
+    // Points
+    items.forEach(({ run: r, x, y }) => {
+      const cx = X(x), cy = Y(y);
+      const isFront = frontIds.has(r.run_id);
+      const isMedal = r.rank && r.rank <= 5;
+      const isPinned = r.run_id === state.mapPinA || r.run_id === state.mapPinB;
+      const isAnchor = state.highlightBlackAnchor && r.isBaselineAnchor;
+      const isGrayLow = state.highlightGrayLow && !!r.beatenByOne && !isPinned && !isAnchor && !isMedal;
+      const matched = matchSearch(r);
+      const radius = getRadius(r, isFront || isMedal || isAnchor);
+      const col = getColor(r);
+      const shape = getShape(r);
+      const opacity = !matched ? 0.12 : (isGrayLow ? 0.25 : (isFront || isMedal || isPinned || isAnchor ? 0.96 : 0.82));
+      const stroke = isPinned ? '#ec4899' : (isAnchor ? '#000000' : (isMedal ? '#f59e0b' : (isFront ? 'var(--text-main)' : '#ffffff')));
+      const strokeW = isPinned ? 2.8 : (isAnchor ? 3.2 : (isMedal ? 2.4 : (isFront ? 1.8 : 0.9)));
+      svg += `<g class="map-pt" data-run-id="${esc(r.run_id)}" style="cursor:pointer;">
+        ${_shapePath(shape, cx, cy, radius)} fill="${col}" fill-opacity="${opacity}" stroke="${stroke}" stroke-width="${strokeW}"/>`;
+      if (isFront && matched) {
+        svg += `<text x="${cx}" y="${cy - radius - 3}" text-anchor="middle" font-size="10" font-weight="800" fill="#f59e0b" pointer-events="none">★</text>`;
+      }
+      if (isMedal && matched) {
+        svg += `<text x="${cx + radius + 3}" y="${cy + 3}" font-size="9.5" font-weight="800" fill="var(--text-main)" pointer-events="none">#${r.rank}</text>`;
+      }
+      svg += `</g>`;
+    });
+
+    svg += `</svg>`;
+    return { svg, frontCount: frontIds.size, itemById };
+  };
+
+  let html = '';
+  let totalFront = 0;
+  if (state.mapFamily === 'facets') {
+    const rocsRuns = validRuns.filter(r => r.family_key === 'rocs');
+    const qedRuns = validRuns.filter(r => r.family_key === 'qed');
+    const p1 = renderPanelSVG(rocsRuns, 'SA + ROCS', 560, 440);
+    const p2 = renderPanelSVG(qedRuns, 'SA + ROCS + QED', 560, 440);
+    totalFront = p1.frontCount + p2.frontCount;
+    html = `<div class="map-facets">
+      <div class="map-facet-panel">${p1.svg}</div>
+      <div class="map-facet-panel">${p2.svg}</div>
+    </div>`;
+  } else {
+    const p = renderPanelSVG(validRuns, '', 960, 510);
+    totalFront = p.frontCount;
+    html = p.svg;
+  }
+  $('scatter-box').innerHTML = html;
+
+  // Interactive Tooltip + Click / Shift+Click Pinning
+  const tip = $('map-tooltip');
+  const runMap = new Map(validRuns.map(r => [r.run_id, r]));
+  $('scatter-box').querySelectorAll('.map-pt').forEach(el => {
+    const rid = el.getAttribute('data-run-id');
+    const r = runMap.get(rid);
+    if (!r) return;
+    el.addEventListener('mouseenter', e => {
+      const s = STOP(r), p = PRIOR(r), div = STOPDIV(r), lead = r.lead || {};
+      const rg = ROCS_GAIN(r);
+      tip.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+          <b style="font-size:11.5px;word-break:break-all;">${esc(r.run_id)}</b>
+          <span class="verdict-pill vp-${r.verdict}">${esc(r.verdict)}</span>
+        </div>
+        <div style="color:var(--text-muted);margin-top:2px;">
+          ${esc((r.axes||{}).include_qed ? 'SA+ROCS+QED' : 'SA+ROCS')} · ${esc((r.axes||{}).scheme)} · ε=${esc((r.axes||{}).epsilon)} · K${esc((r.axes||{}).reference_conformers)}·${(r.axes||{}).minimize ? 'opt' : 'raw'} · C${esc((r.axes||{}).max_conformers)} · ${esc((r.axes||{}).color_ff)} · w=${esc((r.axes||{}).alignment_shape_weight)}
+        </div>
+        <div style="margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;">
+          <span>desired: <b>${num(s.desired_ratio, 3)}</b></span>
+          <span>unique: <b>${num(s.unique_ratio, 3)}</b></span>
+          <span>eff.scaf: <b>${div.effective_scaffolds != null ? Math.round(div.effective_scaffolds).toLocaleString() : '—'}</b></span>
+          <span>EDY: <b>${num(EDY(r), 4)}</b></span>
+          <span>ROCS med: <b>${num(s.rocs_median, 3)}</b> <small>(prior ${num(p.rocs_median, 3)})</small></span>
+          <span>ΔROCS: <b>${rg != null ? ((rg >= 0 ? '+' : '') + num(rg, 3)) : '—'}</b></span>
+          <span>novelty: <b>${num(CROSS(r).novelty_rate, 3)}</b></span>
+          <span>hours: <b>${num(r.hours, 1)}h</b></span>
+        </div>
+        ${r.isBaselineAnchor ? '<div style="margin-top:3px;"><span class="anchor-pill">BASELINE ANCHOR (K1·raw·C20·ε=0.1·default)</span></div>' : ''}
+        ${r.beatenByOne ? `<div style="margin-top:3px;color:var(--text-muted);font-size:10px;">↑ 1-change improves criterion: <b>${esc(r.beatenByOne.axis)}=${esc(r.beatenByOne.toVal)}</b> (+${num(r.beatenByOne.delta, 3)})</div>` : ''}
+        ${lead.svg ? lead.svg : ''}
+        <div style="margin-top:4px;font-size:10px;color:var(--text-soft);">Click: open details · <b>Shift+Click</b>: pin to Compare</div>`;
+      tip.style.display = 'block';
+      tip.style.left = Math.min(window.innerWidth - 340, e.clientX + 14) + 'px';
+      tip.style.top = Math.min(window.innerHeight - 260, Math.max(10, e.clientY - 20)) + 'px';
+    });
+    el.addEventListener('mousemove', e => {
+      tip.style.left = Math.min(window.innerWidth - 340, e.clientX + 14) + 'px';
+      tip.style.top = Math.min(window.innerHeight - 260, Math.max(10, e.clientY - 20)) + 'px';
+    });
+    el.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    el.addEventListener('click', e => {
+      if (e.shiftKey || e.altKey) {
+        if (!state.mapPinA || (state.mapPinA && state.mapPinB)) {
+          state.mapPinA = rid; state.mapPinB = null;
+        } else if (state.mapPinA !== rid) {
+          state.mapPinB = rid;
+        }
+        renderPinBar();
+        drawScatter();
+      } else {
+        showRunModalById(rid);
       }
     });
-    svg += `</svg>`;
-    return `<div class="axisplot-card">
-      <h3><span>${esc(axis)}</span> <small style="font-weight:normal;color:var(--text-muted);">y: ${esc(state.axisMetric)} · ${keys.length} groups · median bar</small></h3>
-      ${svg}
-    </div>`;
-  }).join('');
+  });
+
+  // Summary Banner
+  const droppedCount = runs.length - validRuns.length;
+  const critLabel = (RANK_CRITERIA[state.rankCriterion] || {}).label || state.rankCriterion;
+  let banner = `<span>Showing <b>${validRuns.length}</b> runs</span>
+    <span>Pareto ★: <b>${totalFront}</b></span>
+    <span>Medals (#1–5): <b>${esc(critLabel)}</b></span>`;
+  if (droppedCount > 0) {
+    banner += `<span style="color:var(--v-concentrated);"><b>${droppedCount}</b> hidden (missing ${esc(specX.short)} or ${esc(specY.short)})</span>`;
+  }
+  if (state.mapPairBy !== 'none') {
+    const mx = _median(pairDx), my = _median(pairDy);
+    const fmtD = (v, spec) => v == null ? '—' : ((v >= 0 ? '+' : '') + num(v, spec && spec.prec != null ? spec.prec : 3));
+    banner += `<span>Matched arrows (<b>${pairArrowCount}</b>): median ΔX=<b>${fmtD(mx, specX)}</b>, ΔY=<b>${fmtD(my, specY)}</b></span>`;
+  }
+  $('map-summary-banner').innerHTML = banner;
+
+  // Legend
+  let legendHtml = '';
+  if (state.mapColor === 'verdict') {
+    legendHtml += Object.entries(VCOLOR).filter(([k]) => state.verdictsOn.has(k)).map(([k, c]) =>
+      `<span><span class="map-dot-sample" style="background:${c}"></span>${k}</span>`).join('');
+  } else if (isContColor) {
+    legendHtml += `<span>Color (${esc(state.mapColor)}): ${num(contMin, 3)}
+      <span style="display:inline-block;width:72px;height:9px;border-radius:4px;vertical-align:middle;margin:0 4px;background:linear-gradient(90deg,#3b0f70,#8c2981,#de4968,#fe9f6d,#fcfdbf);"></span>
+      ${num(contMax, 3)}</span>`;
+  } else {
+    const pal = CAT_PALETTE[state.mapColor] || {};
+    const cats = [...new Set(validRuns.map(getColorCategory))].sort();
+    legendHtml += cats.map(c => `<span><span class="map-dot-sample" style="background:${pal[c] || '#64748b'}"></span>${esc(c)}</span>`).join('');
+  }
+  if (state.mapShape === 'family') legendHtml += `<span style="margin-left:8px;">● SA+ROCS · ◆ +QED</span>`;
+  else if (state.mapShape === 'scheme') legendHtml += `<span style="margin-left:8px;">● PRCD · ▲ WS</span>`;
+  else if (state.mapShape === 'minimize') legendHtml += `<span style="margin-left:8px;">● opt · ■ raw</span>`;
+  legendHtml += `<span style="margin-left:8px;font-weight:650;">★ = active Pareto frontier · #1–5 = top ranked · <i>Shift+Click two dots to compare</i></span>`;
+  $('map-legend').innerHTML = legendHtml;
+  renderPinBar();
 }
 
-// ----------------------------------------------------------------------------- HIGHLIGHTS VIEW
+function renderPinBar() {
+  const bar = $('map-pin-bar');
+  if (!bar) return;
+  if (!state.mapPinA && !state.mapPinB) { bar.classList.remove('active'); bar.innerHTML = ''; return; }
+  bar.classList.add('active');
+  bar.innerHTML = `<b>Pinned for Compare:</b>
+    <span>A: <code>${esc(state.mapPinA || '—')}</code></span>
+    <span>B: <code>${esc(state.mapPinB || 'Shift+Click 2nd run')}</code></span>
+    ${state.mapPinA && state.mapPinB ? `<button class="btn sm active" id="btn-map-open-cmp">⚖️ Open in Comparator</button>` : ''}
+    <button class="btn sm" id="btn-map-clear-pins">Clear</button>`;
+  if ($('btn-map-open-cmp')) {
+    $('btn-map-open-cmp').onclick = () => {
+      state.cmpA = state.mapPinA;
+      state.cmpB = state.mapPinB;
+      const tab = document.querySelector('.nav-tab[data-view="view-compare"]');
+      if (tab) tab.click();
+    };
+  }
+  $('btn-map-clear-pins').onclick = () => {
+    state.mapPinA = null; state.mapPinB = null;
+    renderPinBar(); drawScatter();
+  };
+}
+
+function locateOnMap(runId) {
+  state.searchQuery = runId;
+  if ($('search')) $('search').value = runId;
+  const tab = document.querySelector('.nav-tab[data-view="view-map"]');
+  if (tab) tab.click();
+}
+
+function comparePair(idA, idB) {
+  state.cmpA = idA; state.cmpB = idB;
+  const tab = document.querySelector('.nav-tab[data-view="view-compare"]');
+  if (tab) tab.click();
+}
+
+function showArrowsOnMap(axis) {
+  state.mapPairBy = axis;
+  const tab = document.querySelector('.nav-tab[data-view="view-map"]');
+  if (tab) tab.click();
+}
+
+// ----------------------------------------------------------------------------- HIGHLIGHTS & FRONTIERS VIEW
 function renderHighlights() {
-  // Frontier
-  const frontier = DATA.runs.filter(r => r.frontier).sort((a,b) =>
-    ((b.arms.stop||{}).desired_ratio || 0) - ((a.arms.stop||{}).desired_ratio || 0)
-  );
-  $('frontier-cards').innerHTML = frontier.map(r => {
-    const s = r.arms.stop || {}, lead = r.lead || {}, div = ((r.diversity||{}).arms||{}).stop || {};
-    return `<div class="frontier-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <span class="verdict-pill vp-${r.verdict}">${r.verdict}</span>
-        <button class="btn sm" onclick="showRunModalById('${r.run_id}')">Inspect</button>
+  const crit = RANK_CRITERIA[state.rankCriterion] || RANK_CRITERIA.desired;
+  const filteredRuns = DATA.runs.filter(r => passesGlobalFilters(r));
+
+  document.querySelectorAll('.frontier-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.fmode === state.frontierMode);
+    btn.onclick = () => { state.frontierMode = btn.dataset.fmode; renderHighlights(); };
+  });
+
+  // 1. Dual-Family Executive Podium
+  const renderPodiumCol = (famKey, title) => {
+    const famRuns = filteredRuns.filter(r => r.family_key === famKey && r.verdict !== 'pilot' && r.verdict !== 'incomplete');
+    const normBounds = getter => {
+      const vals = famRuns.map(getter).filter(v => v != null && Number.isFinite(v)).sort((a, b) => a - b);
+      if (!vals.length) return [0, 1];
+      const lo = vals[Math.floor(vals.length * 0.05)], hi = vals[Math.min(vals.length - 1, Math.ceil(vals.length * 0.95))];
+      return [lo, hi > lo ? hi : lo + 1];
+    };
+    const bDes = normBounds(r => STOP(r).desired_ratio);
+    const bEdy = normBounds(EDY);
+    const bScaf = normBounds(r => STOPDIV(r).effective_scaffolds ? Math.log10(Math.max(STOPDIV(r).effective_scaffolds, 1)) : null);
+    const bRocs = normBounds(r => STOP(r).rocs_median);
+    const pct = (v, [lo, hi]) => v == null ? 0 : Math.max(4, Math.min(100, (v - lo) / (hi - lo) * 100));
+
+    const podium = famRuns.filter(r => r.rank && r.rank <= 5).sort((a, b) => a.rank - b.rank);
+    const cardsHtml = podium.map(r => {
+      const s = STOP(r), div = STOPDIV(r), lead = r.lead || {};
+      const scafLog = div.effective_scaffolds ? Math.log10(Math.max(div.effective_scaffolds, 1)) : null;
+      const clsAnchor = state.highlightBlackAnchor && r.isBaselineAnchor ? ' is-baseline-anchor' : '';
+      const otherTop5 = Object.entries(r.criteriaRanks || {})
+        .filter(([ck, rk]) => ck !== state.rankCriterion && rk <= 5)
+        .map(([ck, rk]) => `<span class="crit-rank-pill">${esc((RANK_CRITERIA[ck] || {}).label || ck)} #${rk}</span>`)
+        .join(' ');
+      return `<div class="frontier-card${clsAnchor}" style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+          <span style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+            <span class="medal m${r.rank}">#${r.rank}</span>
+            <span class="verdict-pill vp-${r.verdict}">${r.verdict}</span>
+            ${r.frontier ? '<span class="star">★ frontier</span>' : ''}
+          </span>
+          <span style="display:flex;gap:4px;">
+            <button class="btn sm" onclick="showRunModalById('${r.run_id}')">Inspect</button>
+            <button class="btn sm" onclick="locateOnMap('${r.run_id}')">Map</button>
+          </span>
+        </div>
+        <h3>${esc(r.run_id)}</h3>
+        <div class="meta">${esc(r.factors.reward)} · ε=${esc(r.factors.epsilon)} · ${esc(r.factors.geometry)} · ${esc(r.factors.budget)} · ${esc(r.factors.color)}
+          · <b>${esc(crit.label)}: ${esc(crit.fmt(r.rankScore))}</b></div>
+        ${otherTop5 ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">${otherTop5}</div>` : ''}
+        <div class="bullet-row"><span>desired</span><div class="bullet-track"><div class="bullet-fill" style="width:${pct(s.desired_ratio, bDes)}%;background:#16a34a"></div></div><b>${num(s.desired_ratio, 3)}</b></div>
+        <div class="bullet-row"><span>EDY</span><div class="bullet-track"><div class="bullet-fill" style="width:${pct(EDY(r), bEdy)}%;background:#2563eb"></div></div><b>${num(EDY(r), 3)}</b></div>
+        <div class="bullet-row"><span>eff.scaf</span><div class="bullet-track"><div class="bullet-fill" style="width:${pct(scafLog, bScaf)}%;background:#0ea5e9"></div></div><b>${div.effective_scaffolds ? Math.round(div.effective_scaffolds).toLocaleString() : '—'}</b></div>
+        <div class="bullet-row"><span>ROCS med</span><div class="bullet-track"><div class="bullet-fill" style="width:${pct(s.rocs_median, bRocs)}%;background:#9333ea"></div></div><b>${num(s.rocs_median, 3)}</b></div>
+        ${lead.svg ? `<div class="mol-lead">${lead.svg}<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">ROCS ${num(lead.rocs)}: ${esc(lead.smiles)}</div></div>` : ''}
+      </div>`;
+    }).join('') || '<div class="dim">No ranked runs match current filters.</div>';
+    return `<div class="podium-col"><h3><span>${esc(title)}</span><small style="color:var(--text-muted);font-weight:600;">n=${famRuns.length}</small></h3>${cardsHtml}</div>`;
+  };
+  $('podium-grid').innerHTML = renderPodiumCol('rocs', 'SA + ROCS') + renderPodiumCol('qed', 'SA + ROCS + QED');
+
+  // 1b. Top #1-#5 Enumerated Per Criterion (from currently filtered runs)
+  const critGrid = $('criteria-top5-grid');
+  if (critGrid) {
+    const renderFamList = (entries, critSpec) => {
+      if (!entries || !entries.length) return '<div class="dim" style="font-size:10.5px;">No eligible runs</div>';
+      return entries.map(({ rank, run, score }) => `
+        <div class="crit-row" onclick="showRunModalById('${run.run_id}')" title="${esc(run.run_id)} · ${esc(run.factors.reward)} ε=${esc(run.factors.epsilon)}">
+          <span class="medal m${rank}">#${rank}</span>
+          <span class="crit-run">${esc(run.label)}</span>
+          <span class="crit-val">${esc(critSpec.fmt(score))}</span>
+        </div>`).join('');
+    };
+    critGrid.innerHTML = Object.entries(RANK_CRITERIA).map(([ck, critSpec]) => {
+      const famData = (state.top5ByCriterion || {})[ck] || {};
+      const isAct = ck === state.rankCriterion;
+      return `<div class="crit-card${isAct ? ' active-crit' : ''}">
+        <h3>
+          <span>${esc(critSpec.label)}</span>
+          <button class="btn sm${isAct ? ' active' : ''}" onclick="$('rank-criterion').value='${ck}';$('rank-criterion').onchange();">${isAct ? 'Active' : 'Use'}</button>
+        </h3>
+        <div class="crit-fam-grid">
+          <div><div class="crit-fam-title">SA + ROCS</div>${renderFamList(famData.rocs, critSpec)}</div>
+          <div><div class="crit-fam-title">SA + ROCS + QED</div>${renderFamList(famData.qed, critSpec)}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // 2. Interactive Dual-Frontier SVG Charts
+  const renderFrontierChart = (famKey, title) => {
+    const famRuns = filteredRuns.filter(r => r.family_key === famKey && r.verdict !== 'pilot' && r.verdict !== 'incomplete');
+    const mode = state.frontierMode || 'breadth';
+    const xGet = mode === 'unique'
+      ? r => STOP(r).unique_ratio
+      : r => STOPDIV(r).effective_scaffolds;
+    const yGet = mode === 'rocs'
+      ? r => STOP(r).rocs_median
+      : r => STOP(r).desired_ratio;
+    const isLogX = mode !== 'unique';
+    const pts = famRuns.map(r => ({ run: r, xv: xGet(r), yv: yGet(r) })).filter(p => p.xv != null && p.yv != null);
+    const W = 500, H = 265, m = { l: 48, r: 16, t: 24, b: 36 };
+    if (!pts.length) return `<div class="podium-col"><h3>${esc(title)}</h3><div class="dim">No scored points.</div></div>`;
+
+    const sx = v => isLogX ? Math.log10(Math.max(v, 1)) : v;
+    const xMin = isLogX ? Math.max(1, Math.min(...pts.map(p => p.xv)) * 0.75) : 0;
+    const xMax = isLogX ? Math.max(4000, Math.max(...pts.map(p => p.xv)) * 1.15) : 1;
+    const yVals = pts.map(p => p.yv);
+    const yMin = mode === 'rocs' ? Math.max(0, Math.min(...yVals) - 0.04) : 0;
+    const yMax = mode === 'rocs' ? Math.max(...yVals) + 0.04 : 1;
+    const X = v => m.l + (sx(v) - sx(xMin)) / (sx(xMax) - sx(xMin) || 1) * (W - m.l - m.r);
+    const Y = v => H - m.b - (v - yMin) / (yMax - yMin || 1) * (H - m.t - m.b);
+
+    const front = _computePareto2D(pts, p => p.xv, p => p.yv, 'max', 'max').sort((a, b) => X(a.xv) - X(b.xv));
+    const frontSet = new Set(front.map(p => p.run.run_id));
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;">`;
+    svg += `<text x="${(m.l + W - m.r) / 2}" y="15" text-anchor="middle" font-size="11.5" font-weight="750" fill="var(--text-main)">${esc(title)} (Pareto n=${front.length})</text>`;
+
+    // Iso-EDY curves in breadth mode
+    if (mode === 'breadth') {
+      [0.05, 0.15, 0.30].forEach(level => {
+        const coords = [];
+        for (let i = 0; i <= 40; i++) {
+          const lx = sx(xMin) + (sx(xMax) - sx(xMin)) * i / 40;
+          const scaf = Math.pow(10, lx);
+          const des = (level * 5000) / Math.max(scaf, 1);
+          if (des >= 0 && des <= 1) coords.push(`${X(scaf)},${Y(des)}`);
+        }
+        if (coords.length > 1) {
+          svg += `<polyline points="${coords.join(' ')}" fill="none" stroke="var(--text-soft)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>`;
+        }
+      });
+    }
+    [0, 0.25, 0.5, 0.75, 1].forEach(t => {
+      const yv = yMin + (yMax - yMin) * t;
+      svg += `<line x1="${m.l}" y1="${Y(yv)}" x2="${W - m.r}" y2="${Y(yv)}" stroke="var(--border-subtle)"/>
+        <text x="${m.l - 5}" y="${Y(yv) + 3}" text-anchor="end" font-size="9" fill="var(--text-soft)">${yv.toFixed(2)}</text>`;
+    });
+    if (isLogX) {
+      [10, 50, 200, 1000, 3000].filter(v => v >= xMin && v <= xMax).forEach(v => {
+        svg += `<line x1="${X(v)}" y1="${m.t}" x2="${X(v)}" y2="${H - m.b}" stroke="var(--border-subtle)"/>
+          <text x="${X(v)}" y="${H - m.b + 13}" text-anchor="middle" font-size="9" fill="var(--text-soft)">${v >= 1000 ? (v / 1000) + 'k' : v}</text>`;
+      });
+    } else {
+      [0, 0.35, 0.70, 1.0].forEach(v => {
+        svg += `<line x1="${X(v)}" y1="${m.t}" x2="${X(v)}" y2="${H - m.b}" stroke="var(--border-subtle)"/>
+          <text x="${X(v)}" y="${H - m.b + 13}" text-anchor="middle" font-size="9" fill="var(--text-soft)">${v.toFixed(2)}</text>`;
+      });
+    }
+    svg += `<text x="${(m.l + W - m.r) / 2}" y="${H - 5}" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text-muted)">${mode === 'unique' ? 'Uniqueness Ratio' : 'Effective Scaffolds (log)'}</text>`;
+
+    if (front.length > 1) {
+      let d = `M ${X(front[0].xv)},${Y(front[0].yv)}`;
+      for (let i = 0; i < front.length - 1; i++) {
+        d += ` L ${X(front[i].xv)},${Y(front[i + 1].yv)} L ${X(front[i + 1].xv)},${Y(front[i + 1].yv)}`;
+      }
+      svg += `<path d="${d}" fill="none" stroke="${famKey === 'qed' ? '#d97706' : '#2563eb'}" stroke-width="2" stroke-dasharray="5 3" opacity="0.8"/>`;
+    }
+    pts.forEach(({ run: r, xv, yv }) => {
+      const isF = frontSet.has(r.run_id);
+      const isAnchor = state.highlightBlackAnchor && r.isBaselineAnchor;
+      const isGray = state.highlightGrayLow && !!r.beatenByOne && !isF && !isAnchor;
+      svg += `<circle cx="${X(xv)}" cy="${Y(yv)}" r="${isF || isAnchor ? 5.2 : 3.2}" fill="${VCOLOR[r.verdict] || '#94a3b8'}"
+        fill-opacity="${isGray ? 0.25 : 0.88}" stroke="${isAnchor ? '#000000' : (isF ? '#f59e0b' : '#ffffff')}"
+        stroke-width="${isAnchor ? 2.6 : (isF ? 2 : 0.7)}" style="cursor:pointer;" onclick="showRunModalById('${r.run_id}')">
+        <title>${esc(r.run_id)} (${r.verdict}) · x=${num(xv, 2)}, y=${num(yv, 3)}</title></circle>`;
+    });
+    svg += `</svg>`;
+    return `<div class="podium-col">${svg}</div>`;
+  };
+  $('frontier-charts').innerHTML = renderFrontierChart('rocs', 'SA + ROCS Frontier') + renderFrontierChart('qed', 'SA + ROCS + QED Frontier');
+
+  // Frontier Champions Grid
+  const frontierRuns = filteredRuns.filter(r => r.frontier && !r.rank)
+    .sort((a, b) => (crit.get(b) ?? -Infinity) - (crit.get(a) ?? -Infinity));
+  $('frontier-cards').innerHTML = frontierRuns.map(r => {
+    const s = STOP(r), lead = r.lead || {}, div = STOPDIV(r), rg = ROCS_GAIN(r);
+    return `<div class="frontier-card${state.highlightBlackAnchor && r.isBaselineAnchor ? ' is-baseline-anchor' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:6px;flex-wrap:wrap;">
+        <span style="display:flex;gap:5px;align-items:center;">
+          <span class="verdict-pill vp-${r.verdict}">${r.verdict}</span>
+          <span class="badge-pill">${r.family_key === 'qed' ? '+QED' : 'SA+ROCS'}</span>
+          <span class="star" title="Pareto frontier (desired vs unique)">★ frontier</span>
+        </span>
+        <span style="display:flex;gap:4px;">
+          <button class="btn sm" onclick="showRunModalById('${r.run_id}')">Inspect</button>
+          <button class="btn sm" onclick="locateOnMap('${r.run_id}')">Map</button>
+        </span>
       </div>
       <h3>${esc(r.run_id)}</h3>
       <div class="meta">
         ${esc(r.factors.reward)} · ε=${esc(r.factors.epsilon)} · ${esc(r.factors.geometry)} · ${esc(r.factors.budget)} · ${esc(r.factors.color)}<br>
-        desired: <b>${num(s.desired_ratio)}</b> · unique: <b>${num(s.unique_ratio)}</b> · eff.scaf: <b>${div.effective_scaffolds ? Math.round(div.effective_scaffolds).toLocaleString() : '—'}</b> · ROCS: <b>${num(s.rocs_median)}</b>
+        desired: <b>${num(s.desired_ratio)}</b> · unique: <b>${num(s.unique_ratio)}</b> · eff.scaf: <b>${div.effective_scaffolds ? Math.round(div.effective_scaffolds).toLocaleString() : '—'}</b> · EDY: <b>${num(EDY(r), 4)}</b> · ΔROCS: <b>${rg != null ? ((rg >= 0 ? '+' : '') + num(rg, 3)) : '—'}</b>
       </div>
-      ${lead.svg ? `<div class="mol-lead">${lead.svg}<div style="font-size:10px;color:var(--text-muted);margin-top:4px;"><b>Lead Desired Mol</b> (ROCS ${num(lead.rocs)}): ${esc(lead.smiles)}</div></div>` : ''}
+      ${lead.svg ? `<div class="mol-lead">${lead.svg}<div style="font-size:10px;color:var(--text-muted);margin-top:4px;"><b>Lead</b> (ROCS ${num(lead.rocs)}): ${esc(lead.smiles)}</div></div>` : ''}
     </div>`;
-  }).join('') || '<div class="dim">No frontier runs.</div>';
+  }).join('') || '<div class="dim">No additional frontier runs.</div>';
 
-  // Worst Collapsed Molecules
-  const collapsed = DATA.runs.filter(r => r.verdict === 'collapsed').sort((a,b) =>
-    ((a.arms.stop||{}).unique_ratio || 1) - ((b.arms.stop||{}).unique_ratio || 1)
-  );
-  const repeatCards = collapsed.flatMap(r => (r.repeats || []).slice(0, 2).map(m => `
-    <div class="collapsed-mol-card">
-      ${m.svg || ''}
-      <div class="meta">
-        <b>${m.count}× per 5000 draw</b> · ROCS ${num(m.rocs)}<br>
-        <span style="color:var(--v-collapsed);font-weight:700;">${esc(r.run_id)}</span> (unique ${num((r.arms.stop||{}).unique_ratio)})<br>
-        <code>${esc(m.smiles)}</code>
+  // 3. 1-Parameter Collapse Rescues & Factor Sensitivity (absorbing By Axis)
+  const allMatchAxes = ['include_qed', ...AXES_KEYS];
+  const rescues = [];
+  const sensitivity = AXES_KEYS.map(axis => {
+    const fixed = allMatchAxes.filter(a => a !== axis);
+    const groups = new Map();
+    filteredRuns.filter(r => r.verdict !== 'pilot' && r.verdict !== 'incomplete').forEach(r => {
+      const ax = r.axes || {};
+      const sig = fixed.map(k => String(ax[k])).join('|');
+      if (!groups.has(sig)) groups.set(sig, []);
+      groups.get(sig).push(r);
+    });
+    const dEdy = [], dDes = [];
+    groups.forEach(list => {
+      if (list.length < 2) return;
+      const edys = list.map(EDY).filter(v => v != null);
+      const dess = list.map(r => STOP(r).desired_ratio).filter(v => v != null);
+      if (edys.length >= 2) dEdy.push(Math.max(...edys) - Math.min(...edys));
+      if (dess.length >= 2) dDes.push(Math.max(...dess) - Math.min(...dess));
+      const bad = list.filter(r => r.verdict === 'collapsed' || r.verdict === 'concentrated' || r.verdict === 'unlearned');
+      const good = list.filter(r => r.verdict === 'clean').sort((a, b) => (EDY(b) ?? 0) - (EDY(a) ?? 0));
+      if (bad.length && good.length) {
+        const b = bad[0], g = good[0];
+        rescues.push({
+          axis,
+          fromVal: (b.axes || {})[axis],
+          toVal: (g.axes || {})[axis],
+          badRun: b,
+          goodRun: g,
+          deltaEdy: (EDY(g) ?? 0) - (EDY(b) ?? 0),
+          deltaDes: (STOP(g).desired_ratio ?? 0) - (STOP(b).desired_ratio ?? 0),
+        });
+      }
+    });
+    return {
+      axis,
+      pairs: dDes.length,
+      medSpanEdy: _median(dEdy) ?? 0,
+      medSpanDes: _median(dDes) ?? 0,
+    };
+  }).sort((a, b) => b.medSpanEdy - a.medSpanEdy);
+
+  rescues.sort((a, b) => b.deltaEdy - a.deltaEdy);
+  const rescueRows = rescues.slice(0, 14).map(rc => `
+    <tr>
+      <td><b>${esc(rc.axis)}</b>: ${esc(rc.fromVal)} → <b>${esc(rc.toVal)}</b></td>
+      <td><span class="verdict-pill vp-${rc.badRun.verdict}">${rc.badRun.verdict}</span> → <span class="verdict-pill vp-clean">clean</span></td>
+      <td class="num cell-good">+${num(rc.deltaEdy, 3)}</td>
+      <td class="num">${rc.deltaDes >= 0 ? '+' : ''}${num(rc.deltaDes, 2)}</td>
+      <td>
+        <button class="btn sm" onclick="comparePair('${rc.badRun.run_id}','${rc.goodRun.run_id}')">⚖️ Compare</button>
+        <button class="btn sm" onclick="showArrowsOnMap('${rc.axis}')">🗺️ Arrows</button>
+      </td>
+    </tr>`).join('');
+  const maxSpan = Math.max(0.01, ...sensitivity.map(s => s.medSpanEdy));
+  const tornadoHtml = sensitivity.map(s => `
+    <div style="display:grid;grid-template-columns:150px 1fr 78px;align-items:center;gap:8px;margin:7px 0;font-size:11.5px;">
+      <b>${esc(s.axis)}</b>
+      <div class="bullet-track" style="height:11px;">
+        <div class="bullet-fill" style="width:${Math.max(3, s.medSpanEdy / maxSpan * 100)}%;background:var(--brand-indigo);"></div>
       </div>
+      <span style="font-variant-numeric:tabular-nums;color:var(--text-muted);">ΔEDY ${num(s.medSpanEdy, 3)} (${s.pairs})</span>
+    </div>`).join('');
+
+  $('rescue-diagnostics').innerHTML = `
+    <div class="podium-col">
+      <h3><span>Top 1-Parameter Collapse Rescues</span><small style="color:var(--text-muted);">${rescues.length} matched pairs</small></h3>
+      <div class="scroll"><table class="data">
+        <thead><tr><th>1-Axis Change</th><th>Transition</th><th>ΔEDY</th><th>ΔDes</th><th>Actions</th></tr></thead>
+        <tbody>${rescueRows || '<tr><td colspan="5" class="dim">No 1-axis rescues under current filters.</td></tr>'}</tbody>
+      </table></div>
     </div>
-  `)).slice(0, 12);
+    <div class="podium-col">
+      <h3><span>Factor Sensitivity (Matched-Pair Median Range)</span><small style="color:var(--text-muted);">replaces By Axis</small></h3>
+      ${tornadoHtml}
+      <p style="font-size:11px;color:var(--text-muted);margin-top:10px;">Each bar measures the median matched-pair swing in EDY when changing only that axis while holding the other 7 axes fixed. Click <b>🗺️ Arrows</b> on the left to inspect trajectories in Collapse Map.</p>
+    </div>`;
+
+  // 4. Worst Collapsed Molecules + 1-Hop Rescue Badge
+  const collapsed = filteredRuns.filter(r => r.verdict === 'collapsed').sort((a, b) =>
+    ((a.arms.stop || {}).unique_ratio || 1) - ((b.arms.stop || {}).unique_ratio || 1)
+  );
+  const repeatCards = collapsed.flatMap(r => {
+    const cleanNb = getOneHopNeighbors(r).filter(nb => nb.run.verdict === 'clean')
+      .sort((a, b) => (EDY(b.run) ?? 0) - (EDY(a.run) ?? 0))[0];
+    const rescueTag = cleanNb
+      ? `<button class="rescue-badge" onclick="comparePair('${r.run_id}','${cleanNb.run.run_id}')">Rescued by ${esc(cleanNb.axis)}=${esc(cleanNb.toVal)} → ${Math.round(STOPDIV(cleanNb.run).effective_scaffolds || 0).toLocaleString()} scaf ⚖️</button>`
+      : '';
+    return (r.repeats || []).slice(0, 2).map(m => `
+      <div class="collapsed-mol-card">
+        ${m.svg || ''}
+        <div class="meta">
+          <b>${m.count}× per 5000 draw</b> · ROCS ${num(m.rocs)}<br>
+          <span style="color:var(--v-collapsed);font-weight:700;">${esc(r.run_id)}</span> (unique ${num((r.arms.stop || {}).unique_ratio)})<br>
+          <code>${esc(m.smiles)}</code><br>
+          ${rescueTag}
+        </div>
+      </div>`);
+  }).slice(0, 12);
   $('collapsed-mols').innerHTML = repeatCards.join('') || '<div class="dim">No collapsed repeats recorded.</div>';
 
-  // Decay Table
-  const decay = DATA.runs.filter(r => r.postpeak_decay != null).sort((a,b) => b.postpeak_decay - a.postpeak_decay).slice(0, 15);
+  // 5. Decay Table with Peak Ep -> Stop Ep and Early-Stop Rescue
+  const decay = filteredRuns.filter(r => r.postpeak_decay != null).sort((a, b) => b.postpeak_decay - a.postpeak_decay).slice(0, 15);
   $('decay-table').innerHTML = `<thead><tr>
-    <th>Run ID</th><th>Verdict</th><th>ε</th><th>Scheme</th><th>Unique @ Peak</th><th>Unique @ Stop</th><th>Diversity Lost</th><th>Actions</th>
-  </tr></thead><tbody>${decay.map(r => `
-    <tr>
-      <td><b>${esc(r.run_id)}</b></td>
+    <th>Run ID</th><th>Verdict</th><th>ε</th><th>Scheme</th><th>Peak → Stop Ep</th><th>Des @ Peak → Stop</th><th>Unique @ Peak</th><th>Unique @ Stop</th><th>Diversity Lost</th><th>Actions</th>
+  </tr></thead><tbody>${decay.map(r => {
+    const bu = (r.arms.best || {}).unique_ratio, su = (r.arms.stop || {}).unique_ratio;
+    const earlyClean = bu != null && bu >= 0.70 && su != null && su < 0.70;
+    return `<tr>
+      <td><b>${esc(r.run_id)}</b> ${earlyClean ? '<span class="verdict-pill vp-clean" title="Stopping at peak epoch kept unique >= 0.70">early-stop clean</span>' : ''}</td>
       <td><span class="verdict-pill vp-${r.verdict}">${r.verdict}</span></td>
-      <td>${esc((r.axes||{}).epsilon)}</td>
-      <td>${esc((r.axes||{}).scheme)}</td>
-      <td class="num">${num((r.arms.best||{}).unique_ratio)}</td>
-      <td class="num">${num((r.arms.stop||{}).unique_ratio)}</td>
+      <td>${esc((r.axes || {}).epsilon)}</td>
+      <td>${esc((r.axes || {}).scheme)}</td>
+      <td class="num">${r.best_desired_epoch || '—'} → ${r.stop_epoch || '—'}</td>
+      <td class="num">${num((r.arms.best || {}).desired_ratio)} → ${num((r.arms.stop || {}).desired_ratio)}</td>
+      <td class="num">${num(bu)}</td>
+      <td class="num">${num(su)}</td>
       <td class="num cell-warn">−${num(r.postpeak_decay)}</td>
       <td><button class="btn sm" onclick="showRunModalById('${r.run_id}')">Inspect</button></td>
-    </tr>
-  `).join('')}</tbody>`;
+    </tr>`;
+  }).join('')}</tbody>`;
 }
 
 // ----------------------------------------------------------------------------- RUN COMPARATOR
 function renderComparator() {
-  const runs = DATA.runs.slice().sort((a,b) => a.run_id.localeCompare(b.run_id));
+  const runs = DATA.runs.filter(r => state.verdictsOn.has(r.verdict) || r.run_id === state.cmpA || r.run_id === state.cmpB)
+    .sort((a,b) => a.run_id.localeCompare(b.run_id));
   $('cmp-run-a').innerHTML = runs.map(r => `<option value="${r.run_id}">${esc(r.run_id)} (${r.verdict})</option>`).join('');
   $('cmp-run-b').innerHTML = runs.map(r => `<option value="${r.run_id}">${esc(r.run_id)} (${r.verdict})</option>`).join('');
 
-  if (!state.cmpA) state.cmpA = runs[0].run_id;
-  if (!state.cmpB) state.cmpB = runs.length > 1 ? runs[1].run_id : runs[0].run_id;
+  if (!state.cmpA && runs.length) state.cmpA = runs[0].run_id;
+  if (!state.cmpB && runs.length) state.cmpB = runs.length > 1 ? runs[1].run_id : runs[0].run_id;
   $('cmp-run-a').value = state.cmpA;
   $('cmp-run-b').value = state.cmpB;
 
@@ -1026,11 +2626,18 @@ function renderComparator() {
     updateCompareResult();
   };
   $('btn-cmp-vs-gold').onclick = () => {
-    const gold = DATA.runs.find(r => r.rank === 1);
+    const ra = DATA.runs.find(r => r.run_id === state.cmpA);
+    const fk = ra ? ra.family_key : null;
+    const gold = DATA.runs.find(r => r.rank === 1 && (!fk || r.family_key === fk)) || DATA.runs.find(r => r.rank === 1);
     if (gold) { state.cmpB = gold.run_id; $('cmp-run-b').value = state.cmpB; updateCompareResult(); }
   };
   $('btn-cmp-vs-clean').onclick = () => {
-    const clean = DATA.runs.filter(r => r.verdict === 'clean').sort((a,b) => ((b.arms.stop||{}).desired_ratio||0) - ((a.arms.stop||{}).desired_ratio||0))[0];
+    const ra = DATA.runs.find(r => r.run_id === state.cmpA);
+    const fk = ra ? ra.family_key : null;
+    const crit = RANK_CRITERIA[state.rankCriterion] || RANK_CRITERIA.desired;
+    const clean = DATA.runs
+      .filter(r => r.verdict === 'clean' && (!fk || r.family_key === fk) && crit.get(r) != null)
+      .sort((a, b) => crit.get(b) - crit.get(a))[0];
     if (clean) { state.cmpB = clean.run_id; $('cmp-run-b').value = state.cmpB; updateCompareResult(); }
   };
 
@@ -1150,9 +2757,9 @@ function updateCompareResult() {
 
 // ----------------------------------------------------------------------------- RUNS TABLE VIEW
 const COLS = [
-  ['run_id','Run ID', r => `<b>${esc(r.label)}</b>`],
+  ['run_id','Run ID', r => `<b>${esc(r.label)}</b>${state.highlightBlackAnchor && r.isBaselineAnchor ? ' <span class="anchor-pill">ANCHOR</span>' : ''}`],
   ['verdict','Verdict', r => `<span class="verdict-pill vp-${r.verdict}">${r.verdict}</span>`],
-  ['rank','Rank', r => r.rank && r.rank <= 3 ? `<span class="medal m${r.rank}">#${r.rank}</span>` : (r.frontier ? '<span class="star">★</span>' : '')],
+  ['rank','Rank', r => r.rank && r.rank <= 5 ? `<span class="medal m${r.rank}">#${r.rank}</span>` : (r.frontier ? '<span class="star">★</span>' : (r.beatenByOne ? `<span class="gray-low-tag" title="1 change (${esc(r.beatenByOne.axis)}=${esc(r.beatenByOne.toVal)}) improves criterion">↑1-step</span>` : ''))],
   ['state','State', r => esc(r.state)],
   ['reward','Scheme', r => esc(r.factors.reward)],
   ['budget','Budget', r => esc(r.factors.budget)],
@@ -1186,6 +2793,7 @@ const COLS = [
   ['nn_p50','NN p50', r => num((((r.diversity||{}).arms||{}).stop||{}).nn_sim_p50), 1],
   ['novelty','Novelty', r => num(((r.diversity||{}).cross||{}).novelty_rate), 1],
   ['rocs_median','ROCS Med', r => num((r.arms.stop||{}).rocs_median), 1],
+  ['rocs_gain','ΔROCS', r => { const g = ROCS_GAIN(r); return g == null ? '—' : ((g >= 0 ? '+' : '') + num(g, 3)); }, 1],
   ['peak_epoch','Peak Ep', r => r.best_desired_epoch ? `ep ${r.best_desired_epoch}` : '—', 1],
   ['stop_epoch','Stop Ep', r => r.stop_epoch ? `ep ${r.stop_epoch}` : '—', 1],
   ['actions','Actions', r => `
@@ -1195,12 +2803,13 @@ const COLS = [
 ];
 
 function renderTable() {
-  const runs = DATA.runs.filter(r => state.verdictsOn.has(r.verdict) && matchSearch(r));
+  const runs = DATA.runs.filter(r => passesGlobalFilters(r) && matchSearch(r));
   runs.sort((a,b) => {
     const getSortVal = r => {
       const s = r.arms.stop || {}, div = ((r.diversity||{}).arms||{}).stop || {}, cross = (r.diversity||{}).cross || {};
       if (state.tableKey === 'run_id') return r.run_id;
       if (state.tableKey === 'verdict') return r.verdict;
+      if (state.tableKey === 'rank') return r.rank ? (10 - r.rank) : (r.frontier ? 1 : -1);
       if (state.tableKey === 'desired_ratio') return s.desired_ratio ?? -1;
       if (state.tableKey === 'unique_ratio') return s.unique_ratio ?? -1;
       if (state.tableKey === 'eff_scaffolds') return div.effective_scaffolds ?? -1;
@@ -1212,6 +2821,7 @@ function renderTable() {
       if (state.tableKey === 'nn_p50') return div.nn_sim_p50 ?? -1;
       if (state.tableKey === 'novelty') return cross.novelty_rate ?? -1;
       if (state.tableKey === 'rocs_median') return s.rocs_median ?? -1;
+      if (state.tableKey === 'rocs_gain') return ROCS_GAIN(r) ?? -999;
       if (state.tableKey === 'peak_epoch') return r.best_desired_epoch ?? -1;
       if (state.tableKey === 'stop_epoch') return r.stop_epoch ?? -1;
       return (r.factors && r.factors[state.tableKey]) ?? '';
@@ -1230,9 +2840,10 @@ function renderTable() {
     `<th class="${numCol?'num':''}" data-col="${id}">${label} ${state.tableKey === id ? (state.tableDesc ? '↓' : '↑') : ''}</th>`
   ).join('')}</tr></thead>`;
 
-  const tbody = `<tbody>${runs.map(r =>
-    `<tr>${COLS.map(([, , fn, numCol]) => `<td class="${numCol?'num':''}">${fn(r)}</td>`).join('')}</tr>`
-  ).join('')}</tbody>`;
+  const tbody = `<tbody>${runs.map(r => {
+    const cls = (state.highlightGrayLow && r.beatenByOne) ? 'is-gray-low' : '';
+    return `<tr class="${cls}">${COLS.map(([, , fn, numCol]) => `<td class="${numCol?'num':''}">${fn(r)}</td>`).join('')}</tr>`;
+  }).join('')}</tbody>`;
 
   $('table').innerHTML = thead + tbody;
   $('table').querySelectorAll('th').forEach(th => {
@@ -1476,7 +3087,8 @@ function showRunModal(r) {
     <div style="margin:4px 0 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
       <span class="verdict-pill vp-${r.verdict}">${esc(r.verdict)}</span>
       ${r.frontier ? '<span class="star">★ frontier</span>' : ''}
-      ${r.rank && r.rank <= 3 ? `<span class="medal m${r.rank}">#${r.rank} in family</span>` : ''}
+      ${r.rank && r.rank <= 5 ? `<span class="medal m${r.rank}">#${r.rank} in family</span>` : ''}
+      ${Object.entries(r.criteriaRanks || {}).filter(([ck, rk]) => ck !== state.rankCriterion && rk <= 5).map(([ck, rk]) => `<span class="crit-rank-pill">${esc((RANK_CRITERIA[ck] || {}).label || ck)} #${rk}</span>`).join('')}
       <span class="run-tag">${esc(r.repo)} · state ${esc(r.state)} · ${r.epochs_run ?? '—'} epochs · ${num(r.hours,1)} h</span>
       <button class="btn sm" onclick="compareRun('${r.run_id}')" style="margin-left:auto;">Compare in Comparator</button>
     </div>
@@ -1622,10 +3234,117 @@ function setupEvents() {
   };
   window.onmouseup = () => isDown = false;
 
+  // Tree controls (Hide 1-value floors, Depth, Compact, Sort, Edge color)
+  if ($('btn-tree-hide-single')) {
+    $('btn-tree-hide-single').onclick = () => {
+      const famRuns = DATA.runs.filter(r => r.family_key === state.family.key && passesGlobalFilters(r));
+      state.layerOrder.forEach(id => {
+        const vals = new Set(famRuns.map(r => (r.factors || {})[id] ?? '—'));
+        if (vals.size <= 1) state.activeLayers.delete(id);
+      });
+      renderFloorControls(); renderTree();
+    };
+  }
+  if ($('btn-tree-show-all-floors')) {
+    $('btn-tree-show-all-floors').onclick = () => {
+      state.activeLayers = new Set(state.layerOrder);
+      renderFloorControls(); renderTree();
+    };
+  }
+  document.querySelectorAll('[data-tree-depth]').forEach(btn => {
+    btn.onclick = () => {
+      const targetDepth = Number(btn.dataset.treeDepth);
+      state.collapsedPaths.clear();
+      if (targetDepth < 99) {
+        const activeLayers = state.layerOrder.filter(id => state.activeLayers.has(id));
+        const runs = DATA.runs.filter(r => r.family_key === state.family.key && passesGlobalFilters(r));
+        (function walkCollapse(subRuns, idx, prefix) {
+          if (idx >= activeLayers.length) return;
+          const lid = activeLayers[idx];
+          const vals = [...new Set(subRuns.map(r => (r.factors && r.factors[lid]) ?? '—'))];
+          vals.forEach(v => {
+            const p = `${prefix}/${lid}=${v}`;
+            if (idx + 1 >= targetDepth) state.collapsedPaths.add(p);
+            else walkCollapse(subRuns.filter(r => ((r.factors && r.factors[lid]) ?? '—') === v), idx + 1, p);
+          });
+        })(runs, 0, state.family.key);
+      }
+      renderTree();
+    };
+  });
+  if ($('chk-tree-compact')) {
+    $('chk-tree-compact').checked = state.treeCompact;
+    $('chk-tree-compact').onchange = () => { state.treeCompact = $('chk-tree-compact').checked; renderTree(); };
+  }
+  if ($('sel-tree-sort')) {
+    $('sel-tree-sort').value = state.treeSort;
+    $('sel-tree-sort').onchange = () => { state.treeSort = $('sel-tree-sort').value; renderTree(); };
+  }
+  if ($('sel-tree-edge')) {
+    $('sel-tree-edge').value = state.treeEdgeColor;
+    $('sel-tree-edge').onchange = () => { state.treeEdgeColor = $('sel-tree-edge').value; renderTree(); };
+  }
+
+  // Global slice presets & toggles
+  const setParamFilter = (k, val) => {
+    state.paramFilters[k] = val;
+    const gf = $('gf-' + k), mf = $('mf-' + k);
+    if (gf) gf.value = val;
+    if (mf) mf.value = val;
+  };
+  if ($('btn-slice-w05')) {
+    $('btn-slice-w05').onclick = () => {
+      setParamFilter('alignment_shape_weight', state.paramFilters.alignment_shape_weight === '0.5' ? '' : '0.5');
+      refreshActiveView();
+    };
+  }
+  if ($('btn-slice-default-ff')) {
+    $('btn-slice-default-ff').onclick = () => {
+      setParamFilter('color_ff', state.paramFilters.color_ff === 'default' ? '' : 'default');
+      refreshActiveView();
+    };
+  }
+  if ($('btn-slice-anchor-nbhd')) {
+    $('btn-slice-anchor-nbhd').onclick = () => {
+      state.anchorNeighborhoodOnly = !state.anchorNeighborhoodOnly;
+      $('btn-slice-anchor-nbhd').classList.toggle('active', state.anchorNeighborhoodOnly);
+      refreshActiveView();
+    };
+  }
+  if ($('btn-global-reset-filters')) {
+    $('btn-global-reset-filters').onclick = () => {
+      state.paramFilters = {};
+      state.anchorNeighborhoodOnly = false;
+      if ($('btn-slice-anchor-nbhd')) $('btn-slice-anchor-nbhd').classList.remove('active');
+      document.querySelectorAll('[id^="gf-"], [id^="mf-"]').forEach(el => { el.value = ''; });
+      refreshActiveView();
+    };
+  }
+  if ($('chk-gray-low')) {
+    $('chk-gray-low').checked = state.highlightGrayLow;
+    $('chk-gray-low').onchange = () => { state.highlightGrayLow = $('chk-gray-low').checked; refreshActiveView(); };
+  }
+  if ($('chk-black-anchor')) {
+    $('chk-black-anchor').checked = state.highlightBlackAnchor;
+    $('chk-black-anchor').onchange = () => { state.highlightBlackAnchor = $('chk-black-anchor').checked; refreshActiveView(); };
+  }
+
+  // Rank criterion selector (updates #1–#5 medals and 1-step beaten across all views)
+  if ($('rank-criterion')) {
+    $('rank-criterion').value = state.rankCriterion;
+    $('rank-criterion').onchange = () => {
+      state.rankCriterion = $('rank-criterion').value;
+      computeDynamicRanks();
+      computeRunInsights();
+      refreshActiveView();
+    };
+  }
+
   // Search input
   $('search').oninput = e => {
     state.searchQuery = e.target.value.trim();
     renderTree();
+    if (state.view === 'view-map') drawScatter();
     if (state.view === 'view-table') renderTable();
   };
 
@@ -1649,13 +3368,29 @@ function setupEvents() {
     $('btn-export-filtered-json').onclick = () => exportFilteredTable(true);
   }
 
-  // Export SVG
+  // Export SVG (resolves CSS custom properties so exported files render cleanly standalone)
   $('btn-export-svg').onclick = () => {
-    const svgEl = state.view === 'view-map' ? document.querySelector('#scatter-box svg') : $('edges');
-    if (!svgEl) return;
-    const blob = new Blob([svgEl.outerHTML], { type:'image/svg+xml' });
+    const svgs = state.view === 'view-map' ? Array.from(document.querySelectorAll('#scatter-box svg')) : [$('edges')];
+    if (!svgs.length || !svgs[0]) return;
+    const cs = getComputedStyle(document.documentElement);
+    const bg = (cs.getPropertyValue('--bg-surface') || '#ffffff').trim();
+    let raw;
+    if (svgs.length === 1) {
+      raw = svgs[0].outerHTML.replace(/(<svg[^>]*>)/, `$1<rect width="100%" height="100%" fill="${bg}"/>`);
+    } else {
+      const vb0 = (svgs[0].getAttribute('viewBox') || '0 0 560 440').split(/\s+/).map(Number);
+      const w = vb0[2] || 560, h = vb0[3] || 440;
+      const inner = svgs.map((s, idx) => `<g transform="translate(${idx * w},0)">${s.innerHTML}</g>`).join('');
+      raw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w * svgs.length} ${h}"><rect width="100%" height="100%" fill="${bg}"/>${inner}</svg>`;
+    }
+    ['--bg-page','--bg-surface','--bg-surface-2','--text-main','--text-muted','--text-soft','--border-subtle','--border-strong']
+      .forEach(v => {
+        const val = cs.getPropertyValue(v).trim();
+        if (val) raw = raw.split(`var(${v})`).join(val);
+      });
+    const blob = new Blob([raw], { type:'image/svg+xml' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'atlas_export.svg'; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = state.view === 'view-map' ? 'collapse_map.svg' : 'atlas_export.svg'; a.click();
     URL.revokeObjectURL(url);
   };
 }
