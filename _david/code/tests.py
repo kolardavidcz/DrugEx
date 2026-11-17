@@ -2946,5 +2946,157 @@ class BasinStudyTests(unittest.TestCase):
             self.assertTrue((study_dir / "run_summary.tsv").is_file())
 
 
+class FailFastErrorPropagation(unittest.TestCase):
+    def test_healthy_pools_raise_instead_of_falling_back_to_serial(self):
+        class _CrashingPool:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def map(self, *_args, **_kwargs):
+                raise OSError("worker died")
+
+        class _CrashingContext:
+            def Pool(self, *_args, **_kwargs):
+                return _CrashingPool()
+
+        cfg = small(n_jobs=4)
+        with (
+            patch.object(scorer_utils, "_POOL_BROKEN", False),
+            patch.object(scorer_utils, "pool_context", return_value=_CrashingContext()),
+        ):
+            with self.assertRaises(RuntimeError):
+                scorer_utils.map_tasks(scorer_utils._touch, list(range(40)), cfg)
+
+            gen = conformers.RelaxingConformerGenerator(cfg)
+            with tempfile.TemporaryDirectory() as tmp, self.assertRaises(RuntimeError):
+                scorer_utils.parallel_embed(
+                    gen,
+                    ["CCO"] * 10,
+                    tmp,
+                    native_kwargs=gen._native_kwargs(),
+                    serial=lambda: str(Path(tmp) / "serial.sdf"),
+                )
+
+        ref = Chem.MolFromSmiles("CCO")
+        AllChem.EmbedMolecule(ref)
+        with tempfile.TemporaryDirectory() as tmp:
+            ref_sdf = Path(tmp) / "ref.sdf"
+            scorer_utils.write_sdf(ref_sdf, [ref])
+            scorer = rocs.ComboROCSScorer(
+                conformer_generator=conformers.RelaxingConformerGenerator(cfg),
+                references=[str(ref_sdf)],
+                n_jobs=4,
+            )
+            basin_scorer = rocs_basin_tmp.BasinTrackingROCSScorer(
+                conformer_generator=conformers.RelaxingConformerGenerator(cfg),
+                references=[str(ref_sdf)],
+                n_jobs=4,
+                cfg=cfg,
+            )
+            confs = {idx: [ref] for idx in range(10)}
+            with (
+                patch.object(scorer_utils, "_POOL_BROKEN", False),
+                patch.object(rocs, "pool_context", return_value=_CrashingContext()),
+                patch.object(rocs_basin_tmp, "pool_context", return_value=_CrashingContext()),
+            ):
+                with self.assertRaises(RuntimeError):
+                    scorer._score_sequential(10, confs, 1)
+                with self.assertRaises(RuntimeError):
+                    basin_scorer._score_sequential(10, confs, 1)
+
+    def test_empty_conformer_output_raises_for_embeddable_batch_but_warns_for_single(self):
+        cfg = small(n_jobs=1, minimize=False)
+        gen = conformers.RelaxingConformerGenerator(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            empty_sdf = Path(tmp) / "conformers.sdf"
+            empty_sdf.write_text("")
+            with patch.object(gen, "_embed", return_value=empty_sdf):
+                # Single molecule or unparseable inputs still warn & return empty SDF path.
+                self.assertEqual(gen.genConformers(["CCO"], tmp), str(empty_sdf))
+                self.assertEqual(gen.genConformers(["invalid_smiles"] * 12, tmp), str(empty_sdf))
+                # Batch of >=10 valid embeddable molecules with no output must fail fast.
+                with self.assertRaises(RuntimeError):
+                    gen.genConformers(["CCO"] * 10, tmp)
+
+    def test_relax_sdf_raises_when_all_conformers_across_many_molecules_drop(self):
+        cfg = small(n_jobs=1, minimize=True)
+        mols = []
+        for idx in range(10):
+            mol = Chem.MolFromSmiles("CCO")
+            AllChem.EmbedMolecule(mol)
+            mol.SetProp("_Name", f"mol_{idx}+0")
+            mols.append(mol)
+        with tempfile.TemporaryDirectory() as tmp:
+            sdf = Path(tmp) / "conformers.sdf"
+            scorer_utils.write_sdf(sdf, mols)
+            with (
+                patch.object(
+                    conformers, "_relax", side_effect=lambda t: (None, "solver_raised")
+                ),
+                self.assertRaises(RuntimeError),
+            ):
+                conformers.relax_sdf(sdf, cfg)
+
+    def test_basin_study_refuses_silent_serial_when_multi_core_pool_is_broken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            study_dir = Path(tmp)
+            (study_dir / "unique_molecules.txt").write_text("CCO\n")
+            with (
+                patch.object(basin_study, "check_pool", return_value="forkserver (broken)"),
+                patch.object(scorer_utils, "_POOL_BROKEN", True),
+                self.assertRaises(RuntimeError),
+            ):
+                basin_study.evaluate_molecules(study_dir, minimize=False, n_jobs=4)
+
+    def test_job_main_exits_nonzero_when_run_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            storage = root / "storage"
+            scratch = root / "scratch"
+            release = root / "release"
+            (storage / ".venv" / "bin").mkdir(parents=True)
+            python_bin = storage / ".venv" / "bin" / "python"
+            python_bin.write_text("#!/bin/sh\nexit 0\n")
+            python_bin.chmod(0o755)
+            (release / "_david" / "code").mkdir(parents=True)
+            (release / "_david" / "code" / "run.py").write_text("")
+            scratch.mkdir()
+            spec_path = root / "spec.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "name": "fail_test",
+                        "args": [],
+                        "source": str(release),
+                        "revision": "deadbeef",
+                    }
+                )
+            )
+            env = {
+                "PBS_JOBID": "12345.meta",
+                "SCRATCHDIR": str(scratch),
+                "STORAGE_DIR": str(storage),
+                "RUN_SPEC": str(spec_path),
+                "NCPUS": "4",
+            }
+
+            class _FailingProc:
+                def poll(self):
+                    return 1
+
+                def wait(self):
+                    return 1
+
+            with (
+                patch.dict(os.environ, env, clear=True),
+                patch.object(job_module.subprocess, "Popen", return_value=_FailingProc()),
+            ):
+                rc = job_module.main(["--release", str(release)])
+            self.assertEqual(rc, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

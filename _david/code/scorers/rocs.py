@@ -156,7 +156,6 @@ class ComboROCSScorer(RDKitROCSScorer):
         tasks = [(mol_id, conformers_by_mol.get(mol_id, [])) for mol_id in range(unique_count)]
         workers = capped_n_jobs(self.workers if self.workers > 0 else (os.cpu_count() or 1))
 
-        results = None
         if not (
             workers <= 1
             or unique_count < 8
@@ -167,8 +166,9 @@ class ComboROCSScorer(RDKitROCSScorer):
                 with pool_context().Pool(workers, _worker_init, (search,)) as pool:
                     results = pool.map(_worker_score, tasks)
             except Exception as error:
-                logger.warning("parallel ROCS failed (%s); rescoring sequentially", error)
-        if results is None:
+                logger.error("parallel ROCS failed (%s); aborting", error)
+                raise RuntimeError(f"parallel ROCS failed: {error}") from error
+        else:
             results = [(mol_id, search.best(conformers)) for mol_id, conformers in tasks]
 
         scores = np.zeros((unique_count, num_groups))

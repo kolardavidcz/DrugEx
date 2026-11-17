@@ -506,6 +506,8 @@ def _pipeline(
                 logger.exception("failed to save %s", model_path.name)
         signal.signal(signal.SIGTERM, previous_sigterm)
     summary = _training_summary(run_dir / "rl_fit.tsv", cfg)
+    if cfg.epochs > 0 and type(explorer).__module__.startswith("drugex.") and not summary:
+        raise RuntimeError(f"RL training produced no epochs in {run_dir / 'rl_fit.tsv'}")
     logger.info("training summary: %s", summary)
 
     set_basin_stage(env, "final")

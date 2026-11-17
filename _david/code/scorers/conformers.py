@@ -136,6 +136,11 @@ def relax_sdf(path: Path, cfg: Config, *, strict_stereo: bool = False) -> list[C
             ", ".join(f"{reason}={count}" for reason, count in sorted(reasons.items())),
             len(orphaned),
         )
+        if not kept and len(names) >= 10:
+            raise RuntimeError(
+                f"relaxation dropped all {embedded} conformers across {len(names)} molecules "
+                f"({dict(reasons)}); aborting instead of scoring 0.0"
+            )
     elif reasons["unparameterized"]:
         logger.warning(
             "%d/%d conformers had no %s parameters and were left unrelaxed",
@@ -199,14 +204,36 @@ class RelaxingConformerGenerator(RDKitConformerGenerator):
             serial=lambda: RDKitConformerGenerator.genConformers(self, smiles_list, out_dir),
         )
 
+    def _count_embeddable(self, smiles_list) -> int:
+        count = 0
+        for smi in smiles_list:
+            if not smi or not isinstance(smi, str):
+                continue
+            mol = Chem.MolFromSmiles(smi)
+            if mol is not None and not self._filter_mol(smi, mol):
+                count += 1
+        return count
+
     def genConformers(self, smiles_list, out_dir) -> str:
         path = self._embed(smiles_list, out_dir)
         written = path.is_file() and path.stat().st_size
         if not written and any(smiles_list):
+            embeddable = self._count_embeddable(smiles_list)
+            if embeddable >= 10:
+                logger.error(
+                    "conformer generation produced no output for %d embeddable molecule(s) "
+                    "in %s; check scratch/TMPDIR space",
+                    embeddable,
+                    out_dir,
+                )
+                raise RuntimeError(
+                    f"conformer generation produced no output for {embeddable} embeddable "
+                    f"molecule(s) in {out_dir}; check scratch/TMPDIR space"
+                )
             logger.warning(
                 "conformer generation produced no output for %d molecule(s); every shape "
                 "score in this batch will be 0.0. Check scratch/TMPDIR space.",
-                sum(1 for smiles in smiles_list if smiles), #! not sure what is this doing here, could we just use len(smiles_list) instead - maybe not?
+                sum(1 for smiles in smiles_list if smiles),
             )
         if written and self.cfg.minimize:
             relax_sdf(path, self.cfg, strict_stereo=self.strict_stereo)

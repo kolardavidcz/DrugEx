@@ -127,7 +127,7 @@ def workers(cfg: Config) -> int:
 
 
 def map_tasks(fn, tasks: list, cfg: Config) -> list:
-    """Map a per-record function over a pool, falling back to this process."""
+    """Map a per-record function over a pool; fail fast if a healthy pool breaks."""
     count = workers(cfg)
     if (
         len(tasks) < 32
@@ -142,8 +142,8 @@ def map_tasks(fn, tasks: list, cfg: Config) -> list:
         ) as pool:
             return pool.map(fn, tasks, chunksize=max(1, len(tasks) // (count * 4)))
     except Exception as error:
-        logger.warning("relaxation pool failed (%s); continuing serially", error)
-        return [fn(task) for task in tasks]
+        logger.error("relaxation pool failed (%s); aborting", error)
+        raise RuntimeError(f"relaxation pool failed: {error}") from error
 
 
 def read_sdf(path: Path) -> list[Chem.Mol]:
@@ -227,8 +227,8 @@ def parallel_embed(
         with pool_context().Pool(count) as pool:
             produced = pool.map(_embed_shard, shards)
     except Exception as error:
-        logger.warning("parallel embedding failed (%s); falling back to serial", error)
-        return Path(serial())
+        logger.error("parallel embedding failed (%s); aborting", error)
+        raise RuntimeError(f"parallel embedding failed: {error}") from error
 
     combined = Path(out_dir) / "conformers.sdf"
     write_sdf(combined, (mol for path in produced if path for mol in read_sdf(Path(path))))

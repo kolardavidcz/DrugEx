@@ -450,6 +450,11 @@ def evaluate_molecules(
         color_ff=cfg.color_ff,
     )
     workers = capped_n_jobs(cfg.n_jobs if cfg.n_jobs > 0 else (os.cpu_count() or 1))
+    if workers > 1 and not pool_is_healthy():
+        raise RuntimeError(
+            f"{workers} cores requested for basin study evaluation but worker pool probe failed; "
+            "refusing silent serial fallback"
+        )
 
     for chunks_done, start in enumerate(range(0, len(todo), chunk_size), start=1):
         if max_chunks > 0 and chunks_done > max_chunks:
