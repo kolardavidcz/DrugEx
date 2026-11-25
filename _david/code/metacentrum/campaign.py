@@ -248,17 +248,18 @@ BATCHES: dict[str, Batch] = {
 }
 
 
-def runs(batch: Batch) -> list[tuple[str, dict]]:
+def runs(batch: Batch) -> list[tuple[str, dict[str, object]]]:
     """One batch as ``(job name, settings)`` pairs."""
-    plan = []
+    plan: list[tuple[str, dict[str, object]]] = []
     for values in itertools.product(*batch.axes.values()):
-        chosen = dict(zip(batch.axes, values))
+        chosen = dict(zip(batch.axes, values, strict=True))
         name = batch.prefix + "_" + "".join(TOKEN[key](value) for key, value in chosen.items())
         plan.append((name, {**COMMON, **batch.fixed, **chosen}))
     return plan
 
 
-def deltas(settings: dict) -> list[str]:
+def deltas(settings: dict[str, object]) -> list[str]:
+    """Render ``settings`` as sorted ``KEY=VALUE`` CLI override strings."""
     return [f"{key}={value}" for key, value in sorted(settings.items())]
 
 

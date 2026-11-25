@@ -112,7 +112,7 @@ class ForceFieldMatchesThePipeline(unittest.TestCase):
         mols = study._embed(IBUPROFEN, 2, 104729, cfg)
         before = [Chem.Mol(m).GetConformer().GetPositions().copy() for m in mols]
         after = study._relax(mols, METHODS["ETKDG"], cfg)
-        for original, relaxed in zip(before, after):
+        for original, relaxed in zip(before, after, strict=True):
             np.testing.assert_allclose(original, relaxed.GetConformer().GetPositions())
 
 
@@ -328,7 +328,7 @@ class CrossStudyTests(unittest.TestCase):
                 & (grid_df["candidate_count"] == 8)
                 & (grid_df["scope"] == "global_cross")
             ]
-            n_by_band = dict(zip(g_cell["band"], g_cell["n"]))
+            n_by_band = dict(zip(g_cell["band"], g_cell["n"], strict=True))
             self.assertEqual(
                 n_by_band["lt_p50_noise"] + n_by_band["p50_to_p85"] + n_by_band["ge_p85"],
                 n_by_band["all_cross"],
@@ -429,6 +429,26 @@ class CrossStudyTests(unittest.TestCase):
                     if sum(sc) > sum(best_sc):
                         best_sc = sc
             self.assertAlmostEqual(got_combo, sum(best_sc), places=5)
+
+    def test_cross_study_config_from_args_coerces_types(self):
+        from _david.code.conformer import cross_study
+
+        cfg = cross_study.config_from_args(
+            [
+                "n_molecules=12",
+                "n_references=4",
+                "methods=ETKDG,MMFF94s_e78.4",
+                "reference_caps=1,4",
+                "color_ff=fdef",
+                "n_jobs=2",
+            ]
+        )
+        self.assertEqual(cfg.n_molecules, 12)
+        self.assertEqual(cfg.n_references, 4)
+        self.assertEqual(cfg.methods, ("ETKDG", "MMFF94s_e78.4"))
+        self.assertEqual(cfg.reference_caps, (1, 4))
+        self.assertEqual(cfg.color_ff, "fdef")
+        self.assertEqual(cfg.n_jobs, 2)
 
 
 if __name__ == "__main__":

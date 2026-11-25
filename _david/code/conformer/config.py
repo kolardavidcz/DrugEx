@@ -19,17 +19,21 @@ from pathlib import Path
 from _david.code.config import EGCG, PROJECT_ROOT
 
 
-#: A generation method: which force field relaxes the embedded conformers, and under what
-#: electrostatics. ``force_field=None`` is ETKDG alone, with no minimisation at all -- the
-#: control the other rows are measured against.
 @dataclass(frozen=True)
 class Method:
+    """One conformer-relaxation protocol: force field plus electrostatic settings.
+
+    ``force_field=None`` represents unminimised ETKDG alone -- the control row against which
+    minimised force-field methods are compared.
+    """
+
     force_field: str | None  # ^[None, UFF, MMFF94, MMFF94s]
     dielectric: float = 1.0  # ignored by UFF, which has no dielectric term
     dielectric_model: int = 1  # ^[1, 2] 1 = constant, 2 = distance-dependent
 
     @property
     def label(self) -> str:
+        """Short human-readable label for tables and figure legends."""
         if self.force_field is None:
             return "ETKDG"
         if self.force_field == "UFF":
@@ -63,6 +67,8 @@ RANKING_FALLBACK = METHODS["MMFF94s_e78.4"]
 
 @dataclass(frozen=True)
 class StudyConfig:
+    """Immutable settings for one single-molecule conformer self-recovery grid."""
+
     smiles: str = EGCG  # the molecule recovered against itself; any SMILES
     name: str = "egcg"  # label for the study directory
 
@@ -96,6 +102,7 @@ class StudyConfig:
     output_root: Path = PROJECT_ROOT / "_david" / "output" / "conformer"
 
     def method(self, key: str) -> Method:
+        """Resolve a method key from :data:`METHODS`, raising ``ValueError`` if unknown."""
         try:
             return METHODS[key]
         except KeyError:
@@ -126,7 +133,7 @@ class StudyConfig:
 
     @property
     def cells(self) -> int:
-        """How many measurements the grid asks for, before anything is run."""
+        """Total number of ``(method, K, C, seed)`` cells requested by the grid."""
         return (
             len(self.methods) * len(self.reference_caps) * len(self.candidate_counts) * self.repeats
         )

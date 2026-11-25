@@ -1,3 +1,10 @@
+"""Worker-node PBS job runner for DrugEx training and arm-rebuild jobs.
+
+Stdlib-only by design: this module is executed directly by ``pbs_launcher.sh`` on worker
+nodes before importing any scientific stack (and is imported by ``submit.py`` and
+``memreport.py``), so it must never import ``_david`` or third-party packages.
+"""
+
 from __future__ import annotations
 
 import json
@@ -9,6 +16,7 @@ import sys
 import traceback
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 ENTRY_POINT = Path("_david") / "code" / "run.py"
 
@@ -53,7 +61,8 @@ class _SignalExit(SystemExit):
     pass
 
 
-def read_spec(path: Path) -> dict:
+def read_spec(path: Path) -> dict[str, Any]:
+    """Read and validate a staged PBS ``spec.json`` file."""
     try:
         spec = json.loads(path.read_text())
     except FileNotFoundError as error:
@@ -75,7 +84,8 @@ def read_spec(path: Path) -> dict:
     return spec
 
 
-def staged_job(env: dict[str, str], release_arg: Path | None) -> tuple[dict, Path]:
+def staged_job(env: dict[str, str], release_arg: Path | None) -> tuple[dict[str, Any], Path]:
+    """Verify the PBS environment, storage venv, job spec, and staged release directory."""
     missing = [name for name in REQUIRED_ENV if not env.get(name)]
     if missing:
         raise JobError(
@@ -96,10 +106,12 @@ def staged_job(env: dict[str, str], release_arg: Path | None) -> tuple[dict, Pat
 
 
 def venv_python(storage: Path) -> Path:
+    """Path to the validated storage virtualenv interpreter."""
     return storage / ".venv" / "bin" / "python"
 
 
 def allocated_cpus(env: dict[str, str]) -> int:
+    """CPU count allocated to this PBS job (nodefile > ``NCPUS`` > host CPU count)."""
     nodefile = Path(env.get("PBS_NODEFILE", ""))
     if nodefile.is_file():
         lines = [line for line in nodefile.read_text().splitlines() if line.strip()]
@@ -113,6 +125,7 @@ def allocated_cpus(env: dict[str, str]) -> int:
 def job_environment(
     env: dict[str, str], release_copy: Path, temp_root: Path, revision: str | None = None
 ) -> dict[str, str]:
+    """Build the child-process environment with thread pinning, temp dir, and ``PYTHONPATH``."""
     merged = dict(env) | THREAD_ENV
     if revision:
         merged["DRUGEX_SOURCE_REVISION"] = revision
@@ -277,18 +290,29 @@ def clean_scratch(scratch: Path) -> None:
 
 
 def install_signal_handlers() -> None:
-    def handler(signum: int, _frame) -> None:
+    """Convert SIGTERM/SIGINT into ``_SignalExit`` so partial scratch results copy back."""
+
+    def handler(signum: int, _frame: object) -> None:
         raise _SignalExit(128 + signum)
 
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, handler)
 
 
+def _unit_name(spec: dict[str, Any], command: list[str]) -> str:
+    """Identify the failed unit: the target run basename for rebuilds, else the job name."""
+    if spec.get("mode") == "rebuild":
+        for index, arg in enumerate(command[:-1]):
+            if arg == "_david.code.reconstruct.score_arms":
+                return Path(command[index + 1]).name
+    return str(spec["name"])
+
+
 def _banner(
     env: dict[str, str],
-    spec: dict,
+    spec: dict[str, Any],
     cpus: int,
-    workers: int,
+    workers: int | str,
     scratch: Path,
     release: Path,
     results: Path,
@@ -362,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
                 active = None
                 code = 128 - returncode if returncode < 0 else returncode
                 if code:
-                    unit = command[-1] if spec.get("mode") == "rebuild" else spec["name"]
+                    unit = _unit_name(spec, command)
                     failed.append((unit, code))
                     print(f"FAILED ({code}): {' '.join(command)}", file=sys.stderr)
                 status = status or code
@@ -384,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{len(failed)} of {len(commands)} unit(s) failed: {failed}", file=sys.stderr)
     except _SignalExit as error:
         print(f"signalled, copying partial results back (exit {error.code})", file=sys.stderr)
-        status = int(error.code or 143)
+        status = error.code if isinstance(error.code, int) and error.code else 143
     except Exception:
         traceback.print_exc()
         status = 1

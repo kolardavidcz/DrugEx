@@ -20,10 +20,10 @@ caches per-run diagnostics to ``<run>/cache_stats/health.json``, and writes
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import json
 import logging
-import os
 import re
 import shlex
 from datetime import datetime
@@ -32,13 +32,14 @@ from typing import Any
 
 import pandas as pd
 
-from _david.code.analysis._helpers import iter_run_dirs
+from _david.code.analysis._helpers import iter_run_dirs, run_date
 from _david.code.analysis.report import (
     EXPECTED_FIGURE_SLOTS,
     analyse,
     parse_run_log_diagnostics,
 )
 from _david.code.config import PROJECT_ROOT, Config
+from _david.code.reconstruct.provenance import atomic_write_text
 from _david.code.run import arm_is_complete, recorded_arm_size
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,8 @@ logger = logging.getLogger(__name__)
 HEALTH_CACHE_VERSION = 1
 _RUN_TAG_RE = re.compile(r"^\d{8}_\d{4}_(.+)$")
 _EPOCH_RE = re.compile(r"epoch\s+(\d+)/(\d+):")
+_SAVED_EPOCH_RE = re.compile(r"Model saved at epoch\s+(\d+)")
+_LOG_TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", flags=re.MULTILINE)
 
 
 def _run_tag(run_name: str) -> str:
@@ -78,13 +81,14 @@ def _health_sources(run_dir: Path) -> dict[str, Any]:
         else:
             out[rel] = [-1, -1]
     fig_dir = run_dir / "figures"
-    if fig_dir.is_dir():
-        out["figures"] = sorted(
+    out["figures"] = (
+        sorted(
             [p.name, int(p.stat().st_size), int(p.stat().st_mtime_ns)]
             for p in fig_dir.glob("*.png")
         )
-    else:
-        out["figures"] = []
+        if fig_dir.is_dir()
+        else []
+    )
     return out
 
 
@@ -98,15 +102,11 @@ def _config_deltas(config: dict[str, Any]) -> list[str]:
             continue
         raw = config[field.name]
         default = getattr(defaults, field.name)
-        if isinstance(default, tuple) and isinstance(raw, list):
-            raw_cmp: Any = tuple(raw)
-        else:
-            raw_cmp = raw
+        raw_cmp: Any = tuple(raw) if isinstance(default, tuple) and isinstance(raw, list) else raw
         if raw_cmp == default or raw is None:
             continue
         if isinstance(raw_cmp, tuple):
-            formatted = ",".join(str(x) for x in raw_cmp)
-            deltas.append(f"{field.name}={formatted}")
+            deltas.append(f"{field.name}={','.join(str(x) for x in raw_cmp)}")
         else:
             deltas.append(f"{field.name}={raw_cmp}")
     return deltas
@@ -140,12 +140,14 @@ def _parse_log_stage(run_dir: Path, log_diag: dict[str, Any]) -> dict[str, Any]:
         last_epoch = int(match.group(1))
         target_epochs = int(match.group(2))
     if last_epoch is None:
-        saved_m = re.findall(r"Model saved at epoch\s+(\d+)", text)
+        saved_m = _SAVED_EPOCH_RE.findall(text)
         if saved_m:
             last_epoch = int(saved_m[-1])
         elif (run_dir / "rl_fit.tsv").is_file():
             try:
-                ep_rows = max(0, len((run_dir / "rl_fit.tsv").read_text(errors="replace").splitlines()) - 1)
+                ep_rows = max(
+                    0, len((run_dir / "rl_fit.tsv").read_text(errors="replace").splitlines()) - 1
+                )
                 if ep_rows > 0:
                     last_epoch = ep_rows
             except OSError:
@@ -156,10 +158,9 @@ def _parse_log_stage(run_dir: Path, log_diag: dict[str, Any]) -> dict[str, Any]:
     has_done = any("done: " in line for line in lines[-10:])
 
     lowered = text.lower()
-    reason = "unknown"
     detail = lines[-1].strip() if lines else ""
     elapsed_log_hours = None
-    ts_matches = re.findall(r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", text, flags=re.MULTILINE)
+    ts_matches = _LOG_TS_RE.findall(text)
     if len(ts_matches) >= 2:
         try:
             t0 = datetime.strptime(ts_matches[0], "%Y-%m-%d %H:%M:%S")
@@ -183,10 +184,11 @@ def _parse_log_stage(run_dir: Path, log_diag: dict[str, Any]) -> dict[str, Any]:
     elif has_summary and not has_done:
         reason = "stopped_post_training"
     elif last_epoch is not None:
-        if elapsed_log_hours is not None and elapsed_log_hours >= 23.0:
-            reason = "walltime_during_training"
-        else:
-            reason = "stopped_mid_training"
+        reason = (
+            "walltime_during_training"
+            if elapsed_log_hours is not None and elapsed_log_hours >= 23.0
+            else "stopped_mid_training"
+        )
     elif has_prior:
         reason = "stopped_before_epoch_1"
     else:
@@ -231,8 +233,102 @@ def _figure_status(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def _classify_run(
+    run_dir: Path,
+    *,
+    tag: str,
+    state: str,
+    config: dict[str, Any],
+    manifest: dict[str, Any],
+    epochs: int,
+    stop_expected: int,
+    has_stop_pkg: bool,
+    has_prior_tsv: bool,
+    has_stop_tsv: bool,
+    has_report: bool,
+    fig_info: dict[str, Any],
+    log_diag: dict[str, Any],
+    stage_info: dict[str, Any],
+) -> tuple[str, str, str, str]:
+    """Return ``(category, reason, action, command)`` for one inspected run directory."""
+    if has_stop_tsv and has_prior_tsv:
+        missing_figs = fig_info["count"] < len(EXPECTED_FIGURE_SLOTS) or bool(
+            fig_info["missing_slots"]
+        )
+        log_path = run_dir / "run.log"
+        report_path = run_dir / "report.md"
+        repaired_after_log = bool(
+            has_report
+            and not missing_figs
+            and log_path.is_file()
+            and report_path.stat().st_mtime_ns > log_path.stat().st_mtime_ns
+        )
+        historical_log_err = bool(
+            (log_diag.get("analysis_failures") or log_diag.get("figure_failures"))
+            and not repaired_after_log
+        )
+        if not has_report or missing_figs or historical_log_err or state != "complete":
+            problems = []
+            if not has_report:
+                problems.append("missing report.md")
+            if fig_info["missing_slots"]:
+                problems.append(f"missing figure slots {','.join(fig_info['missing_slots'])}")
+            if historical_log_err and log_diag.get("figure_failures"):
+                problems.append(
+                    f"figure errors in run.log ({','.join(log_diag['figure_failures'])})"
+                )
+            if historical_log_err and log_diag.get("analysis_failures"):
+                problems.append("analysis failed in run.log")
+            if state != "complete":
+                problems.append(f"manifest state={state}")
+            return (
+                "missing_figures_or_report",
+                "; ".join(problems),
+                "re_report",
+                f"python -m _david.code.analysis {shlex.quote(str(run_dir))}",
+            )
+        return "healthy", "ok", "none", ""
+
+    if has_stop_pkg or (
+        stage_info["training_summary_seen"] and stop_expected > 0 and has_prior_tsv
+    ):
+        missing_arms = [
+            name
+            for name, ok in (
+                ("prior.tsv", has_prior_tsv),
+                ("final_desired_ratio_at_stop.tsv", has_stop_tsv),
+            )
+            if not ok
+        ]
+        reason = (
+            f"missing/incomplete {', '.join(missing_arms)} after stage '{stage_info['stage']}'"
+            + ("" if has_stop_pkg else " (model checkpoint absent locally)")
+        )
+        if has_prior_tsv:
+            return (
+                "no_eval_dataset",
+                reason,
+                "rebuild",
+                f"python -m _david.code.metacentrum.submit rebuild --runs {shlex.quote(run_dir.name)}",
+            )
+        return "no_eval_dataset", reason, "rerun", _rerun_command(tag, config)
+
+    err = manifest.get("error") or stage_info["detail"] or stage_info["reason"]
+    dur = (
+        f", {stage_info['elapsed_log_hours']:.1f}h"
+        if stage_info.get("elapsed_log_hours") is not None
+        else ""
+    )
+    return (
+        "no_model_saved",
+        f"{stage_info['reason']} (epoch {epochs}{dur}): {err}",
+        "rerun",
+        _rerun_command(tag, config),
+    )
+
+
 def inspect_run(run_dir: Path, *, use_cache: bool = True) -> dict[str, Any] | None:
-    """Inspect one run directory locally and cache to ``cache_stats/health.json``."""
+    """Inspect one run directory locally and cache results to ``cache_stats/health.json``."""
     manifest_path = run_dir / "manifest.json"
     if not manifest_path.is_file():
         return None
@@ -241,7 +337,7 @@ def inspect_run(run_dir: Path, *, use_cache: bool = True) -> dict[str, Any] | No
     cache_path = run_dir / "cache_stats" / "health.json"
     if use_cache and cache_path.is_file():
         try:
-            cached = json.loads(cache_path.read_text())
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
             if (
                 cached.get("version") == HEALTH_CACHE_VERSION
                 and cached.get("sources") == sources
@@ -252,9 +348,9 @@ def inspect_run(run_dir: Path, *, use_cache: bool = True) -> dict[str, Any] | No
             pass
 
     try:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        record = {
+        return {
             "run": run_dir.name,
             "path": str(run_dir),
             "tag": _run_tag(run_dir.name),
@@ -274,12 +370,11 @@ def inspect_run(run_dir: Path, *, use_cache: bool = True) -> dict[str, Any] | No
             "has_report": False,
             "log_diagnostics": {},
         }
-        return record
 
     config = manifest.get("config") or {}
     if not config and (run_dir / "config.json").is_file():
         try:
-            config = json.loads((run_dir / "config.json").read_text())
+            config = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             config = {}
 
@@ -316,74 +411,22 @@ def inspect_run(run_dir: Path, *, use_cache: bool = True) -> dict[str, Any] | No
     log_diag = parse_run_log_diagnostics(run_dir / "run.log")
     stage_info = _parse_log_stage(run_dir, log_diag)
     tag = _run_tag(run_dir.name)
-
-    # Classify into the exact pipeline failure tiers.
-    # Note: a finished run pulled from MetaCentrum might omit models/*.pkg locally if only
-    # results were synced; if complete datasets & state=='complete' exist, model saving succeeded.
-    if has_stop_tsv and has_prior_tsv:
-        missing_figs = fig_info["count"] < len(EXPECTED_FIGURE_SLOTS) or bool(fig_info["missing_slots"])
-        log_path = run_dir / "run.log"
-        repaired_after_log = bool(
-            has_report
-            and not missing_figs
-            and log_path.is_file()
-            and report_path.stat().st_mtime_ns > log_path.stat().st_mtime_ns
-        )
-        historical_log_err = bool(
-            (log_diag.get("analysis_failures") or log_diag.get("figure_failures"))
-            and not repaired_after_log
-        )
-        late_bug = historical_log_err or state != "complete"
-        if not has_report or missing_figs or late_bug:
-            category = "missing_figures_or_report"
-            problems = []
-            if not has_report:
-                problems.append("missing report.md")
-            if fig_info["missing_slots"]:
-                problems.append(f"missing figure slots {','.join(fig_info['missing_slots'])}")
-            if historical_log_err and log_diag.get("figure_failures"):
-                problems.append(f"figure errors in run.log ({','.join(log_diag['figure_failures'])})")
-            if historical_log_err and log_diag.get("analysis_failures"):
-                problems.append("analysis failed in run.log")
-            if state != "complete":
-                problems.append(f"manifest state={state}")
-            reason = "; ".join(problems)
-            action = "re_report"
-            command = f"python -m _david.code.analysis {shlex.quote(str(run_dir))}"
-        else:
-            category = "healthy"
-            reason = "ok"
-            action = "none"
-            command = ""
-    elif has_stop_pkg or (stage_info["training_summary_seen"] and stop_expected > 0 and has_prior_tsv):
-        # Model exists (or training finished cleanly before stop-arm scoring/sync).
-        category = "no_eval_dataset"
-        missing_arms = []
-        if not has_prior_tsv:
-            missing_arms.append("prior.tsv")
-        if not has_stop_tsv:
-            missing_arms.append("final_desired_ratio_at_stop.tsv")
-        reason = (
-            f"missing/incomplete {', '.join(missing_arms)} after stage '{stage_info['stage']}'"
-            + ("" if has_stop_pkg else " (model checkpoint absent locally)")
-        )
-        if has_prior_tsv:
-            action = "rebuild"
-            command = f"python -m _david.code.metacentrum.submit rebuild --runs {shlex.quote(run_dir.name)}"
-        else:
-            action = "rerun"
-            command = _rerun_command(tag, config)
-    else:
-        category = "no_model_saved"
-        err = manifest.get("error") or stage_info["detail"] or stage_info["reason"]
-        dur = (
-            f", {stage_info['elapsed_log_hours']:.1f}h"
-            if stage_info.get("elapsed_log_hours") is not None
-            else ""
-        )
-        reason = f"{stage_info['reason']} (epoch {epochs}{dur}): {err}"
-        action = "rerun"
-        command = _rerun_command(tag, config)
+    category, reason, action, command = _classify_run(
+        run_dir,
+        tag=tag,
+        state=state,
+        config=config,
+        manifest=manifest,
+        epochs=epochs,
+        stop_expected=stop_expected,
+        has_stop_pkg=has_stop_pkg,
+        has_prior_tsv=has_prior_tsv,
+        has_stop_tsv=has_stop_tsv,
+        has_report=has_report,
+        fig_info=fig_info,
+        log_diag=log_diag,
+        stage_info=stage_info,
+    )
 
     hours = (
         round(float(manifest["elapsed_seconds"]) / 3600, 2)
@@ -413,23 +456,14 @@ def inspect_run(run_dir: Path, *, use_cache: bool = True) -> dict[str, Any] | No
         "log_diagnostics": log_diag,
     }
     if use_cache:
-        try:
-            cache_dir = run_dir / "cache_stats"
-            cache_dir.mkdir(exist_ok=True)
-            tmp_cache = cache_dir / f".health.{os.getpid()}.tmp"
-            tmp_cache.write_text(
+        with contextlib.suppress(OSError):
+            atomic_write_text(
+                cache_path,
                 json.dumps(
-                    {
-                        "version": HEALTH_CACHE_VERSION,
-                        "sources": sources,
-                        "record": record,
-                    },
+                    {"version": HEALTH_CACHE_VERSION, "sources": sources, "record": record},
                     indent=2,
-                )
+                ),
             )
-            tmp_cache.replace(cache_path)
-        except OSError:
-            pass
     return record
 
 
@@ -505,11 +539,6 @@ def _collect_rebuild_runs(
             active_by_run.setdefault(run_name, []).extend(f"{job_name}:{lbl}" for lbl in labels)
 
 
-def _run_date(name: str) -> str | None:
-    match = re.match(r"^(\d{8})_\d{4}_", name)
-    return match.group(1) if match else None
-
-
 def check_health(
     root: Path,
     out_dir: Path | None = None,
@@ -522,7 +551,7 @@ def check_health(
     """Audit every run under ``root``, optionally repair reports, and write MD/TSV reports."""
     runs = iter_run_dirs(root)
     if since:
-        runs = [r for r in runs if (_run_date(r.name) or "") >= since]
+        runs = [r for r in runs if (run_date(r.name) or "") >= since]
 
     records: list[dict[str, Any]] = []
     fixed: list[str] = []
@@ -552,8 +581,6 @@ def check_health(
             rec["live_jobs"] = sorted(set(live))
             rec["remote_stop_pkg"] = r_meta.get("remote_stop_pkg")
             rec["remote_stop_tsv"] = r_meta.get("remote_stop_tsv")
-            # If the model exists remotely and this run has no local model yet, it is
-            # rebuildable from MetaCentrum storage rather than requiring a full retrain.
             if (
                 rec["category"] == "no_model_saved"
                 and r_meta.get("remote_stop_pkg")
@@ -563,7 +590,8 @@ def check_health(
                 rec["action"] = "rebuild"
                 rec["reason"] = "stop model exists on MetaCentrum storage; missing stop arm locally"
                 rec["command"] = (
-                    f"python -m _david.code.metacentrum.submit rebuild --runs {shlex.quote(rec['run'])}"
+                    f"python -m _david.code.metacentrum.submit rebuild --runs "
+                    f"{shlex.quote(rec['run'])}"
                 )
     else:
         for rec in records:
@@ -676,7 +704,6 @@ def _write_markdown(payload: dict[str, Any], path: Path) -> None:
                 lines.append(r["command"])
             lines += ["```", ""]
 
-    # Highlight runs with notable relaxation drops or scoring timeouts even when healthy
     noisy = [
         r
         for r in runs
@@ -706,7 +733,7 @@ def _write_markdown(payload: dict[str, Any], path: Path) -> None:
             )
         lines.append("")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines))
 
 
 def main(argv: list[str] | None = None) -> int:

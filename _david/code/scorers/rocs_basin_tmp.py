@@ -19,11 +19,10 @@ import gc
 import gzip
 import logging
 import math
-import multiprocessing
-import os
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from rdkit import Chem
@@ -31,11 +30,15 @@ from rdkit.Chem import rdMolAlign
 
 from _david.code.config import Config
 from _david.code.scorers.conformers import _stereo_key, single_point_energy
-from _david.code.scorers.rocs import NO_OVERLAY, ComboROCSScorer, pair_components
-from _david.code.scorers.utils import SCORE_CHUNK, pool_is_healthy
+from _david.code.scorers.rocs import (
+    NO_OVERLAY,
+    ComboROCSScorer,
+    lookup_by_smiles,
+    pair_components,
+)
+from _david.code.scorers.utils import SCORE_CHUNK, pool_can_run, resolve_workers
 from drugex.training.scorers.parallel import (
     ScoreTimeout,
-    capped_n_jobs,
     mol_timeout,
     molecule_time_limit,
     pool_context,
@@ -149,47 +152,23 @@ def _heavy_rmsd_matrix(group_confs: list[Chem.Mol]) -> np.ndarray:
         return mat
 
     heavy_confs = [Chem.RemoveHs(Chem.Mol(conf)) for conf in group_confs]
-    n_atoms = heavy_confs[0].GetNumAtoms()
-    if n_atoms == 0:
-        return mat
-    if n_atoms == 1:
-        # A single heavy atom aligns to 0.0 A under rigid translation.
+    if heavy_confs[0].GetNumAtoms() <= 1:
         return mat
 
-    same_atom_count = all(mol.GetNumAtoms() == n_atoms for mol in heavy_confs[1:])
-    if same_atom_count:
-        heavy_mol = Chem.Mol(heavy_confs[0])
-        for other in heavy_confs[1:]:
-            heavy_mol.AddConformer(other.GetConformer(0), assignId=True)
-        matches = heavy_mol.GetSubstructMatches(heavy_mol, uniquify=False, maxMatches=256)
-        atom_maps = [list(enumerate(match)) for match in matches] if matches else None
-        for i in range(m):
-            for j in range(i + 1, m):
-                try:
-                    rms = float(
-                        rdMolAlign.GetBestRMS(
-                            heavy_mol, heavy_mol, prbId=i, refId=j, map=atom_maps
-                        )
-                    )
-                except RuntimeError:
-                    rms = math.inf
-                mat[i, j] = rms
-                mat[j, i] = rms
-        return mat
-
-    # Defensive fallback if atom counts ever differed unexpectedly.
+    heavy_mol = Chem.Mol(heavy_confs[0])
+    for other in heavy_confs[1:]:
+        heavy_mol.AddConformer(other.GetConformer(0), assignId=True)
+    matches = heavy_mol.GetSubstructMatches(heavy_mol, uniquify=False, maxMatches=256)
+    atom_maps = [list(enumerate(match)) for match in matches] if matches else None
     for i in range(m):
         for j in range(i + 1, m):
             try:
                 rms = float(
-                    rdMolAlign.GetBestRMS(
-                        Chem.Mol(heavy_confs[i]), Chem.Mol(heavy_confs[j])
-                    )
+                    rdMolAlign.GetBestRMS(heavy_mol, heavy_mol, prbId=i, refId=j, map=atom_maps)
                 )
             except RuntimeError:
                 rms = math.inf
-            mat[i, j] = rms
-            mat[j, i] = rms
+            mat[i, j] = mat[j, i] = rms
     return mat
 
 
@@ -215,6 +194,10 @@ def _greedy_leader_basins(
     return leaders, members
 
 
+def _round_finite(value: float, digits: int) -> float:
+    return round(value, digits) if math.isfinite(value) else math.nan
+
+
 def cluster_isomer_conformers(
     group_confs: list[Chem.Mol],
     conf_rocs: list[tuple[float, float]],
@@ -228,13 +211,13 @@ def cluster_isomer_conformers(
     energies: list[float] = []
     statuses: list[int] = []
     for conf in group_confs:
-        e, st = _conformer_energy_status(conf, cfg)
-        energies.append(e)
-        statuses.append(st)
+        energy, status = _conformer_energy_status(conf, cfg)
+        energies.append(energy)
+        statuses.append(status)
 
     shapes = [float(pair[0]) for pair in conf_rocs]
     colors = [float(pair[1]) for pair in conf_rocs]
-    combos = [s + c for s, c in zip(shapes, colors)]
+    combos = [s + c for s, c in zip(shapes, colors, strict=True)]
 
     rmsd_mat = _heavy_rmsd_matrix(group_confs)
     order = sorted(
@@ -254,14 +237,11 @@ def cluster_isomer_conformers(
 
     if m <= 1:
         basin_entropy = 0.0
+        rmsd_min, rmsd_median = 0.0, 0.0
     else:
         probs = [len(mem) / m for mem in members_025]
         h = -sum(p * math.log(p) for p in probs if p > 0)
         basin_entropy = float(h / math.log(m))
-
-    if m <= 1:
-        rmsd_min, rmsd_median = 0.0, 0.0
-    else:
         tri_i, tri_j = np.triu_indices(m, k=1)
         pair_vals = rmsd_mat[tri_i, tri_j]
         finite_pairs = pair_vals[np.isfinite(pair_vals)]
@@ -292,10 +272,11 @@ def cluster_isomer_conformers(
             -idx,
         ),
     )
-    if math.isfinite(energies[best_rocs_idx]) and math.isfinite(energy_min):
-        best_rocs_delta_e = float(energies[best_rocs_idx] - energy_min)
-    else:
-        best_rocs_delta_e = math.nan
+    best_rocs_delta_e = (
+        float(energies[best_rocs_idx] - energy_min)
+        if math.isfinite(energies[best_rocs_idx]) and math.isfinite(energy_min)
+        else math.nan
+    )
 
     basin_best_combos = [max(combos[idx] for idx in mem) for mem in members_025]
     # Rank of basin 0 (the lowest-energy basin) by best ROCS combo, 1-indexed.
@@ -317,22 +298,20 @@ def cluster_isomer_conformers(
         "collapse_ratio_025": round(collapse_ratio_025, 6),
         "top1_basin_count": top1_basin_count,
         "basin_entropy": round(basin_entropy, 6),
-        "rmsd_min": round(rmsd_min, 5) if math.isfinite(rmsd_min) else math.nan,
-        "rmsd_median": round(rmsd_median, 5) if math.isfinite(rmsd_median) else math.nan,
-        "energy_min": round(energy_min, 4) if math.isfinite(energy_min) else math.nan,
-        "energy_median": round(energy_median, 4) if math.isfinite(energy_median) else math.nan,
-        "energy_span": round(energy_span, 4) if math.isfinite(energy_span) else math.nan,
+        "rmsd_min": _round_finite(rmsd_min, 5),
+        "rmsd_median": _round_finite(rmsd_median, 5),
+        "energy_min": _round_finite(energy_min, 4),
+        "energy_median": _round_finite(energy_median, 4),
+        "energy_span": _round_finite(energy_span, 4),
         "rocs_combo_max": round(rocs_combo_max, 6),
         "rocs_combo_median": round(rocs_combo_median, 6),
         "rocs_combo_at_emin": round(rocs_combo_at_emin, 6),
         "emin_rank_by_rocs": int(emin_rank_by_rocs),
-        "best_rocs_delta_e": (
-            round(best_rocs_delta_e, 4) if math.isfinite(best_rocs_delta_e) else math.nan
-        ),
+        "best_rocs_delta_e": _round_finite(best_rocs_delta_e, 4),
     }
 
     basin_rows: list[dict[str, object]] = []
-    for basin_id, (leader_idx, mem) in enumerate(zip(leaders_025, members_025)):
+    for basin_id, (leader_idx, mem) in enumerate(zip(leaders_025, members_025, strict=True)):
         mem_finite_e = [energies[idx] for idx in mem if math.isfinite(energies[idx])]
         b_emin = float(min(mem_finite_e)) if mem_finite_e else math.nan
         b_emax = float(max(mem_finite_e)) if mem_finite_e else math.nan
@@ -355,9 +334,9 @@ def cluster_isomer_conformers(
                 "basin_id": basin_id,
                 "count": len(mem),
                 "n_converged": sum(1 for idx in mem if statuses[idx] == 0),
-                "energy_min": round(b_emin, 4) if math.isfinite(b_emin) else math.nan,
-                "energy_max": round(b_emax, 4) if math.isfinite(b_emax) else math.nan,
-                "delta_e_from_global": round(delta_e, 4) if math.isfinite(delta_e) else math.nan,
+                "energy_min": _round_finite(b_emin, 4),
+                "energy_max": _round_finite(b_emax, 4),
+                "delta_e_from_global": _round_finite(delta_e, 4),
                 "intra_rmsd_max": round(intra_max, 5),
                 "rocs_shape": round(shapes[best_idx], 6),
                 "rocs_color": round(colors[best_idx], 6),
@@ -370,6 +349,8 @@ def cluster_isomer_conformers(
 
 @dataclass(frozen=True)
 class BasinPoseSearch:
+    """Stateless worker payload that scores ROCS and clusters conformers into basins."""
+
     references: list[Chem.Mol]
     groups: list[list[int]]
     opt_param: float
@@ -381,6 +362,7 @@ class BasinPoseSearch:
     def score_and_cluster(
         self, mol_id: int, conformers: list[Chem.Mol]
     ) -> tuple[int, list[tuple[float, float]], list[dict[str, object]], list[dict[str, object]]]:
+        """Score ``conformers`` against ``groups`` and return per-isomer and per-basin rows."""
         if not conformers:
             return mol_id, [NO_OVERLAY for _ in self.groups], [], []
 
@@ -451,14 +433,24 @@ def _basin_worker_init(search: BasinPoseSearch) -> None:
 def _basin_worker_score(
     task: tuple[int, list[Chem.Mol]],
 ) -> tuple[int, list[tuple[float, float]], list[dict[str, object]], list[dict[str, object]]]:
+    if _BASIN_SEARCH is None:
+        raise RuntimeError("basin ROCS worker pool was not initialized")
     mol_id, conformers = task
-    assert _BASIN_SEARCH is not None
     return _BASIN_SEARCH.score_and_cluster(mol_id, conformers)
+
+
+def _finite_column(rows: list[dict[str, object]], key: str) -> list[float]:
+    return [
+        float(row[key])
+        for row in rows
+        if isinstance(row[key], (int, float)) and math.isfinite(float(row[key]))
+    ]
 
 
 def _aggregate_molecule_diagnostics(
     isomer_summaries: list[dict[str, object]],
 ) -> dict[str, float]:
+    """Roll up per-isomer basin summaries into one diagnostic dict per molecule."""
     if not isomer_summaries:
         return dict(_EMPTY_BASIN_DIAGNOSTICS)
 
@@ -468,26 +460,17 @@ def _aggregate_molecule_diagnostics(
     collapse_ratio = (1.0 - n_basins / n_conf) if n_conf > 0 else 0.0
     top1 = max(int(row["top1_basin_count"]) for row in isomer_summaries)
 
-    emins = [
-        float(row["energy_min"])
-        for row in isomer_summaries
-        if isinstance(row["energy_min"], (int, float)) and math.isfinite(float(row["energy_min"]))
-    ]
-    espans = [
-        float(row["energy_span"])
-        for row in isomer_summaries
-        if isinstance(row["energy_span"], (int, float)) and math.isfinite(float(row["energy_span"]))
-    ]
-    rmsds = [
-        float(row["rmsd_median"])
-        for row in isomer_summaries
-        if isinstance(row["rmsd_median"], (int, float)) and math.isfinite(float(row["rmsd_median"]))
-    ]
-    best_iso = max(
-        isomer_summaries,
-        key=lambda r: float(r["rocs_combo_max"]),
-    )
+    emins = _finite_column(isomer_summaries, "energy_min")
+    espans = _finite_column(isomer_summaries, "energy_span")
+    rmsds = _finite_column(isomer_summaries, "rmsd_median")
+    best_iso = max(isomer_summaries, key=lambda r: float(r["rocs_combo_max"]))
     delta_e = float(best_iso["best_rocs_delta_e"])
+    best_rmsd = best_iso["rmsd_median"]
+    rmsd_val = (
+        round(float(best_rmsd), 5)
+        if isinstance(best_rmsd, (int, float)) and math.isfinite(float(best_rmsd))
+        else (round(float(np.median(rmsds)), 5) if rmsds else math.nan)
+    )
     return {
         "n_conformers": float(n_conf),
         "n_converged": float(n_conv),
@@ -496,11 +479,8 @@ def _aggregate_molecule_diagnostics(
         "top1_basin_count": float(top1),
         "energy_min": round(min(emins), 4) if emins else math.nan,
         "energy_span": round(max(espans), 4) if espans else math.nan,
-        "rmsd_median": round(float(best_iso["rmsd_median"]), 5)
-        if isinstance(best_iso["rmsd_median"], (int, float))
-        and math.isfinite(float(best_iso["rmsd_median"]))
-        else (round(float(np.median(rmsds)), 5) if rmsds else math.nan),
-        "best_rocs_delta_e": round(delta_e, 4) if math.isfinite(delta_e) else math.nan,
+        "rmsd_median": rmsd_val,
+        "best_rocs_delta_e": _round_finite(delta_e, 4),
     }
 
 
@@ -512,7 +492,9 @@ def _append_tsv_gz(
     path.parent.mkdir(parents=True, exist_ok=True)
     need_header = not path.is_file() or path.stat().st_size == 0
     with gzip.open(path, "at", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(columns), delimiter="\t", lineterminator="\n")
+        writer = csv.DictWriter(
+            handle, fieldnames=list(columns), delimiter="\t", lineterminator="\n"
+        )
         if need_header:
             writer.writeheader()
         for row in rows:
@@ -524,12 +506,12 @@ class BasinTrackingROCSScorer(ComboROCSScorer):
 
     def __init__(
         self,
-        *args,
+        *args: Any,
         cfg: Config,
         basin_log_dir: Path | None = None,
         stage: str = "init",
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.cfg = cfg
         self.basin_log_dir = Path(basin_log_dir) if basin_log_dir is not None else None
@@ -540,9 +522,15 @@ class BasinTrackingROCSScorer(ComboROCSScorer):
         self.mol_basin_components: dict[str, dict[str, float]] = {}
 
     def set_stage(self, stage: str) -> None:
+        """Tag subsequent logged basin rows with ``stage`` (e.g. ``prior``, ``train``, ``final``)."""
         self.stage = str(stage)
 
-    def _score_sequential(self, unique_count, conformers_by_mol, num_groups) -> np.ndarray:
+    def _score_sequential(
+        self,
+        unique_count: int,
+        conformers_by_mol: dict[int, list[Chem.Mol]],
+        num_groups: int,
+    ) -> np.ndarray:
         self._by_mol_id = {}
         self._mol_basin_by_id = {}
         search = BasinPoseSearch(
@@ -554,16 +542,11 @@ class BasinTrackingROCSScorer(ComboROCSScorer):
             color_ff=self.color_ff,
         )
         tasks = [(mol_id, conformers_by_mol.get(mol_id, [])) for mol_id in range(unique_count)]
-        workers = capped_n_jobs(self.workers if self.workers > 0 else (os.cpu_count() or 1))
+        worker_count = resolve_workers(self.workers)
 
-        if not (
-            workers <= 1
-            or unique_count < 8
-            or multiprocessing.current_process().daemon
-            or not pool_is_healthy()
-        ):
+        if pool_can_run(worker_count, unique_count, min_items=8):
             try:
-                with pool_context().Pool(workers, _basin_worker_init, (search,)) as pool:
+                with pool_context().Pool(worker_count, _basin_worker_init, (search,)) as pool:
                     results = pool.map(_basin_worker_score, tasks)
             except Exception as error:
                 logger.error("parallel basin ROCS failed (%s); aborting", error)
@@ -608,7 +591,8 @@ class BasinTrackingROCSScorer(ComboROCSScorer):
             )
         return scores
 
-    def getScores(self, mols, frags=None) -> np.ndarray:
+    def getScores(self, mols: Any, frags: Any = None) -> np.ndarray:
+        """Score ``mols`` in memory-bounded chunks while tracking ROCS splits and conformer basins."""
         self._call_id += 1
         self._by_mol_id = {}
         self._mol_basin_by_id = {}
@@ -617,30 +601,12 @@ class BasinTrackingROCSScorer(ComboROCSScorer):
 
         smiles_list = self._convert_to_smiles(mols)
         unique, unique_to_original = self._deduplicate_smiles(smiles_list)
+        scores = np.zeros((len(mols), len(self.group_to_indices)))
         if not unique:
-            return np.zeros((len(mols), len(self.group_to_indices)))
-
-        if len(unique) <= SCORE_CHUNK:
-            self._active_unique_smiles = unique
-            try:
-                scores = super(ComboROCSScorer, self).getScores(mols, frags)
-            finally:
-                self._active_unique_smiles = []
-            self.components = {
-                smiles: self._by_mol_id.get(index, NO_OVERLAY)
-                for index, smiles in enumerate(unique)
-            }
-            self.mol_basin_components = {
-                smiles: self._mol_basin_by_id.get(index, dict(_EMPTY_BASIN_DIAGNOSTICS))
-                for index, smiles in enumerate(unique)
-            }
             return scores
 
-        num_groups = len(self.group_to_indices)
-        scores = np.zeros((len(mols), num_groups))
         all_components: dict[str, tuple[float, float]] = {}
         all_basin_components: dict[str, dict[str, float]] = {}
-
         for start in range(0, len(unique), SCORE_CHUNK):
             piece = unique[start : start + SCORE_CHUNK]
             self._by_mol_id = {}
@@ -650,30 +616,27 @@ class BasinTrackingROCSScorer(ComboROCSScorer):
                 piece_scores = super(ComboROCSScorer, self).getScores(piece, frags)
             finally:
                 self._active_unique_smiles = []
-            for local_id, smiles in enumerate(piece):
-                all_components[smiles] = self._by_mol_id.get(local_id, NO_OVERLAY)
-                all_basin_components[smiles] = self._mol_basin_by_id.get(
+            for local_id, smi in enumerate(piece):
+                all_components[smi] = self._by_mol_id.get(local_id, NO_OVERLAY)
+                all_basin_components[smi] = self._mol_basin_by_id.get(
                     local_id, dict(_EMPTY_BASIN_DIAGNOSTICS)
                 )
-                for original_idx in unique_to_original[start + local_id]:
-                    scores[original_idx] = piece_scores[local_id]
-            gc.collect()
+                for orig_idx in unique_to_original[start + local_id]:
+                    scores[orig_idx] = piece_scores[local_id]
+            if len(unique) > SCORE_CHUNK:
+                gc.collect()
 
         self.components = all_components
         self.mol_basin_components = all_basin_components
         return scores
 
     def component_frame(self, smiles: list[str]) -> dict[str, list[float]]:
+        """Return ROCS shape/colour and per-molecule conformer basin diagnostics for ``smiles``."""
         base = super().component_frame(smiles)
         for key in BASIN_DIAGNOSTIC_KEYS:
             base[key] = []
         for value in smiles:
-            diag = self.mol_basin_components.get(value)
-            if diag is None and isinstance(value, str):
-                mol = Chem.MolFromSmiles(value)
-                if mol is not None:
-                    diag = self.mol_basin_components.get(Chem.MolToSmiles(mol))
-            entry = diag or _EMPTY_BASIN_DIAGNOSTICS
+            entry = lookup_by_smiles(self.mol_basin_components, value) or _EMPTY_BASIN_DIAGNOSTICS
             for key in BASIN_DIAGNOSTIC_KEYS:
                 base[key].append(float(entry.get(key, _EMPTY_BASIN_DIAGNOSTICS[key])))
         return base

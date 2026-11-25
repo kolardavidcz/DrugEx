@@ -174,3 +174,4 @@ cython_debug/
 # Run outputs and conformer caches are large, regenerable artifacts.
 /_david/output/
 /_david/data/
+/_david/bakalarska_prace/

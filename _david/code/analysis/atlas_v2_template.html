@@ -1481,6 +1481,11 @@ const MAP_FIELDS = {
     get: r => STOPDIV(r).effective_molecules, priorGet: r => PRIORDIV(r).effective_molecules,
     log: true, dir: 'max', prec: 0,
   },
+  eff_mol_linear: {
+    group: 'Chemical Diversity & Novelty', label: 'Effective Molecules (linear)', short: 'eff.mols',
+    get: r => STOPDIV(r).effective_molecules, priorGet: r => PRIORDIV(r).effective_molecules,
+    dir: 'max', includeZero: true, prec: 0,
+  },
   internal: {
     group: 'Chemical Diversity & Novelty', label: 'Internal Diversity (1 − pairwise)', short: 'int.div',
     get: r => STOPDIV(r).internal_diversity, priorGet: r => PRIORDIV(r).internal_diversity,

@@ -4,4 +4,6 @@ Nothing in here is imported by the pipeline while it trains, so a missing matplo
 never fail a run.
 """
 
-from _david.code.analysis.report import analyse  # noqa: F401
+from _david.code.analysis.report import analyse
+
+__all__ = ["analyse"]

@@ -3,33 +3,14 @@ line-length = 120
 extend-exclude = ["output"]
 
 [lint]
-# High-signal correctness, readability, and modern Python 3.10+ rules for agentic editing:
-# - E, W, F, PLE : pycodestyle, Pyflakes (unused imports/vars, undefined names, broken f-strings), pylint errors
-# - B            : flake8-bugbear (mutable defaults, loop-closure bugs, useless expressions)
-# - I            : deterministic import sorting
-# - UP           : pyupgrade (f-strings over % / .format(), `X | Y`, `list[T]`, collections.abc)
-# - SIM          : flake8-simplify (`with open(...) as f:`, merged nested ifs, `k in d`, contextlib.suppress)
-# - C4           : flake8-comprehensions (clean list/set/dict comprehensions)
-# - PIE          : flake8-pie (remove redundant pass/range(0, n)/repeated startswith)
-# - RET          : flake8-return (remove redundant `else` after `return`/`raise`/`continue`/`break`)
-# - FURB         : refurb (modern stdlib idioms: `a or b`, `Path.read_text()`, `.extend()`, etc.)
-# - FLY          : flynt (f-strings instead of static `"".join(...)`)
-# - PTH          : pathlib over `os.path.*` / `os.replace` / `glob.glob`
-# - PERF         : clean `.extend()` / comprehensions over `.append()` loops
-# - RUF          : ruff checks (unused `# noqa`, unused unpacked vars, redundant `int()`, `[*a, *b]`)
-select = ["E", "F", "W", "B", "I", "UP", "SIM", "C4", "PIE", "RET", "FURB", "FLY", "PTH", "PERF", "RUF", "PLE"]
+# High-signal correctness and readability rules only; pedantic style-police rules
+# (SIM, C4, RET, FURB, FLY, PTH, PERF, RUF) are intentionally omitted.
+select = ["E", "F", "W", "B", "I", "UP", "PIE", "PLE"]
 ignore = [
-    "E501",     # never warn on long lines (including long error/log strings)
-    "E402",     # allow imports after sys.path / matplotlib.use() setup
-    "B905",     # don't require strict= on every zip()
-    "B028",     # don't require stacklevel= on warnings.warn()
-    "C408",     # allow dict(k=v) kwargs style (common in matplotlib bbox=dict(...))
-    "RET504",   # allow naming a complex expression before returning it
-    "PTH123",   # allow `with open(...)` alongside `Path.open()`
-    "PERF203",  # allow try/except inside per-molecule loops
-    "RUF001",   # allow intentional unicode punctuation (·, —) in strings
-    "RUF002",   # allow intentional unicode punctuation in docstrings
-    "RUF012",   # allow class-level dict/list fixtures in unittest.TestCase
+    "E501",  # long lines (error/log strings, tables, equations)
+    "E402",  # imports after matplotlib.use() / sys.path setup
+    "B905",  # don't require strict= on every zip()
+    "B028",  # don't require stacklevel= on warnings.warn()
 ]
 
 [lint.isort]

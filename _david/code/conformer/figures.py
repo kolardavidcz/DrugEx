@@ -8,10 +8,10 @@ Four sheets, in the order a reader needs them:
 - ``03_grids.png``     every cell, as a score heatmap and a seconds heatmap per method.
 - ``04_spread.png``    what the ten seeds disagree about, which is the only honest error bar.
 
-Every panel plots ``self_recovery`` = TanimotoCombo / 2 on [0, 1], the scale the earlier
-study's figures used; the raw [0, 2] combo is in ``measurements.tsv``. Cost is CPU
-seconds, not wall seconds: cells are measured in parallel, so wall time carries the load
-of whatever else was running and CPU time does not.
+Every panel plots the native ROCS ``TanimotoCombo`` score (``combo``) on [0, 2]; the
+normalised ``self_recovery`` = combo / 2 column remains in ``measurements.tsv``. Cost is
+CPU seconds, not wall seconds: cells are measured in parallel, so wall time carries the
+load of whatever else was running and CPU time does not.
 """
 
 from __future__ import annotations
@@ -46,10 +46,12 @@ CEILING_TOLERANCE = 1e-6
 
 
 def at_ceiling(frame: pd.DataFrame) -> pd.Series:
+    """Boolean mask for rows within :data:`CEILING_TOLERANCE` of exact self-overlay (2.0)."""
     return frame["combo"] >= 2.0 - CEILING_TOLERANCE
 
 
 def style() -> None:
+    """Configure consistent Matplotlib rcParams for the four self-similarity sheets."""
     plt.rcParams.update(
         {
             "figure.facecolor": "#ffffff",
@@ -76,6 +78,11 @@ def _subtitle(cfg: StudyConfig, frame: pd.DataFrame) -> str:
     )
 
 
+def _combo_series(frame: pd.DataFrame) -> pd.Series:
+    """Native ROCS TanimotoCombo on [0, 2], falling back to 2 * self_recovery."""
+    return frame["combo"] if "combo" in frame.columns else frame["self_recovery"] * 2.0
+
+
 def _agg(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     """Median over seeds, with the seed spread kept beside it.
 
@@ -85,44 +92,58 @@ def _agg(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     """
     if "score_failed" in frame.columns:
         frame = frame[frame["score_failed"] == 0]
-    grouped = frame.groupby(by, as_index=False).agg(
-        self_recovery=("self_recovery", "median"),
-        low=("self_recovery", lambda s: s.quantile(0.05)),
-        high=("self_recovery", lambda s: s.quantile(0.95)),
-        worst=("self_recovery", "min"),
-        cost=(COST, "median"),
-        bank_size=("bank_size", "median"),
-        n=("self_recovery", "size"),
+    return (
+        frame.assign(_combo=_combo_series(frame))
+        .groupby(by, as_index=False)
+        .agg(
+            score=("_combo", "median"),
+            low=("_combo", lambda s: s.quantile(0.05)),
+            high=("_combo", lambda s: s.quantile(0.95)),
+            worst=("_combo", "min"),
+            cost=(COST, "median"),
+            bank_size=("bank_size", "median"),
+            n=("_combo", "size"),
+        )
     )
-    return grouped
 
 
 def _coincident(frame: pd.DataFrame, methods: list[str], axis: str) -> dict[str, str]:
     """Methods whose median curve is identical to an earlier one, and which one.
 
     MMFF94 and MMFF94s differ only in how they treat delocalised trigonal nitrogen, so on
-    a molecule without any they are the same force field and draw the same line. Saying so
-    in the legend is the difference between a reader seeing five curves and hunting for a
-    sixth that is hidden underneath.
+    a molecule without any they are the same force field and draw the same line.
     """
     seen: dict[str, np.ndarray] = {}
     duplicate: dict[str, str] = {}
     for name in methods:
         curve = (
             _agg(frame[frame["method"] == name], [axis])
-            .sort_values(axis)["self_recovery"]
+            .sort_values(axis)["score"]
             .to_numpy()
         )
         for earlier, values in seen.items():
-            # rtol=0: np.allclose keeps rtol=1e-5 by default, which near 1.0 makes the
-            # real tolerance 1e-5 -- enough to call two genuinely different methods the
-            # same force field in the legend.
+            # rtol=0 avoids calling genuinely distinct methods identical near 2.0.
             if values.shape == curve.shape and np.allclose(values, curve, rtol=0.0, atol=1e-12):
                 duplicate[name] = earlier
                 break
         else:
             seen[name] = curve
     return duplicate
+
+
+def nondominated(cost: np.ndarray, value: np.ndarray) -> np.ndarray:
+    """Boolean mask of points not beaten on both lower ``cost`` and higher ``value``."""
+    keep = np.ones(len(cost), dtype=bool)
+    for i in range(len(cost)):
+        if not keep[i]:
+            continue
+        beaten = (cost <= cost[i]) & (value >= value[i]) & ((cost < cost[i]) | (value > value[i]))
+        if beaten.any():
+            keep[i] = False
+    return keep
+
+
+_nondominated = nondominated
 
 
 def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
@@ -132,8 +153,7 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     palette = _palette(methods)
     caps = sorted(frame["reference_cap"].unique())
     counts = sorted(frame["candidate_count"].unique())
-    # The slice each panel holds fixed: the bank size nearest 4 and the budget nearest 20,
-    # which are the pipeline's own defaults, rather than numbers invented for the figure.
+    # Hold fixed the bank size nearest 4 and budget nearest 20 (pipeline defaults).
     fixed_cap = min(caps, key=lambda k: abs(k - 4))
     fixed_count = min(counts, key=lambda c: abs(c - 20))
 
@@ -166,8 +186,6 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
             if rows.empty:
                 continue
             label = f"{name} (= {duplicate[name]})" if name in duplicate else name
-            # A coincident curve is drawn dashed and wider so the line underneath stays
-            # visible, instead of being painted over by whichever method was drawn last.
             extra = (
                 {"linestyle": "--", "linewidth": 2.8, "alpha": 0.6}
                 if name in duplicate
@@ -175,21 +193,15 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
             )
             top.plot(
                 rows[axis],
-                rows["self_recovery"],
+                rows["score"],
                 marker="o",
                 color=palette[name],
                 label=label,
                 markersize=5,
                 **{"linewidth": 1.8, **extra},
             )
-            # The band is the 5th-95th percentile across seeds, not a standard error: with
-            # ten seeds the spread is the measurement, and a symmetric bar would hide that
-            # the failures are one-sided.
             top.fill_between(rows[axis], rows["low"], rows["high"], color=palette[name], alpha=0.10)
-            # Shortfall on a log axis: every minimised method sits above 0.99, where a
-            # linear axis cannot separate 0.9992 from 0.9944. Floored at 1e-6 so a cell
-            # that recovers exactly stays on the plot instead of falling to -inf.
-            shortfall = np.maximum(1.0 - rows["self_recovery"].to_numpy(), 1e-6)
+            shortfall = np.maximum(2.0 - rows["score"].to_numpy(), 1e-6)
             bottom.plot(
                 rows[axis],
                 shortfall,
@@ -201,7 +213,7 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
             )
         top.set_title(f"{'AB'[column]}. {title}", fontsize=11, fontweight="bold")
         top.set_xlabel(xlabel)
-        top.set_ylabel("ROCS TanimotoCombo / 2  [0, 1]")
+        top.set_ylabel("ROCS TanimotoCombo  [0, 2]")
         top.legend(fontsize=8, loc="lower right")
         bottom.set_yscale("log")
         bottom.set_title(
@@ -210,13 +222,8 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
             fontweight="bold",
         )
         bottom.set_xlabel(xlabel)
-        bottom.set_ylabel("1 - self-recovery  (log, lower is better)")
-        # The floor is a drawing device, not a measurement: a cell that recovers exactly
-        # has shortfall 0, which a log axis cannot place. Saying so stops 1e-6 being read
-        # as a number the study measured.
+        bottom.set_ylabel("2 - TanimotoCombo  (log, lower is better)")
         bottom.axhline(1e-6, color="#6B7280", linewidth=0.9, linestyle=":")
-        # "at or below", not "exact": a median over ten seeds can be 0.9999995 with no
-        # single cell at 1.0, and that 5e-7 shortfall also lands on the floor.
         bottom.text(
             0.01,
             1.2e-6,
@@ -232,18 +239,6 @@ def omnibus(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     plt.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     return path
-
-
-def _nondominated(cost: np.ndarray, value: np.ndarray) -> np.ndarray:
-    """Cells no other cell beats on both cost (lower) and score (higher)."""
-    keep = np.ones(len(cost), dtype=bool)
-    for i in range(len(cost)):
-        if not keep[i]:
-            continue
-        beaten = (cost <= cost[i]) & (value >= value[i]) & ((cost < cost[i]) | (value > value[i]))
-        if beaten.any():
-            keep[i] = False
-    return keep
 
 
 def pareto(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
@@ -263,16 +258,16 @@ def pareto(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     )
 
     ax = axes[0]
-    front = _nondominated(rows["cost"].to_numpy(), rows["self_recovery"].to_numpy())
+    front = nondominated(rows["cost"].to_numpy(), rows["score"].to_numpy())
     for name in methods:
         part = rows[rows["method"] == name]
         ax.scatter(
-            part["cost"], part["self_recovery"], color=palette[name], label=name, s=28, alpha=0.8
+            part["cost"], part["score"], color=palette[name], label=name, s=28, alpha=0.8
         )
     ringed = rows[front]
     ax.scatter(
         ringed["cost"],
-        ringed["self_recovery"],
+        ringed["score"],
         facecolors="none",
         edgecolors="#111827",
         s=130,
@@ -282,26 +277,24 @@ def pareto(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     for _, row in ringed.iterrows():
         ax.annotate(
             f"K{int(row['reference_cap'])}/C{int(row['candidate_count'])}",
-            (row["cost"], row["self_recovery"]),
+            (row["cost"], row["score"]),
             fontsize=7,
             xytext=(4, 4),
             textcoords="offset points",
         )
     ax.set_xscale("log")
     ax.set_xlabel("Median CPU seconds per cell (candidates + scoring)")
-    ax.set_ylabel("ROCS TanimotoCombo / 2  [0, 1]")
+    ax.set_ylabel("ROCS TanimotoCombo  [0, 2]")
     ax.set_title("Measured score-cost frontier", fontsize=11, fontweight="bold")
     ax.legend(fontsize=8, loc="lower right")
 
-    # The right panel is the one that matters for a reward: not the median molecule but
-    # the worst seed, because a reward that collapses on one run in ten is not usable.
     ax2 = axes[1]
     for name in methods:
         part = rows[rows["method"] == name]
         ax2.scatter(part["cost"], part["worst"], color=palette[name], label=name, s=28, alpha=0.8)
     ax2.set_xscale("log")
     ax2.set_xlabel("Median CPU seconds per cell (candidates + scoring)")
-    ax2.set_ylabel("Worst of the seeds  [0, 1]")
+    ax2.set_ylabel("Worst of the seeds  [0, 2]")
     ax2.set_title(
         "Worst seed, not the median: one bad run in ten is the risk", fontsize=11, fontweight="bold"
     )
@@ -327,42 +320,41 @@ def grids(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
         len(methods), 2, figsize=(13, 3.1 * len(methods)), dpi=200, squeeze=False
     )
     fig.suptitle(
-        f"Median self-recovery and median CPU seconds, every cell\n{_subtitle(cfg, frame)}",
+        f"Median TanimotoCombo and median CPU seconds, every cell\n{_subtitle(cfg, frame)}",
         fontsize=11,
         fontweight="bold",
     )
     rows = _agg(frame, ["method", "reference_cap", "candidate_count"])
-    # One score scale across every method, or the panels cannot be compared by eye --
-    # which is the entire purpose of putting them on one sheet.
-    vmin = float(rows["self_recovery"].min())
+    vmin = float(rows["score"].min())
+    cost_min, cost_max = float(rows["cost"].min()), float(rows["cost"].max())
     for row_index, name in enumerate(methods):
         part = rows[rows["method"] == name]
         for col, (column, cmap, label) in enumerate(
-            ((("self_recovery"), "RdYlGn", "self-recovery"), (("cost"), "magma_r", "CPU seconds"))
+            (("score", "RdYlGn", "TanimotoCombo"), ("cost", "magma_r", "CPU seconds"))
         ):
             ax = axes[row_index][col]
-            table = part.pivot(index="candidate_count", columns="reference_cap", values=column)
-            table = table.reindex(index=counts, columns=caps)
-            values = table.to_numpy(dtype=float)
-            kwargs = (
-                {"vmin": vmin, "vmax": 1.0}
-                if column == "self_recovery"
-                else {"vmin": float(rows["cost"].min()), "vmax": float(rows["cost"].max())}
+            table = (
+                part.pivot(index="candidate_count", columns="reference_cap", values=column)
+                .reindex(index=counts, columns=caps)
             )
-            image = ax.imshow(values, cmap=cmap, aspect="auto", **kwargs)
+            values = table.to_numpy(dtype=float)
+            bounds = (
+                {"vmin": vmin, "vmax": 2.0}
+                if column == "score"
+                else {"vmin": cost_min, "vmax": cost_max}
+            )
+            image = ax.imshow(values, cmap=cmap, aspect="auto", **bounds)
+            span = (bounds["vmax"] - bounds["vmin"]) or 1.0
             for i in range(values.shape[0]):
                 for j in range(values.shape[1]):
                     if np.isfinite(values[i, j]):
                         text = (
                             f"{values[i, j]:.4f}"
-                            if column == "self_recovery"
+                            if column == "score"
                             else f"{values[i, j]:.2f}"
                         )
-                        # White on the dark end of either map: the saturated cells were
-                        # black text on near-black and could not be read at all.
-                        span = (kwargs["vmax"] - kwargs["vmin"]) or 1.0
-                        position = (values[i, j] - kwargs["vmin"]) / span
-                        dark = position < 0.25 if column == "self_recovery" else position > 0.6
+                        position = (values[i, j] - bounds["vmin"]) / span
+                        dark = position < 0.25 if column == "score" else position > 0.6
                         ax.text(
                             j,
                             i,
@@ -400,12 +392,12 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     )
 
     ax = axes[0]
-    data = [frame[frame["method"] == name]["self_recovery"].to_numpy() for name in methods]
+    data = [_combo_series(frame[frame["method"] == name]).to_numpy() for name in methods]
     parts = ax.boxplot(data, tick_labels=methods, showfliers=True, patch_artist=True)
-    for patch, name in zip(parts["boxes"], methods):
+    for patch, name in zip(parts["boxes"], methods, strict=True):
         patch.set_facecolor(palette[name])
         patch.set_alpha(0.45)
-    ax.set_ylabel("ROCS TanimotoCombo / 2  [0, 1]")
+    ax.set_ylabel("ROCS TanimotoCombo  [0, 2]")
     ax.set_title(
         "Every cell of every seed, per method\n(spans K and C as well as seed, so it is "
         "wider than the seed spread)",
@@ -414,8 +406,6 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     )
     ax.tick_params(axis="x", rotation=20)
 
-    # Range across seeds for one fixed cell, so the comparison is like for like: the box
-    # on the left mixes easy cells (large K, large C) with hard ones.
     ax2 = axes[1]
     caps = sorted(frame["reference_cap"].unique())
     counts = sorted(frame["candidate_count"].unique())
@@ -423,7 +413,7 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
     count = min(counts, key=lambda c: abs(c - 20))
     cell = frame[(frame["reference_cap"] == cap) & (frame["candidate_count"] == count)]
     for name in methods:
-        values = cell[cell["method"] == name].sort_values("seed")["self_recovery"].to_numpy()
+        values = _combo_series(cell[cell["method"] == name].sort_values("seed")).to_numpy()
         ax2.plot(
             range(1, len(values) + 1),
             values,
@@ -434,14 +424,10 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
             markersize=4,
         )
     ax2.set_xlabel("Seed (independent embedding stream)")
-    ax2.set_ylabel("ROCS TanimotoCombo / 2  [0, 1]")
+    ax2.set_ylabel("ROCS TanimotoCombo  [0, 2]")
     ax2.set_title(f"One cell across seeds (K={cap}, C={count})", fontsize=11, fontweight="bold")
     ax2.legend(fontsize=8, loc="lower right")
-    # Panel C is the one that decides how to read the whole study. A cell at combo
-    # exactly 2.0 is a candidate that minimised into the same pose as a reference, so a
-    # high score there measures how often two draws funnel into one local minimum --
-    # which is a loss of ensemble diversity, not a better ensemble. Left out, a reader
-    # takes the medians in panel A as quality.
+
     ax3 = axes[2]
     if "combo" in frame.columns:
         rate = (
@@ -451,7 +437,7 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
             .reindex(methods)
         )
         bars = ax3.bar(range(len(methods)), rate.to_numpy(), color=[palette[m] for m in methods])
-        for bar, value in zip(bars, rate.to_numpy()):
+        for bar, value in zip(bars, rate.to_numpy(), strict=True):
             ax3.text(
                 bar.get_x() + bar.get_width() / 2,
                 value + 0.012,
@@ -481,8 +467,8 @@ def spread(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> Path | None:
 
 
 def render_all(frame: pd.DataFrame, cfg: StudyConfig, out: Path) -> list[Path]:
-    """Every sheet, logging rather than raising when one of them cannot be drawn."""
-    written = []
+    """Render all four self-similarity sheets, logging rather than raising on failure."""
+    written: list[Path] = []
     for name, function in (
         ("01", omnibus),
         ("02", pareto),

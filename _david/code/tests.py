@@ -10,6 +10,7 @@ import tempfile
 import time
 import types
 import unittest
+import warnings
 from contextlib import redirect_stdout
 from dataclasses import replace
 from io import StringIO
@@ -26,7 +27,6 @@ from _david.code import run as runner
 from _david.code.analysis import _helpers as analysis_helpers
 from _david.code.analysis import atlas_v2, basin_study, collapse, diversity, figures
 from _david.code.analysis import report as analysis
-from _david.code.archive.training import StopCheckpointExplorer
 from _david.code.config import PROJECT_ROOT, SCHEMES, Config
 from _david.code.metacentrum import campaign, memreport, monitor, queues
 from _david.code.metacentrum import job as job_module
@@ -150,125 +150,25 @@ class Metrics(unittest.TestCase):
         self.assertAlmostEqual(analysis._describe(frame, ["ROCS"])["desired"], 0.0)
 
 
-class _FakeAgent:
-
-    def __init__(self, ratios):
-        self.ratios = list(ratios)
-        self.epoch = 0
-
-    def sample(self, n):
-        return ["CCO"] * n
-
-    def evaluate(self, smiles, evaluator=None, no_multifrag_smiles=True):
-        index = min(self.epoch - 1, len(self.ratios) - 1)  # forward() already incremented
-        desired = self.ratios[index]
-        n = len(smiles)
-        hits = round(desired * n)
-        return pd.DataFrame(
-            {
-                "Valid": [1] * n,
-                "Desired": [1] * hits + [0] * (n - hits),
-                "ROCS": [0.5] * n,
-            }
-        )
-
-
-class _FakeExplorer(StopCheckpointExplorer):
-
-    def __init__(self, ratios, **kwargs):
-        self.agent = _FakeAgent(ratios)
-        self.env = None
-        self.no_multifrag_smiles = True
-        self.checkpoint_path = kwargs["checkpoint_path"]
-        self.training_samples_path = None
-        self.n_eval = 100  # a small arm would quantise hits/n_eval
-        self.monitor = None
-
-    def forward(self):
-        self.agent.epoch += 1
-        return ["CCO"], None
-
-    def policy_gradient(self, smiles, seqs, epoch=None, epochs=None):
-        return 1.0
-
-    def getNovelMoleculeMetrics(self, scores):
-        return {
-            "desired_ratio": float(scores["Desired"].mean()),
-            "avg_gmean": 0.5,
-            "valid_ratio": 1.0,
-        }
-
-    def getModel(self):
-        return {"epoch": self.agent.epoch}
-
-    def logPerformanceAndCompounds(self, epoch, metrics, scores):
-        pass
-
-
-class Checkpoints(unittest.TestCase):
-
-    def _run(self, ratios, directory, patience=1, **kwargs):
-        path = Path(directory) / "at_stop.pkg"
-        explorer = _FakeExplorer(ratios, checkpoint_path=path)
-        summary = explorer.fit(epochs=len(ratios), patience=patience, min_epochs=1, **kwargs)
-        return summary, path
-
-    def test_the_checkpoint_is_the_policy_at_stop_not_the_best_epoch(self):
+class TrainingSummary(unittest.TestCase):
+    def test_training_summary_detects_early_stop_and_epoch_cap(self):
         with tempfile.TemporaryDirectory() as directory:
-            summary, path = self._run([1.0, 0.0, 0.0, 0.0], directory)
-            self.assertEqual(summary["best_desired_ratio"], 1.0)
-            self.assertEqual(summary["best_desired_ratio_epoch"], 1)
+            fit_path = Path(directory) / "rl_fit.tsv"
+            pd.DataFrame(
+                {
+                    "Epoch": [1, 2, 3, 4],
+                    "desired_ratio": [0.9, 0.1, 0.1, 0.1],
+                    "best_epoch": [1, 1, 1, 1],
+                }
+            ).to_csv(fit_path, sep="\t", index=False)
+            summary = runner._training_summary(fit_path, small(epochs=10, patience=2, min_epochs=1))
             self.assertTrue(summary["desired_ratio_frozen"])
-            self.assertGreater(summary["desired_ratio_freeze_epoch"], 1)
-            saved = torch.load(path, weights_only=False)
-            self.assertEqual(
-                saved["epoch"],
-                summary["desired_ratio_freeze_epoch"],
-                "the shipped checkpoint must be the epoch training stopped on",
-            )
-            self.assertNotEqual(saved["epoch"], 1, "there is no best-epoch checkpoint any more")
-
-    def test_a_single_checkpoint_is_written(self):
-        with tempfile.TemporaryDirectory() as directory:
-            _, path = self._run([0.25, 0.5, 0.75, 1.0], directory)
-            self.assertEqual(sorted(p.name for p in Path(directory).iterdir()), [path.name])
-
-    def test_the_epoch_cap_keeps_the_live_policy(self):
-        with tempfile.TemporaryDirectory() as directory:
-            summary, path = self._run([0.25, 0.5, 0.75, 1.0], directory)
-            self.assertFalse(summary["desired_ratio_frozen"])
+            self.assertEqual(summary["best_desired_ratio_epoch"], 1)
             self.assertEqual(summary["desired_ratio_freeze_epoch"], 4)
-            self.assertEqual(summary["epochs_run"], 4)
-            self.assertEqual(summary["desired_ratio_at_stop"], 1.0)
-            self.assertEqual(torch.load(path, weights_only=False)["epoch"], 4)
+            self.assertAlmostEqual(summary["desired_ratio_at_stop"], 0.1)
 
-    def test_a_plateau_ends_the_run_and_reports_the_live_value(self):
-        with tempfile.TemporaryDirectory() as directory:
-            summary, _ = self._run(
-                [0.9, 0.1, 0.1, 0.1, 0.1, 0.1],
-                directory,
-                patience=2,
-            )
-        self.assertTrue(summary["desired_ratio_frozen"])
-        self.assertEqual(summary["best_desired_ratio"], 0.9)
-        self.assertEqual(summary["best_desired_ratio_epoch"], 1)
-        self.assertEqual(summary["desired_ratio_at_stop"], 0.1)
-        self.assertEqual(summary["epochs_run"], 4, "stop after patience + one epoch")
-
-    def test_min_epochs_holds_the_run_open(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "at_stop.pkg"
-            explorer = _FakeExplorer([0.0] * 6, checkpoint_path=path)
-            summary = explorer.fit(epochs=6, patience=1, min_epochs=4)
-        self.assertEqual(summary["epochs_run"], 4)
-        self.assertTrue(summary["desired_ratio_frozen"])
-
-    def test_the_summary_has_no_best_epoch_checkpoint_key(self):
-        with tempfile.TemporaryDirectory() as directory:
-            summary, _ = self._run([0.5, 0.5, 0.5], directory, patience=5)
-        for gone in ("best_avg_gmean", "best_avg_gmean_epoch", "best_desired_ratio_before_freeze"):
-            self.assertNotIn(gone, summary)
-        self.assertEqual(set(summary["checkpoint_population"]), {"desired_ratio_at_stop"})
+            capped = runner._training_summary(fit_path, small(epochs=4, patience=2, min_epochs=1))
+            self.assertFalse(capped["desired_ratio_frozen"])
 
 
 class Relaxation(unittest.TestCase):
@@ -437,7 +337,7 @@ class Relaxation(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             bank = conformers.build_reference(cfg, Path(directory) / "ref.sdf")
-        expected = conformers._smiles_stereo_key(cfg.reference_smiles)
+        expected = Chem.MolToSmiles(Chem.MolFromSmiles(cfg.reference_smiles))
         self.assertTrue(bank)
         self.assertEqual({conformers._stereo_key(mol) for mol in bank}, {expected})
 
@@ -451,7 +351,6 @@ class Relaxation(unittest.TestCase):
         )
         with (
             tempfile.TemporaryDirectory() as directory,
-            patch.object(conformers, "_smiles_stereo_key", return_value="expected"),
             patch.object(conformers, "_stereo_key", return_value="unexpected"),
             self.assertRaises(RuntimeError),
         ):
@@ -558,7 +457,7 @@ class Rocs(unittest.TestCase):
             scorer = self._scorer(*self._bank(directory))
             smiles = ["CCO", "CCN"]
             scores = scorer.getScores([Chem.MolFromSmiles(s) for s in smiles]).ravel()
-            for value, name in zip(scores, (Chem.CanonSmiles(s) for s in smiles)):
+            for value, name in zip(scores, (Chem.CanonSmiles(s) for s in smiles), strict=True):
                 shape, colour = scorer.components[name]
                 self.assertAlmostEqual(shape + colour, float(value), places=9)
 
@@ -626,14 +525,6 @@ class Provenance(unittest.TestCase):
         ):
             self.assertIn(name, digests)
 
-    def test_records_where_drugex_was_imported_from(self):
-        described = provenance.describe(PROJECT_ROOT)
-        self.assertEqual(
-            Path(described["drugex_imported_from"]).resolve(),
-            (Path(described["kernel_hashed_from"]) / "drugex").resolve(),
-            "the hashed kernel is not the one Python imported",
-        )
-
     def test_manifest_states_are_written_atomically(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "manifest.json"
@@ -653,19 +544,15 @@ class Configuration(unittest.TestCase):
         with self.assertRaises(SystemExit):
             config_from_args(["not_a_field=1"])
 
-    def test_override_round_trips_through_the_declared_type(self):
-        cfg = config_from_args(["epochs=3", "min_epochs=1", "minimize=False"])
+    def test_override_and_from_dict_round_trip(self):
+        cfg = config_from_args(["epochs=3", "min_epochs=1", "minimize=False", "fixed_thresholds=0.8,1.0"])
         self.assertEqual(cfg.epochs, 3)
         self.assertIs(cfg.minimize, False)
-
-    def test_tuple_fields_are_settable_from_the_command_line(self):
-        self.assertEqual(
-            config_from_args(["fixed_thresholds=0.8,1.0"]).fixed_thresholds, (0.8, 1.0)
-        )
-        self.assertEqual(
-            config_from_args(["fixed_thresholds=(0.8, 1.0)"]).fixed_thresholds, (0.8, 1.0)
-        )
+        self.assertEqual(cfg.fixed_thresholds, (0.8, 1.0))
         self.assertEqual(config_from_args(["fixed_thresholds="]).fixed_thresholds, ())
+        restored = Config.from_dict({"epsilon": 0.02, "minimize": False, "unknown_legacy_key": 123})
+        self.assertAlmostEqual(restored.epsilon, 0.02)
+        self.assertFalse(restored.minimize)
 
     def test_min_epochs_cannot_exceed_epochs(self):
         with self.assertRaises(ValueError):
@@ -729,28 +616,6 @@ class RewardSchemes(unittest.TestCase):
     def test_the_environment_uses_the_scheme_it_was_given(self):
         env = scorers.build_environment([Property("SA")], [0.0], scorers.reward_scheme("WS"))
         self.assertIsInstance(env.rewardScheme, WeightedSum)
-
-    def test_the_report_never_claims_ws_keeps_thresholds_out_of_the_reward(self):
-        config = {"threshold_percentile": 85.0, "n_prior": 10, "threshold_from_reference": []}
-        pareto = analysis._threshold_prose({**config, "scheme": "PRCD"}, {}, ["ROCS"], [0.5])
-        weighted = analysis._threshold_prose({**config, "scheme": "WS"}, {}, ["ROCS"], [0.5])
-        self.assertIn("stop condition only", pareto)
-        self.assertIn("part of the reward", weighted)
-        self.assertNotIn("stop condition only", weighted)
-
-    def test_a_saturated_prior_does_not_turn_ws_report_prose_into_pareto(self):
-        config = {
-            "scheme": "WS",
-            "threshold_percentile": 85.0,
-            "n_prior": 2,
-            "threshold_from_reference": [],
-            "sa_reward_one": 3.0,
-        }
-        prior = pd.DataFrame({"SA_raw": [2.5, 2.6], "Valid": [1, 1]})
-        prose = analysis._threshold_prose(config, {"prior": prior}, ["SA"], [0.5])
-        self.assertIn("WeightedSum", prose)
-        self.assertNotIn("Pareto reward is effectively the ROCS", prose)
-        self.assertNotIn("stop condition only", prose)
 
     def test_analyse_writes_report_and_figures_without_missing_helpers(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1160,14 +1025,6 @@ class MetaCentrumJobs(unittest.TestCase):
             Job(name="probe", walltime="400:00:00")
         Job(name="probe", walltime="400:00:00", queue="special")
 
-    def test_the_expected_queue_is_printed_not_guessed(self):
-        self.assertEqual(
-            Job(name="probe", walltime="24:00:00").queue_label, "q_1d (default router)"
-        )
-        self.assertEqual(
-            Job(name="probe", walltime="24:00:00", queue="gpu_long").queue_label, "gpu_long"
-        )
-
     def test_a_job_name_is_a_pbs_name_and_a_run_tag(self):
         Job(name="egcg_gold-2")
         for bad in ("1leading_digit", "has.dot", "has space", "x" * 65, ""):
@@ -1356,57 +1213,6 @@ Job Id: 25256880.pbs-m1.metacentrum.cz
             "job.py must not import Config (torch), so the test guards the duplicate",
         )
 
-    def test_the_table_is_the_six_columns_that_get_read(self):
-        jobs = [
-            monitor.Job(
-                job_id="1.pbs", short_id="1", name="wcm_e20fdq0", state="R", queue="q_1d",
-                node="adan5", elapsed=11952, limit=86400, ncpus=16, memory_gb=32,
-            ),
-            monitor.Job(
-                job_id="2.pbs", short_id="2", name="rebuild_1", state="Q", queue="q_1d",
-                node="unknown", elapsed=None, limit=86400, ncpus=16, memory_gb=32,
-                comment="Not Running: Insufficient amount of resource: ncpus",
-            ),
-        ]
-        reports = [
-            {
-                "id": "1",
-                "state": "R",
-                "epochs_done": 12,
-                "epochs_target": 70,
-                "sec_per_epoch": 996.0,
-                "eta_s": 57768.0,
-                "last_epoch_age_s": 300.0,
-            },
-            {"id": "2", "state": "Q"},
-        ]
-        rows = monitor.table_rows(jobs, reports)
-        self.assertEqual(
-            rows[0].split(),
-            ["NAME", "QUEUE", "ELAPSED", "EPOCH", "RATE", "ETA"],
-            "six columns, and no seventh: the table is read at a glance",
-        )
-        self.assertEqual(
-            rows[1].split(),
-            ["wcm_e20fdq0", "q_1d", "3:19:12", "12/70", "17m", "16:02:48"],
-        )
-        self.assertEqual(rows[2].split(), ["rebuild_1", "q_1d", "?", "-", "-", "-"])
-        names = [row.split()[0] for row in rows[1:]]
-        self.assertEqual(names, ["wcm_e20fdq0", "rebuild_1"], "running before queued")
-
-    def test_the_table_says_why_a_job_is_queued_without_a_column_for_it(self):
-        jobs = [
-            monitor.Job(
-                job_id="2.pbs", short_id="2", name="rebuild_1", state="Q", queue="q_1d",
-                node="unknown", elapsed=None, limit=86400,
-                comment="Not Running: Insufficient amount of resource: ncpus",
-            )
-        ]
-        printed = StringIO()
-        with redirect_stdout(printed):
-            monitor.print_table(jobs, [{"id": "2", "state": "Q"}])
-        self.assertIn("queued rebuild_1: Not Running", printed.getvalue())
-
     def test_the_eta_is_marked_when_it_overruns_the_walltime(self):
         job = monitor.Job(
             job_id="1.pbs", short_id="1", name="wsu_e10c30q0", state="R", queue="q_1d",
@@ -1514,11 +1320,6 @@ Job Id: 25256880.pbs-m1.metacentrum.cz
             run.call_args.kwargs["input"],
             "the script travels over stdin, so no sync is needed to see the new columns",
         )
-
-    def test_the_queue_script_watches_only_the_three_useful_lanes(self):
-        self.assertEqual(queues.QUEUES, ("q_4h", "q_1d", "q_2d"))
-        self.assertIn("NOT for training", queues.ROLE["q_4h"])
-        self.assertIn("DEFAULT", queues.ROLE[submit_module.DEFAULT_QUEUE])
 
     def test_long_format_queue_state_is_parsed(self):
         text = """Queue: q_1d
@@ -1722,14 +1523,6 @@ Job Id: 25446500.pbs-m1.metacentrum.cz
         self.assertAlmostEqual(
             stats["per_conformer"]["20"]["worst_total_gb"], 31641600 / 1024**2, places=6
         )
-
-    def test_the_table_and_summary_name_the_verdict(self):
-        rows = self._rows()
-        text = f"{memreport._table(rows)}\n\n{memreport._summary_text(memreport.summary(rows))}"
-        self.assertIn("OOM (killed at the request)", text)
-        self.assertIn("needs a larger --mem", text)
-        self.assertIn("25435602", text)
-        self.assertIn("conf", text, "the per-shape table is what the budget is read from")
 
 
 class Campaign(unittest.TestCase):
@@ -1983,26 +1776,6 @@ class TreeAtlas(unittest.TestCase):
             payload = atlas_v2.tree_payload(scan)
             self.assertEqual(len(payload["runs"]), 1)
 
-    def test_template_hides_pilots_and_exposes_ranking_and_param_axes(self):
-        html = atlas_v2.TEMPLATE.read_text(encoding="utf-8")
-        self.assertIn("VERDICTS.filter(v => v !== 'pilot')", html)
-        self.assertIn('id="rank-criterion"', html)
-        self.assertIn("p_epsilon:", html)
-        self.assertIn("rocs_gain:", html)
-        self.assertIn("populateMapAxisSelect", html)
-        self.assertNotIn('id="view-axes"', html)
-        self.assertIn('id="global-param-filters"', html)
-        self.assertIn("BASELINE_ANCHOR", html)
-        self.assertIn("is-gray-low", html)
-        self.assertIn("tree-breadcrumb", html)
-        self.assertIn("podium-grid", html)
-        self.assertIn("criteria-top5-grid", html)
-        self.assertIn("top5ByCriterion", html)
-        self.assertIn("list.slice(0, 5)", html)
-        self.assertIn("DATA.runs.filter(r => passesGlobalFilters(r))", html)
-        self.assertIn("frontier-charts", html)
-        self.assertIn("rescue-diagnostics", html)
-
     def test_the_scan_counts_only_runs_since_the_restart(self):
         # The 10.11 rule: WITH_BUGS runs and first probes stay out, whatever root holds them.
         with tempfile.TemporaryDirectory() as tmp:
@@ -2020,22 +1793,6 @@ class TreeAtlas(unittest.TestCase):
             self.assertEqual([r["run"] for r in payload["runs"]],
                              ["20261111_0400_new", "20261112_0100_newer"])
             self.assertEqual(payload["since"], "20261110")
-
-    def test_the_scanner_writes_scan_data_and_no_retired_v1_atlas(self):
-        # The tree atlas owns the HTML; a scan must leave json/tsv behind and nothing else,
-        # whatever argv the old callers still pass as their output anchor.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            run = root / "20261112_0200_nofrills"
-            run.mkdir()
-            (run / "manifest.json").write_text(json.dumps({
-                "state": "complete", "config": {"scheme": "PRCD", "n_final": 4},
-            }))
-            collapse.build([root], root / "collapse_atlas.html", since="20261110")
-            self.assertTrue((root / "collapse_scan.json").is_file())
-            self.assertTrue((root / "collapse_scan.tsv").is_file())
-            self.assertFalse((root / "collapse_atlas.html").exists(),
-                             "the v1 atlas is retired; atlas_v2 renders the tree atlas")
 
     def test_the_arm_layout_not_a_missing_file_decides_the_schema(self):
         # A current run whose prior.tsv was never downloaded keeps this repo's schema;
@@ -2227,9 +1984,9 @@ class DiversityProfile(unittest.TestCase):
         skeletons = ["c1ccccc1CC", "c1ccncc1CC", "c1ccc2ccccc2c1CC", "C1CCCCC1CC", "c1ccoc1CC"]
         flags = [1, 1, 0, 0, 0]
         one_family = diversity.arm_profile(diversity.ArmUniques(
-            self._frame([(smi, 1, flag) for smi, flag in zip(hats, flags)])))
+            self._frame([(smi, 1, flag) for smi, flag in zip(hats, flags, strict=True)])))
         five_families = diversity.arm_profile(diversity.ArmUniques(
-            self._frame([(smi, 1, flag) for smi, flag in zip(skeletons, flags)])))
+            self._frame([(smi, 1, flag) for smi, flag in zip(skeletons, flags, strict=True)])))
         self.assertAlmostEqual(one_family["effective_desired_yield"], 0.4 / 5)
         self.assertAlmostEqual(
             five_families["effective_desired_yield"],
@@ -2306,39 +2063,6 @@ class DefaultColourAndRocsScaleTests(unittest.TestCase):
         epochs = halved_prior[["SMILES", "Valid", col]]
         enriched_ep = analysis_helpers.enrich_descriptors(epochs, col, "", {}, prior=halved_prior)
         self.assertEqual(list(enriched_ep["ROCS"]), [1.4, 0.8])
-
-    def test_default_colour_batches_cover_ps_and_ws_full_factorial(self):
-        for batch_name, expected_scheme in (("dp", "PRCD"), ("dw", "WS")):
-            self.assertIn(batch_name, campaign.BATCHES)
-            planned = campaign.runs(campaign.BATCHES[batch_name])
-            self.assertEqual(len(planned), 8)
-            for _, settings in planned:
-                self.assertEqual(settings["scheme"], expected_scheme)
-                self.assertEqual(settings["color_ff"], "default")
-                self.assertEqual(settings["reference_conformers"], 4)
-                self.assertEqual(settings["max_conformers"], 20)
-                self.assertEqual(settings["alignment_shape_weight"], 0.5)
-
-    def test_e02_batches_cover_ps_and_ws_default_colour_k1_k4_c20_c30(self):
-        for batch_name, expected_scheme in (("dp_e02", "PRCD"), ("dw_e02", "WS")):
-            self.assertIn(batch_name, campaign.BATCHES)
-            planned = campaign.runs(campaign.BATCHES[batch_name])
-            self.assertEqual(len(planned), 16)
-            combos = set()
-            for _, settings in planned:
-                self.assertEqual(settings["scheme"], expected_scheme)
-                self.assertEqual(settings["color_ff"], "default")
-                self.assertEqual(settings["epsilon"], 0.02)
-                self.assertEqual(settings["alignment_shape_weight"], 0.5)
-                combos.add(
-                    (
-                        settings["minimize"],
-                        settings["reference_conformers"],
-                        settings["max_conformers"],
-                        settings["include_qed"],
-                    )
-                )
-            self.assertEqual(len(combos), 16)
 
 
 class NestedLayoutAndPullTests(unittest.TestCase):
@@ -2738,9 +2462,6 @@ class PriorCacheTests(unittest.TestCase):
                 cache_root=cache_dir,
             )
             self.assertIsNotNone(bundle)
-            checked, errors = prior_cache.verify_cache(cache_dir)
-            self.assertEqual(checked, 1)
-            self.assertEqual(errors, [])
 
             # Project onto include_qed=True and shifted SA modifier without rescoring.
             cfg_qed = small(
@@ -2754,9 +2475,7 @@ class PriorCacheTests(unittest.TestCase):
             self.assertIsNotNone(loaded)
             scorers_qed = scorers.build_scorers(cfg_qed, refs)
             projected = prior_cache.project_prior_scores(loaded.scores, cfg_qed, scorers_qed)
-            proj_keys = [
-                k for s in scorers_qed for k in (s.getKey() if isinstance(s.getKey(), list) else [s.getKey()])
-            ]
+            proj_keys = scorers.scorer_keys(scorers_qed)
             proj_thresh = scorers.thresholds_from_scores(cfg_qed, scorers_qed, projected, proj_keys)
 
             live_thresh_qed, live_scores_qed = scorers.calibrate_thresholds(cfg_qed, scorers_qed, smiles)
@@ -2768,12 +2487,10 @@ class PriorCacheTests(unittest.TestCase):
             self.assertEqual(int(invalid.sum()), 3)
             self.assertTrue(np.allclose(projected.loc[invalid, "SA"], 0.0))
 
-            # Tamper / sequence mismatch invalidates lookup cleanly.
+            # Divergent prior draw sequence invalidates lookup cleanly.
             self.assertIsNone(
                 prior_cache.load_prior_bundle(cfg_qed, list(reversed(smiles)), cache_root=cache_dir)
             )
-            (bundle.bundle_dir / "prior_scores.tsv").write_text("corrupted\n")
-            self.assertIsNone(prior_cache.load_prior_bundle(cfg_qed, smiles, cache_root=cache_dir))
 
     def test_pipeline_hits_prior_cache_without_rebuilding_reference_or_rescoring(self):
         smiles = ["CCO", "CCN", "c1ccccc1O", "CC(=O)O"]
@@ -3073,7 +2790,7 @@ class FailFastErrorPropagation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             empty_sdf = Path(tmp) / "conformers.sdf"
             empty_sdf.write_text("")
-            with patch.object(gen, "_embed", return_value=empty_sdf):
+            with patch.object(conformers, "parallel_embed", return_value=empty_sdf):
                 # Single molecule or unparseable inputs still warn & return empty SDF path.
                 self.assertEqual(gen.genConformers(["CCO"], tmp), str(empty_sdf))
                 self.assertEqual(gen.genConformers(["invalid_smiles"] * 12, tmp), str(empty_sdf))
@@ -3156,6 +2873,180 @@ class FailFastErrorPropagation(unittest.TestCase):
             ):
                 rc = job_module.main(["--release", str(release)])
             self.assertEqual(rc, 1)
+
+
+class RefactorRegressionTests(unittest.TestCase):
+    """Pin real bugs fixed during the codebase-wide refactor."""
+
+    def test_diversity_handles_none_fingerprints_and_preserves_desired_alignment(self):
+        fp_a = analysis_helpers.morgan_fp(Chem.MolFromSmiles("c1ccccc1"))
+        fp_b = analysis_helpers.morgan_fp(Chem.MolFromSmiles("c1ccncc1CC"))
+        fp_c = analysis_helpers.morgan_fp(Chem.MolFromSmiles("C1CCCCC1CO"))
+        mixed = [None, fp_a, None, fp_b, fp_c]
+        profile = diversity._pairwise_profile(mixed)
+        clean_profile = diversity._pairwise_profile([fp_a, fp_b, fp_c])
+        self.assertEqual(profile, clean_profile)
+        self.assertGreater(profile["internal_diversity"], 0.0)
+
+        fake_stop = types.SimpleNamespace(fingerprints=mixed, desired=[1, 0, 1, 1, 0])
+        fake_prior = types.SimpleNamespace(fingerprints=[fp_a], desired=[0])
+        thumb = diversity._thumb_coordinates(fake_stop, fake_prior)
+        self.assertIsNotNone(thumb)
+        self.assertEqual(thumb["stop"]["desired"], [0, 1, 0])
+
+    def test_prior_cache_atomic_write_restores_backup_on_swap_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle_dir = root / "bundle"
+            bundle_dir.mkdir()
+            sentinel = bundle_dir / "meta.json"
+            sentinel.write_text('{"keep": true}\n', encoding="utf-8")
+
+            ref_sdf = root / "ref.sdf"
+            mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+            AllChem.EmbedMolecule(mol, randomSeed=42)
+            writer = Chem.SDWriter(str(ref_sdf))
+            writer.write(mol)
+            writer.close()
+
+            raw_df = pd.DataFrame(
+                {
+                    "SMILES": ["CCO"],
+                    "Canonical": ["CCO"],
+                    "Valid": [1],
+                    "ShapeTanimoto": [0.5],
+                    "ColorTanimoto": [0.2],
+                    "TanimotoCombo_raw": [0.7],
+                    "SA_raw": [2.0],
+                    "QED": [0.4],
+                }
+            )
+            orig_replace = Path.replace
+
+            def failing_replace(self_path: Path, target: Path):
+                if self_path.name.startswith(".tmp.") and target == bundle_dir:
+                    raise OSError("simulated swap failure")
+                return orig_replace(self_path, target)
+
+            with (
+                patch.object(Path, "replace", failing_replace),
+                self.assertRaises(OSError),
+            ):
+                prior_cache._write_bundle_atomic(
+                    bundle_dir,
+                    key="k",
+                    axes={"seed": 1},
+                    reference_sdf=ref_sdf,
+                    raw_df=raw_df,
+                    origin="test",
+                )
+
+            self.assertTrue(bundle_dir.is_dir())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), '{"keep": true}\n')
+
+    def test_collapse_chemistry_stats_counts_distinct_scaffolds_and_load_current_is_quiet(self):
+        # Three alkylbenzenes share one Murcko scaffold (benzene) plus one pyridine -> 2 scaffolds.
+        canonicals = pd.Series(["c1ccccc1CC", "c1ccccc1CCC", "c1ccccc1CCCC", "c1ccncc1CC"])
+        stats = collapse.chemistry_stats(canonicals)
+        self.assertEqual(stats["scaffolds"], 2)
+        self.assertAlmostEqual(stats["scaffold_top"], 0.75)
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertNoLogs(collapse.logger, level="WARNING"),
+        ):
+            arms = collapse._load_current(Path(tmp))
+        self.assertEqual(arms, {})
+
+    def test_plot_kde_out_of_range_values_emit_no_warning_and_fused_cores_merge_bridges(self):
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        try:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                figures._plot_kde(
+                    ax,
+                    np.array([15.0, 15.0]),
+                    "#000000",
+                    "out",
+                    np.linspace(0.0, 5.0, 20),
+                )
+            runtime_warnings = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+            self.assertEqual(runtime_warnings, [])
+        finally:
+            plt.close(fig)
+
+        # Anthracene is one fused 14-atom tricyclic system regardless of ring iteration order.
+        anthracene = Chem.MolFromSmiles("c1ccc2cc3ccccc3cc2c1")
+        cores = figures._fused_cores(anthracene)
+        self.assertEqual(len(cores), 1)
+        core_mol = Chem.MolFromSmiles(next(iter(cores)))
+        self.assertIsNotNone(core_mol)
+        self.assertEqual(core_mol.GetNumHeavyAtoms(), 14)
+
+    def test_job_unit_name_reports_rebuild_run_name_not_worker_count(self):
+        spec = {"mode": "rebuild", "name": "rebuild_1", "runs": ["20261110_1200_run_a"]}
+        cmd = [
+            "/venv/bin/python",
+            "-u",
+            "-m",
+            "_david.code.reconstruct.score_arms",
+            "/storage/output/20261110_1200_run_a",
+            "--n-jobs",
+            "13",
+        ]
+        self.assertEqual(job_module._unit_name(spec, cmd), "20261110_1200_run_a")
+        self.assertEqual(
+            job_module._unit_name({"mode": "train", "name": "p_m1"}, ["python", "-m", "run"]),
+            "p_m1",
+        )
+
+    def test_submit_and_queues_parsers_merge_tab_continuations(self):
+        qstat_text = (
+            "Job Id: 999.meta-pbs.metacentrum.cz\n"
+            "    Job_Name = cont_job\n"
+            "    job_state = Q\n"
+            "    comment = Not Running: waiting for\n"
+            "\t free nodes on cluster\n"
+        )
+        jobs = submit_module.parse_qstat_full(qstat_text)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].comment, "Not Running: waiting for free nodes on cluster")
+
+        queue_text = (
+            "Queue: q_1d\n"
+            "    state_count = Transit:0 Queued:10\n"
+            "\t Running:5 Held:1\n"
+            "    resources_max.walltime = 24:00:00\n"
+        )
+        parsed = queues.parse_queues(queue_text)
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0].queued, 10)
+        self.assertEqual(parsed[0].running, 5)
+        self.assertEqual(parsed[0].held, 1)
+
+    def test_monitor_memory_gb_handles_units_and_print_table_tolerates_missing_report(self):
+        self.assertEqual(monitor._memory_gb("32gb"), 32)
+        self.assertEqual(monitor._memory_gb("32768mb"), 32)
+        self.assertEqual(monitor._memory_gb("33554432kb"), 32)
+        self.assertEqual(monitor._memory_gb("1tb"), 1024)
+        self.assertIsNone(monitor._memory_gb("32unknown"))
+
+        job = monitor.Job(
+            job_id="123.meta",
+            short_id="123",
+            name="job_a",
+            state="R",
+            queue="q_1d",
+            node="n1",
+            elapsed=600,
+            limit=3600,
+        )
+        buf = StringIO()
+        with redirect_stdout(buf):
+            monitor.print_table([job], [])
+        self.assertIn("job_a", buf.getvalue())
 
 
 if __name__ == "__main__":

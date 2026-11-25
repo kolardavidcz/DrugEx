@@ -106,7 +106,7 @@ def parse_qstat_full(text: str) -> list[Job]:
             last_key = None
         elif current:
             if last_key and line.startswith("\t"):
-                current[last_key] += line.strip()
+                current[last_key] += line[1:].rstrip()
                 continue
             match = re.match(r"\s+([A-Za-z_][\w.\-]*)\s*=\s*(.*)$", line)
             if match:
@@ -158,10 +158,25 @@ def _as_int(value: str | None) -> int | None:
         return None
 
 
+_MEM_UNIT_GB: dict[str, float] = {
+    "": 1.0,
+    "b": 1.0 / (1024**3),
+    "kb": 1.0 / (1024**2),
+    "mb": 1.0 / 1024,
+    "gb": 1.0,
+    "tb": 1024.0,
+}
+
+
 def _memory_gb(value: str) -> int | None:
-    """``'32gb'`` -> 32. Every job in this pipeline requests whole gigabytes."""
-    match = re.match(r"\s*(\d+(?:\.\d+)?)", value or "")
-    return int(float(match.group(1))) if match else None
+    """Parse PBS memory strings (``'32gb'``, ``'32768mb'``, ``'33554432kb'``) to whole GB."""
+    match = re.match(r"\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]*)", value or "")
+    if not match:
+        return None
+    scale = _MEM_UNIT_GB.get(match.group(2).lower())
+    if scale is None:
+        return None
+    return round(float(match.group(1)) * scale)
 
 
 def _node_name(fields: dict[str, str]) -> str:
@@ -377,13 +392,13 @@ def job_report(job: Job, lines: int) -> dict[str, object]:
         header = probe.get("header")
         report["header"] = header[0] if isinstance(header, list) and header else ""
         report["rows"] = rows
-        count = int(str(probe.get("count") or "0"))
+        count = _as_int(probe.get("count")) or 0
         done = max(count - 1, 0)
         report["epochs_done"] = done
         try:
             mtime = float(str(probe.get("mtime")))
             report["last_epoch_age_s"] = max(now - mtime, 0)
-        except ValueError:
+        except (TypeError, ValueError):
             report["last_epoch_age_s"] = None
         target = str(probe.get("epochs") or "").strip()
         target_epochs = int(target) if target.isdigit() else None
@@ -489,24 +504,26 @@ def print_table(jobs: list[Job], reports: list[dict[str, object]]) -> None:
         print(f" {row}")
 
     by_id = {report["id"]: report for report in reports}
-    overrun = [
-        job.name
-        for job in jobs
-        if job.state == "R" and _eta_cell(job, by_id[job.short_id]).startswith("!")
-    ]
-    stale = [
-        f"{job.name} {by_id[job.short_id]['last_epoch_age_s'] / 60:.0f}m"
-        for job in jobs
-        if job.state == "R"
-        and isinstance(by_id[job.short_id].get("last_epoch_age_s"), (int, float))
-        and by_id[job.short_id]["last_epoch_age_s"] > STALE_EPOCH_SECONDS
-    ]
-    unreachable = [
-        f"{job.name} ({job.node}: {by_id[job.short_id]['probe_error']})"
-        for job in jobs
-        if job.state == "R" and by_id[job.short_id].get("probe_error")
-    ]
-    queued = [f"{job.name}: {job.comment}" for job in jobs if job.state != "R" and job.comment]
+    overrun: list[str] = []
+    stale: list[str] = []
+    unreachable: list[str] = []
+    queued: list[str] = []
+    has_eta = False
+    for job in jobs:
+        report = by_id.get(job.short_id, {})
+        if isinstance(report.get("eta_s"), (int, float)):
+            has_eta = True
+        if job.state == "R":
+            if _eta_cell(job, report).startswith("!"):
+                overrun.append(job.name)
+            age = report.get("last_epoch_age_s")
+            if isinstance(age, (int, float)) and age > STALE_EPOCH_SECONDS:
+                stale.append(f"{job.name} {age / 60:.0f}m")
+            probe_error = report.get("probe_error")
+            if probe_error:
+                unreachable.append(f"{job.name} ({job.node}: {probe_error})")
+        elif job.comment:
+            queued.append(f"{job.name}: {job.comment}")
 
     print()
     if overrun:
@@ -517,7 +534,7 @@ def print_table(jobs: list[Job], reports: list[dict[str, object]]) -> None:
         print(f" unreachable {line}")
     for line in queued:
         print(f" queued {line}")
-    if any(isinstance(by_id[job.short_id].get("eta_s"), (int, float)) for job in jobs):
+    if has_eta:
         print(
             f" ETA = epochs left at RATE, plus the {TAIL_MINUTES:.0f} min tail "
             f"(3 arms at n_final={TAIL_REFERENCE_N} and the figures)"

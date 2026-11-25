@@ -27,7 +27,9 @@ import json
 import math
 import re
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from _david.code.metacentrum.job import (
     MEM_GB_PER_CONFORMER,
@@ -37,7 +39,7 @@ from _david.code.metacentrum.job import (
     spec_max_conformers,
     workers_for,
 )
-from _david.code.metacentrum.submit import STORAGE, USER, parse_qstat_full, remote
+from _david.code.metacentrum.submit import STORAGE, USER, RemoteJob, parse_qstat_full, remote
 
 #: PBS writes ``32gb`` in a request and ``33554432kb`` in usage; both are powers of 1024.
 _UNIT_BYTES = {
@@ -90,7 +92,7 @@ class Finished:
     exit_status: int | None
     requested_gb: float | None
     peak_gb: float | None
-    ncpus: int
+    ncpus: int | None
     #: The pool the job intended to run; ``None`` when the spec is gone or covered a rebuild.
     workers: int | None
     #: The conformer budget of the run; ``None`` for a rebuild, whose spec spans shapes.
@@ -144,7 +146,9 @@ class Finished:
         return "ok"
 
 
-def finished_from_jobs(jobs, specs: dict[str, dict]) -> list[Finished]:
+def finished_from_jobs(
+    jobs: Sequence[RemoteJob], specs: dict[str, dict[str, Any]]
+) -> list[Finished]:
     """Join parsed ``qstat -x -f`` entries with the specs that produced them."""
     rows: list[Finished] = []
     for job in jobs:
@@ -245,7 +249,7 @@ def _ceilinged(row: Finished) -> bool:
     )
 
 
-def summary(rows: list[Finished]) -> dict:
+def summary(rows: list[Finished]) -> dict[str, Any]:
     """The numbers the worker budget is calibrated from.
 
     Only uncensored jobs inform the budget. A job killed at its cgroup, and equally one that
@@ -258,25 +262,37 @@ def summary(rows: list[Finished]) -> dict:
     peak follows ``n_final x max_conformers`` and barely moves with the pool size.
     """
     buckets: dict[int, list[float]] = {}
-    for row in rows:
-        if _usable(row):
-            buckets.setdefault(row.conformers, []).append(row.per_worker_gb)
-    worst = {conformers: max(values) for conformers, values in buckets.items()}
     floors: dict[int, list[float]] = {}
     totals: dict[int, float] = {}
+    censored_names: list[str] = []
+    oom_names: list[str] = []
+    tight_names: list[str] = []
+    over_names: list[str] = []
     for row in rows:
-        if row.conformers is None or (row.peak_gb or 0) < MIN_USEFUL_PEAK_GB:
+        if row.censored:
+            censored_names.append(row.name)
+        if row.exit_status == OOM_EXIT_STATUS:
+            oom_names.append(row.name)
+        verdict = row.verdict
+        if verdict == "tight":
+            tight_names.append(row.name)
+        elif verdict == "over its budget":
+            over_names.append(row.name)
+
+        if row.conformers is None or (row.peak_gb or 0.0) < MIN_USEFUL_PEAK_GB:
             continue
-        if row.censored or row.exit_status == OOM_EXIT_STATUS:
+        if _usable(row):
+            assert row.per_worker_gb is not None
+            buckets.setdefault(row.conformers, []).append(row.per_worker_gb)
+            totals[row.conformers] = max(totals.get(row.conformers, 0.0), float(row.peak_gb))
+        elif row.censored or row.exit_status == OOM_EXIT_STATUS:
             totals[row.conformers] = max(totals.get(row.conformers, 0.0), float(row.peak_gb))
             if _ceilinged(row):
+                assert row.per_worker_gb is not None
                 floors.setdefault(row.conformers, []).append(row.per_worker_gb)
-        elif _usable(row):
-            totals[row.conformers] = max(totals.get(row.conformers, 0.0), float(row.peak_gb))
+
+    worst = {conformers: max(values) for conformers, values in buckets.items()}
     lower = {conformers: max(values) for conformers, values in floors.items()}
-    oom = [row for row in rows if row.exit_status == OOM_EXIT_STATUS]
-    tight = [row for row in rows if row.verdict == "tight"]
-    over = [row for row in rows if row.verdict == "over its budget"]
 
     ratio = max(
         (value / conformers for conformers, value in worst.items()),
@@ -291,10 +307,10 @@ def summary(rows: list[Finished]) -> dict:
     return {
         "jobs": len(rows),
         "measured": sum(len(values) for values in buckets.values()),
-        "censored": [row.name for row in rows if row.censored],
-        "oom": [row.name for row in oom],
-        "tight": [row.name for row in tight],
-        "over_budget": [row.name for row in over],
+        "censored": censored_names,
+        "oom": oom_names,
+        "tight": tight_names,
+        "over_budget": over_names,
         "per_conformer": {
             str(conformers): {
                 "jobs": len(buckets.get(conformers, [])),

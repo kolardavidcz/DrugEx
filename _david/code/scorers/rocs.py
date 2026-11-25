@@ -1,19 +1,20 @@
+"""3D ROCS shape + colour TanimotoCombo scorer extending DrugEx's RDKitROCSScorer."""
+
 from __future__ import annotations
 
 import gc
 import logging
-import multiprocessing
-import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any, TypeVar
 
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdShapeAlign
 
-from _david.code.scorers.utils import SCORE_CHUNK, pool_is_healthy
+from _david.code.scorers.utils import SCORE_CHUNK, pool_can_run, resolve_workers
 from drugex.training.scorers.parallel import (
     ScoreTimeout,
-    capped_n_jobs,
     mol_timeout,
     molecule_time_limit,
     pool_context,
@@ -29,6 +30,17 @@ from drugex.training.scorers.rocs_rdkit import (
 logger = logging.getLogger(__name__)
 
 NO_OVERLAY = (0.0, 0.0)
+_T = TypeVar("_T")
+
+
+def lookup_by_smiles(mapping: Mapping[str, _T], value: Any) -> _T | None:
+    """Look up ``value`` in ``mapping`` directly, falling back to canonical SMILES."""
+    found = mapping.get(value)
+    if found is None and isinstance(value, str):
+        mol = Chem.MolFromSmiles(value)
+        if mol is not None:
+            found = mapping.get(Chem.MolToSmiles(mol))
+    return found
 
 
 def pair_components(
@@ -39,7 +51,11 @@ def pair_components(
     use_colors: bool = True,
     color_ff: str = "fdef",
 ) -> tuple[float, float]:
-    """The winner is chosen on shape + colour whatever ``opt_param`` is."""
+    """Align ``query`` onto ``reference`` and return winning ``(ShapeTanimoto, ColorTanimoto)``.
+
+    The winning overlay maximizes ``ShapeTanimoto + ColorTanimoto`` over all conformer pairs
+    and inertial-axis flips; ``opt_param`` only sets ``rdShapeAlign``'s pose objective.
+    """
     if query is None or reference is None:
         return NO_OVERLAY
     if query.GetNumConformers() == 0 or reference.GetNumConformers() == 0:
@@ -50,31 +66,31 @@ def pair_components(
             if not mol.HasProp("PUBCHEM_PHARMACOPHORE_FEATURES"):
                 _annotate_color_features(mol, color_ff=color_ff)
 
-    reference_canonical = Chem.Mol(reference)
-    for conformer in reference.GetConformers():
-        _canonicalize_conformer_inplace(reference_canonical, conformer.GetId())
+    ref_canon = Chem.Mol(reference)
+    for conf in reference.GetConformers():
+        _canonicalize_conformer_inplace(ref_canon, conf.GetId())
 
     best, best_total = NO_OVERLAY, 0.0
-    for query_conformer in query.GetConformers():
-        probe_canonical = Chem.Mol(query)
-        _canonicalize_conformer_inplace(probe_canonical, query_conformer.GetId())
-        for reference_conformer in reference_canonical.GetConformers():
+    for q_conf in query.GetConformers():
+        probe_canon = Chem.Mol(query)
+        _canonicalize_conformer_inplace(probe_canon, q_conf.GetId())
+        for r_conf in ref_canon.GetConformers():
             for signs in _AXIS_SIGN_FLIPS:
-                probe = _flip_conformer(probe_canonical, query_conformer.GetId(), signs)
+                probe = _flip_conformer(probe_canon, q_conf.GetId(), signs)
                 try:
-                    result = rdShapeAlign.AlignMol(
-                        reference_canonical,
-                        probe,
-                        refConfId=reference_conformer.GetId(),
-                        probeConfId=query_conformer.GetId(),
-                        useColors=use_colors,
-                        opt_param=opt_param,
+                    shape, colour = map(
+                        float,
+                        rdShapeAlign.AlignMol(
+                            ref_canon,
+                            probe,
+                            refConfId=r_conf.GetId(),
+                            probeConfId=q_conf.GetId(),
+                            useColors=use_colors,
+                            opt_param=opt_param,
+                        ),
                     )
-                except (RuntimeError, ValueError):
+                except (RuntimeError, ValueError, TypeError):
                     continue
-                if not isinstance(result, (list, tuple)) or len(result) < 2:
-                    continue
-                shape, colour = float(result[0]), float(result[1])
                 if shape + colour > best_total:
                     best, best_total = (shape, colour), shape + colour
     return best
@@ -82,6 +98,8 @@ def pair_components(
 
 @dataclass(frozen=True)
 class PoseSearch:
+    """Stateless worker payload scoring one molecule's conformers against reference groups."""
+
     references: list[Chem.Mol]
     groups: list[list[int]]
     opt_param: float
@@ -89,6 +107,7 @@ class PoseSearch:
     color_ff: str = "fdef"
 
     def best(self, conformers: list[Chem.Mol]) -> list[tuple[float, float]]:
+        """Best ``(shape, colour)`` per reference group within the per-molecule time limit."""
         try:
             with molecule_time_limit(mol_timeout()):
                 return [self._best_of_group(conformers, indices) for indices in self.groups]
@@ -96,13 +115,15 @@ class PoseSearch:
             logger.warning("scoring failed for one molecule (%s); scored 0.0", error)
             return [NO_OVERLAY for _ in self.groups]
 
-    def _best_of_group(self, conformers, indices) -> tuple[float, float]:
+    def _best_of_group(
+        self, conformers: list[Chem.Mol], indices: list[int]
+    ) -> tuple[float, float]:
         best = NO_OVERLAY
-        for conformer in conformers:
-            for index in indices:
+        for conf in conformers:
+            for idx in indices:
                 found = pair_components(
-                    conformer,
-                    self.references[index],
+                    conf,
+                    self.references[idx],
                     opt_param=self.opt_param,
                     use_colors=self.use_colors,
                     color_ff=self.color_ff,
@@ -120,18 +141,17 @@ def _worker_init(search: PoseSearch) -> None:
     _SEARCH = search
 
 
-def _worker_score(task: tuple[int, list[Chem.Mol]]):
+def _worker_score(task: tuple[int, list[Chem.Mol]]) -> tuple[int, list[tuple[float, float]]]:
+    if _SEARCH is None:
+        raise RuntimeError("ROCS worker pool was not initialized")
     mol_id, conformers = task
     return mol_id, _SEARCH.best(conformers)
 
 
 class ComboROCSScorer(RDKitROCSScorer):
-    """``RDKitROCSScorer`` with a configurable alignment objective and recorded components.
+    """``RDKitROCSScorer`` with configurable ``alignment_shape_weight`` and shape/colour diagnostics."""
 
-    The components stay diagnostics: ``getKey`` returns one key.
-    """
-
-    def __init__(self, *args, alignment_shape_weight: float = 0.5, **kwargs):
+    def __init__(self, *args: Any, alignment_shape_weight: float = 0.5, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if not 0.0 <= alignment_shape_weight <= 1.0:
             raise ValueError(
@@ -140,11 +160,16 @@ class ComboROCSScorer(RDKitROCSScorer):
         self.alignment_shape_weight = float(alignment_shape_weight)
         self.components: dict[str, tuple[float, float]] = {}
         self._by_mol_id: dict[int, tuple[float, float]] = {}
-        # The parent's own pool would call native's worker, not this class.
+        # Keep worker count locally; parent's n_jobs=1 routes execution into _score_sequential.
         self.workers = self.n_jobs
         self.n_jobs = 1
 
-    def _score_sequential(self, unique_count, conformers_by_mol, num_groups) -> np.ndarray:
+    def _score_sequential(
+        self,
+        unique_count: int,
+        conformers_by_mol: dict[int, list[Chem.Mol]],
+        num_groups: int,
+    ) -> np.ndarray:
         self._by_mol_id = {}
         search = PoseSearch(
             self.reference_mols,
@@ -154,16 +179,11 @@ class ComboROCSScorer(RDKitROCSScorer):
             self.color_ff,
         )
         tasks = [(mol_id, conformers_by_mol.get(mol_id, [])) for mol_id in range(unique_count)]
-        workers = capped_n_jobs(self.workers if self.workers > 0 else (os.cpu_count() or 1))
+        worker_count = resolve_workers(self.workers)
 
-        if not (
-            workers <= 1
-            or unique_count < 8
-            or multiprocessing.current_process().daemon
-            or not pool_is_healthy()
-        ):
+        if pool_can_run(worker_count, unique_count, min_items=8):
             try:
-                with pool_context().Pool(workers, _worker_init, (search,)) as pool:
+                with pool_context().Pool(worker_count, _worker_init, (search,)) as pool:
                     results = pool.map(_worker_score, tasks)
             except Exception as error:
                 logger.error("parallel ROCS failed (%s); aborting", error)
@@ -178,46 +198,33 @@ class ComboROCSScorer(RDKitROCSScorer):
             self._by_mol_id[mol_id] = groups[0] if groups else NO_OVERLAY
         return scores
 
-    def getScores(self, mols, frags=None) -> np.ndarray:
-        # Also here: the parent returns early on a missing conformer file.
+    def getScores(self, mols: Any, frags: Any = None) -> np.ndarray:
+        """Score ``mols`` in memory-bounded chunks while recording winning shape/colour splits."""
         self._by_mol_id = {}
         self.components = {}
         smiles_list = self._convert_to_smiles(mols)
         unique, unique_to_original = self._deduplicate_smiles(smiles_list)
+        scores = np.zeros((len(mols), len(self.group_to_indices)))
         if not unique:
-            return np.zeros((len(mols), len(self.group_to_indices)))
-        if len(unique) <= SCORE_CHUNK:
-            scores = super().getScores(mols, frags)
-            self.components = {
-                smiles: self._by_mol_id.get(index, NO_OVERLAY)
-                for index, smiles in enumerate(unique)
-            }
             return scores
 
-        num_groups = len(self.group_to_indices)
-        scores = np.zeros((len(mols), num_groups))
         all_components: dict[str, tuple[float, float]] = {}
         for start in range(0, len(unique), SCORE_CHUNK):
             piece = unique[start : start + SCORE_CHUNK]
             self._by_mol_id = {}
             piece_scores = super().getScores(piece, frags)
-            for local_id, smiles in enumerate(piece):
-                all_components[smiles] = self._by_mol_id.get(local_id, NO_OVERLAY)
-                for original_idx in unique_to_original[start + local_id]:
-                    scores[original_idx] = piece_scores[local_id]
-            gc.collect()
+            for local_id, smi in enumerate(piece):
+                all_components[smi] = self._by_mol_id.get(local_id, NO_OVERLAY)
+                for orig_idx in unique_to_original[start + local_id]:
+                    scores[orig_idx] = piece_scores[local_id]
+            if len(unique) > SCORE_CHUNK:
+                gc.collect()
         self.components = all_components
         return scores
 
     def component_frame(self, smiles: list[str]) -> dict[str, list[float]]:
-        found = []
-        for value in smiles:
-            pair = self.components.get(value)
-            if pair is None and isinstance(value, str):
-                mol = Chem.MolFromSmiles(value)
-                if mol is not None:
-                    pair = self.components.get(Chem.MolToSmiles(mol))
-            found.append(pair or NO_OVERLAY)
+        """Aligned ``ShapeTanimoto`` and ``ColorTanimoto`` lists for ``smiles``."""
+        found = [lookup_by_smiles(self.components, smi) or NO_OVERLAY for smi in smiles]
         return {
             "ShapeTanimoto": [shape for shape, _ in found],
             "ColorTanimoto": [colour for _, colour in found],

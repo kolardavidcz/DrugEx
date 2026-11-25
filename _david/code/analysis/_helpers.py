@@ -1,12 +1,14 @@
-"""Shared chemical descriptors, Morgan fingerprints, Pareto dominance and 3D alignment."""
+"""Shared chemical descriptors, Morgan fingerprints, Pareto dominance, and 3D alignment."""
 
 from __future__ import annotations
 
 import logging
 import math
+import re
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,6 +18,7 @@ from rdkit.Chem import (
     Descriptors,
     Lipinski,
     rdDepictor,
+    rdFingerprintGenerator,
     rdFMCS,
     rdMolDescriptors,
     rdShapeAlign,
@@ -29,20 +32,46 @@ logger = logging.getLogger(__name__)
 #: Arms in reporting order: the baseline first, then what training produced.
 ARMS = ("prior", "desired_ratio", "desired_ratio_at_stop", "gmean")
 
-#: 2D descriptors of one molecule, keyed by (SMILES, reference SMILES). They are a pure
-#: function of those two, and the figure suite asks for the same molecules seventeen
-#: times over -- parsing, Murcko scaffold, Morgan fingerprint and raw SA each time was
-#: the whole cost of a render. One process analyses one run, so this holds at most
-#: n_final x arms entries.
-_DESCRIPTORS: dict[tuple[str, str], tuple] = {}
+#: Shared ECFP4 Morgan fingerprint generator (radius=2, 2048 bits).
+_MORGAN_GEN = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+
+#: 2D descriptors of one molecule, keyed by (SMILES, reference SMILES). Pure function of
+#: those two, cached per process to avoid reparsing the same molecules across figures.
+_DESCRIPTORS: dict[tuple[str, str], tuple[Any, ...]] = {}
+_EMPTY_DESC: tuple[Any, ...] = (
+    "",
+    math.nan,
+    math.nan,
+    math.nan,
+    math.nan,
+    math.nan,
+    math.nan,
+    math.nan,
+    math.nan,
+    math.nan,
+    math.nan,
+    "",
+)
 
 _NON_RUN_DIRS = frozenset(
     {"conformer", "rebuild_logs", "figures", "models", "cache_stats", "raw_data"}
 )
+_RUN_DATE_RE = re.compile(r"^(\d{8})_\d{4}_")
+
+
+def morgan_fp(mol: Chem.Mol) -> Any:
+    """Compute a 2048-bit radius-2 Morgan fingerprint via RDKit's modern generator API."""
+    return _MORGAN_GEN.GetFingerprint(mol)
+
+
+def run_date(name: str) -> str | None:
+    """Extract the leading ``YYYYMMDD`` date prefix from a run directory name, if present."""
+    match = _RUN_DATE_RE.match(name)
+    return match.group(1) if match else None
 
 
 def iter_run_dirs(root: Path) -> list[Path]:
-    """Every run directory (holding ``manifest.json``) anywhere under ``root``."""
+    """Return every run directory (holding ``manifest.json``) anywhere under ``root``."""
     found: list[Path] = []
     if not root.is_dir():
         return found
@@ -61,7 +90,7 @@ def iter_run_dirs(root: Path) -> list[Path]:
 
 
 def valid(arm: pd.DataFrame | None) -> pd.DataFrame:
-    """Valid rows only; invalid rows have every objective zeroed and are not real molecules."""
+    """Return valid rows only; invalid rows carry zeroed objectives and are not real molecules."""
     if arm is None or arm.empty:
         return pd.DataFrame()
     if "Valid" not in arm.columns:
@@ -70,13 +99,12 @@ def valid(arm: pd.DataFrame | None) -> pd.DataFrame:
 
 
 def dedup_key(frame: pd.DataFrame) -> str:
-    """Always deduplicate on Canonical SMILES so two spellings of one molecule count once."""
+    """Prefer ``Canonical`` over ``SMILES`` so distinct spellings of one molecule count once."""
     return "Canonical" if "Canonical" in frame.columns else "SMILES"
 
 
 def unique_per_epoch(epochs: pd.DataFrame | None) -> pd.DataFrame:
-    """Valid rows, one per distinct canonical structure *within each epoch*. Without the dedup
-    a collapsed epoch's median is the score of whichever molecule was drawn most often."""
+    """Valid rows deduplicated by canonical structure within each epoch."""
     rows = valid(epochs)
     if rows.empty or "Epoch" not in rows.columns:
         return rows
@@ -92,15 +120,15 @@ def unique(arm: pd.DataFrame | None) -> pd.DataFrame:
 
 
 def parse_mols(smiles: pd.Series) -> list[Chem.Mol]:
+    """Parse all valid SMILES strings in ``smiles`` into RDKit molecules."""
     return [m for m in (Chem.MolFromSmiles(s) for s in smiles if isinstance(s, str)) if m]
 
 
-def provenance_tag(config: dict | None, reference: Path | None = None) -> str:
+def provenance_tag(config: dict[str, Any] | None, reference: Path | None = None) -> str:
     """Compact one-line provenance string stating every scoring and conformer axis.
 
-    Figures from two colour typings, alignment weights or relaxation regimes carry
-    incomparable scores; stating these from config.json on every figure makes each PNG
-    self-describing even when pasted out of its directory.
+    Figures from two colour typings, alignment weights, or relaxation regimes carry
+    incomparable scores; stating these from ``config.json`` makes each PNG self-describing.
     """
     if not config:
         return ""
@@ -130,8 +158,10 @@ def provenance_tag(config: dict | None, reference: Path | None = None) -> str:
     )
 
 
-def reference_properties(config: dict | None, reference: Path | None) -> dict[str, float]:
-    """Properties of the reference ligand (EGCG) computed from config/reference.sdf, never hardcoded."""
+def reference_properties(
+    config: dict[str, Any] | None, reference: Path | None
+) -> dict[str, float]:
+    """Properties of the reference ligand computed from ``config`` / ``reference.sdf``."""
     smi = (config or {}).get("reference_smiles")
     mol = Chem.MolFromSmiles(smi) if isinstance(smi, str) and smi else None
     if mol is None and reference is not None and reference.is_file():
@@ -161,19 +191,60 @@ def reference_properties(config: dict | None, reference: Path | None) -> dict[st
     }
 
 
+def _describe_smiles(smi: str, ref_key: str, ref_fp: Any) -> tuple[Any, ...]:
+    key = (smi, ref_key)
+    cached = _DESCRIPTORS.get(key)
+    if cached is not None:
+        return cached
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        _DESCRIPTORS[key] = _EMPTY_DESC
+        return _EMPTY_DESC
+    can = Chem.MolToSmiles(mol)
+    try:
+        scaf = MurckoScaffold.MurckoScaffoldSmiles(mol=mol)
+    except Exception:
+        scaf = ""
+    try:
+        raw_s = float(calculate_sa_score(mol))
+    except Exception:
+        raw_s = math.nan
+    if not math.isfinite(raw_s) or raw_s >= 9.99 or raw_s <= 0.5:
+        raw_s = math.nan
+    sim = (
+        float(DataStructs.TanimotoSimilarity(ref_fp, morgan_fp(mol)))
+        if ref_fp is not None
+        else math.nan
+    )
+    entry = (
+        can,
+        float(Descriptors.MolWt(mol)),
+        float(mol.GetNumHeavyAtoms()),
+        float(Lipinski.NumRotatableBonds(mol)),
+        float(Descriptors.MolLogP(mol)),
+        float(rdMolDescriptors.CalcTPSA(mol)),
+        float(rdMolDescriptors.CalcFractionCSP3(mol)),
+        float(Lipinski.RingCount(mol)),
+        float(QED.qed(mol)),
+        raw_s,
+        sim,
+        scaf or "",
+    )
+    _DESCRIPTORS[key] = entry
+    return entry
+
+
 def enrich_descriptors(
     frame: pd.DataFrame,
     rocs_col: str | None = None,
     ref_smiles: str | None = None,
-    config: dict | None = None,
+    config: dict[str, Any] | None = None,
     prior: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Attach 2D medicinal-chemistry descriptors, raw SA, Murcko scaffold and ECFP4 seed similarity.
+    """Attach 2D medicinal-chemistry descriptors, raw SA, Murcko scaffold, and seed similarity.
 
-    Returns ROCS as published TanimotoCombo on [0, 2] whatever units the frame stored it
-    in (see ``frame_rocs_scale``), and replaces
-    unscorable SA failure sentinels (10.0) with NaN for continuous distributions so a
-    failed score can never sort, colour or rank as good.
+    Returns ROCS on published TanimotoCombo [0, 2] whatever units the frame stored it in
+    (see :func:`frame_rocs_scale`), and masks unscorable SA sentinels (10.0) to NaN.
     """
     if frame is None or frame.empty:
         return pd.DataFrame()
@@ -187,12 +258,36 @@ def enrich_descriptors(
             df["ROCS"] = pd.to_numeric(df[rocs_cands[0]], errors="coerce") * scale
 
     ref_fp = None
-    if isinstance(ref_smiles, str) and ref_smiles:
-        ref_mol = Chem.MolFromSmiles(ref_smiles)
-        if ref_mol is not None:
-            ref_fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(ref_mol, 2, nBits=2048)
-
     ref_key = ref_smiles if isinstance(ref_smiles, str) else ""
+    if ref_key:
+        ref_mol = Chem.MolFromSmiles(ref_key)
+        if ref_mol is not None:
+            ref_fp = morgan_fp(ref_mol)
+
+    has_can = "Canonical" in df.columns
+    has_smi = "SMILES" in df.columns
+    if has_can and has_smi:
+        smiles_seq = [
+            str(c) if (pd.notna(c) and str(c)) else (str(s) if pd.notna(s) else "")
+            for c, s in zip(df["Canonical"].tolist(), df["SMILES"].tolist(), strict=True)
+        ]
+    elif has_can:
+        smiles_seq = [str(c) if pd.notna(c) else "" for c in df["Canonical"].tolist()]
+    elif has_smi:
+        smiles_seq = [str(s) if pd.notna(s) else "" for s in df["SMILES"].tolist()]
+    else:
+        smiles_seq = [""] * len(df)
+
+    valid_flags = (
+        pd.to_numeric(df["Valid"], errors="coerce").fillna(0).astype(int).tolist()
+        if "Valid" in df.columns
+        else [1] * len(df)
+    )
+
+    records = [
+        _describe_smiles(smi, ref_key, ref_fp) if (is_val == 1 and smi) else _EMPTY_DESC
+        for smi, is_val in zip(smiles_seq, valid_flags, strict=True)
+    ]
     (
         canon_list,
         mw_l,
@@ -206,107 +301,7 @@ def enrich_descriptors(
         sa_raw_l,
         sim_l,
         scaf_l,
-    ) = (
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-    )
-    has_sa_raw = "SA_raw" in df.columns
-    has_qed = "QED" in df.columns
-
-    for _, row in df.iterrows():
-        smi = str(row.get("Canonical") or row.get("SMILES") or "")
-        is_val = int(row.get("Valid", 1)) == 1
-        if not is_val or not smi:
-            canon_list.append("")
-            mw_l.append(math.nan)
-            hac_l.append(math.nan)
-            rotb_l.append(math.nan)
-            logp_l.append(math.nan)
-            tpsa_l.append(math.nan)
-            fsp3_l.append(math.nan)
-            rings_l.append(math.nan)
-            qed_l.append(math.nan)
-            sa_raw_l.append(math.nan)
-            sim_l.append(math.nan)
-            scaf_l.append("")
-            continue
-        key = (smi, ref_key)
-        if key not in _DESCRIPTORS:
-            mol = Chem.MolFromSmiles(smi)
-            if mol is None:
-                _DESCRIPTORS[key] = (
-                    "",
-                    math.nan,
-                    math.nan,
-                    math.nan,
-                    math.nan,
-                    math.nan,
-                    math.nan,
-                    math.nan,
-                    math.nan,
-                    math.nan,
-                    math.nan,
-                    "",
-                )
-            else:
-                can = Chem.MolToSmiles(mol)
-                try:
-                    scaf = MurckoScaffold.MurckoScaffoldSmiles(mol=mol)
-                except Exception:
-                    scaf = ""
-                try:
-                    raw_s = float(calculate_sa_score(mol))
-                except Exception:
-                    raw_s = math.nan
-                if not math.isfinite(raw_s) or raw_s >= 9.99 or raw_s <= 0.5:
-                    raw_s = math.nan
-                sim = (
-                    float(
-                        DataStructs.TanimotoSimilarity(
-                            ref_fp,
-                            rdMolDescriptors.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048),
-                        )
-                    )
-                    if ref_fp is not None
-                    else math.nan
-                )
-                _DESCRIPTORS[key] = (
-                    can,
-                    float(Descriptors.MolWt(mol)),
-                    float(mol.GetNumHeavyAtoms()),
-                    float(Lipinski.NumRotatableBonds(mol)),
-                    float(Descriptors.MolLogP(mol)),
-                    float(rdMolDescriptors.CalcTPSA(mol)),
-                    float(rdMolDescriptors.CalcFractionCSP3(mol)),
-                    float(Lipinski.RingCount(mol)),
-                    float(QED.qed(mol)),
-                    raw_s,
-                    sim,
-                    scaf or "",
-                )
-        can, mw, hac, rotb, logp, tpsa, fsp3, rings, qed_v, raw_s, sim, scaf = _DESCRIPTORS[key]
-        canon_list.append(can)
-        mw_l.append(mw)
-        hac_l.append(hac)
-        rotb_l.append(rotb)
-        logp_l.append(logp)
-        tpsa_l.append(tpsa)
-        fsp3_l.append(fsp3)
-        rings_l.append(rings)
-        qed_l.append(qed_v)
-        sa_raw_l.append(raw_s)
-        sim_l.append(sim)
-        scaf_l.append(scaf)
+    ) = (list(col) for col in zip(*records, strict=True))
 
     if "Canonical" not in df.columns:
         df["Canonical"] = canon_list
@@ -317,15 +312,20 @@ def enrich_descriptors(
     df["TPSA"] = tpsa_l
     df["Fsp3"] = fsp3_l
     df["Rings"] = rings_l
-    if not has_qed:
+    if "QED" not in df.columns:
         df["QED"] = qed_l
     else:
         df["QED"] = pd.to_numeric(df["QED"], errors="coerce")
 
-    if has_sa_raw:
+    if "SA_raw" in df.columns:
         raw_col = pd.to_numeric(df["SA_raw"], errors="coerce")
-        # Never let failure sentinel 10.0 or invalid 0.0 enter a distribution or rank as good
-        df["Raw_SA"] = raw_col.where((df.get("Valid", 1) == 1) & (raw_col > 0.5) & (raw_col < 9.99))
+        valid_series = (
+            pd.to_numeric(df["Valid"], errors="coerce").fillna(0) == 1
+            if "Valid" in df.columns
+            else True
+        )
+        # Never let failure sentinel 10.0 or invalid 0.0 enter a distribution or rank as good.
+        df["Raw_SA"] = raw_col.where(valid_series & (raw_col > 0.5) & (raw_col < 9.99))
     else:
         df["Raw_SA"] = sa_raw_l
         df["SA_raw"] = sa_raw_l
@@ -352,16 +352,14 @@ def enrich_descriptors(
 def scored_points(
     frame: pd.DataFrame,
     objectives: list[str],
-    config: dict | None = None,
+    config: dict[str, Any] | None = None,
     prior: pd.DataFrame | None = None,
 ) -> np.ndarray:
-    """Unique valid molecules as a point cloud, ROCS on published [0, 2]. Fronts are affine-
-    invariant and would not care; ``dominated_volume`` is a volume and does."""
+    """Unique valid molecules as an objective point cloud with ROCS on published [0, 2]."""
     u = unique(frame)
     if u.empty or any(o not in u.columns for o in objectives):
         return np.empty((0, len(objectives)), dtype=float)
-    # copy=True: pandas hands back a read-only view of a single-dtype block, and the ROCS
-    # column is rescaled in place below.
+    # copy=True because pandas may return a read-only block view and ROCS is rescaled in place.
     pts = u[objectives].to_numpy(dtype=float, copy=True)
     if objectives:
         pts[:, 0] = pts[:, 0] * frame_rocs_scale(u, objectives[0], config, prior=prior)
@@ -381,7 +379,7 @@ def pareto_mask(points: np.ndarray) -> np.ndarray:
 
 
 def dominated_volume(points: np.ndarray) -> float:
-    """Exact volume dominated by `points` above the origin in objective space."""
+    """Exact hypervolume dominated by ``points`` above the origin in objective space."""
     points = np.asarray(points, dtype=float)
     if not points.size:
         return 0.0
@@ -425,8 +423,7 @@ def compute_2d_skyline(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Empirical non-dominated 2D skyline (step-wise frontier)."""
     pts = np.column_stack([x, y])
-    ok = np.all(np.isfinite(pts), axis=1)
-    pts = pts[ok]
+    pts = pts[np.all(np.isfinite(pts), axis=1)]
     if len(pts) == 0:
         return np.array([]), np.array([])
     sx = pts[:, 0] if maximize_x else -pts[:, 0]
@@ -436,7 +433,7 @@ def compute_2d_skyline(
     sorted_sy = sy[order]
     sky = []
     max_sy = -math.inf
-    for pt, cur_sy in zip(sorted_pts, sorted_sy):
+    for pt, cur_sy in zip(sorted_pts, sorted_sy, strict=True):
         if cur_sy > max_sy:
             sky.append(pt)
             max_sy = cur_sy
@@ -447,15 +444,12 @@ def compute_2d_skyline(
     return sky_arr[:, 0], sky_arr[:, 1]
 
 
-#: Murcko scaffold SMILES -> its graph framework. Every arm is counted twice (once for
-#: report.md's table, once for figure 07's legend) and 07b counts them again, while many
-#: molecules share one scaffold -- on a collapsed arm, 1905 molecules over 84 scaffolds.
-#: Keying the cache on the scaffold rather than the molecule collapses all of that.
+#: Murcko scaffold SMILES -> generic graph framework cache.
 _GENERIC_FRAMEWORKS: dict[str, str] = {}
 
 
 def _graph_framework(scaffold_smiles: str, core: Chem.Mol) -> str:
-    """Bemis and Murcko's graph framework: every atom carbon, every bond single."""
+    """Bemis-Murcko graph framework (all atoms carbon, all bonds single)."""
     cached = _GENERIC_FRAMEWORKS.get(scaffold_smiles)
     if cached is None:
         try:
@@ -466,9 +460,8 @@ def _graph_framework(scaffold_smiles: str, core: Chem.Mol) -> str:
     return cached
 
 
-def rocs_scale(config: dict | None) -> float:
-    """Factor from a run's stored ROCS units to published TanimotoCombo on [0, 2]. Absent
-    means the run predates the reward rescale and stored it raw."""
+def rocs_scale(config: dict[str, Any] | None) -> float:
+    """Factor from a run's stored ROCS units to published TanimotoCombo on [0, 2]."""
     try:
         return float((config or {}).get("rocs_reward_scale", 1.0)) or 1.0
     except (TypeError, ValueError):
@@ -487,16 +480,15 @@ def _resolve_rocs_column(frame: pd.DataFrame, rocs_col: str | None) -> str | Non
 def frame_rocs_scale(
     frame: pd.DataFrame | None,
     rocs_col: str | None = None,
-    config: dict | None = None,
+    config: dict[str, Any] | None = None,
     prior: pd.DataFrame | None = None,
 ) -> float:
     """Scale factor mapping ``frame``'s stored ROCS column onto published [0, 2].
 
     Arms written with ``ShapeTanimoto`` and ``ColorTanimoto`` carry their ground-truth [0, 2]
-    sum directly, which catches runs whose stop arm was rebuilt after the reward rescale
-    while ``config.json`` lacked ``rocs_reward_scale`` (or runs between the rescale and the
-    manifest-field commit). Per-epoch tables lack those components and inherit from ``config``
-    or ``prior`` (written in the same training run).
+    sum directly, catching mixed-scale rebuilt arms whose ``config.json`` predates
+    ``rocs_reward_scale``. Per-epoch tables lack components and inherit from ``config`` or
+    ``prior``.
     """
     if frame is not None and not frame.empty:
         col = _resolve_rocs_column(frame, rocs_col)
@@ -517,7 +509,7 @@ def frame_rocs_scale(
 
 
 def threshold_rocs_scale(
-    config: dict | None = None,
+    config: dict[str, Any] | None = None,
     prior: pd.DataFrame | None = None,
     rocs_col: str | None = None,
 ) -> float:
@@ -530,10 +522,8 @@ def threshold_rocs_scale(
 
 
 def scaffold_counts(frame: pd.DataFrame, generic: bool = False) -> pd.Series:
-    """Bemis-Murcko scaffold counts of unique valid molecules. ``generic`` returns the graph
-    framework instead -- every atom carbon, every bond single -- which a heteroatom swap does
-    not move: 84 against 51 on this campaign's worst arm."""
-    scaffolds = []
+    """Bemis-Murcko scaffold (or generic graph framework) value counts of unique valid molecules."""
+    scaffolds: list[str] = []
     for mol in parse_mols(unique(frame)["SMILES"]):
         try:
             core = MurckoScaffold.GetScaffoldForMol(mol)
@@ -547,12 +537,12 @@ def scaffold_counts(frame: pd.DataFrame, generic: bool = False) -> pd.Series:
     return pd.Series(scaffolds, dtype=str).value_counts()
 
 
-def scaffold_rows(arms: dict[str, pd.DataFrame]) -> dict[str, dict]:
-    """Scaffold concentration and novelty vs the prior for figure 07 and report.md."""
+def scaffold_rows(arms: dict[str, pd.DataFrame]) -> dict[str, dict[str, Any]]:
+    """Scaffold concentration and novelty vs the prior for figure 07 and ``report.md``."""
     counts = {name: scaffold_counts(arms[name]) for name in ARMS if name in arms}
     graphs = {name: scaffold_counts(arms[name], generic=True) for name in counts}
     prior = set(counts["prior"].index) if "prior" in counts else set()
-    rows: dict[str, dict] = {}
+    rows: dict[str, dict[str, Any]] = {}
     for name, series in counts.items():
         if series.empty:
             continue
@@ -574,10 +564,10 @@ def scaffold_rows(arms: dict[str, pd.DataFrame]) -> dict[str, dict]:
 
 
 def pareto_rows(
-    arms: dict[str, pd.DataFrame], objectives: list[str], config: dict | None = None
-) -> dict[str, dict]:
-    """Non-dominated front counts and dominated volume per arm for figure 02 and report.md."""
-    rows: dict[str, dict] = {}
+    arms: dict[str, pd.DataFrame], objectives: list[str], config: dict[str, Any] | None = None
+) -> dict[str, dict[str, Any]]:
+    """Non-dominated front counts and dominated volume per arm for figure 02 and ``report.md``."""
+    rows: dict[str, dict[str, Any]] = {}
     prior = arms.get("prior")
     for name in ARMS:
         if name not in arms:
@@ -618,6 +608,7 @@ class AlignedDepicter:
         self.template_mol: Chem.Mol | None = None
 
     def prepare_template(self, molecules: Sequence[Chem.Mol | None]) -> None:
+        """Select a shared 2D alignment template if every molecule contains ``ref_core``."""
         mols = [Chem.RemoveHs(Chem.Mol(m)) for m in molecules if m is not None]
         if not mols:
             self.template_mol = None
@@ -635,6 +626,7 @@ class AlignedDepicter:
         self.template_mol = None
 
     def align_molecule(self, mol: Chem.Mol) -> Chem.Mol:
+        """Compute 2D coordinates for a copy of ``mol``, aligned to the core or MCS."""
         mol_copy = Chem.Mol(mol)
         rdDepictor.Compute2DCoords(mol_copy)
         for template in (self.template_mol, self.ref_core):
@@ -674,11 +666,11 @@ class AlignedDepicter:
 def align_lead_to_bank(
     smiles: str,
     refs: list[Chem.Mol],
-    generator,
+    generator: Any,
     color_ff: str = "fdef",
     alignment_shape_weight: float = 0.5,
 ) -> tuple[Chem.Mol, Chem.Mol, float, float, float, int] | None:
-    """Generate conformers with the run's generator and find the best overlay across the bank."""
+    """Generate conformers with ``generator`` and return the best overlay across ``refs``."""
     from drugex.training.scorers.rocs_rdkit import (
         _AXIS_SIGN_FLIPS,
         _annotate_color_features,

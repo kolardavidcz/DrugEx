@@ -39,18 +39,19 @@ import os
 import time
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from rdkit import Chem, DataStructs, RDLogger
-from rdkit.Chem import AllChem
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
-from _david.code.analysis._helpers import iter_run_dirs
+from _david.code.analysis._helpers import iter_run_dirs, morgan_fp
 from _david.code.analysis.collapse import _read_table
 from _david.code.config import PROJECT_ROOT
+from _david.code.reconstruct.provenance import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,20 @@ THUMB_POINTS = 600
 
 STOP_ARM = "final_desired_ratio_at_stop.tsv"
 PRIOR_ARM = "prior.tsv"
+
+_EMPTY_PAIRWISE: dict[str, Any] = {
+    "internal_diversity": None,
+    "nn_sim_p50": None,
+    "nn_sim_p90": None,
+    "nn_sim_max": None,
+    "near_dup_rate": None,
+    "min_sim": None,
+}
+_EMPTY_CROSS: dict[str, Any] = {
+    "prior_sim_p50": None,
+    "prior_echo_rate": None,
+    "novelty_rate": None,
+}
 
 
 class ArmUniques:
@@ -93,26 +108,23 @@ class ArmUniques:
         grouped = valid.groupby("Canonical", sort=True)
         self.canonicals = list(grouped.groups.keys())
         self.counts = [int(n) for n in grouped.size()]
-        self.desired = [int(d) for d in (
-            grouped["Desired"].max() if "Desired" in valid.columns else grouped.size() * 0
-        )]
+        self.desired = [
+            int(d)
+            for d in (
+                grouped["Desired"].max() if "Desired" in valid.columns else grouped.size() * 0
+            )
+        ]
 
     def __len__(self) -> int:
         return len(self.canonicals)
 
-    @property
+    @cached_property
     def fingerprints(self) -> list[Any]:
-        """Morgan fingerprints of the unique canonicals, in the same order."""
+        """Cached Morgan fingerprints of the unique canonicals, in the same order."""
         fps = []
         for canonical in self.canonicals:
             mol = Chem.MolFromSmiles(canonical)
-            fps.append(
-                AllChem.GetMorganFingerprintAsBitVect(
-                    mol, FINGERPRINT_RADIUS, nBits=FINGERPRINT_BITS
-                )
-                if mol is not None
-                else None
-            )
+            fps.append(morgan_fp(mol) if mol is not None else None)
         return fps
 
 
@@ -126,8 +138,8 @@ def _entropy_shannon(weights: list[int] | np.ndarray) -> float | None:
     return float(np.exp(-(shares * np.log(shares)).sum()))
 
 
-def _scaffold_counts(canonicals: list[str]) -> Counter:
-    counts: Counter = Counter()
+def _scaffold_counts(canonicals: list[str]) -> Counter[str]:
+    counts: Counter[str] = Counter()
     for canonical in canonicals:
         mol = Chem.MolFromSmiles(canonical)
         if mol is None:
@@ -146,8 +158,7 @@ def _sidechain_mol(mol: Chem.Mol, scaffold: Chem.Mol) -> Chem.Mol | None:
 
     ``RWMol.RemoveAtom`` leaves ``RingInfo`` uninitialised, so the fragment is handed to
     :func:`Chem.FastFindRings` before it can be fingerprinted. Molecules that *are* their
-    scaffold (benzene, no substituents) have no side chain and are skipped: an empty
-    fingerprint would only add a spurious similar pair.
+    scaffold (benzene, no substituents) have no side chain and are skipped.
     """
     if scaffold is None or not scaffold.GetNumAtoms():
         return None
@@ -165,12 +176,7 @@ def _sidechain_mol(mol: Chem.Mol, scaffold: Chem.Mol) -> Chem.Mol | None:
 
 
 def _hierarchical_fingerprints(canonicals: list[str]) -> tuple[list[Any], list[Any]]:
-    """Morgan fingerprints of each molecule's Murcko scaffold and of its side chains.
-
-    The two lists are parallel repertoires, not molecules: an arm that only decorates one
-    ring scores high on whole-molecule internal diversity while its scaffolds stay one
-    family, and this pair of lists is what exposes that.
-    """
+    """Morgan fingerprints of each molecule's Murcko scaffold and of its side chains."""
     scaffold_fps: list[Any] = []
     sidechain_fps: list[Any] = []
     for canonical in canonicals:
@@ -183,18 +189,10 @@ def _hierarchical_fingerprints(canonicals: list[str]) -> tuple[list[Any], list[A
             continue
         try:
             if scaffold is not None and scaffold.GetNumAtoms():
-                scaffold_fps.append(
-                    AllChem.GetMorganFingerprintAsBitVect(
-                        scaffold, FINGERPRINT_RADIUS, nBits=FINGERPRINT_BITS
-                    )
-                )
+                scaffold_fps.append(morgan_fp(scaffold))
             side = _sidechain_mol(mol, scaffold)
             if side is not None:
-                sidechain_fps.append(
-                    AllChem.GetMorganFingerprintAsBitVect(
-                        side, FINGERPRINT_RADIUS, nBits=FINGERPRINT_BITS
-                    )
-                )
+                sidechain_fps.append(morgan_fp(side))
         except Exception:  # pragma: no cover - an uninitialised RingInfo must not kill the run
             continue
     return scaffold_fps, sidechain_fps
@@ -207,7 +205,7 @@ def _mean_pairwise_diversity(fps: list[Any]) -> float | None:
         return None
     total, pairs = 0.0, 0
     for i in range(len(usable) - 1):
-        sims = DataStructs.BulkTanimotoSimilarity(usable[i], usable[i + 1:])
+        sims = DataStructs.BulkTanimotoSimilarity(usable[i], usable[i + 1 :])
         total += float(np.sum(sims))
         pairs += len(sims)
     return round(1.0 - total / pairs, 4) if pairs else None
@@ -217,29 +215,25 @@ def _pairwise_profile(fps: list[Any]) -> dict[str, Any]:
     """Internal diversity and nearest-neighbour statistics over one arm's fingerprints.
 
     Computed row by row so the full similarity matrix is never materialised: one pass
-    keeps the running mean, the global minimum (the arm's widest pair) and every
+    keeps the running mean, the global minimum (the arm's widest pair), and every
     molecule's closest neighbour.
     """
-    n = len(fps)
+    usable = [fp for fp in fps if fp is not None]
+    n = len(usable)
     if n < 2:
-        return {"internal_diversity": None, "nn_sim_p50": None, "nn_sim_p90": None,
-                "nn_sim_max": None, "near_dup_rate": None, "min_sim": None}
+        return dict(_EMPTY_PAIRWISE)
     nearest = np.zeros(n)
     total, pairs = 0.0, 0
     minimum = 1.0
     for i in range(n - 1):
-        rest = fps[i + 1:]
-        if any(fp is None for fp in (fps[i], *rest[:0])):
-            continue
-        sims = np.asarray(DataStructs.BulkTanimotoSimilarity(fps[i], rest))
+        sims = np.asarray(DataStructs.BulkTanimotoSimilarity(usable[i], usable[i + 1 :]))
         total += float(sims.sum())
         pairs += sims.size
         nearest[i] = max(nearest[i], float(sims.max()))
-        np.maximum(nearest[i + 1:], sims, out=nearest[i + 1:])
+        np.maximum(nearest[i + 1 :], sims, out=nearest[i + 1 :])
         minimum = min(minimum, float(sims.min()))
     if pairs == 0:
-        return {"internal_diversity": None, "nn_sim_p50": None, "nn_sim_p90": None,
-                "nn_sim_max": None, "near_dup_rate": None, "min_sim": None}
+        return dict(_EMPTY_PAIRWISE)
     return {
         "internal_diversity": round(1.0 - total / pairs, 4),
         "nn_sim_p50": round(float(np.percentile(nearest, 50)), 4),
@@ -252,14 +246,13 @@ def _pairwise_profile(fps: list[Any]) -> dict[str, Any]:
 
 def _cross_profile(stop_fps: list[Any], prior_fps: list[Any]) -> dict[str, Any]:
     """Each stop-arm molecule's closest prior molecule: echo of, or distance from, home."""
-    if not stop_fps or not prior_fps:
-        return {"prior_sim_p50": None, "prior_echo_rate": None, "novelty_rate": None}
-    closest = np.asarray([
-        max(DataStructs.BulkTanimotoSimilarity(fp, prior_fps))
-        for fp in stop_fps if fp is not None
-    ])
-    if closest.size == 0:
-        return {"prior_sim_p50": None, "prior_echo_rate": None, "novelty_rate": None}
+    usable_stop = [fp for fp in stop_fps if fp is not None]
+    usable_prior = [fp for fp in prior_fps if fp is not None]
+    if not usable_stop or not usable_prior:
+        return dict(_EMPTY_CROSS)
+    closest = np.asarray(
+        [max(DataStructs.BulkTanimotoSimilarity(fp, usable_prior)) for fp in usable_stop]
+    )
     return {
         "prior_sim_p50": round(float(np.percentile(closest, 50)), 4),
         "prior_echo_rate": round(float((closest >= PRIOR_ECHO_SIM).mean()), 4),
@@ -270,11 +263,21 @@ def _cross_profile(stop_fps: list[Any], prior_fps: list[Any]) -> dict[str, Any]:
 def _thumb_coordinates(stop: ArmUniques, prior: ArmUniques) -> dict[str, Any] | None:
     """2-D PCA of stop and prior unique molecules, fitted on both, subsampled for the atlas.
 
-    Fitting on the union is the point: both clouds share axes, so the thumbnail shows
-    where the policy moved the prior's cloud instead of two unrelated projections.
+    Fitting on the union keeps both clouds on shared axes, and pairing ``(fp, desired)``
+    before filtering out unparseable entries preserves strict label alignment.
     """
-    fps = [fp for fp in (*stop.fingerprints, *prior.fingerprints) if fp is not None]
-    n_stop = sum(1 for fp in stop.fingerprints if fp is not None)
+    stop_pairs = [
+        (fp, flag)
+        for fp, flag in zip(stop.fingerprints, stop.desired, strict=True)
+        if fp is not None
+    ]
+    prior_pairs = [
+        (fp, flag)
+        for fp, flag in zip(prior.fingerprints, prior.desired, strict=True)
+        if fp is not None
+    ]
+    fps = [fp for fp, _ in stop_pairs] + [fp for fp, _ in prior_pairs]
+    n_stop = len(stop_pairs)
     if len(fps) < 3:
         return None
     matrix = np.zeros((len(fps), FINGERPRINT_BITS), dtype=np.float32)
@@ -283,7 +286,7 @@ def _thumb_coordinates(stop: ArmUniques, prior: ArmUniques) -> dict[str, Any] | 
     centered = matrix - matrix.mean(axis=0)
     _, singular, right = np.linalg.svd(centered, full_matrices=False)
     projections = centered @ right[:2].T
-    explained = singular[:2] ** 2 / max((singular ** 2).sum(), 1e-12)
+    explained = singular[:2] ** 2 / max((singular**2).sum(), 1e-12)
 
     def subsample(points: np.ndarray, desired: list[int], budget: int) -> dict[str, Any]:
         step = max(1, len(points) // budget)
@@ -297,29 +300,24 @@ def _thumb_coordinates(stop: ArmUniques, prior: ArmUniques) -> dict[str, Any] | 
 
     return {
         "explained": [round(float(v), 4) for v in explained],
-        "stop": subsample(projections[:n_stop], stop.desired, THUMB_POINTS),
-        "prior": subsample(projections[n_stop:], prior.desired, THUMB_POINTS),
+        "stop": subsample(projections[:n_stop], [d for _, d in stop_pairs], THUMB_POINTS),
+        "prior": subsample(projections[n_stop:], [d for _, d in prior_pairs], THUMB_POINTS),
     }
 
 
 def arm_profile(uniques: ArmUniques) -> dict[str, Any]:
-    """Every per-arm statistic, from one arm's unique valid molecules.
-
-    Three layers are reported on purpose: the whole molecules, their Murcko scaffolds and
-    the side chains left when the scaffolds are cut away. A run can look diverse at the
-    first layer while decorating one ring family, which is what the second and third show.
-    ``effective_desired_yield`` is desired fraction × effective scaffolds per draw: the
-    part of the reward that is distinct chemistry rather than one repeated series.
-    """
+    """Compute all per-arm diversity statistics over ``uniques``."""
     effective = _entropy_shannon(uniques.counts)
     effective_molecules = round(effective, 1) if effective is not None else None
     scaffolds = _scaffold_counts(uniques.canonicals)
-    effective_scaffolds = round(_entropy_shannon(list(scaffolds.values())), 1) if scaffolds else None
+    effective_scaffolds = (
+        round(_entropy_shannon(list(scaffolds.values())), 1) if scaffolds else None
+    )
     scaffold_fps, sidechain_fps = _hierarchical_fingerprints(uniques.canonicals)
     total_draws = float(sum(uniques.counts))
     desired = float(sum(1 for flag in uniques.desired if flag == 1))
     desired_ratio = desired / total_draws if total_draws else 0.0
-    profile = {
+    profile: dict[str, Any] = {
         "n_unique": len(uniques),
         "effective_molecules": effective_molecules,
         "scaffolds": len(scaffolds),
@@ -342,7 +340,7 @@ def arm_profile(uniques: ArmUniques) -> dict[str, Any]:
 
 
 def profile_run(run: Path) -> dict[str, Any] | None:
-    """The whole diversity profile of one run, or None when it has no readable arms."""
+    """Compute the full diversity profile of one run, or ``None`` if no readable prior arm."""
     prior_frame = _read_table(run / PRIOR_ARM)
     stop_path = run / STOP_ARM
     stop_frame = _read_table(stop_path) if stop_path.is_file() else pd.DataFrame()
@@ -363,7 +361,7 @@ def profile_run(run: Path) -> dict[str, Any] | None:
 
 
 def _sources(run: Path) -> dict[str, list[int]]:
-    """The arm tables a profile depends on, as (size, mtime) pairs; -1 marks absence."""
+    """The arm tables a profile depends on, as ``[size, mtime]`` pairs; ``-1`` marks absence."""
     sources = {}
     for name in (PRIOR_ARM, STOP_ARM):
         path = run / name
@@ -372,40 +370,32 @@ def _sources(run: Path) -> dict[str, list[int]]:
     return sources
 
 
-def profile_is_fresh(run: Path) -> bool:
-    """True when the cached profile exists and every source table is unchanged."""
+def load_profile(run: Path) -> dict[str, Any] | None:
+    """Return the run's cached profile if fresh, else ``None`` (single disk read)."""
     cache = run / "cache_stats" / "diversity.json"
     try:
-        data = json.loads(cache.read_text())
-    except (OSError, json.JSONDecodeError):
-        return False
-    if data.get("version") != DIVERSITY_VERSION:
-        return False
-    recorded = data.get("sources") or {}
-    return recorded == _sources(run)
-
-
-def load_profile(run: Path) -> dict[str, Any] | None:
-    """The run's cached profile, if it is fresh; public read path for the scanner."""
-    if not profile_is_fresh(run):
-        return None
-    try:
-        return json.loads((run / "cache_stats" / "diversity.json").read_text())
+        data = json.loads(cache.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+    if data.get("version") != DIVERSITY_VERSION or (data.get("sources") or {}) != _sources(run):
+        return None
+    return data
+
+
+def profile_is_fresh(run: Path) -> bool:
+    """Return ``True`` when the cached profile exists and every source table is unchanged."""
+    return load_profile(run) is not None
 
 
 def _worker(run: Path) -> tuple[str, str, float]:
-    """Compute and cache one run's profile; returns (name, status, seconds)."""
+    """Compute and cache one run's profile; returns ``(name, status, seconds)``."""
     started = time.monotonic()
     try:
         profile = profile_run(run)
         if profile is None:
             return run.name, "no readable prior arm", 0.0
         profile["sources"] = _sources(run)
-        cache = run / "cache_stats"
-        cache.mkdir(exist_ok=True)
-        (cache / "diversity.json").write_text(json.dumps(profile))
+        atomic_write_text(run / "cache_stats" / "diversity.json", json.dumps(profile))
         return run.name, "ok", time.monotonic() - started
     except Exception as error:  # keep the batch alive; report and move on
         return run.name, f"failed: {error!r}", time.monotonic() - started
@@ -416,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=PROJECT_ROOT / "_david" / "output")
     parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     parser.add_argument("--force", action="store_true", help="recompute fresh profiles too")
-    parser.add_argument("--limit", type=int, default=None, help="profile at most N runs (smoke tests)")
+    parser.add_argument("--limit", type=int, default=None, help="profile at most N runs")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     RDLogger.DisableLog("rdApp.*")
@@ -425,8 +415,9 @@ def main(argv: list[str] | None = None) -> int:
     todo = [run for run in runs if args.force or not profile_is_fresh(run)]
     if args.limit is not None:
         todo = todo[: args.limit]
-    logger.info("%d runs, %d to profile (%d fresh skipped)", len(runs), len(todo),
-                len(runs) - len(todo))
+    logger.info(
+        "%d runs, %d to profile (%d fresh skipped)", len(runs), len(todo), len(runs) - len(todo)
+    )
 
     statuses: list[tuple[str, str, float]] = []
     if todo:
@@ -437,8 +428,12 @@ def main(argv: list[str] | None = None) -> int:
                 statuses.append(result)
                 logger.info("[%d/%d] %s: %s (%.0fs)", i, len(todo), *result)
     failed = [s for s in statuses if s[1].startswith("failed")]
-    logger.info("done: %d ok, %d failed, %.0fs total compute",
-                len(statuses) - len(failed), len(failed), sum(s[2] for s in statuses))
+    logger.info(
+        "done: %d ok, %d failed, %.0fs total compute",
+        len(statuses) - len(failed),
+        len(failed),
+        sum(s[2] for s in statuses),
+    )
     for name, status, _ in failed:
         logger.error("%s: %s", name, status)
     return 1 if failed else 0

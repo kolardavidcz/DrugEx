@@ -1,7 +1,11 @@
+"""Objective scorers, reward schemes, prior threshold calibration, and DrugEx environment."""
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -18,80 +22,81 @@ from drugex.training.scorers.properties import Property
 logger = logging.getLogger(__name__)
 
 
-#! could we just have assert to use fappropirate funcison names + in config.py use acctuall funl names isnted of our short version
-def reward_scheme(name: str):
-    try:
-        return SCHEMES[name]()
-    except KeyError:
-        raise ValueError(
-            f"unknown reward scheme {name!r}; DrugEx's are {', '.join(sorted(SCHEMES))}"
-        ) from None
+def reward_scheme(name: str) -> Any:
+    """Instantiate a DrugEx reward scheme from its short name (``PRCD``, ``PRTD``, ``WS``)."""
+    if name not in SCHEMES:
+        raise ValueError(f"unknown reward scheme {name!r}; expected one of {', '.join(sorted(SCHEMES))}")
+    return SCHEMES[name]()
+
+
+def scorer_key(scorer: Any) -> str:
+    """Primary column key emitted by a single DrugEx scorer."""
+    key = scorer.getKey()
+    return str(key[0] if isinstance(key, list) else key)
+
+
+def scorer_keys(scorers: Sequence[Any]) -> list[str]:
+    """Flatten every column key emitted by ``scorers`` in order."""
+    return [
+        str(item)
+        for scorer in scorers
+        for item in (scorer.getKey() if isinstance(scorer.getKey(), list) else [scorer.getKey()])
+    ]
 
 
 def build_scorers(
     cfg: Config,
-    references: list[Chem.Mol],
+    references: list[Chem.Mol] | list[str],
     *,
     basin_log_dir: Path | None = None,
     basin_stage: str = "init",
-) -> list:
+) -> list[Any]:
+    """Build ordered objective scorers on [0, 1]: ROCS, SA desirability, and optional QED."""
+    rocs_kwargs = {
+        "conformer_generator": RelaxingConformerGenerator(cfg),
+        "references": references,
+        "score_type": "TanimotoCombo",
+        "color_ff": cfg.color_ff,
+        "n_jobs": cfg.n_jobs,
+        "show_progress": False,
+        "alignment_shape_weight": cfg.alignment_shape_weight,
+    }
     if cfg.track_conformer_basins:
         from _david.code.scorers.rocs_basin_tmp import BasinTrackingROCSScorer
 
-        rocs = BasinTrackingROCSScorer(
-            conformer_generator=RelaxingConformerGenerator(cfg),
-            references=references,
-            score_type="TanimotoCombo",
-            color_ff=cfg.color_ff,
-            n_jobs=cfg.n_jobs,
-            show_progress=False,
-            alignment_shape_weight=cfg.alignment_shape_weight,
-            cfg=cfg,
-            basin_log_dir=basin_log_dir,
-            stage=basin_stage,
+        rocs: ComboROCSScorer = BasinTrackingROCSScorer(
+            **rocs_kwargs, cfg=cfg, basin_log_dir=basin_log_dir, stage=basin_stage
         )
     else:
-        rocs = ComboROCSScorer(
-            conformer_generator=RelaxingConformerGenerator(cfg),
-            references=references,
-            score_type="TanimotoCombo",
-            color_ff=cfg.color_ff,
-            n_jobs=cfg.n_jobs,
-            show_progress=False,
-            alignment_shape_weight=cfg.alignment_shape_weight,
-        )
-    # Onto [0, 1]: WS sums the columns, so raw [0, 2] gave ROCS twice the leverage.
+        rocs = ComboROCSScorer(**rocs_kwargs)
+
+    # Scale ROCS [0, 2] -> [0, 1] so WeightedSum weights every objective on the same range.
     rocs.setModifier(ClippedScore(lower_x=0.0, upper_x=ROCS_PUBLISHED_MAX))
-    scorers = [
+    # Descending SA modifier: DrugEx's unscorable SA=10.0 maps to 0.0, not 1.0.
+    scorers: list[Any] = [
         rocs,
-        # Descending: native's unscorable SA of 10.0 must map to 0.0, not to the best.
-        Property(
-            "SA", modifier=ClippedScore(lower_x=cfg.sa_reward_zero, upper_x=cfg.sa_reward_one)
-        ),
+        Property("SA", modifier=ClippedScore(lower_x=cfg.sa_reward_zero, upper_x=cfg.sa_reward_one)),
     ]
     if cfg.include_qed:
         scorers.append(Property("QED"))
     return scorers
 
 
-def set_basin_stage(scorers_or_env, stage: str) -> None:
-    """Update the stage label on any ``BasinTrackingROCSScorer`` in ``scorers_or_env``."""
-    scorers = getattr(scorers_or_env, "scorers", scorers_or_env)
-    if not isinstance(scorers, (list, tuple)):
-        return
-    for scorer in scorers:
+def set_basin_stage(target: Any, stage: str) -> None:
+    """Update the stage label on any ``BasinTrackingROCSScorer`` in ``target``."""
+    for scorer in getattr(target, "scorers", target if isinstance(target, (list, tuple)) else ()):
         if hasattr(scorer, "set_stage"):
             scorer.set_stage(stage)
 
 
-def _reference_thresholds(cfg: Config, scorers: list, keys: list[str]) -> dict[str, float]:
+def _reference_thresholds(
+    cfg: Config, scorers: Sequence[Any], keys: Sequence[str]
+) -> dict[str, float]:
     named = set(cfg.threshold_from_reference)
-    # Before filtering to this run's objectives, or a typo falls through to the percentile.
     unknown = named - set(MOLECULE_LEVEL)
     if unknown:
         raise ValueError(
-            f"threshold_from_reference names {sorted(unknown)}, which is not a "
-            f"molecule-level objective; choose from {sorted(MOLECULE_LEVEL)}"
+            f"threshold_from_reference names {sorted(unknown)}; choose from {sorted(MOLECULE_LEVEL)}"
         )
     wanted = named & set(keys)
     if not wanted:
@@ -99,93 +104,76 @@ def _reference_thresholds(cfg: Config, scorers: list, keys: list[str]) -> dict[s
     mol = Chem.MolFromSmiles(cfg.reference_smiles)
     if mol is None:
         raise ValueError(f"reference_smiles does not parse: {cfg.reference_smiles!r}")
-
-    by_key = {}
-    for scorer in scorers:
-        key = scorer.getKey()
-        by_key[key[0] if isinstance(key, list) else key] = scorer
-    missing = wanted - set(by_key)
-    if missing:
-        raise ValueError(f"no scorer provides {sorted(missing)}; objectives are {keys}")
+    by_key = {scorer_key(scorer): scorer for scorer in scorers}
     return {name: float(np.asarray(by_key[name]([mol])).ravel()[0]) for name in sorted(wanted)}
 
 
-def _percentile_threshold(column: pd.Series, percentile: float, key: str) -> float:
-    threshold = float(np.percentile(column, percentile))
-    if threshold >= column.max():
-        logger.warning(
-            "%s threshold %.4f is the maximum observed value (%d/%d prior molecules tied "
-            "there): Desired is a hard gate on this objective, not a percentile",
-            key,
-            threshold,
-            int((column >= threshold).sum()),
-            len(column),
-        )
-    return threshold
-
-
 def thresholds_from_scores(
-    cfg: Config, scorers: list, scores: pd.DataFrame, keys: list[str]
+    cfg: Config, scorers: Sequence[Any], scores: pd.DataFrame, keys: Sequence[str]
 ) -> list[float]:
-    """Compute per-objective thresholds from a scored prior DataFrame without re-scoring."""
+    """Derive per-objective thresholds from a scored prior DataFrame."""
     valid = scores[scores["Valid"] == 1]
     if valid.empty:
-        raise RuntimeError(
-            f"the prior produced no valid molecules out of {len(scores)}; nothing to "
-            "calibrate against"
-        )
+        raise RuntimeError(f"prior produced 0 valid molecules out of {len(scores)}")
 
     if cfg.fixed_thresholds:
         if len(cfg.fixed_thresholds) != len(keys):
             raise ValueError(
-                f"fixed_thresholds has {len(cfg.fixed_thresholds)} values for {len(keys)} "
-                f"objectives {keys}"
+                f"fixed_thresholds has {len(cfg.fixed_thresholds)} values for {len(keys)} objectives"
             )
-        thresholds = [float(value) for value in cfg.fixed_thresholds]
-        logger.info(
-            "fixed thresholds (percentile calibration skipped): %s",
-            dict(zip(keys, [round(value, 4) for value in thresholds])),
-        )
+        thresholds = [float(v) for v in cfg.fixed_thresholds]
+        logger.info("fixed thresholds: %s", dict(zip(keys, [round(v, 4) for v in thresholds])))
         return thresholds
 
-    # SA saturates: p85 of that column is its maximum, so the reference's own value is used.
-    from_reference = _reference_thresholds(cfg, scorers, keys)
-
-    thresholds = []
+    from_ref = _reference_thresholds(cfg, scorers, keys)
+    thresholds: list[float] = []
     for key in keys:
-        if key in from_reference:
-            logger.info("%s threshold %.4f taken from the reference", key, from_reference[key])
-            thresholds.append(from_reference[key])
+        if key in from_ref:
+            thresholds.append(from_ref[key])
+            logger.info("%s threshold %.4f taken from reference", key, from_ref[key])
         else:
-            thresholds.append(_percentile_threshold(valid[key], cfg.threshold_percentile, key))
+            col = valid[key]
+            cut = float(np.percentile(col, cfg.threshold_percentile))
+            if cut >= col.max():
+                logger.warning(
+                    "%s threshold %.4f hits prior maximum (%d/%d tied)",
+                    key,
+                    cut,
+                    int((col >= cut).sum()),
+                    len(col),
+                )
+            thresholds.append(cut)
+
     logger.info(
         "thresholds at p%g of %d valid prior molecules: %s",
         cfg.threshold_percentile,
         len(valid),
-        dict(zip(keys, [round(value, 4) for value in thresholds])),
+        dict(zip(keys, [round(v, 4) for v in thresholds])),
     )
     return thresholds
 
 
 def calibrate_thresholds(
-    cfg: Config, scorers: list, prior_smiles: list[str]
+    cfg: Config, scorers: Sequence[Any], prior_smiles: list[str]
 ) -> tuple[list[float], pd.DataFrame]:
-    """A percentile of the prior's own output, plus the scored prior arm as the baseline."""
-    probe = DrugExEnvironment(scorers, [0.0] * len(scorers), ParetoCrowdingDistance())
+    """Score the prior sample and calibrate per-objective thresholds from its valid rows."""
+    probe = DrugExEnvironment(list(scorers), [0.0] * len(scorers), ParetoCrowdingDistance())
     scores = probe.getScores(prior_smiles)
-    keys = probe.getScorerKeys()
-    thresholds = thresholds_from_scores(cfg, scorers, scores, keys)
-    return thresholds, scores
+    return thresholds_from_scores(cfg, scorers, scores, probe.getScorerKeys()), scores
 
 
 def mark_desired(
-    scores: pd.DataFrame, objectives: list[str], thresholds: list[float]
+    scores: pd.DataFrame, objectives: Sequence[str], thresholds: Sequence[float]
 ) -> pd.DataFrame:
+    """Return a copy of ``scores`` with binary ``Desired`` set where valid rows clear all cuts."""
     marked = scores.copy()
-    meets = (marked[objectives] >= thresholds).all(axis=1)
+    meets = (marked[list(objectives)] >= thresholds).all(axis=1)
     marked["Desired"] = (meets & marked["Valid"].eq(1)).astype(int)
     return marked
 
 
-def build_environment(scorers: list, thresholds: list[float], scheme) -> DrugExEnvironment:
-    return DrugExEnvironment(scorers, thresholds, scheme)
+def build_environment(
+    scorers: Sequence[Any], thresholds: Sequence[float], scheme: Any
+) -> DrugExEnvironment:
+    """Assemble the :class:`DrugExEnvironment` pairing scorers, thresholds, and reward scheme."""
+    return DrugExEnvironment(list(scorers), list(thresholds), scheme)

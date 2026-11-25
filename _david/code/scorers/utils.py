@@ -1,9 +1,4 @@
-"""Hardware-facing plumbing: worker pools, shard embedding and SDF transfer.
-
-Nothing here decides a score. The chemistry -- force field, relaxation, stereo policy and
-reference selection -- lives in :mod:`_david.code.scorers.conformers`; this module only
-makes that work run on more than one core and moves the resulting records through files.
-"""
+"""Hardware plumbing: multiprocessing pools, chunked scoring, parallel embedding, and SDF I/O."""
 
 from __future__ import annotations
 
@@ -14,6 +9,7 @@ import multiprocessing
 import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import Any, TypeVar
 
 import pandas as pd
 from rdkit import Chem
@@ -25,58 +21,62 @@ from drugex.training.scorers.parallel import capped_n_jobs, pool_context
 logger = logging.getLogger(__name__)
 
 _POOL_BROKEN = False
+_T = TypeVar("_T")
+_R = TypeVar("_R")
 
-#: Molecules per scoring call. The scorers embed every conformer of the batch in the parent
-#: process before the pool runs, so a job's peak follows ``len(smiles) x max_conformers``
-#: and barely moves with the pool size (measured: 16/32/45 GB at 10/20/30 conformers for a
-#: 5000-molecule arm, and six jobs that all hit exactly 32 GB at 13 and at 16 workers). A
-#: 5000-molecule arm at 20 conformers therefore needs ~32 GB however many workers it has,
-#: which is what killed 23 jobs at their cgroup. Slicing bounds the parent to one chunk:
-#: 500 x 20 conformers is ~3 GB, so the same arm finishes inside 32 GB.
+#: Molecules per scoring slice; keeps parent peak memory bounded (~3 GB vs ~32 GB for 5,000 x 20).
 SCORE_CHUNK = 500
 
 
-def components(env, smiles: list[str]) -> dict[str, list[float]]:
-    """Per-molecule shape/colour of the winning pose, when the environment records them."""
-    for scorer in getattr(env, "scorers", []):
+def components(env: Any, smiles: list[str]) -> dict[str, list[float]]:
+    """Return winning ``ShapeTanimoto``/``ColorTanimoto`` lists if any scorer in ``env`` records them."""
+    for scorer in getattr(env, "scorers", ()):
         if hasattr(scorer, "component_frame"):
             return scorer.component_frame(smiles)
     return {}
 
 
-def score_in_chunks(env, smiles: list[str], *, chunk: int = SCORE_CHUNK):
-    """Score ``smiles`` in slices; the scores are the same, the peak is the slice's.
-
-    Returns the concatenated frame in the caller's order and the merged shape/colour
-    diagnostics. Slicing does not change a score: every molecule is embedded in its own
-    ``EmbedMultipleConfs`` call with a fixed ``params.randomSeed``, so its conformers do not
-    depend on where in the batch it sat. ``Tests`` pins that on the real scorer.
-    """
+def score_in_chunks(
+    env: Any, smiles: list[str], *, chunk: int = SCORE_CHUNK
+) -> tuple[pd.DataFrame, dict[str, list[float]]]:
+    """Score ``smiles`` in memory-bounded slices while preserving exact scores and order."""
     if chunk < 1:
         raise ValueError(f"chunk must be positive, got {chunk}")
-    frames, diagnostics = [], {}
+    if not smiles:
+        return env.getScores(smiles), {}
+
+    frames: list[pd.DataFrame] = []
+    diagnostics: dict[str, list[float]] = {}
     for start in range(0, len(smiles), chunk):
         piece = smiles[start : start + chunk]
         frames.append(env.getScores(piece).reset_index(drop=True))
-        for column, values in components(env, piece).items():
-            diagnostics.setdefault(column, []).extend(values)
+        for col, values in components(env, piece).items():
+            diagnostics.setdefault(col, []).extend(values)
         gc.collect()
-    if not frames:
-        return env.getScores(smiles), {}
     return pd.concat(frames, ignore_index=True), diagnostics
 
 
 def pool_is_healthy() -> bool:
-    """Whether the last :func:`check_pool` probe found a working worker pool."""
+    """Whether the last :func:`check_pool` probe started workers cleanly."""
     return not _POOL_BROKEN
 
 
-def _touch(value):
+def pool_can_run(worker_count: int, n_items: int, *, min_items: int) -> bool:
+    """Whether spawning a multiprocessing pool is legal and worthwhile."""
+    return (
+        worker_count > 1
+        and n_items >= min_items
+        and not multiprocessing.current_process().daemon
+        and pool_is_healthy()
+    )
+
+
+def _touch(value: _T) -> _T:
     return value
 
 
 def check_pool(timeout: float = 300.0) -> str:
-    """Start two workers once, before the expensive stages, and never raise on failure."""
+    """Verify worker-pool startup once before expensive stages; return the context status."""
     global _POOL_BROKEN
     _POOL_BROKEN = False
     context = pool_context()
@@ -85,13 +85,11 @@ def check_pool(timeout: float = 300.0) -> str:
     try:
         pool = context.Pool(2)
         pool.map_async(_touch, (1, 2)).get(timeout=timeout)
-    except Exception as error:  # any failure here means "no workers"
+    except Exception as error:
         _POOL_BROKEN = True
         logger.error(
-            "multiprocessing start method %r cannot start a worker here (%s: %s). Every "
-            "scoring stage will fall back to a single core. Start the pipeline as "
-            "`python -m _david.code.run` (a heredoc has no importable __main__) or set "
-            "DRUGEX_MP_CONTEXT=fork.",
+            "multiprocessing %r cannot start workers (%s: %s); run as `python -m _david.code.run` "
+            "or set DRUGEX_MP_CONTEXT=fork",
             method,
             type(error).__name__,
             error,
@@ -101,12 +99,12 @@ def check_pool(timeout: float = 300.0) -> str:
         if pool is not None:
             pool.terminate()
             pool.join()
-    logger.info("multiprocessing start method %r starts workers", method)
+    logger.info("multiprocessing %r ready", method)
     return method
 
 
 def use_double_precision_pickling() -> None:
-    """Coordinates cross a process boundary as doubles, not as the default float32."""
+    """Ensure RDKit 3D conformers cross process boundaries as float64 rather than float32."""
     Chem.SetDefaultPickleProperties(
         Chem.PropertyPickleOptions.AllProps | Chem.PropertyPickleOptions.CoordsAsDouble
     )
@@ -120,21 +118,20 @@ def _allocated_cpus() -> int:
     return os.cpu_count() or 1
 
 
+def resolve_workers(n_jobs: int) -> int:
+    """Resolve an explicit or auto (``<= 0``) worker count against PBS allocation and env caps."""
+    return int(capped_n_jobs(n_jobs if n_jobs > 0 else _allocated_cpus()))
+
+
 def workers(cfg: Config) -> int:
-    # OMP_NUM_THREADS is pinned to 1 in job.py to stop BLAS thread oversubscription inside
-    # each worker; the worker pool size comes from cfg.n_jobs (or PBS_NUM_PPN/NCPUS).
-    return capped_n_jobs(cfg.n_jobs if cfg.n_jobs > 0 else _allocated_cpus())
+    """Effective multiprocessing worker count for ``cfg``."""
+    return resolve_workers(cfg.n_jobs)
 
 
-def map_tasks(fn, tasks: list, cfg: Config) -> list:
-    """Map a per-record function over a pool; fail fast if a healthy pool breaks."""
+def map_tasks(fn: Callable[[_T], _R], tasks: list[_T], cfg: Config) -> list[_R]:
+    """Map ``fn`` across a worker pool, failing fast if a healthy pool dies."""
     count = workers(cfg)
-    if (
-        len(tasks) < 32
-        or count <= 1
-        or multiprocessing.current_process().daemon
-        or not pool_is_healthy()
-    ):
+    if not pool_can_run(count, len(tasks), min_items=32):
         return [fn(task) for task in tasks]
     try:
         with pool_context().Pool(
@@ -147,11 +144,12 @@ def map_tasks(fn, tasks: list, cfg: Config) -> list:
 
 
 def read_sdf(path: Path) -> list[Chem.Mol]:
+    """Read all valid hydrogens-retained molecules from ``path``."""
     return [mol for mol in Chem.SDMolSupplier(str(path), removeHs=False) if mol is not None]
 
 
 def write_sdf(path: Path, records: Iterable[Chem.Mol]) -> int:
-    """Write every record, retrying once without kekulization; returns the unwritable count."""
+    """Write ``records`` to ``path``, retrying once without kekulization; return dropped count."""
     unwritable = 0
     writer = Chem.SDWriter(str(path))
     try:
@@ -172,17 +170,12 @@ def write_sdf(path: Path, records: Iterable[Chem.Mol]) -> int:
     return unwritable
 
 
-def _molecule_of(mol: Chem.Mol) -> str:
-    return mol.GetProp("_Name").split("+")[0] if mol.HasProp("_Name") else "?"
-
-
-def _embed_shard(task: tuple[int, list[str], dict, str]) -> str:
-    """Embed one contiguous slice of the input in a fresh child process."""
+def _embed_shard(task: tuple[int, list[str], dict[str, Any], str]) -> str:
+    """Embed one SMILES shard in a worker process and rebase ``mol_<idx>`` names."""
     offset, smiles, kwargs, out_dir = task
     shard = Path(out_dir) / f"shard_{offset}"
     shard.mkdir(parents=True, exist_ok=True)
-    generator = RDKitConformerGenerator(**{**kwargs, "num_threads": 1})
-    produced = Path(generator.genConformers(smiles, str(shard)))
+    produced = Path(RDKitConformerGenerator(**{**kwargs, "num_threads": 1}).genConformers(smiles, str(shard)))
     if not produced.is_file() or not produced.stat().st_size:
         return ""
     records = read_sdf(produced)
@@ -197,25 +190,16 @@ def _embed_shard(task: tuple[int, list[str], dict, str]) -> str:
 
 
 def parallel_embed(
-    generator: RDKitConformerGenerator,
+    generator: Any,
     smiles_list: list[str],
     out_dir: str | Path,
     *,
-    native_kwargs: dict,
+    native_kwargs: dict[str, Any],
     serial: Callable[[], str | Path],
 ) -> Path:
-    """Split the embedding across workers, keeping the input indices stable.
-
-    ``serial`` is the parent class's own embedding, called whenever a pool cannot help.
-    """
+    """Shard ETKDGv3 embedding across workers while preserving input molecule indices."""
     count = workers(generator.cfg)
-    wanted = [smiles for smiles in smiles_list if smiles]
-    if (
-        count <= 1
-        or len(wanted) < 8
-        or multiprocessing.current_process().daemon
-        or not pool_is_healthy()
-    ):
+    if not pool_can_run(count, sum(1 for s in smiles_list if s), min_items=8):
         return Path(serial())
 
     size = math.ceil(len(smiles_list) / count)

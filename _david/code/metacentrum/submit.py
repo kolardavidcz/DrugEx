@@ -427,7 +427,7 @@ class RemoteJob:
 
 
 def parse_qstat_full(text: str) -> list[RemoteJob]:
-    """Parse long-format ``qstat -f`` blocks (PBS Pro emits ``Key = Value`` lines).
+    """Parse long-format ``qstat -f`` blocks (``Key = Value`` lines + tab continuations).
 
     PBS output is column-based in the short format and shifts with long job names, so the
     long format is parsed instead of slicing whitespace. ``qstat -u <user> -f`` on this
@@ -436,17 +436,23 @@ def parse_qstat_full(text: str) -> list[RemoteJob]:
     """
     jobs: list[RemoteJob] = []
     current: dict[str, str] | None = None
+    last_key: str | None = None
     for line in text.splitlines():
         if line.startswith("Job Id:"):
             if current and "Job_Name" in current:
                 jobs.append(_job_from_fields(current))
             current = {"Job_Id": line.split(":", 1)[1].strip()}
+            last_key = None
             continue
         if current is None:
             continue
+        if last_key is not None and line.startswith("\t"):
+            current[last_key] += line[1:].rstrip()
+            continue
         match = re.match(r"\s+([A-Za-z_][\w.\-]*)\s*=\s*(.*)$", line)
         if match:
-            current[match.group(1)] = match.group(2).strip()
+            last_key = match.group(1)
+            current[last_key] = match.group(2).strip()
     if current and "Job_Name" in current:
         jobs.append(_job_from_fields(current))
     return jobs
@@ -776,6 +782,24 @@ def rebuild_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _forward_health_args(args: argparse.Namespace) -> list[str]:
+    """Build CLI argv for :func:`_david.code.analysis.health.main` from parsed flags."""
+    forwarded: list[str] = []
+    for flag, attr in (("--root", "root"), ("--out", "out"), ("--since", "since")):
+        value = getattr(args, attr, None)
+        if value is not None:
+            forwarded.extend([flag, str(value)])
+    for flag, attr in (
+        ("--remote", "remote"),
+        ("--fix-reports", "fix_reports"),
+        ("--no-cache", "no_cache"),
+        ("--json", "json"),
+    ):
+        if getattr(args, attr, False):
+            forwarded.append(flag)
+    return forwarded
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -874,22 +898,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "health":
         from _david.code.analysis import health
 
-        forwarded = []
-        if args.root is not None:
-            forwarded.extend(["--root", str(args.root)])
-        if args.out is not None:
-            forwarded.extend(["--out", str(args.out)])
-        if args.since:
-            forwarded.extend(["--since", args.since])
-        if args.remote:
-            forwarded.append("--remote")
-        if args.fix_reports:
-            forwarded.append("--fix-reports")
-        if args.no_cache:
-            forwarded.append("--no-cache")
-        if args.json:
-            forwarded.append("--json")
-        return health.main(forwarded)
+        return health.main(_forward_health_args(args))
     elif args.command == "rebuild":
         return rebuild_runs(args)
     elif args.command == "submit":

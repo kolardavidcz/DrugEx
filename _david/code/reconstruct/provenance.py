@@ -1,3 +1,5 @@
+"""Run provenance fingerprinting, atomic file writes, and manifest persistence."""
+
 from __future__ import annotations
 
 import hashlib
@@ -21,8 +23,6 @@ LIBRARIES = (
     ("numpy", "numpy", "__version__"),
     ("pandas", "pandas", "__version__"),
 )
-#: The hashed package is ``_david/code``, not this subpackage. A digest that covered only
-#: ``reconstruct/`` would miss every change that can alter a score.
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = {
     "prior.tsv": "Scored pre-training baseline",
@@ -47,66 +47,72 @@ TRACKED_ENV = (
 )
 
 
+def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+    """Write ``text`` atomically via a PID-scoped sibling temp file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / f".{path.name}.{os.getpid()}.tmp"
+    try:
+        tmp.write_text(text, encoding=encoding)
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def digest(path: Path) -> str | None:
+    """Hex SHA-256 of ``path``, or ``None`` if absent."""
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
 def source_digests(package: Path) -> dict[str, str]:
+    """SHA-256 of every ``.py`` and ``.sh`` file under ``package``."""
     return {
-        str(path.relative_to(package)): digest(path)
-        for path in sorted(package.rglob("*"))
-        if path.suffix in {".py", ".sh"} and path.is_file() and "__pycache__" not in path.parts
+        str(p.relative_to(package)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(package.rglob("*"))
+        if p.suffix in {".py", ".sh"} and p.is_file() and "__pycache__" not in p.parts
     }
 
 
 def kernel_fingerprint(root: Path) -> dict[str, str]:
-    return {relative: digest(root / relative) or "missing" for relative in KERNEL_FILES}
-
-
-def _version(module: str, attribute: str) -> str:
-    try:
-        return str(getattr(import_module(module), attribute))
-    except Exception:
-        return "unavailable"
+    """SHA-256 of upstream DrugEx modules that can directly affect molecule scores."""
+    return {rel: digest(root / rel) or "missing" for rel in KERNEL_FILES}
 
 
 def _git(root: Path, *args: str) -> str | None:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(root), *args], capture_output=True, text=True, timeout=10
-        )
+        res = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
-    return result.stdout.strip() if result.returncode == 0 else None
+    return res.stdout.strip() if res.returncode == 0 else None
 
 
 def source_revision(root: Path) -> dict[str, object]:
-    declared = os.environ.get("DRUGEX_SOURCE_REVISION")  # a release has no .git
-    if declared:
+    """Current git commit (or staged release env var) for ``root``."""
+    if declared := os.environ.get("DRUGEX_SOURCE_REVISION"):
         return {"revision": declared, "source": "DRUGEX_SOURCE_REVISION", "dirty": None}
-    revision = _git(root, "rev-parse", "HEAD")
-    if revision is None:
+    rev = _git(root, "rev-parse", "HEAD")
+    if rev is None:
         return {"revision": None, "source": "unavailable", "dirty": None}
-    dirty = _git(root, "status", "--porcelain", "--untracked-files=no")
-    return {"revision": revision, "source": "git", "dirty": bool(dirty)}
+    return {"revision": rev, "source": "git", "dirty": bool(_git(root, "status", "--porcelain", "-uno"))}
 
 
 def imported_drugex() -> str | None:
-    try:
-        import drugex
+    """Resolved package directory of the imported ``drugex`` module."""
+    import drugex
 
-        return str(Path(drugex.__file__).resolve().parent)
-    except Exception:
-        return None
+    return str(Path(drugex.__file__).resolve().parent)
 
 
 def describe(root: Path) -> dict[str, object]:
+    """Snapshot host, library versions, git/release revision, and source digests."""
+    versions = {"python": platform.python_version()} | {
+        name: str(getattr(import_module(mod), attr)) for name, mod, attr in LIBRARIES
+    }
     return {
         "host": socket.gethostname(),
         "platform": platform.platform(),
         "cpu_count": os.cpu_count(),
-        "versions": {"python": platform.python_version()}
-        | {name: _version(module, attribute) for name, module, attribute in LIBRARIES},
+        "versions": versions,
         "source": source_revision(root),
         "kernel_sha256": kernel_fingerprint(root),
         "drugex_imported_from": imported_drugex(),
@@ -118,8 +124,7 @@ def describe(root: Path) -> dict[str, object]:
 
 
 class Manifest:
-    """A run's state on disk, rewritten whole after every stage."""
-
+    """Run state on disk, rewritten atomically after every stage."""
 
     def __init__(self, path: Path, **fields: object) -> None:
         self.path = path
@@ -127,8 +132,6 @@ class Manifest:
         self.update()
 
     def update(self, **fields: object) -> None:
+        """Merge ``fields`` into the manifest and persist atomically."""
         self.data.update(fields)
-        # Through a temporary file: a half-written manifest would read as a finished run.
-        temporary = self.path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(self.data, indent=2, default=str) + "\n")
-        temporary.replace(self.path)
+        atomic_write_text(self.path, json.dumps(self.data, indent=2, default=str) + "\n")

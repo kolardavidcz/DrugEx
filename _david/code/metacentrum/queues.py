@@ -15,6 +15,7 @@ minimised run whose honest budget exceeds a day.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import re
 from dataclasses import dataclass
@@ -63,20 +64,26 @@ def parse_state_count(value: str) -> dict[str, int]:
 
 
 def parse_queues(text: str) -> list[QueueDepth]:
-    """Parse long-format ``qstat -Qf`` blocks."""
+    """Parse long-format ``qstat -Qf`` blocks (including tab-indented continuations)."""
     fields: list[dict[str, str]] = []
     current: dict[str, str] = {}
+    last_key: str | None = None
     for line in text.splitlines():
         if line.startswith("Queue:"):
             if current:
                 fields.append(current)
             current = {"Queue": line.split(":", 1)[1].strip()}
+            last_key = None
             continue
         if not current:
             continue
+        if last_key is not None and line.startswith("\t"):
+            current[last_key] += line[1:].rstrip()
+            continue
         match = re.match(r"\s+([A-Za-z_][\w.\-]*)\s*=\s*(.*)$", line)
         if match:
-            current[match.group(1)] = match.group(2).strip()
+            last_key = match.group(1)
+            current[last_key] = match.group(2).strip()
     if current:
         fields.append(current)
 
@@ -140,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
 
     depths = fetch()
     if args.json:
-        print(json.dumps([entry.__dict__ for entry in depths], indent=2))
+        print(json.dumps([dataclasses.asdict(entry) for entry in depths], indent=2))
     else:
         show(depths)
     return 0

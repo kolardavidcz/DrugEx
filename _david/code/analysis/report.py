@@ -11,25 +11,26 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import re
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from _david.code.analysis import figures as figures_module
 from _david.code.analysis._helpers import (
+    dedup_key,
     frame_rocs_scale,
     pareto_rows,
     scaffold_rows,
     threshold_rocs_scale,
+    valid,
 )
+from _david.code.reconstruct.provenance import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
 #: Arms in the order they are reported: the baseline first, then what training produced.
-#: Old runs wrote three checkpoints; new runs write only the policy at stop, and the
-#: missing files are simply skipped.
 ARM_FILES = (
     ("prior", "prior.tsv"),
     ("desired_ratio", "final_desired_ratio.tsv"),
@@ -40,61 +41,46 @@ ARM_FILES = (
 #: Molecules drawn per arm in the structure grid.
 TOP_N = 12
 
+REPORT_CACHE_VERSION = 1
+EXPECTED_FIGURE_SLOTS = ("01", "02", "03", "04", "05", "06", "07", "08", "09")
+_RELAX_RE = re.compile(
+    r"relaxation dropped (\d+)/(\d+) conformers \(([^)]+)\); (\d+) molecules left with none"
+)
+_FIG_FAIL_RE = re.compile(r"figure (\d+) failed")
 
-def _configurable(config: dict) -> dict:
-    """Only the keys ``Config`` actually declares, coerced back from the JSON manifest."""
-    import dataclasses
-
-    from _david.code.config import Config
-
-    fields = {f.name: f.type for f in dataclasses.fields(Config)}
-    out = {}
-    for key, value in config.items():
-        if key not in fields or value is None:
-            continue
-        if key == "output_root":
-            continue
-        out[key] = tuple(value) if isinstance(value, list) else value
-    return out
-
-
-def _read_arm(path: Path) -> pd.DataFrame | None:
-    """One scored arm, or None when the run did not write it."""
-    if not path.is_file():
-        logger.info("no %s; skipping it", path.name)
-        return None
-    return pd.read_csv(path, sep="\t")
-
-
-def _dedup_key(frame: pd.DataFrame) -> str:
-    """Prefer the canonical column; older runs only have the generated spelling."""
-    return "Canonical" if "Canonical" in frame.columns else "SMILES"
-
-
-def _valid(arm: pd.DataFrame) -> pd.DataFrame:
-    return arm[arm["Valid"] == 1]
-
-
-def _table(rows: dict[str, dict], first_column: str) -> str:
-    """Markdown table, one row per key of ``rows``. Empty input says so rather than raising."""
-    if not rows:
-        return "_none_"
-    columns = list(next(iter(rows.values())).keys())
-    lines = [
-        "| " + first_column + " | " + " | ".join(columns) + " |",
-        "|---" * (len(columns) + 1) + "|",
-    ]
-    for name, row in rows.items():
-        lines.append(f"| {name} | " + " | ".join(str(row[c]) for c in columns) + " |")
-    return "\n".join(lines)
-
-
-def _pairs(mapping: dict, key_header: str, value_header: str = "value") -> str:
-    """Markdown table of one key/value pair per row, for anything with many fields."""
-    lines = [f"| {key_header} | {value_header} |", "|---|---|"]
-    lines += [f"| {key} | {value} |" for key, value in mapping.items()]
-    return "\n".join(lines)
-
+#: Settings table order in ``report.md``.
+REPORT_SETTINGS = (
+    "reference_smiles",
+    "minimize",
+    "force_field",
+    "reward_scheme",
+    "alignment_shape_weight",
+    "n_eval",
+    "threshold_percentile",
+    "fixed_thresholds",
+    "sa_reward_zero",
+    "sa_reward_one",
+    "reference_rmsd",
+    "max_iterations",
+    "dielectric",
+    "dielectric_model",
+    "max_conformers",
+    "max_isomers",
+    "reference_conformers",
+    "reference_attempts",
+    "color_ff",
+    "include_qed",
+    "epochs",
+    "patience",
+    "min_epochs",
+    "n_samples",
+    "batch_size",
+    "epsilon",
+    "beta",
+    "n_prior",
+    "n_final",
+    "seed",
+)
 
 #: Every table a run writes, and what it holds. Order is the order of the index.
 TABLES = (
@@ -124,9 +110,37 @@ TABLES = (
 )
 
 
+def _read_arm(path: Path) -> pd.DataFrame | None:
+    """One scored arm, or ``None`` when the run did not write it."""
+    if not path.is_file():
+        logger.info("no %s; skipping it", path.name)
+        return None
+    return pd.read_csv(path, sep="\t")
+
+
+def _table(rows: dict[str, dict[str, Any]], first_column: str) -> str:
+    """Markdown table, one row per key of ``rows``. Empty input returns ``_none_``."""
+    if not rows:
+        return "_none_"
+    columns = list(next(iter(rows.values())).keys())
+    lines = [
+        "| " + first_column + " | " + " | ".join(columns) + " |",
+        "|---" * (len(columns) + 1) + "|",
+    ]
+    for name, row in rows.items():
+        lines.append(f"| {name} | " + " | ".join(str(row[c]) for c in columns) + " |")
+    return "\n".join(lines)
+
+
+def _pairs(mapping: dict[str, Any], key_header: str, value_header: str = "value") -> str:
+    """Markdown table of one key/value pair per row."""
+    lines = [f"| {key_header} | {value_header} |", "|---|---|"]
+    lines += [f"| {key} | {value} |" for key, value in mapping.items()]
+    return "\n".join(lines)
+
+
 def _artifacts(run_dir: Path, written: list[Path]) -> str:
-    """Link every file this run produced. Built from the figures actually written, so one that
-    failed is absent rather than linked as a file that is not there."""
+    """Link every artifact actually written in ``run_dir``."""
     lines = [f"- [{figures_module.caption(path)}](figures/{path.name})" for path in written]
     lines += [
         f"- [{name}]({name}) -- {what}" for name, what in TABLES if (run_dir / name).is_file()
@@ -135,56 +149,47 @@ def _artifacts(run_dir: Path, written: list[Path]) -> str:
 
 
 def top_molecules(arm: pd.DataFrame, objectives: list[str]) -> pd.DataFrame:
-    """The best unique molecules of one arm. Selects only -- figure 05 draws -- so the table
-    and the gallery cannot disagree."""
+    """Select the top unique valid molecules of one arm by primary objective."""
+    val = valid(arm)
+    if val.empty:
+        return val
     return (
-        _valid(arm)
-        .drop_duplicates(subset=_dedup_key(_valid(arm)))
+        val.drop_duplicates(subset=dedup_key(val))
         .sort_values(objectives[0], ascending=False)
         .head(TOP_N)
     )
 
 
-def _describe(arm: pd.DataFrame, objectives: list[str], scale: float = 1.0) -> dict:
-    """The ratios a thesis table reports, plus each objective's median and p90."""
-    valid = _valid(arm)
-    unique = valid.drop_duplicates(subset=_dedup_key(valid))  # DrugEx's unique-compound denominator
-    # An arm can legitimately have no rows -- run.py keeps going when one arm raises --
-    # and dividing by its length would lose the whole report to a ZeroDivisionError that
-    # run.py then swallows, leaving figures and no text.
+def _describe(arm: pd.DataFrame, objectives: list[str], scale: float = 1.0) -> dict[str, Any]:
+    """Compute arm ratios plus per-objective median and p90 over unique valid molecules."""
+    val = valid(arm)
+    uniq = val.drop_duplicates(subset=dedup_key(val)) if not val.empty else val
     sampled = max(len(arm), 1)
-    row = {
+    row: dict[str, Any] = {
         "n": len(arm),
-        "valid": round(len(valid) / sampled, 4),
-        "unique": round(len(unique) / sampled, 4),
-        "desired": round(float(unique["Desired"].sum()) / sampled, 4),
+        "valid": round(len(val) / sampled, 4),
+        "unique": round(len(uniq) / sampled, 4),
+        "desired": round(float(uniq["Desired"].sum()) / sampled, 4) if not uniq.empty else 0.0,
+        "duplicate_fraction": round(1.0 - len(uniq) / len(val), 4) if len(val) else 0.0,
     }
-    # Unique, not merely valid: the ratio columns above already deduplicate, and a row
-    # whose ratios describe unique molecules while its median describes a sample would be
-    # two statistics on two populations. Under mode collapse the sample median is the
-    # score of whichever molecule was drawn most often.
-    row["duplicate_fraction"] = round(1.0 - len(unique) / len(valid), 4) if len(valid) else 0.0
-    # The ROCS column is stored in reward units; every number a reader sees is published
-    # TanimotoCombo on [0, 2]. Only the first objective is ROCS -- SA and QED are already
-    # on [0, 1] on both sides of the rescale.
     for index, objective in enumerate(objectives):
-        column = pd.to_numeric(unique[objective], errors="coerce")
+        column = pd.to_numeric(uniq[objective], errors="coerce") if not uniq.empty else pd.Series(dtype=float)
         if index == 0:
             column = column * scale
         row[f"{objective} median"] = round(float(column.median()), 4)
         row[f"{objective} p90"] = round(float(column.quantile(0.90)), 4)
-    if "SA_raw" in unique.columns and not unique.empty:
-        raw_sa = pd.to_numeric(unique["SA_raw"], errors="coerce")
+    if "SA_raw" in uniq.columns and not uniq.empty:
+        raw_sa = pd.to_numeric(uniq["SA_raw"], errors="coerce")
         raw_sa = raw_sa[(raw_sa > 0.5) & (raw_sa < 9.99)]
         if len(raw_sa):
             row["SA_raw median"] = round(float(raw_sa.median()), 4)
     return row
 
 
-def _threshold_source(objective: str, config: dict, from_reference: list[str]) -> str:
-    """Where this objective's threshold came from. Order mirrors ``calibrate_thresholds``:
-    fixed short-circuits, so testing ``from_reference`` first would label a hand-set threshold
-    "reference"."""
+def _threshold_source(
+    objective: str, config: dict[str, Any], from_reference: list[str]
+) -> str:
+    """Where this objective's threshold came from (mirrors ``calibrate_thresholds`` order)."""
     if config.get("fixed_thresholds"):
         return "fixed"
     if objective in from_reference:
@@ -193,20 +198,17 @@ def _threshold_source(objective: str, config: dict, from_reference: list[str]) -
 
 
 def _threshold_prose(
-    config: dict, arms: dict, objectives: list[str], thresholds: list[float]
+    config: dict[str, Any],
+    arms: dict[str, pd.DataFrame],
+    objectives: list[str],
+    thresholds: list[float],
 ) -> str:
-    """How the thresholds were obtained, and whether any of them is a hard gate.
-
-    A percentile that lands on the maximum of its column is not a percentile: it means the
-    column is saturated and `Desired` degenerates into "equal to the best value". Saying
-    "p85" at that point is false, and it is exactly what the SA desirability does to a
-    drug-like prior, so the report has to name it rather than leave it in a log line.
-    """
+    """Explain how thresholds were obtained, whether any saturated, and how the scheme uses them."""
     from_reference = [
         name for name in (config.get("threshold_from_reference") or []) if name in objectives
     ]
     if config.get("fixed_thresholds"):
-        from_reference = []  # fixed thresholds short-circuit the reference path entirely
+        from_reference = []
     if from_reference:
         lead = (
             f"Mixed sources. **{', '.join(f'`{n}`' for n in from_reference)}** use the "
@@ -225,12 +227,14 @@ def _threshold_prose(
             f"Percentile p{config['threshold_percentile']:g} of {config['n_prior']} molecules "
             "sampled from the pretrained prior."
         )
-    notes = []
+    notes: list[str] = []
     prior = arms.get("prior")
     if prior is not None and "SA_raw" in prior.columns:
         valid_raw = prior.loc[prior["Valid"] == 1, "SA_raw"]
         ceiling = (
-            float((valid_raw <= config.get("sa_reward_one", 3.0)).mean()) if len(valid_raw) else 0.0
+            float((valid_raw <= config.get("sa_reward_one", 3.0)).mean())
+            if len(valid_raw)
+            else 0.0
         )
         if ceiling > 0.5:
             sa_effect = (
@@ -251,11 +255,11 @@ def _threshold_prose(
                 "column shows what the modified column cannot."
             )
     if prior is not None:
-        valid = _valid(prior)
-        for idx, (objective, threshold) in enumerate(zip(objectives, thresholds)):
-            if objective not in valid or valid.empty:
+        val = valid(prior)
+        for idx, (objective, threshold) in enumerate(zip(objectives, thresholds, strict=True)):
+            if objective not in val or val.empty:
                 continue
-            column = valid[objective]
+            column = val[objective]
             tied = int((column >= threshold).sum())
             if threshold >= column.max():
                 shown_thr = (
@@ -290,8 +294,8 @@ def _threshold_prose(
     return "\n\n".join([f"{lead} {tail}", *notes])
 
 
-def _units(config: dict, objectives: list[str]) -> str:
-    """State what the score columns are, because raw and modified look alike in a table."""
+def _units(config: dict[str, Any], objectives: list[str]) -> str:
+    """State the units and modifier conventions of each objective column."""
     notes = [
         f"- `{objectives[0]}`: raw ROCS TanimotoCombo (shape + colour), the best overlay "
         f"over up to {config.get('max_isomers', '?')} stereoisomers x "
@@ -313,13 +317,6 @@ def _units(config: dict, objectives: list[str]) -> str:
     if "QED" in objectives:
         notes.append("- `QED`: native RDKit QED on [0, 1], no modifier.")
     return "\n".join(notes)
-
-
-REPORT_CACHE_VERSION = 1
-EXPECTED_FIGURE_SLOTS = ("01", "02", "03", "04", "05", "06", "07", "08", "09")
-_RELAX_RE = re.compile(
-    r"relaxation dropped (\d+)/(\d+) conformers \(([^)]+)\); (\d+) molecules left with none"
-)
 
 
 def _source_fingerprints(run_dir: Path) -> dict[str, list[int]]:
@@ -344,8 +341,8 @@ def _source_fingerprints(run_dir: Path) -> dict[str, list[int]]:
     return out
 
 
-def parse_run_log_diagnostics(log_path: Path) -> dict:
-    """Extract relaxation tallies, timeouts, and error signals from run.log."""
+def parse_run_log_diagnostics(log_path: Path) -> dict[str, Any]:
+    """Extract relaxation tallies, timeouts, and error signals from ``run.log``."""
     if not log_path.is_file():
         return {"present": False}
     text = log_path.read_text(encoding="utf-8", errors="replace")
@@ -375,10 +372,12 @@ def parse_run_log_diagnostics(log_path: Path) -> dict:
             scoring_failures += 1
         if "analysis failed" in line:
             analysis_failures += 1
-        fig_m = re.search(r"figure (\d+) failed", line)
+        fig_m = _FIG_FAIL_RE.search(line)
         if fig_m:
             figure_failures.append(fig_m.group(1))
-        if (" ERROR " in line or "CRITICAL " in line or line.startswith("Traceback")) and len(error_lines) < 20:
+        if (
+            " ERROR " in line or "CRITICAL " in line or line.startswith("Traceback")
+        ) and len(error_lines) < 20:
             error_lines.append(line.strip())
 
     return {
@@ -400,11 +399,11 @@ def _write_report_cache(
     *,
     arm_scales: dict[str, float],
     thr_scale: float,
-    arms_table: dict[str, dict],
-    pareto_table: dict[str, dict],
-    scaffold_table: dict[str, dict],
+    arms_table: dict[str, dict[str, Any]],
+    pareto_table: dict[str, dict[str, Any]],
+    scaffold_table: dict[str, dict[str, Any]],
     written: list[Path],
-    summary: dict,
+    summary: dict[str, Any],
     fit: pd.DataFrame | None,
 ) -> None:
     files = sorted(p.name for p in written)
@@ -431,109 +430,39 @@ def _write_report_cache(
         },
         "log_diagnostics": parse_run_log_diagnostics(run_dir / "run.log"),
     }
-    cache_dir = run_dir / "cache_stats"
-    cache_dir.mkdir(exist_ok=True)
-    tmp_cache = cache_dir / f".report_stats.{os.getpid()}.tmp"
-    tmp_cache.write_text(json.dumps(payload, indent=2) + "\n")
-    tmp_cache.replace(cache_dir / "report_stats.json")
-
-
-def analyse(run_dir: Path) -> Path:
-    """Write every figure and ``report.md`` for one run directory. Returns the report path."""
-    config = json.loads((run_dir / "config.json").read_text())
-    objectives = config["objectives"]
-    # Every ROCS number in this file is published TanimotoCombo on [0, 2]; the column on
-    # disk is in the units that arm wrote. See `frame_rocs_scale`.
-    thresholds = config["thresholds"]
-    summary = config.get("summary", {})
-    from_reference = [
-        name for name in (config.get("threshold_from_reference") or []) if name in objectives
-    ]
-    figures = run_dir / "figures"
-    figures.mkdir(exist_ok=True)
-
-    arms = {}
-    for name, filename in ARM_FILES:
-        arm = _read_arm(run_dir / filename)
-        if arm is not None:
-            arms[name] = arm
-    if not arms:
-        raise FileNotFoundError(f"{run_dir} holds no scored arm to analyse")
-
-    arm_scales = {
-        name: frame_rocs_scale(arm, objectives[0], config) for name, arm in arms.items()
-    }
-    thr_scale = threshold_rocs_scale(config, arms.get("prior"), objectives[0])
-
-    fit_path = run_dir / "rl_fit.tsv"
-    fit = pd.read_csv(fit_path, sep="\t") if fit_path.is_file() else None
-    epochs_path = run_dir / "rl_smiles.tsv"
-    epochs = pd.read_csv(epochs_path, sep="\t") if epochs_path.is_file() else None
-
-    generator = None
-    reference = run_dir / "reference.sdf"
-    if reference.is_file():
-        try:
-            from _david.code.config import Config
-            from _david.code.scorers.conformers import RelaxingConformerGenerator
-
-            generator = RelaxingConformerGenerator(Config(**_configurable(config)))
-        except Exception:
-            logger.exception("could not rebuild a conformer generator; skipping figure 08")
-
-    written = figures_module.render_all(
-        arms=arms,
-        epochs=epochs,
-        fit=fit,
-        objectives=objectives,
-        thresholds=thresholds,
-        summary=summary,
-        reference=reference,
-        out=figures,
-        generator=generator,
-        config=config,
+    atomic_write_text(
+        run_dir / "cache_stats" / "report_stats.json", json.dumps(payload, indent=2) + "\n"
     )
-    logger.info("wrote %d figures", len(written))
 
-    arms_table = {
-        name: _describe(arm, objectives, arm_scales[name]) for name, arm in arms.items()
-    }
-    pareto_table = pareto_rows(arms, objectives, config)
-    scaffold_table = scaffold_rows(arms)
-    tops = {name: top_molecules(arm, objectives) for name, arm in arms.items() if name != "prior"}
 
-    settings = [
-        "reference_smiles",
-        "minimize",
-        "force_field",
-        "reward_scheme",
-        "alignment_shape_weight",
-        "n_eval",
-        "threshold_percentile",
-        "fixed_thresholds",
-        "sa_reward_zero",
-        "sa_reward_one",
-        "reference_rmsd",
-        "max_iterations",
-        "dielectric",
-        "dielectric_model",
-        "max_conformers",
-        "max_isomers",
-        "reference_conformers",
-        "reference_attempts",
-        "color_ff",
-        "include_qed",
-        "epochs",
-        "patience",
-        "min_epochs",
-        "n_samples",
-        "batch_size",
-        "epsilon",
-        "beta",
-        "n_prior",
-        "n_final",
-        "seed",
-    ]
+def _render_markdown(
+    run_dir: Path,
+    *,
+    config: dict[str, Any],
+    objectives: list[str],
+    thresholds: list[float],
+    summary: dict[str, Any],
+    from_reference: list[str],
+    arms: dict[str, pd.DataFrame],
+    arm_scales: dict[str, float],
+    thr_scale: float,
+    arms_table: dict[str, dict[str, Any]],
+    pareto_table: dict[str, dict[str, Any]],
+    scaffold_table: dict[str, dict[str, Any]],
+    tops: dict[str, pd.DataFrame],
+    written: list[Path],
+) -> str:
+    shown = figures_module.shown_arm(arms, objectives, figures_module.PRIMARY_ARM)
+    shown_prose = (
+        f"Every figure describes the **{shown}** arm unless its name says otherwise: the "
+        "live policy at the epoch training stopped, which is the model a run would ship "
+        "and the only checkpoint a new run writes. The lead gallery draws that same arm, "
+        "because what a run delivers is the model it ended on, not its best epoch. It "
+        "shows one molecule per chemotype: a card marked *(analogue)* means the arm "
+        "had no further distinct scaffold to show, which is itself the finding."
+        if shown
+        else "No trained arm was scored, so there is no checkpoint to draw."
+    )
     report = [
         f"# {run_dir.name}",
         "",
@@ -562,7 +491,7 @@ def analyse(run_dir: Path) -> Path:
                 f"{objective} ({_threshold_source(objective, config, from_reference)})": round(
                     value * (thr_scale if idx == 0 else 1.0), 4
                 )
-                for idx, (objective, value) in enumerate(zip(objectives, thresholds))
+                for idx, (objective, value) in enumerate(zip(objectives, thresholds, strict=True))
             },
             "objective",
             "threshold",
@@ -609,20 +538,11 @@ def analyse(run_dir: Path) -> Path:
         "",
         "## settings that define this run",
         "",
-        _pairs({k: config[k] for k in settings if k in config}, "setting"),
+        _pairs({k: config[k] for k in REPORT_SETTINGS if k in config}, "setting"),
         "",
         f"## best molecules, by {objectives[0]}",
         "",
-        (
-            f"Every figure describes the **{shown}** arm unless its name says otherwise: the "
-            "live policy at the epoch training stopped, which is the model a run would ship "
-            "and the only checkpoint a new run writes. The lead gallery draws that same arm, "
-            "because what a run delivers is the model it ended on, not its best epoch. It "
-            "shows one molecule per chemotype: a card marked *(analogue)* means the arm "
-            "had no further distinct scaffold to show, which is itself the finding."
-            if (shown := figures_module.shown_arm(arms, objectives, figures_module.PRIMARY_ARM))
-            else "No trained arm was scored, so there is no checkpoint to draw."
-        ),
+        shown_prose,
         "",
     ]
     for name, best in tops.items():
@@ -644,7 +564,6 @@ def analyse(run_dir: Path) -> Path:
             ),
             "",
         ]
-
     report += [
         "## files",
         "",
@@ -654,9 +573,91 @@ def analyse(run_dir: Path) -> Path:
         _artifacts(run_dir, written),
         "",
     ]
+    return "\n".join(report) + "\n"
+
+
+def analyse(run_dir: Path) -> Path:
+    """Write every figure, ``report.md``, and ``report_stats.json`` for one run directory."""
+    config = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    objectives = config["objectives"]
+    thresholds = config["thresholds"]
+    summary = config.get("summary", {})
+    from_reference = [
+        name for name in (config.get("threshold_from_reference") or []) if name in objectives
+    ]
+    figures = run_dir / "figures"
+    figures.mkdir(exist_ok=True)
+
+    arms = {}
+    for name, filename in ARM_FILES:
+        arm = _read_arm(run_dir / filename)
+        if arm is not None:
+            arms[name] = arm
+    if not arms:
+        raise FileNotFoundError(f"{run_dir} holds no scored arm to analyse")
+
+    arm_scales = {
+        name: frame_rocs_scale(arm, objectives[0], config) for name, arm in arms.items()
+    }
+    thr_scale = threshold_rocs_scale(config, arms.get("prior"), objectives[0])
+
+    fit_path = run_dir / "rl_fit.tsv"
+    fit = pd.read_csv(fit_path, sep="\t") if fit_path.is_file() else None
+    epochs_path = run_dir / "rl_smiles.tsv"
+    epochs = pd.read_csv(epochs_path, sep="\t") if epochs_path.is_file() else None
+
+    generator = None
+    reference = run_dir / "reference.sdf"
+    if reference.is_file():
+        try:
+            from _david.code.config import Config
+            from _david.code.scorers.conformers import RelaxingConformerGenerator
+
+            generator = RelaxingConformerGenerator(Config.from_dict(config))
+        except Exception:
+            logger.exception("could not rebuild a conformer generator; skipping figure 08")
+
+    written = figures_module.render_all(
+        arms=arms,
+        epochs=epochs,
+        fit=fit,
+        objectives=objectives,
+        thresholds=thresholds,
+        summary=summary,
+        reference=reference,
+        out=figures,
+        generator=generator,
+        config=config,
+    )
+    logger.info("wrote %d figures", len(written))
+
+    arms_table = {
+        name: _describe(arm, objectives, arm_scales[name]) for name, arm in arms.items()
+    }
+    pareto_table = pareto_rows(arms, objectives, config)
+    scaffold_table = scaffold_rows(arms)
+    tops = {name: top_molecules(arm, objectives) for name, arm in arms.items() if name != "prior"}
 
     report_path = run_dir / "report.md"
-    report_path.write_text("\n".join(report) + "\n")
+    atomic_write_text(
+        report_path,
+        _render_markdown(
+            run_dir,
+            config=config,
+            objectives=objectives,
+            thresholds=thresholds,
+            summary=summary,
+            from_reference=from_reference,
+            arms=arms,
+            arm_scales=arm_scales,
+            thr_scale=thr_scale,
+            arms_table=arms_table,
+            pareto_table=pareto_table,
+            scaffold_table=scaffold_table,
+            tops=tops,
+            written=written,
+        ),
+    )
     try:
         _write_report_cache(
             run_dir,
